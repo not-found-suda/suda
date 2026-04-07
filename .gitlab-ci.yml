@@ -1,0 +1,76 @@
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - when: never
+
+stages:
+  - guard
+  - verify
+  - security
+
+default:
+  interruptible: true
+
+.mr_to_dev_or_main:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && ($CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "dev" || $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main")'
+
+.mr_to_main_only:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+
+main_source_guard:
+  stage: guard
+  image: alpine:3.20
+  extends: .mr_to_main_only
+  script:
+    - |
+      if [ "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" != "dev" ]; then
+        echo "Only dev -> main merge requests are allowed."
+        exit 1
+      fi
+      echo "Branch flow check passed: $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME -> $CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+
+backend-check:
+  stage: verify
+  image: eclipse-temurin:21-jdk
+  extends: .mr_to_dev_or_main
+  variables:
+    GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+  cache:
+    key: "gradle-${CI_COMMIT_REF_SLUG}"
+    paths:
+      - .gradle/caches
+      - .gradle/wrapper
+  before_script:
+    - cd backend
+    - chmod +x gradlew
+  script:
+    - ./gradlew spotlessCheck --no-daemon
+    - ./gradlew spotbugsMain --no-daemon
+    - ./gradlew build -x test --no-daemon
+
+frontend-check:
+  stage: verify
+  image: node:22
+  extends: .mr_to_dev_or_main
+  variables:
+    VITE_API_BASE_URL: http://localhost:8080
+    VITE_API_TIMEOUT_MS: "10000"
+    VITE_WS_BASE_URL: ws://localhost:8080/ws
+  before_script:
+    - cd frontend
+    - npm ci
+  script:
+    - npm run lint
+    - npm run typecheck
+    - npm run build
+
+secret-scan:
+  stage: security
+  image:
+    name: ghcr.io/gitleaks/gitleaks:v8.30.0
+    entrypoint: [""]
+  extends: .mr_to_dev_or_main
+  script:
+    - gitleaks detect --source . --no-git --redact --exit-code 1
