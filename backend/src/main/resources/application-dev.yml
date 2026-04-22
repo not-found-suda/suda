@@ -1,0 +1,27 @@
+security:
+  cors:
+    allowed-origin-patterns: "${SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS}"
+
+spring:
+  datasource:
+    url: "${DB_URL}"
+    username: "${DB_USERNAME}"
+    password: "${DB_PASSWORD}"
+  data:
+    redis:
+      host: "${REDIS_HOST}"
+      port: "${REDIS_PORT}"
+      password: "${REDIS_PASSWORD}"
+  flyway:
+    out-of-order: true
+
+auth:
+  jwt:
+    secret: "${AUTH_JWT_SECRET}"
+    issuer: "${AUTH_JWT_ISSUER}"
+    access-token-ttl-seconds: "${AUTH_ACCESS_TOKEN_TTL_SECONDS}"
+    refresh-token-ttl-seconds: "${AUTH_REFRESH_TOKEN_TTL_SECONDS}"
+    refresh-token-cookie-name: "${AUTH_REFRESH_COOKIE_NAME}"
+    refresh-token-cookie-secure: "${AUTH_REFRESH_COOKIE_SECURE}"
+    refresh-token-cookie-same-site: "${AUTH_REFRESH_COOKIE_SAME_SITE}"
+    refresh-token-cookie-path: "${AUTH_REFRESH_COOKIE_PATH}"
