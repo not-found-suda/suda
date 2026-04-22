@@ -11,9 +11,9 @@ stages:
 default:
   interruptible: true
 
-.mr_to_dev_or_main:
+.mr_to_develop_or_main:
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && ($CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "dev" || $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main")'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && ($CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop" || $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main")'
 
 .mr_to_main_only:
   rules:
@@ -25,8 +25,8 @@ main_source_guard:
   extends: .mr_to_main_only
   script:
     - |
-      if [ "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" != "dev" ]; then
-        echo "Only dev -> main merge requests are allowed."
+      if [ "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" != "develop" ]; then
+        echo "Only develop -> main merge requests are allowed."
         exit 1
       fi
       echo "Branch flow check passed: $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME -> $CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
@@ -35,7 +35,7 @@ backend-check:
   stage: verify
   image: eclipse-temurin:21-jdk
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && ($CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "dev" || $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main")'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && ($CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop" || $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main")'
       changes:
         - backend/**/*
         - .gitlab-ci.yml
@@ -60,7 +60,7 @@ frontend-check:
   stage: verify
   image: node:24
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && ($CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "dev" || $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main")'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && ($CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop" || $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main")'
       changes:
         - frontend/**/*
         - .gitlab-ci.yml
@@ -84,6 +84,6 @@ secret-scan:
   image:
     name: ghcr.io/gitleaks/gitleaks:v8.30.0
     entrypoint: [""]
-  extends: .mr_to_dev_or_main
+  extends: .mr_to_develop_or_main
   script:
     - gitleaks detect --source . --no-git --redact --exit-code 1
