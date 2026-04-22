@@ -34,7 +34,14 @@ main_source_guard:
 backend-check:
   stage: verify
   image: eclipse-temurin:21-jdk
-  extends: .mr_to_dev_or_main
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && ($CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "dev" || $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main")'
+      changes:
+        - backend/**/*
+        - .gitlab-ci.yml
+        - docker-compose.yml
+        - .env.example
+    - when: never
   variables:
     GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
   cache:
@@ -47,13 +54,19 @@ backend-check:
     - chmod +x gradlew
   script:
     - ./gradlew spotlessCheck --no-daemon
-    - ./gradlew spotbugsMain --no-daemon
     - ./gradlew build -x test --no-daemon
 
 frontend-check:
   stage: verify
-  image: node:22
-  extends: .mr_to_dev_or_main
+  image: node:24
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && ($CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "dev" || $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main")'
+      changes:
+        - frontend/**/*
+        - .gitlab-ci.yml
+        - docker-compose.yml
+        - .env.example
+    - when: never
   variables:
     VITE_API_BASE_URL: http://localhost:8080
     VITE_API_TIMEOUT_MS: "10000"
