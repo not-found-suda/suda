@@ -14,13 +14,13 @@ public final class ProblemDetails {
   }
 
   public static ProblemDetail of(ErrorCode errorCode, String instance, String detailMessage) {
+    String resolvedDetail =
+        detailMessage == null || detailMessage.isBlank() ? errorCode.getMessage() : detailMessage;
     ProblemDetail problemDetail =
-        ProblemDetail.forStatusAndDetail(errorCode.getHttpStatus(), detailMessage);
+        ProblemDetail.forStatusAndDetail(errorCode.getHttpStatus(), resolvedDetail);
     problemDetail.setType(URI.create("urn:s14p31a404:error:" + toKebabCase(errorCode.getCode())));
-    problemDetail.setTitle(errorCode.getMessage());
-    if (instance != null) {
-      problemDetail.setInstance(URI.create(instance));
-    }
+    problemDetail.setTitle(ProblemDetailConventions.resolveTitle(errorCode));
+    problemDetail.setInstance(URI.create(ProblemDetailConventions.normalizeInstance(instance)));
     problemDetail.setProperty("code", errorCode.getCode());
 
     String traceId = MDC.get("traceId");

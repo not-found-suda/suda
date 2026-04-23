@@ -32,6 +32,11 @@ public enum AuthErrorCode implements ErrorCode {
   }
 
   @Override
+  public String getDomainTitle() {
+    return "인증 오류";
+  }
+
+  @Override
   public String getMessage() {
     return message;
   }

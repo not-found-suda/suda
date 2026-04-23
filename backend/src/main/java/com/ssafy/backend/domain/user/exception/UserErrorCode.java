@@ -27,6 +27,11 @@ public enum UserErrorCode implements ErrorCode {
   }
 
   @Override
+  public String getDomainTitle() {
+    return "사용자 오류";
+  }
+
+  @Override
   public String getMessage() {
     return message;
   }

@@ -68,6 +68,11 @@ public enum ValidationErrorCode implements ErrorCode {
   }
 
   @Override
+  public String getDomainTitle() {
+    return "요청 값 검증 오류";
+  }
+
+  @Override
   public String getMessage() {
     return message;
   }

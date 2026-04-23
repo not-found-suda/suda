@@ -27,7 +27,7 @@ public class ProblemDetailAccessDeniedHandler implements AccessDeniedHandler {
     CommonErrorCode errorCode = CommonErrorCode.FORBIDDEN;
 
     response.setStatus(errorCode.getHttpStatus().value());
-    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+    response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
     response.setCharacterEncoding(StandardCharsets.UTF_8.name());
     objectMapper.writeValue(
         response.getWriter(), ProblemDetails.of(errorCode, request.getRequestURI()));
