@@ -92,12 +92,8 @@ mobile-check:
     - cd mobile
     - chmod +x gradlew
   script:
-    - echo "[mobile-check] step 1/3 - ktlintCheck + detekt"
-    - ./gradlew ktlintCheck detekt --no-daemon --console=plain --info
-    - echo "[mobile-check] step 2/3 - lintDebug"
-    - ./gradlew lintDebug --no-daemon --console=plain --info
-    - echo "[mobile-check] step 3/3 - testDebugUnitTest + assembleDebug"
-    - ./gradlew testDebugUnitTest assembleDebug --no-daemon --console=plain --info
+    - echo "[mobile-check] running quality gate (ktlint/detekt/lint/test/assemble)"
+    - ./gradlew ktlintCheck detekt lintDebug testDebugUnitTest assembleDebug --no-daemon --console=plain --warning-mode=summary
 
 secret-scan:
   stage: security
