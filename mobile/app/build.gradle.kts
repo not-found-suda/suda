@@ -1,7 +1,12 @@
+import io.gitlab.arturbosch.detekt.Detekt
+import io.gitlab.arturbosch.detekt.DetektCreateBaselineTask
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.ktlint)
+    alias(libs.plugins.detekt)
 }
 
 android {
@@ -23,7 +28,7 @@ android {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                "proguard-rules.pro",
             )
         }
     }
@@ -34,10 +39,35 @@ android {
     buildFeatures {
         compose = true
     }
+    lint {
+        // local.properties path escaping can fail differently by host OS.
+        disable += "PropertyEscape"
+    }
 }
 
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+ktlint {
+    android.set(true)
+    ignoreFailures.set(false)
+}
+
+detekt {
+    buildUponDefaultConfig = true
+    allRules = false
+    autoCorrect = false
+    config.setFrom("$rootDir/config/detekt/detekt.yml")
+    baseline = file("$rootDir/config/detekt/detekt-baseline.xml")
+}
+
+tasks.withType<Detekt>().configureEach {
+    jvmTarget = "21"
+}
+
+tasks.withType<DetektCreateBaselineTask>().configureEach {
+    jvmTarget = "21"
 }
 
 dependencies {
