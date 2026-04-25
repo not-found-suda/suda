@@ -1,1 +1,63 @@
+# =========================
+# Common & Security
+# =========================
 .env
+*.pem
+*.key
+local.properties
+keystore.properties
+secrets.xml
+
+# =========================
+# Build & Gradle
+# =========================
+build/
+*/build/
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+out/
+bin/
+target/
+
+# =========================
+# Android & Kotlin
+# =========================
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
+captures/
+.externalNativeBuild/
+.cxx/
+lint-baseline.xml
+
+# =========================
+# Spring Boot & Java
+# =========================
+*.log
+*.jar
+*.war
+*.ear
+hs_err_pid*
+
+# =========================
+# Python & AI (MediaPipe/TFLite)
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.env/
+
+# =========================
+# IDE & OS
+# =========================
+.idea/
+*.iml
+*.iws
+.vscode/
+.DS_Store
+Thumbs.db
