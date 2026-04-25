@@ -4,8 +4,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.navigation.compose.rememberNavController
+import com.ssafy.mobile.core.navigation.MobileNavHost
 import com.ssafy.mobile.core.ui.theme.MobileTheme
-import com.ssafy.mobile.feature.sample.presentation.SampleRoute
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -15,7 +16,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             MobileTheme {
-                SampleRoute()
+                val navController = rememberNavController()
+                MobileNavHost(navController = navController)
             }
         }
     }
