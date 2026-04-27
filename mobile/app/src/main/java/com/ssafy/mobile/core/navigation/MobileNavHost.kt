@@ -22,13 +22,13 @@ fun MobileNavHost(
         modifier = modifier,
     ) {
         composable(Screen.Conversation.route) {
-            // TODO: B 파트 담당 통역 화면 렌더링
+            // 통역 화면 렌더링 영역 (향후 구현)
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(text = "Conversation Screen (통역 화면)")
             }
         }
         composable(Screen.Sign.route) {
-            // TODO: A 파트 담당 수어 인식 화면 렌더링
+            // 수어 인식 화면 렌더링 영역 (향후 구현)
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(text = "Sign Recognition Screen (수어 인식 화면)")
             }

@@ -42,6 +42,7 @@ class SamplePreferenceDataSource(
         private val LAST_SYNC_AT = longPreferencesKey("last_sync_at")
         private val LAST_SYNC_TODO_ID = intPreferencesKey("last_sync_todo_id")
 
-        fun create(context: Context): SamplePreferenceDataSource = SamplePreferenceDataSource(context.mobileDataStore)
+        fun create(context: Context): SamplePreferenceDataSource =
+            SamplePreferenceDataSource(context.mobileDataStore)
     }
 }

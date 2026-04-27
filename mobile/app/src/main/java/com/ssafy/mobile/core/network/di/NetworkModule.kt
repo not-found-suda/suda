@@ -4,17 +4,19 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import java.util.concurrent.TimeUnit
+import javax.inject.Singleton
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import java.util.concurrent.TimeUnit
-import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
-    // TODO: 백엔드 서버 URL 확정 시 변경 필요
+    private const val NETWORK_TIMEOUT_SEC = 30L
+
+    // 백엔드 서버 URL 확정 시 변경 필요
     private const val BASE_URL = "http://localhost:8080/api/"
 
     @Provides
@@ -32,9 +34,9 @@ object NetworkModule {
         OkHttpClient
             .Builder()
             .addInterceptor(loggingInterceptor)
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(NETWORK_TIMEOUT_SEC, TimeUnit.SECONDS)
+            .readTimeout(NETWORK_TIMEOUT_SEC, TimeUnit.SECONDS)
+            .writeTimeout(NETWORK_TIMEOUT_SEC, TimeUnit.SECONDS)
             .build()
 
     @Provides

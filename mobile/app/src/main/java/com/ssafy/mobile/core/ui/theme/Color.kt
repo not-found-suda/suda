@@ -1,11 +1,23 @@
-﻿package com.ssafy.mobile.core.ui.theme
+@file:Suppress("MagicNumber")
+
+package com.ssafy.mobile.core.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val Purple80 = Color(0xFFD0BCFF)
-val PurpleGrey80 = Color(0xFFCCC2DC)
-val Pink80 = Color(0xFFEFB8C8)
+// Light Theme Colors
+val SudaPrimaryLight = Color(0xFF6750A4)
+val SudaSecondaryLight = Color(0xFF625B71)
+val SudaTertiaryLight = Color(0xFF7D5260)
+val SudaBackgroundLight = Color(0xFFFFFBFE)
+val SudaSurfaceLight = Color(0xFFFFFBFE)
+val SudaOnPrimaryLight = Color(0xFFFFFFFF)
+val SudaOnSecondaryLight = Color(0xFFFFFFFF)
 
-val Purple40 = Color(0xFF6650a4)
-val PurpleGrey40 = Color(0xFF625b71)
-val Pink40 = Color(0xFF7D5260)
+// Dark Theme Colors
+val SudaPrimaryDark = Color(0xFFD0BCFF)
+val SudaSecondaryDark = Color(0xFFCCC2DC)
+val SudaTertiaryDark = Color(0xFFEFB8C8)
+val SudaBackgroundDark = Color(0xFF1C1B1F)
+val SudaSurfaceDark = Color(0xFF1C1B1F)
+val SudaOnPrimaryDark = Color(0xFF381E72)
+val SudaOnSecondaryDark = Color(0xFF332D41)

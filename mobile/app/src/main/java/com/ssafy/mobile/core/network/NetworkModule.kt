@@ -1,11 +1,11 @@
 ﻿package com.ssafy.mobile.core.network
 
 import com.ssafy.mobile.feature.sample.data.remote.SampleApiService
+import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import java.util.concurrent.TimeUnit
 
 object NetworkModule {
     private const val BASE_URL = "https://jsonplaceholder.typicode.com/"
