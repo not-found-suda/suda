@@ -15,7 +15,7 @@ import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
 fun MobileNavHost(
     navController: NavHostController,
     modifier: Modifier = Modifier,
-    startDestination: String = Screen.Conversation.route,
+    startDestination: String = Screen.Sign.route,
 ) {
     NavHost(
         navController = navController,

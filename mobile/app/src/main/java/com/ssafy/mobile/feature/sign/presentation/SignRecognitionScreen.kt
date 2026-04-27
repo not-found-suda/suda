@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
+import android.view.Surface
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -31,6 +32,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -133,6 +135,7 @@ private fun RequestPermissionContent(
 @Composable
 private fun CameraPreviewContent(modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val appContext = remember(context) { context.applicationContext }
     val previewView =
@@ -144,16 +147,21 @@ private fun CameraPreviewContent(modifier: Modifier = Modifier) {
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(appContext) }
     var cameraErrorMessage by remember { mutableStateOf<String?>(null) }
 
-    DisposableEffect(lifecycleOwner, previewView, cameraProviderFuture) {
+    DisposableEffect(lifecycleOwner, previewView, cameraProviderFuture, configuration.orientation) {
         val executor = ContextCompat.getMainExecutor(context)
         val listener =
             Runnable {
                 runCatching {
                     val cameraProvider = cameraProviderFuture.get()
+                    val targetRotation = previewView.display?.rotation ?: Surface.ROTATION_0
                     val previewUseCase =
-                        Preview.Builder().build().also { preview ->
-                            preview.surfaceProvider = previewView.surfaceProvider
-                        }
+                        Preview
+                            .Builder()
+                            .setTargetRotation(targetRotation)
+                            .build()
+                            .also { preview ->
+                                preview.surfaceProvider = previewView.surfaceProvider
+                            }
                     val cameraSelector =
                         when {
                             cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) ->
