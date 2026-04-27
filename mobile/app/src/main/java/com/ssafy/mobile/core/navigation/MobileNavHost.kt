@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
 
 @Composable
 fun MobileNavHost(
@@ -22,16 +23,13 @@ fun MobileNavHost(
         modifier = modifier,
     ) {
         composable(Screen.Conversation.route) {
-            // 통역 화면 렌더링 영역 (향후 구현)
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(text = "Conversation Screen (통역 화면)")
+                Text(text = "Conversation Screen")
             }
         }
+
         composable(Screen.Sign.route) {
-            // 수어 인식 화면 렌더링 영역 (향후 구현)
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(text = "Sign Recognition Screen (수어 인식 화면)")
-            }
+            SignRecognitionScreen(modifier = Modifier.fillMaxSize())
         }
     }
 }
