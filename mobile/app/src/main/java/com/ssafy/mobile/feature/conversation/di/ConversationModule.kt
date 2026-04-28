@@ -1,18 +1,36 @@
 package com.ssafy.mobile.feature.conversation.di
 
 import com.ssafy.mobile.core.vision.SignRecognitionEngine
+import com.ssafy.mobile.feature.conversation.data.remote.TranslateApiService
+import com.ssafy.mobile.feature.conversation.data.repository.DefaultTranslateRepository
+import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
 import dagger.Binds
 import dagger.Module
+import dagger.Provides
 import dagger.hilt.InstallIn
-import dagger.hilt.android.components.ViewModelComponent
-import dagger.hilt.android.scopes.ViewModelScoped
+import dagger.hilt.components.SingletonComponent
+import javax.inject.Singleton
+import retrofit2.Retrofit
 
 @Module
-@InstallIn(ViewModelComponent::class)
+@InstallIn(SingletonComponent::class)
 abstract class ConversationModule {
     @Binds
-    @ViewModelScoped
+    @Singleton
+    abstract fun bindTranslateRepository(
+        repository: DefaultTranslateRepository,
+    ): TranslateRepository
+
+    @Binds
+    @Singleton
     abstract fun bindSignRecognitionEngine(
-        fakeEngine: FakeSignRecognitionEngine,
+        engine: FakeSignRecognitionEngine,
     ): SignRecognitionEngine
+
+    companion object {
+        @Provides
+        @Singleton
+        fun provideTranslateApiService(retrofit: Retrofit): TranslateApiService =
+            retrofit.create(TranslateApiService::class.java)
+    }
 }
