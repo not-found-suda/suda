@@ -36,6 +36,7 @@ class ConversationViewModel
         val translatedText: StateFlow<String> = _translatedText.asStateFlow()
 
         private var translationJob: Job? = null
+        private var completionTimerJob: Job? = null
 
         init {
             viewModelScope.launch {
@@ -53,14 +54,25 @@ class ConversationViewModel
                     val currentGlosses = _lastGlosses.value + event.gloss
                     _lastGlosses.value = currentGlosses
 
-                    if (currentGlosses.size >= MIN_WORDS_FOR_TRANSLATION) {
-                        requestTranslation(currentGlosses)
-                    }
+                    // 새로운 단어가 들어올 때마다 문장 완성 타이머 초기화 및 재시작
+                    restartCompletionTimer(currentGlosses)
                 }
                 else -> {
-                    // 기타 상태(로딩 등)는 현재 처리하지 않음
+                    // 기타 상태 처리
                 }
             }
+        }
+
+        private fun restartCompletionTimer(words: List<String>) {
+            completionTimerJob?.cancel()
+            completionTimerJob =
+                viewModelScope.launch {
+                    kotlinx.coroutines.delay(COMPLETION_THRESHOLD_MS)
+                    // 2초간 새로운 단어가 없으면 번역 요청
+                    if (words.isNotEmpty()) {
+                        requestTranslation(words)
+                    }
+                }
         }
 
         private fun requestTranslation(words: List<String>) {
@@ -92,9 +104,10 @@ class ConversationViewModel
             _lastGlosses.value = emptyList()
             _translatedText.value = ""
             translationJob?.cancel()
+            completionTimerJob?.cancel()
         }
 
         companion object {
-            private const val MIN_WORDS_FOR_TRANSLATION = 3
+            private const val COMPLETION_THRESHOLD_MS = 2000L
         }
     }
