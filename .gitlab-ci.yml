@@ -1,12 +1,18 @@
 workflow:
   rules:
+    # MR 생성/업데이트 시 검증 파이프라인 실행
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+    # main 브랜치에 실제 merge/push 되었을 때 배포 파이프라인 실행
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+
     - when: never
 
 stages:
   - guard
   - verify
   - security
+  - deploy
 
 default:
   interruptible: true
@@ -103,3 +109,43 @@ secret-scan:
   extends: .mr_to_develop_or_main
   script:
     - gitleaks detect --source . --no-git --redact --exit-code 1
+
+build-and-push-backend-ecr:
+  stage: deploy
+  image: docker:27
+  services:
+    - name: docker:27-dind
+      alias: docker
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_HOST: tcp://docker:2375
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+      changes:
+        - backend/**/*
+        - .gitlab-ci.yml
+    - when: never
+  before_script:
+    - apk add --no-cache aws-cli
+    - aws --version
+    - docker --version
+    - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+  script:
+    - docker build -t s14p31a404-backend:latest ./backend
+    - docker tag s14p31a404-backend:latest "$ECR_BACKEND_IMAGE:latest"
+    - docker push "$ECR_BACKEND_IMAGE:latest"
+
+trigger-deploy-jenkins:
+  stage: deploy
+  image: curlimages/curl:latest
+  needs:
+    - build-and-push-backend-ecr
+  resource_group: production
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+      changes:
+        - backend/**/*
+        - .gitlab-ci.yml
+    - when: never
+  script:
+    - curl -X POST "$JENKINS_DEPLOY_WEBHOOK_URL"
