@@ -19,6 +19,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -50,6 +51,31 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ProblemDetail> handleBindException(
       BindException exception, HttpServletRequest request) {
     return handleValidationException(exception.getBindingResult(), request);
+  }
+
+  @ExceptionHandler(MissingServletRequestPartException.class)
+  public ResponseEntity<ProblemDetail> handleMissingServletRequestPartException(
+      MissingServletRequestPartException exception, HttpServletRequest request) {
+    ValidationErrorCode errorCode = ValidationErrorCode.REQUIRED_FIELD;
+    String message = "필수 요청 파트가 누락되었습니다.";
+    log.warn(
+        "Missing request part: method={}, uri={}, code={}, message={}",
+        request.getMethod(),
+        request.getRequestURI(),
+        errorCode.getCode(),
+        exception.getMessage());
+
+    ProblemDetail problemDetail = ProblemDetails.of(errorCode, request.getRequestURI(), message);
+    problemDetail.setProperty(
+        "errors",
+        List.of(
+            Map.of(
+                "field", exception.getRequestPartName(),
+                "code", errorCode.getCode(),
+                "message", message)));
+    problemDetail.setProperty("errorCount", 1);
+
+    return ResponseEntity.status(errorCode.getHttpStatus()).body(problemDetail);
   }
 
   private ResponseEntity<ProblemDetail> handleValidationException(
