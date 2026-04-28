@@ -1,7 +1,9 @@
 package com.ssafy.mobile.feature.conversation.presentation
 
+import android.util.Base64
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ssafy.mobile.core.audio.AudioPlayer
 import com.ssafy.mobile.core.model.SignRecognitionEvent
 import com.ssafy.mobile.core.vision.SignRecognitionEngine
 import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
@@ -26,6 +28,7 @@ class ConversationViewModel
     constructor(
         private val signRecognitionEngine: SignRecognitionEngine,
         private val translateRepository: TranslateRepository,
+        private val audioPlayer: AudioPlayer,
     ) : ViewModel() {
         private val _sessionState = MutableStateFlow(SessionState.Idle)
         val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
@@ -86,7 +89,16 @@ class ConversationViewModel
                         .translateSignToSpeech(words)
                         .onSuccess { response ->
                             _translatedText.value = response.correctedText
-                            // 번역 성공 시에만 단어 리스트 초기화
+
+                            // 1. 번역 성공 시 음성 재생 (Base64 데이터가 있는 경우)
+                            response.audioBase64?.let { base64Data ->
+                                runCatching {
+                                    val audioBytes = Base64.decode(base64Data, Base64.DEFAULT)
+                                    audioPlayer.play(audioBytes)
+                                }
+                            }
+
+                            // 2. 단어 리스트 초기화
                             _lastGlosses.value = emptyList()
                         }.onFailure {
                             // 향후 사용자에게 번역 실패 알림 제공 로직 추가 예정
@@ -106,6 +118,12 @@ class ConversationViewModel
             _translatedText.value = ""
             translationJob?.cancel()
             completionTimerJob?.cancel()
+            audioPlayer.stop()
+        }
+
+        override fun onCleared() {
+            super.onCleared()
+            audioPlayer.release()
         }
 
         fun onLandmarkFrame(frame: LandmarkFrameResult) {
