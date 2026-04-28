@@ -5,6 +5,8 @@ import org.springframework.http.HttpStatus;
 
 public enum TranslationErrorCode implements ErrorCode {
   INVALID_AUDIO("TRANSLATION_INVALID_AUDIO", HttpStatus.BAD_REQUEST, "유효한 음성 파일이 필요합니다."),
+  INVALID_LOCALE(
+      "TRANSLATION_INVALID_LOCALE", HttpStatus.BAD_REQUEST, "지원하지 않는 locale입니다. 현재는 ko-KR만 지원합니다."),
   UNRECOGNIZABLE_AUDIO(
       "TRANSLATION_UNRECOGNIZABLE_AUDIO",
       HttpStatus.UNPROCESSABLE_ENTITY,

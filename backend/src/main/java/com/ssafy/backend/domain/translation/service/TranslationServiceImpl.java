@@ -15,6 +15,15 @@ public class TranslationServiceImpl implements TranslationService {
   private static final String MOCK_AUDIO_BASE64 = "BASE64_ENCODED_AUDIO";
   private static final String MOCK_AUDIO_MIME_TYPE = "audio/mpeg";
   private static final String DEFAULT_LOCALE = "ko-KR";
+  private static final List<String> SUPPORTED_AUDIO_MIME_TYPES =
+      List.of(
+          "audio/mpeg",
+          "audio/mp3",
+          "audio/mp4",
+          "audio/wav",
+          "audio/wave",
+          "audio/x-wav",
+          "audio/webm");
 
   @Override
   public SignToSpeechResponseDto translateSignToSpeech(SignToSpeechRequestDto requestDto) {
@@ -37,7 +46,19 @@ public class TranslationServiceImpl implements TranslationService {
       throw new BusinessException(TranslationErrorCode.INVALID_AUDIO);
     }
 
+    String resolvedAudioMimeType =
+        audioMimeType != null && !audioMimeType.isBlank()
+            ? audioMimeType
+            : audioFile.getContentType();
+    if (resolvedAudioMimeType == null
+        || !SUPPORTED_AUDIO_MIME_TYPES.contains(resolvedAudioMimeType)) {
+      throw new BusinessException(TranslationErrorCode.INVALID_AUDIO);
+    }
+
     String resolvedLocale = locale == null || locale.isBlank() ? DEFAULT_LOCALE : locale;
+    if (!DEFAULT_LOCALE.equals(resolvedLocale)) {
+      throw new BusinessException(TranslationErrorCode.INVALID_LOCALE);
+    }
 
     return new SpeechToTextResponseDto("옴마", "엄마!", true, 0.91, resolvedLocale);
   }

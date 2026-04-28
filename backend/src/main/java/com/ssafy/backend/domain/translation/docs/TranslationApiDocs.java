@@ -32,11 +32,7 @@ public interface TranslationApiDocs {
       @Valid @RequestBody SignToSpeechRequestDto requestDto);
 
   @Operation(summary = "음성 텍스트 변환 및 보정", description = "자녀 음성 파일을 받아 STT 후 보정된 문장을 함께 반환합니다.")
-  @ApiErrorCodes({
-    "TRANSLATION_INVALID_AUDIO",
-    "TRANSLATION_UNRECOGNIZABLE_AUDIO",
-    "TRANSLATION_SPEECH_RECOGNITION_FAILED"
-  })
+  @ApiErrorCodes({"TRANSLATION_INVALID_AUDIO", "TRANSLATION_INVALID_LOCALE"})
   @ApiResponse(
       responseCode = "200",
       description = "성공",
