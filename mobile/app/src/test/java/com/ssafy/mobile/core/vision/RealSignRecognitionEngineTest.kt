@@ -78,11 +78,13 @@ class RealSignRecognitionEngineTest {
             engine.start()
             engine.onLandmarkFrame(createFrame(timestampMs = 1L))
             engine.onLandmarkFrame(createFrame(timestampMs = 2L))
+            engine.onLandmarkFrame(createFrame(timestampMs = 3L))
+            engine.onLandmarkFrame(createFrame(timestampMs = 4L))
 
             val prediction = predictionDeferred.await()
             assertEquals(TEST_GLOSS, prediction.gloss)
             assertEquals(TEST_CONFIDENCE, prediction.confidence, FLOAT_DELTA)
-            assertEquals(2L, prediction.timestampMs)
+            assertEquals(4L, prediction.timestampMs)
         }
 
     @Test
@@ -145,6 +147,66 @@ class RealSignRecognitionEngineTest {
             assertTrue(error.cause is IllegalStateException)
         }
 
+    @Test
+    fun emitsNoHandsDetectedAfterContinuousNoHandsFrames() =
+        runBlocking {
+            val engine = createEngine()
+            val noHandsDeferred =
+                async {
+                    withTimeout(TIMEOUT_MS) {
+                        engine.events.first { event ->
+                            event == SignRecognitionEvent.NoHandsDetected
+                        }
+                    }
+                }
+
+            yield()
+            engine.start()
+            engine.onLandmarkFrame(createNoHandsFrame(timestampMs = 0L))
+            engine.onLandmarkFrame(createNoHandsFrame(timestampMs = NO_HANDS_DELAY_MS))
+
+            assertEquals(SignRecognitionEvent.NoHandsDetected, noHandsDeferred.await())
+        }
+
+    @Test
+    fun clearsSequenceWhenHandsAreMissing() =
+        runBlocking {
+            val inferenceAdapter = RecordingInferenceAdapter()
+            val engine = createEngine(inferenceAdapter = inferenceAdapter)
+
+            engine.start()
+            engine.onLandmarkFrame(createFrame(timestampMs = 1L))
+            engine.onLandmarkFrame(createNoHandsFrame(timestampMs = 2L))
+            engine.onLandmarkFrame(createFrame(timestampMs = 3L))
+
+            assertEquals(0, inferenceAdapter.predictCallCount)
+        }
+
+    @Test
+    fun allowsSameGlossAfterHandsAreDetectedAgain() =
+        runBlocking {
+            val engine = createEngine()
+            val predictionsDeferred =
+                async {
+                    withTimeout(TIMEOUT_MS) {
+                        engine.events
+                            .filterIsInstance<SignRecognitionEvent.Prediction>()
+                            .take(2)
+                            .toList()
+                    }
+                }
+
+            yield()
+            engine.start()
+            repeatStablePredictionFrames(startTimestampMs = 1L, engine = engine)
+            engine.onLandmarkFrame(createNoHandsFrame(timestampMs = 10L))
+            repeatStablePredictionFrames(startTimestampMs = 20L, engine = engine)
+
+            val predictions = predictionsDeferred.await()
+            assertEquals(TEST_GLOSS, predictions[0].gloss)
+            assertEquals(TEST_GLOSS, predictions[1].gloss)
+        }
+
     private fun createEngine(
         inferenceAdapter: SignInferenceAdapter = RecordingInferenceAdapter(),
     ): RealSignRecognitionEngine =
@@ -152,6 +214,16 @@ class RealSignRecognitionEngineTest {
             featureEncoder = LandmarkFeatureEncoder(),
             sequenceBuffer = SignSequenceBuffer(sequenceLength = TEST_SEQUENCE_LENGTH),
             inferenceAdapter = inferenceAdapter,
+            noHandsDetectionTracker =
+                NoHandsDetectionTracker(
+                    detectionDelayMs = NO_HANDS_DELAY_MS,
+                ),
+            predictionStabilizer =
+                SignPredictionStabilizer(
+                    confidenceThreshold = TEST_CONFIDENCE_THRESHOLD,
+                    windowSize = TEST_PREDICTION_WINDOW_SIZE,
+                    requiredVotes = TEST_REQUIRED_VOTES,
+                ),
         )
 
     private class RecordingInferenceAdapter(
@@ -197,6 +269,32 @@ class RealSignRecognitionEngineTest {
                 ),
         )
 
+    private fun repeatStablePredictionFrames(
+        startTimestampMs: Long,
+        engine: RealSignRecognitionEngine,
+    ) {
+        repeat(TEST_SEQUENCE_LENGTH + TEST_REQUIRED_VOTES - 1) { index ->
+            engine.onLandmarkFrame(createFrame(timestampMs = startTimestampMs + index))
+        }
+    }
+
+    private fun createNoHandsFrame(timestampMs: Long): LandmarkFrameResult =
+        LandmarkFrameResult(
+            timestampMs = timestampMs,
+            pose =
+                LandmarkGroup(
+                    type = LandmarkGroupType.POSE,
+                    landmarks = createPoseLandmarks(),
+                ),
+            leftHand = HandLandmarks.empty(HandSide.LEFT),
+            rightHand = HandLandmarks.empty(HandSide.RIGHT),
+            lips =
+                LandmarkGroup(
+                    type = LandmarkGroupType.LIPS,
+                    landmarks = createLandmarks(SignFeatureSpec.LIPS_LANDMARK_COUNT),
+                ),
+        )
+
     private fun createPoseLandmarks(): List<LandmarkPoint> =
         createLandmarks(SignFeatureSpec.POSE_LANDMARK_COUNT).toMutableList().also { landmarks ->
             landmarks[SignFeatureSpec.LEFT_SHOULDER_INDEX] = LandmarkPoint(0f, 0f, 0f)
@@ -216,6 +314,10 @@ class RealSignRecognitionEngineTest {
         const val TEST_SEQUENCE_LENGTH = 2
         const val TEST_GLOSS = "엄마"
         const val TEST_CONFIDENCE = 0.91f
+        const val TEST_CONFIDENCE_THRESHOLD = 0.85f
+        const val TEST_PREDICTION_WINDOW_SIZE = 5
+        const val TEST_REQUIRED_VOTES = 3
+        const val NO_HANDS_DELAY_MS = 1_000L
         const val FLOAT_DELTA = 0.0001f
         const val TIMEOUT_MS = 1_000L
     }

@@ -17,12 +17,16 @@ class RealSignRecognitionEngine(
     private val featureEncoder: LandmarkFeatureEncoder = LandmarkFeatureEncoder(),
     private val sequenceBuffer: SignSequenceBuffer = SignSequenceBuffer(),
     private val inferenceAdapter: SignInferenceAdapter = FakeSignInferenceAdapter(),
+    private val noHandsDetectionTracker: NoHandsDetectionTracker = NoHandsDetectionTracker(),
+    private val predictionStabilizer: SignPredictionStabilizer = SignPredictionStabilizer(),
 ) : SignRecognitionEngine {
     @Inject
     constructor() : this(
         featureEncoder = LandmarkFeatureEncoder(),
         sequenceBuffer = SignSequenceBuffer(),
         inferenceAdapter = FakeSignInferenceAdapter(),
+        noHandsDetectionTracker = NoHandsDetectionTracker(),
+        predictionStabilizer = SignPredictionStabilizer(),
     )
 
     private val isStarted = AtomicBoolean(false)
@@ -58,27 +62,54 @@ class RealSignRecognitionEngine(
             return
         }
 
-        runCatching {
-            val feature = featureEncoder.encode(frame)
-            sequenceBuffer.add(feature)
-            val sequence = sequenceBuffer.buildSequenceInput() ?: return
-            val result = inferenceAdapter.predict(sequence)
+        runCatching { processFrame(frame) }
+            .onFailure { throwable ->
+                _events.tryEmit(
+                    SignRecognitionEvent.Error(
+                        message = "수어 인식 처리 중 오류가 발생했습니다.",
+                        cause = throwable,
+                    ),
+                )
+            }
+    }
 
-            _events.tryEmit(
-                SignRecognitionEvent.Prediction(
-                    gloss = result.gloss,
-                    confidence = result.confidence,
-                    timestampMs = frame.timestampMs,
-                ),
-            )
-        }.onFailure { throwable ->
-            _events.tryEmit(
-                SignRecognitionEvent.Error(
-                    message = "수어 인식 처리 중 오류가 발생했습니다.",
-                    cause = throwable,
-                ),
-            )
+    private fun processFrame(frame: LandmarkFrameResult) {
+        if (handleNoHandsFrame(frame)) {
+            return
         }
+
+        createPredictionEvent(frame)?.let { event ->
+            _events.tryEmit(event)
+        }
+    }
+
+    private fun createPredictionEvent(
+        frame: LandmarkFrameResult,
+    ): SignRecognitionEvent.Prediction? {
+        val feature = featureEncoder.encode(frame)
+        sequenceBuffer.add(feature)
+        val sequence = sequenceBuffer.buildSequenceInput() ?: return null
+        val result = inferenceAdapter.predict(sequence)
+        return predictionStabilizer
+            .onPrediction(result)
+            ?.let { stablePrediction ->
+                SignRecognitionEvent.Prediction(
+                    gloss = stablePrediction.gloss,
+                    confidence = stablePrediction.confidence,
+                    timestampMs = frame.timestampMs,
+                )
+            }
+    }
+
+    private fun handleNoHandsFrame(frame: LandmarkFrameResult): Boolean {
+        val noHandsEvent = noHandsDetectionTracker.onFrame(frame)
+        if (frame.hasHands) {
+            return false
+        }
+
+        resetRecognitionState()
+        noHandsEvent?.let { event -> _events.tryEmit(event) }
+        return true
     }
 
     fun close() {
@@ -87,8 +118,14 @@ class RealSignRecognitionEngine(
     }
 
     private fun resetSessionState() {
+        noHandsDetectionTracker.reset()
+        resetRecognitionState()
+    }
+
+    private fun resetRecognitionState() {
         featureEncoder.reset()
         sequenceBuffer.clear()
+        predictionStabilizer.reset()
     }
 
     private companion object {
