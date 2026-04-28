@@ -20,7 +20,8 @@ data class YuvAnalysisFrame(
 )
 
 /**
- * Plane buffers are valid only while the analyzer callback is running.
+ * Plane 버퍼는 분석 콜백이 실행되는 동안에만 유효한 읽기 전용 view입니다.
+ * MediaPipe/TFLite 어댑터에서 mutable/direct 버퍼가 필요하면 별도로 복사해서 사용해야 합니다.
  */
 data class YuvPlane(
     val buffer: ByteBuffer,
@@ -113,9 +114,11 @@ private fun ImageProxy.toYuvAnalysisFrame(): YuvAnalysisFrame =
         planes =
             planes.map { plane ->
                 YuvPlane(
-                    buffer = plane.buffer.asReadOnlyBuffer(),
+                    buffer = plane.buffer.asAnalyzerReadOnlyBuffer(),
                     rowStride = plane.rowStride,
                     pixelStride = plane.pixelStride,
                 )
             },
     )
+
+private fun ByteBuffer.asAnalyzerReadOnlyBuffer(): ByteBuffer = asReadOnlyBuffer()
