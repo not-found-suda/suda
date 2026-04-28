@@ -29,6 +29,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.common.util.concurrent.ListenableFuture
+import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
+import com.ssafy.mobile.core.vision.landmark.MediaPipeHolisticLandmarkExtractor
 import java.util.Locale
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
@@ -43,11 +45,13 @@ fun SignRecognitionScreen(
     isSessionActive: Boolean,
     modifier: Modifier = Modifier,
     onFrameAvailable: (YuvAnalysisFrame) -> Unit = {},
+    onLandmarkFrameAvailable: (LandmarkFrameResult) -> Unit = {},
 ) {
     // 권한은 MainActivity에서 이미 허용되었으므로 즉시 카메라 프리뷰를 실행합니다.
     CameraPreviewContent(
         isSessionActive = isSessionActive,
         onFrameAvailable = onFrameAvailable,
+        onLandmarkFrameAvailable = onLandmarkFrameAvailable,
         modifier = modifier,
     )
 }
@@ -56,13 +60,19 @@ fun SignRecognitionScreen(
 private fun CameraPreviewContent(
     isSessionActive: Boolean,
     onFrameAvailable: (YuvAnalysisFrame) -> Unit,
+    onLandmarkFrameAvailable: (LandmarkFrameResult) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val currentOnFrameAvailable by rememberUpdatedState(onFrameAvailable)
+    val currentOnLandmarkFrameAvailable by rememberUpdatedState(onLandmarkFrameAvailable)
     val appContext = remember(context) { context.applicationContext }
+    val landmarkExtractor =
+        remember(appContext) {
+            MediaPipeHolisticLandmarkExtractor.create(appContext)
+        }
     val previewView =
         remember {
             PreviewView(context).apply {
@@ -74,6 +84,10 @@ private fun CameraPreviewContent(
     var cameraErrorMessage by remember { mutableStateOf<String?>(null) }
     var frameCount by remember { mutableStateOf(0L) }
     var fps by remember { mutableStateOf(0.0) }
+
+    DisposableEffect(landmarkExtractor) {
+        onDispose { landmarkExtractor.close() }
+    }
 
     LaunchedEffect(analyzedFrameCount, isSessionActive) {
         if (!isSessionActive) {
@@ -111,6 +125,12 @@ private fun CameraPreviewContent(
             orientation = configuration.orientation,
             onFrameAvailable = { frame ->
                 analyzedFrameCount.incrementAndGet()
+                val landmarkFrame =
+                    landmarkExtractor.detect(
+                        bitmap = frame.bitmap,
+                        timestampMs = frame.timestampMs,
+                    )
+                currentOnLandmarkFrameAvailable(landmarkFrame)
                 currentOnFrameAvailable(frame)
             },
             onCameraErrorChanged = { message -> cameraErrorMessage = message },

@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
 import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
 
 private const val TAG = "ConversationWakelock"
@@ -73,6 +74,7 @@ fun ConversationRoute(
         lastGlosses = lastGlosses,
         onStartSession = viewModel::startSession,
         onStopSession = viewModel::stopSession,
+        onLandmarkFrame = viewModel::onLandmarkFrame,
         modifier = modifier,
     )
 }
@@ -83,6 +85,7 @@ private fun ConversationScreen(
     lastGlosses: List<String>,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
+    onLandmarkFrame: (LandmarkFrameResult) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -113,6 +116,7 @@ private fun ConversationScreen(
             ) {
                 SignRecognitionScreen(
                     isSessionActive = sessionState == SessionState.Active,
+                    onLandmarkFrameAvailable = onLandmarkFrame,
                     modifier = Modifier.fillMaxSize(),
                 )
 

@@ -19,6 +19,7 @@ hilt = "2.59.2"
 navigationCompose = "2.8.7"
 hiltNavigationCompose = "1.2.0"
 cameraX = "1.4.2"
+mediaPipeTasksVision = "0.10.33"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -54,6 +55,7 @@ androidx-camera-core = { group = "androidx.camera", name = "camera-core", versio
 androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "cameraX" }
 androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "cameraX" }
 androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "cameraX" }
+mediapipe-tasks-vision = { group = "com.google.mediapipe", name = "tasks-vision", version.ref = "mediaPipeTasksVision" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

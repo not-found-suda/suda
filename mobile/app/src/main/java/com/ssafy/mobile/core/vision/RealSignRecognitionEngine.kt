@@ -57,7 +57,7 @@ class RealSignRecognitionEngine(
         _events.tryEmit(SignRecognitionEvent.Stopped)
     }
 
-    fun onLandmarkFrame(frame: LandmarkFrameResult) {
+    override fun submitFrame(frame: LandmarkFrameResult) {
         if (!isStarted.get()) {
             return
         }
@@ -71,6 +71,10 @@ class RealSignRecognitionEngine(
                     ),
                 )
             }
+    }
+
+    fun onLandmarkFrame(frame: LandmarkFrameResult) {
+        submitFrame(frame)
     }
 
     private fun processFrame(frame: LandmarkFrameResult) {

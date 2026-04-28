@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ssafy.mobile.core.model.SignRecognitionEvent
 import com.ssafy.mobile.core.vision.SignRecognitionEngine
+import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
 import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -105,6 +106,12 @@ class ConversationViewModel
             _translatedText.value = ""
             translationJob?.cancel()
             completionTimerJob?.cancel()
+        }
+
+        fun onLandmarkFrame(frame: LandmarkFrameResult) {
+            if (_sessionState.value != SessionState.Active) return
+
+            signRecognitionEngine.submitFrame(frame)
         }
 
         companion object {
