@@ -23,6 +23,7 @@ public class ChildSpeechCorrectionClient {
 
       규칙:
       - 설명 없이 보정된 문장만 출력한다.
+      - 존댓말로 바꾸지 마라.
       - 원래 의미를 과하게 바꾸지 않는다.
       - 아이가 말한 것처럼 짧고 자연스럽게 보정한다.
       - 감탄문이면 자연스럽게 느낌표를 붙여도 된다.
@@ -38,13 +39,7 @@ public class ChildSpeechCorrectionClient {
       이거 모야 -> 이거 뭐야?
       """;
 
-    String correctedText;
-
-    try {
-      correctedText = openAiClient.generateText(systemInstruction, rawText).trim();
-    } catch (IllegalStateException e) {
-      correctedText = rawText.trim();
-    }
+    String correctedText = openAiClient.generateText(systemInstruction, rawText).trim();
 
     return new ChildSpeechCorrectionResult(rawText, correctedText);
   }

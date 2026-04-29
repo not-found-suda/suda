@@ -18,30 +18,32 @@ public class ClovaSttClient {
     this.aiProperties = aiProperties;
   }
 
-  public String transcribe(MultipartFile audioFile) {
+  public String transcribe(MultipartFile audioFile, String locale, String audioMimeType) {
     if (audioFile == null || audioFile.isEmpty()) {
       throw new IllegalArgumentException("음성 파일은 필수입니다.");
     }
 
     try {
-      return transcribe(audioFile.getBytes());
+      return transcribe(audioFile.getBytes(), locale, audioMimeType);
     } catch (IOException e) {
       throw new IllegalStateException("음성 파일을 읽는 중 오류가 발생했습니다.", e);
     }
   }
 
-  public String transcribe(byte[] audioBytes) {
+  public String transcribe(byte[] audioBytes, String locale, String audioMimeType) {
     if (audioBytes == null || audioBytes.length == 0) {
       throw new IllegalArgumentException("음성 파일은 필수입니다.");
     }
 
     AiProperties.Clova clova = aiProperties.clova();
 
+    String sttLanguage = clova.sttLanguage();
+
     try {
       ClovaSttResponse response =
           restClient
               .post()
-              .uri(clova.sttUrl() + "?lang=" + clova.sttLanguage())
+              .uri(clova.sttUrl() + "?lang=" + sttLanguage)
               .header("X-NCP-APIGW-API-KEY-ID", clova.clientId())
               .header("X-NCP-APIGW-API-KEY", clova.clientSecret())
               .contentType(MediaType.APPLICATION_OCTET_STREAM)

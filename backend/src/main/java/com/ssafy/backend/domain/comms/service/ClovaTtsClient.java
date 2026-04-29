@@ -2,6 +2,8 @@ package com.ssafy.backend.domain.comms.service;
 
 import com.ssafy.backend.global.ai.AiProperties;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
+import java.util.Map;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
@@ -12,6 +14,11 @@ import org.springframework.web.client.RestClient;
 public class ClovaTtsClient {
 
   private static final int MAX_TEXT_LENGTH = 500;
+
+  private static final Map<String, String> AUDIO_MIME_TYPES =
+      Map.of(
+          "mp3", "audio/mpeg",
+          "wav", "audio/wav");
 
   private final RestClient restClient;
   private final AiProperties aiProperties;
@@ -25,10 +32,11 @@ public class ClovaTtsClient {
     String normalizedText = validateAndNormalizeText(text);
 
     AiProperties.Clova clova = aiProperties.clova();
+    String format = normalizeFormat(clova.format());
 
     MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
     form.add("speaker", clova.speaker());
-    form.add("format", clova.format());
+    form.add("format", format);
     form.add("text", normalizedText);
     form.add("speed", "0");
 
@@ -51,7 +59,11 @@ public class ClovaTtsClient {
     return audio;
   }
 
-  // TTS 응답 검증 추가
+  public String getAudioMimeType() {
+    String format = normalizeFormat(aiProperties.clova().format());
+    return AUDIO_MIME_TYPES.getOrDefault(format, "audio/" + format);
+  }
+
   private String validateAndNormalizeText(String text) {
     if (text == null || text.isBlank()) {
       throw new IllegalArgumentException("TTS 변환할 텍스트는 필수입니다.");
@@ -64,5 +76,13 @@ public class ClovaTtsClient {
     }
 
     return normalizedText;
+  }
+
+  private String normalizeFormat(String format) {
+    if (format == null || format.isBlank()) {
+      return "mp3";
+    }
+
+    return format.trim().toLowerCase(Locale.ROOT);
   }
 }
