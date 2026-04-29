@@ -1,7 +1,10 @@
 package com.ssafy.mobile.feature.conversation.di
 
+import android.content.Context
 import com.ssafy.mobile.core.vision.RealSignRecognitionEngine
 import com.ssafy.mobile.core.vision.SignRecognitionEngine
+import com.ssafy.mobile.core.vision.inference.SignInferenceAdapter
+import com.ssafy.mobile.core.vision.inference.TfliteSignInferenceAdapter
 import com.ssafy.mobile.feature.conversation.data.remote.TranslateApiService
 import com.ssafy.mobile.feature.conversation.data.repository.DefaultTranslateRepository
 import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
@@ -9,6 +12,7 @@ import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 import retrofit2.Retrofit
@@ -33,5 +37,11 @@ abstract class ConversationModule {
         @Singleton
         fun provideTranslateApiService(retrofit: Retrofit): TranslateApiService =
             retrofit.create(TranslateApiService::class.java)
+
+        @Provides
+        @Singleton
+        fun provideSignInferenceAdapter(
+            @ApplicationContext context: Context,
+        ): SignInferenceAdapter = TfliteSignInferenceAdapter.createOrFallback(context)
     }
 }

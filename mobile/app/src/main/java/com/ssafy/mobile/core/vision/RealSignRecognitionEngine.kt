@@ -21,10 +21,12 @@ class RealSignRecognitionEngine(
     private val predictionStabilizer: SignPredictionStabilizer = SignPredictionStabilizer(),
 ) : SignRecognitionEngine {
     @Inject
-    constructor() : this(
+    constructor(
+        inferenceAdapter: SignInferenceAdapter,
+    ) : this(
         featureEncoder = LandmarkFeatureEncoder(),
         sequenceBuffer = SignSequenceBuffer(),
-        inferenceAdapter = FakeSignInferenceAdapter(),
+        inferenceAdapter = inferenceAdapter,
         noHandsDetectionTracker = NoHandsDetectionTracker(),
         predictionStabilizer = SignPredictionStabilizer(),
     )
