@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -34,9 +35,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
+import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
+import com.ssafy.mobile.feature.conversation.presentation.components.SubtitleList
 import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
 
 private const val TAG = "ConversationWakelock"
+private const val SUBTITLE_WIDTH_FRACTION = 0.95f
+private const val SUBTITLE_HEIGHT_FRACTION = 0.4f
 
 @Composable
 fun ConversationRoute(
@@ -44,6 +49,7 @@ fun ConversationRoute(
     viewModel: ConversationViewModel = hiltViewModel(),
 ) {
     val sessionState by viewModel.sessionState.collectAsState()
+    val messages by viewModel.messages.collectAsState()
     val lastGlosses by viewModel.lastGlosses.collectAsState()
     val context = LocalContext.current
 
@@ -71,6 +77,7 @@ fun ConversationRoute(
 
     ConversationScreen(
         sessionState = sessionState,
+        messages = messages,
         lastGlosses = lastGlosses,
         onStartSession = viewModel::startSession,
         onStopSession = viewModel::stopSession,
@@ -82,6 +89,7 @@ fun ConversationRoute(
 @Composable
 private fun ConversationScreen(
     sessionState: SessionState,
+    messages: List<ChatMessage>,
     lastGlosses: List<String>,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
@@ -107,61 +115,90 @@ private fun ConversationScreen(
                     .padding(paddingValues)
                     .fillMaxSize(),
         ) {
-            // 카메라 인식 영역
-            Box(
-                modifier =
-                    Modifier
-                        .weight(1.0f)
-                        .fillMaxWidth(),
-            ) {
-                SignRecognitionScreen(
-                    isSessionActive = sessionState == SessionState.Active,
-                    onLandmarkFrameAvailable = onLandmarkFrame,
-                    modifier = Modifier.fillMaxSize(),
-                )
-
-                if (sessionState == SessionState.Idle) {
-                    Box(
-                        modifier =
-                            Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.4f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "세션을 시작하려면 버튼을 누르세요",
-                            color = Color.White,
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                    }
-                }
-            }
+            // 카메라 인식 영역 및 자막 오버레이
+            SignRecognitionArea(
+                sessionState = sessionState,
+                messages = messages,
+                onLandmarkFrame = onLandmarkFrame,
+                modifier = Modifier.weight(1.0f),
+            )
 
             // 실시간 인식 결과 영역 (글로스 나열)
+            GlossRecognitionArea(lastGlosses = lastGlosses)
+        }
+    }
+}
+
+@Composable
+private fun SignRecognitionArea(
+    sessionState: SessionState,
+    messages: List<ChatMessage>,
+    onLandmarkFrame: (LandmarkFrameResult) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        SignRecognitionScreen(
+            isSessionActive = sessionState == SessionState.Active,
+            onLandmarkFrameAvailable = onLandmarkFrame,
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        // 자막 리스트 오버레이 (하단 40% 영역)
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxWidth(SUBTITLE_WIDTH_FRACTION)
+                    .fillMaxHeight(SUBTITLE_HEIGHT_FRACTION)
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 16.dp),
+        ) {
+            SubtitleList(messages = messages)
+        }
+
+        if (sessionState == SessionState.Idle) {
             Box(
                 modifier =
                     Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .background(
-                            MaterialTheme.colorScheme.surfaceVariant,
-                            shape = MaterialTheme.shapes.medium,
-                        ).padding(12.dp),
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.4f)),
+                contentAlignment = Alignment.Center,
             ) {
-                if (lastGlosses.isEmpty()) {
-                    Text(
-                        text = "수어 인식 대기 중...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        items(lastGlosses) { gloss ->
-                            GlossChip(gloss = gloss)
-                        }
-                    }
+                Text(
+                    text = "세션을 시작하려면 버튼을 누르세요",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GlossRecognitionArea(lastGlosses: List<String>) {
+    Box(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .background(
+                    MaterialTheme.colorScheme.surfaceVariant,
+                    shape = MaterialTheme.shapes.medium,
+                ).padding(12.dp),
+    ) {
+        if (lastGlosses.isEmpty()) {
+            Text(
+                text = "수어 인식 대기 중...",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(lastGlosses) { gloss ->
+                    GlossChip(gloss = gloss)
                 }
             }
         }

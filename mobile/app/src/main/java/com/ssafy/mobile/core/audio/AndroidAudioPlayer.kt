@@ -2,6 +2,7 @@ package com.ssafy.mobile.core.audio
 
 import android.content.Context
 import android.media.MediaPlayer
+import android.util.Base64
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.FileOutputStream
@@ -53,6 +54,20 @@ class AndroidAudioPlayer
                 onComplete() // 파일 생성 등 초기 단계 실패 시에도 콜백 호출
                 it.printStackTrace()
                 stop()
+            }
+        }
+
+        override fun playBase64(
+            base64Data: String,
+            onComplete: () -> Unit,
+            onError: () -> Unit,
+        ) {
+            runCatching {
+                val audioBytes = Base64.decode(base64Data, Base64.DEFAULT)
+                play(audioBytes, onComplete)
+            }.onFailure {
+                onError()
+                it.printStackTrace()
             }
         }
 
