@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ssafy.mobile.core.audio.AudioPlayer
 import com.ssafy.mobile.core.model.SignRecognitionEvent
+import com.ssafy.mobile.core.stt.SttEngine
+import com.ssafy.mobile.core.stt.SttEvent
 import com.ssafy.mobile.core.vision.SignRecognitionEngine
 import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
 import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
@@ -29,6 +31,7 @@ class ConversationViewModel
         private val signRecognitionEngine: SignRecognitionEngine,
         private val translateRepository: TranslateRepository,
         private val audioPlayer: AudioPlayer,
+        private val sttEngine: SttEngine,
     ) : ViewModel() {
         private val _sessionState = MutableStateFlow(SessionState.Idle)
         val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
@@ -39,8 +42,15 @@ class ConversationViewModel
         private val _translatedText = MutableStateFlow("")
         val translatedText: StateFlow<String> = _translatedText.asStateFlow()
 
+        private val _sttText = MutableStateFlow("")
+        val sttText: StateFlow<String> = _sttText.asStateFlow()
+
+        private val _micVolume = MutableStateFlow(0f)
+        val micVolume: StateFlow<Float> = _micVolume.asStateFlow()
+
         private var translationJob: Job? = null
         private var completionTimerJob: Job? = null
+        private var sttJob: Job? = null
 
         init {
             viewModelScope.launch {
@@ -109,21 +119,46 @@ class ConversationViewModel
         fun startSession() {
             _sessionState.value = SessionState.Active
             signRecognitionEngine.start()
+
+            // 1. 기존 STT 수집이 있다면 취소
+            sttJob?.cancel()
+
+            // 2. STT 수집 시작
+            sttJob =
+                viewModelScope.launch {
+                    sttEngine.events.collect { event ->
+                        when (event) {
+                            is SttEvent.PartialResults -> _sttText.value = event.text
+                            is SttEvent.Results -> _sttText.value = event.text
+                            is SttEvent.VolumeChanged -> _micVolume.value = event.db
+                            is SttEvent.Error -> {
+                                // 에러 처리 (필요시 UI 알림 추가)
+                            }
+                            else -> {}
+                        }
+                    }
+                }
+            sttEngine.startListening()
         }
 
         fun stopSession() {
             _sessionState.value = SessionState.Idle
             signRecognitionEngine.stop()
+            sttEngine.stopListening()
             _lastGlosses.value = emptyList()
             _translatedText.value = ""
+            _sttText.value = ""
+            _micVolume.value = 0f
             translationJob?.cancel()
             completionTimerJob?.cancel()
+            sttJob?.cancel()
             audioPlayer.stop()
         }
 
         override fun onCleared() {
             super.onCleared()
             audioPlayer.release()
+            sttEngine.release()
         }
 
         fun onLandmarkFrame(frame: LandmarkFrameResult) {
