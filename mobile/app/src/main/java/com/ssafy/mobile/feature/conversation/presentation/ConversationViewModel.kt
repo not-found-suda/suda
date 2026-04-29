@@ -104,7 +104,24 @@ class ConversationViewModel
                             response.audioBase64?.let { base64Data ->
                                 runCatching {
                                     val audioBytes = Base64.decode(base64Data, Base64.DEFAULT)
-                                    audioPlayer.play(audioBytes)
+
+                                    // [에코 캔슬링] TTS 재생 전 STT 중단
+                                    sttEngine.stopListening()
+
+                                    audioPlayer.play(
+                                        audioData = audioBytes,
+                                        onComplete = {
+                                            // [에코 캔슬링] TTS 재생 완료 후 STT 재개
+                                            if (_sessionState.value == SessionState.Active) {
+                                                sttEngine.startListening()
+                                            }
+                                        },
+                                    )
+                                }.onFailure {
+                                    // 디코딩 실패 등 예외 발생 시 STT 즉시 복구
+                                    if (_sessionState.value == SessionState.Active) {
+                                        sttEngine.startListening()
+                                    }
                                 }
                             }
 

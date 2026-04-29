@@ -42,10 +42,15 @@ class AndroidAudioPlayer
                             onComplete()
                             stop()
                         }
+                        setOnErrorListener { _, _, _ ->
+                            onComplete() // 에러 시에도 STT 복구를 위해 콜백 호출
+                            stop()
+                            true
+                        }
                         prepareAsync()
                     }
             }.onFailure {
-                // 에러 로깅 처리 필요 시 추가
+                onComplete() // 파일 생성 등 초기 단계 실패 시에도 콜백 호출
                 it.printStackTrace()
                 stop()
             }
