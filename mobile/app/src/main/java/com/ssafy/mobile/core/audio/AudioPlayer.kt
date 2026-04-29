@@ -15,6 +15,18 @@ interface AudioPlayer {
     )
 
     /**
+     * Base64 인코딩된 오디오 데이터를 재생합니다.
+     * @param base64Data 재생할 Base64 데이터
+     * @param onComplete 재생 완료 시 실행할 콜백
+     * @param onError 에러 발생 시 실행할 콜백
+     */
+    fun playBase64(
+        base64Data: String,
+        onComplete: () -> Unit = {},
+        onError: () -> Unit = {},
+    )
+
+    /**
      * 재생 중인 오디오를 중지합니다.
      */
     fun stop()
