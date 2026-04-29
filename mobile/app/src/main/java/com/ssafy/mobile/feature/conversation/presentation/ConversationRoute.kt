@@ -23,7 +23,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,6 +31,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ssafy.mobile.core.ui.components.AppOfflineBanner
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
@@ -39,18 +40,26 @@ import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
 import com.ssafy.mobile.feature.conversation.presentation.components.SubtitleList
 import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
 
-private const val TAG = "ConversationWakelock"
+private const val TAG = "ConversationRoute"
 private const val SUBTITLE_WIDTH_FRACTION = 0.95f
 private const val SUBTITLE_HEIGHT_FRACTION = 0.4f
+
+data class ConversationUiState(
+    val sessionState: SessionState,
+    val isOnline: Boolean,
+    val messages: List<ChatMessage>,
+    val lastGlosses: List<String>,
+)
 
 @Composable
 fun ConversationRoute(
     modifier: Modifier = Modifier,
     viewModel: ConversationViewModel = hiltViewModel(),
 ) {
-    val sessionState by viewModel.sessionState.collectAsState()
-    val messages by viewModel.messages.collectAsState()
-    val lastGlosses by viewModel.lastGlosses.collectAsState()
+    val sessionState by viewModel.sessionState.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+    val messages by viewModel.messages.collectAsStateWithLifecycle()
+    val lastGlosses by viewModel.lastGlosses.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // 세션 활성화 중에는 화면이 꺼지지 않도록 설정
@@ -75,10 +84,16 @@ fun ConversationRoute(
         onDispose { viewModel.stopSession() }
     }
 
+    val uiState =
+        ConversationUiState(
+            sessionState = sessionState,
+            isOnline = isOnline,
+            messages = messages,
+            lastGlosses = lastGlosses,
+        )
+
     ConversationScreen(
-        sessionState = sessionState,
-        messages = messages,
-        lastGlosses = lastGlosses,
+        uiState = uiState,
         onStartSession = viewModel::startSession,
         onStopSession = viewModel::stopSession,
         onLandmarkFrame = viewModel::onLandmarkFrame,
@@ -88,9 +103,7 @@ fun ConversationRoute(
 
 @Composable
 private fun ConversationScreen(
-    sessionState: SessionState,
-    messages: List<ChatMessage>,
-    lastGlosses: List<String>,
+    uiState: ConversationUiState,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
     onLandmarkFrame: (LandmarkFrameResult) -> Unit,
@@ -99,11 +112,14 @@ private fun ConversationScreen(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
-            SessionHeader(sessionState = sessionState)
+            Column {
+                SessionHeader(sessionState = uiState.sessionState)
+                AppOfflineBanner(isOnline = uiState.isOnline)
+            }
         },
         bottomBar = {
             SessionControls(
-                sessionState = sessionState,
+                sessionState = uiState.sessionState,
                 onStartSession = onStartSession,
                 onStopSession = onStopSession,
             )
@@ -117,14 +133,14 @@ private fun ConversationScreen(
         ) {
             // 카메라 인식 영역 및 자막 오버레이
             SignRecognitionArea(
-                sessionState = sessionState,
-                messages = messages,
+                sessionState = uiState.sessionState,
+                messages = uiState.messages,
                 onLandmarkFrame = onLandmarkFrame,
                 modifier = Modifier.weight(1.0f),
             )
 
             // 실시간 인식 결과 영역 (글로스 나열)
-            GlossRecognitionArea(lastGlosses = lastGlosses)
+            GlossRecognitionArea(lastGlosses = uiState.lastGlosses)
         }
     }
 }

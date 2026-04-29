@@ -3,7 +3,9 @@ package com.ssafy.mobile.feature.conversation.presentation
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ssafy.mobile.core.audio.AudioPlayer
+import com.ssafy.mobile.core.audio.TtsPlayer
 import com.ssafy.mobile.core.model.SignRecognitionEvent
+import com.ssafy.mobile.core.network.NetworkMonitor
 import com.ssafy.mobile.core.stt.SttEngine
 import com.ssafy.mobile.core.stt.SttEvent
 import com.ssafy.mobile.core.vision.SignRecognitionEngine
@@ -34,10 +36,15 @@ class ConversationViewModel
         private val signRecognitionEngine: SignRecognitionEngine,
         private val translateRepository: TranslateRepository,
         private val audioPlayer: AudioPlayer,
+        private val ttsPlayer: TtsPlayer,
         private val sttEngine: SttEngine,
+        private val networkMonitor: NetworkMonitor,
     ) : ViewModel() {
         private val _sessionState = MutableStateFlow(SessionState.Idle)
         val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
+
+        private val _isOnline = MutableStateFlow(true)
+        val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
 
         private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
         val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
@@ -59,6 +66,13 @@ class ConversationViewModel
         private var sttJob: Job? = null
 
         init {
+            // 네트워크 상태 모니터링
+            viewModelScope.launch {
+                networkMonitor.isOnline.collect { online ->
+                    _isOnline.value = online
+                }
+            }
+
             viewModelScope.launch {
                 signRecognitionEngine.events.collect { event ->
                     if (_sessionState.value == SessionState.Active) {
@@ -69,41 +83,40 @@ class ConversationViewModel
         }
 
         private fun handleEvent(event: SignRecognitionEvent) {
-            when (event) {
-                is SignRecognitionEvent.Prediction -> {
-                    val currentGlosses = _lastGlosses.value + event.gloss
-                    _lastGlosses.value = currentGlosses
+            if (event !is SignRecognitionEvent.Prediction) return
 
-                    // 새로운 단어가 들어올 때마다 문장 완성 타이머 초기화 및 재시작
-                    restartCompletionTimer(currentGlosses)
-                }
-                else -> {
-                    // 기타 상태 처리
-                }
-            }
-        }
+            val currentGlosses = _lastGlosses.value + event.gloss
+            _lastGlosses.value = currentGlosses
 
-        private fun restartCompletionTimer(words: List<String>) {
+            // 타이머 재시작 로직 인라인화
             completionTimerJob?.cancel()
             completionTimerJob =
                 viewModelScope.launch {
                     kotlinx.coroutines.delay(COMPLETION_THRESHOLD_MS)
-                    // 2초간 새로운 단어가 없으면 번역 요청
-                    if (words.isNotEmpty()) {
-                        requestTranslation(words)
+                    if (currentGlosses.isNotEmpty()) {
+                        requestTranslation(currentGlosses)
                     }
                 }
         }
 
         private fun requestTranslation(words: List<String>) {
+            translationJob?.cancel()
+            if (_isOnline.value) {
+                // [온라인 모드] 기존 클라우드 번역 로직
+                performCloudTranslation(words)
+            } else {
+                // [오프라인 모드] Fallback 로직
+                performOfflineFallback(words)
+            }
+        }
+
+        private fun performCloudTranslation(words: List<String>) {
             // 0. 교정 중인 부모 메시지 추가
-            addOrUpdateParentMessage(
+            addOrUpdateMessage(
                 text = "교정 중...",
                 isFinal = false,
+                senderType = SenderType.PARENT,
             )
-
-            // 이전 진행 중인 번역 요청이 있다면 취소하여 중복 및 순서 꼬임 방지
-            translationJob?.cancel()
 
             translationJob =
                 viewModelScope.launch {
@@ -111,36 +124,75 @@ class ConversationViewModel
                         .translateSignToSpeech(words)
                         .onSuccess { response ->
                             _translatedText.value = response.correctedText
-                            addOrUpdateParentMessage(
+                            addOrUpdateMessage(
                                 text = response.correctedText,
                                 isFinal = true,
+                                senderType = SenderType.PARENT,
                             )
 
-                            // 1. 번역 성공 시 음성 재생 (Base64 데이터가 있는 경우)
                             response.audioBase64?.let { base64Data ->
-                                // [에코 캔슬링] TTS 재생 전 마이크 중단
                                 sttEngine.stopListening()
-
                                 audioPlayer.playBase64(
                                     base64Data = base64Data,
-                                    onComplete = { startListening() },
-                                    onError = { startListening() },
+                                    onComplete = {
+                                        if (_sessionState.value == SessionState.Active) {
+                                            sttEngine.startListening()
+                                        }
+                                    },
+                                    onError = {
+                                        if (_sessionState.value == SessionState.Active) {
+                                            sttEngine.startListening()
+                                        }
+                                    },
                                 )
                             } ?: run {
-                                startListening()
+                                if (_sessionState.value == SessionState.Active) {
+                                    sttEngine.startListening()
+                                }
                             }
 
-                            // 2. 단어 리스트 초기화
                             _lastGlosses.value = emptyList()
                         }.onFailure {
-                            // 3. 번역 실패 시 에러 처리
-                            addOrUpdateParentMessage(
+                            addOrUpdateMessage(
                                 text = "번역에 실패했습니다. 다시 시도해 주세요.",
                                 isFinal = true,
+                                senderType = SenderType.PARENT,
                             )
-                            startListening()
+                            if (_sessionState.value == SessionState.Active) {
+                                sttEngine.startListening()
+                            }
                         }
                 }
+        }
+
+        private fun performOfflineFallback(words: List<String>) {
+            val fallbackText = words.joinToString(" ")
+            _translatedText.value = fallbackText
+
+            // 오프라인이므로 즉시 최종 메시지로 추가
+            addOrUpdateMessage(
+                text = fallbackText,
+                isFinal = true,
+                senderType = SenderType.PARENT,
+            )
+
+            // 시스템 TTS로 재생
+            sttEngine.stopListening()
+            ttsPlayer.speak(
+                text = fallbackText,
+                onComplete = {
+                    if (_sessionState.value == SessionState.Active) {
+                        sttEngine.startListening()
+                    }
+                },
+                onError = {
+                    if (_sessionState.value == SessionState.Active) {
+                        sttEngine.startListening()
+                    }
+                },
+            )
+
+            _lastGlosses.value = emptyList()
         }
 
         fun startSession() {
@@ -189,6 +241,44 @@ class ConversationViewModel
             completionTimerJob?.cancel()
             sttJob?.cancel()
             audioPlayer.stop()
+            ttsPlayer.stop()
+        }
+
+        private fun addOrUpdateMessage(
+            text: String,
+            isFinal: Boolean,
+            senderType: SenderType,
+        ) {
+            _messages.update { currentList ->
+                val lastMessage = currentList.lastOrNull()
+                if (lastMessage != null &&
+                    lastMessage.senderType == senderType &&
+                    lastMessage.status == MessageStatus.PENDING
+                ) {
+                    currentList.dropLast(1) +
+                        lastMessage.copy(
+                            text = text,
+                            status =
+                                if (isFinal) {
+                                    MessageStatus.COMPLETED
+                                } else {
+                                    MessageStatus.PENDING
+                                },
+                        )
+                } else {
+                    currentList +
+                        ChatMessage(
+                            text = text,
+                            senderType = senderType,
+                            status =
+                                if (isFinal) {
+                                    MessageStatus.COMPLETED
+                                } else {
+                                    MessageStatus.PENDING
+                                },
+                        )
+                }
+            }
         }
 
         private fun updateOrAddChildMessage(
@@ -196,84 +286,14 @@ class ConversationViewModel
             isFinal: Boolean,
         ) {
             _sttText.value = text
-            _messages.update { currentList ->
-                val lastMessage = currentList.lastOrNull()
-                if (lastMessage != null &&
-                    lastMessage.senderType == SenderType.CHILD &&
-                    lastMessage.status == MessageStatus.PENDING
-                ) {
-                    currentList.dropLast(1) +
-                        lastMessage.copy(
-                            text = text,
-                            status =
-                                if (isFinal) {
-                                    MessageStatus.COMPLETED
-                                } else {
-                                    MessageStatus.PENDING
-                                },
-                        )
-                } else {
-                    currentList +
-                        ChatMessage(
-                            text = text,
-                            senderType = SenderType.CHILD,
-                            status =
-                                if (isFinal) {
-                                    MessageStatus.COMPLETED
-                                } else {
-                                    MessageStatus.PENDING
-                                },
-                        )
-                }
-            }
-        }
-
-        private fun addOrUpdateParentMessage(
-            text: String,
-            isFinal: Boolean,
-        ) {
-            _messages.update { currentList ->
-                val lastMessage = currentList.lastOrNull()
-                if (lastMessage != null &&
-                    lastMessage.senderType == SenderType.PARENT &&
-                    lastMessage.status == MessageStatus.PENDING
-                ) {
-                    currentList.dropLast(1) +
-                        lastMessage.copy(
-                            text = text,
-                            status =
-                                if (isFinal) {
-                                    MessageStatus.COMPLETED
-                                } else {
-                                    MessageStatus.PENDING
-                                },
-                        )
-                } else {
-                    currentList +
-                        ChatMessage(
-                            text = text,
-                            senderType = SenderType.PARENT,
-                            status =
-                                if (isFinal) {
-                                    MessageStatus.COMPLETED
-                                } else {
-                                    MessageStatus.PENDING
-                                },
-                        )
-                }
-            }
-        }
-
-        private fun startListening() {
-            if (_sessionState.value == SessionState.Active) {
-                sttEngine.startListening()
-            }
+            addOrUpdateMessage(text, isFinal, SenderType.CHILD)
         }
 
         override fun onCleared() {
             super.onCleared()
-            audioPlayer.release()
-            sttEngine.release()
+            audioPlayer.stop()
+            ttsPlayer.stop()
+            sttEngine.stopListening()
         }
 
         fun onLandmarkFrame(frame: LandmarkFrameResult) {
