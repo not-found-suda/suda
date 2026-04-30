@@ -5,56 +5,39 @@ import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
 import com.ssafy.mobile.core.vision.landmark.LandmarkPoint
 import kotlin.math.sqrt
 
-class LandmarkFeatureEncoder {
+class LandmarkFeatureEncoder(
+    val isHandForwardFillEnabled: Boolean = true,
+) {
     private var previousPose: List<LandmarkPoint>? = null
     private var previousLeftHand: List<LandmarkPoint>? = null
     private var previousRightHand: List<LandmarkPoint>? = null
-    private var previousLips: List<LandmarkPoint>? = null
-    private var previousShoulderWidth: Float? = null
 
     fun encode(frame: LandmarkFrameResult): LandmarkFeatureFrame {
-        val pose =
-            fillLandmarks(
-                frame.pose.landmarks,
-                previousPose,
-                SignFeatureSpec.POSE_LANDMARK_COUNT,
-            )
-        val leftHand =
-            fillLandmarks(
-                frame.leftHand.landmarks,
-                previousLeftHand,
-                SignFeatureSpec.HAND_LANDMARK_COUNT,
-            )
-        val rightHand =
-            fillLandmarks(
-                frame.rightHand.landmarks,
-                previousRightHand,
-                SignFeatureSpec.HAND_LANDMARK_COUNT,
-            )
-        val lips =
-            fillLandmarks(
-                frame.lips.landmarks,
-                previousLips,
-                SignFeatureSpec.LIPS_LANDMARK_COUNT,
-            )
+        val poseSelection = selectPoseLandmarks(frame.pose.landmarks)
+        val pose = poseSelection.landmarks
+        if (poseSelection.isFromCurrentFrame) {
+            previousPose = pose
+        }
         val normalizer = createNormalizer(pose)
+        val rawLandmarks = createRawLandmarks(frame, pose)
         val values =
             FloatArray(SignModelContract.FEATURE_DIMENSION).also { output ->
-                var offset = 0
-                offset = writeLandmarks(output, offset, pose, normalizer)
-                offset = writeLandmarks(output, offset, leftHand, normalizer)
-                offset = writeLandmarks(output, offset, rightHand, normalizer)
-                writeLandmarks(output, offset, lips, normalizer)
+                writeNormalizedLandmarks(
+                    output = output,
+                    rawLandmarks = rawLandmarks,
+                    normalizer = normalizer,
+                )
             }
-
-        previousPose = pose
-        previousLeftHand = leftHand
-        previousRightHand = rightHand
-        previousLips = lips
 
         return LandmarkFeatureFrame(
             timestampMs = frame.timestampMs,
             values = values,
+            hasHands = frame.hasHands,
+            probe =
+                LandmarkFeatureProbe(
+                    raw = rawLandmarks.toProbePoints(),
+                    normalized = values.toProbePoints(),
+                ),
         )
     }
 
@@ -62,38 +45,43 @@ class LandmarkFeatureEncoder {
         previousPose = null
         previousLeftHand = null
         previousRightHand = null
-        previousLips = null
-        previousShoulderWidth = null
     }
 
-    private fun fillLandmarks(
-        current: List<LandmarkPoint>,
-        previous: List<LandmarkPoint>?,
-        requiredCount: Int,
-    ): List<LandmarkPoint> =
-        List(requiredCount) { index ->
-            current.getOrNull(index)
-                ?: previous?.getOrNull(index)
-                ?: ZERO_POINT
+    private fun selectPoseLandmarks(current: List<LandmarkPoint>): PoseSelection {
+        val selectedPose =
+            SignFeatureSpec.POSE_LANDMARK_INDICES.map { index ->
+                current.getOrNull(index)
+            }
+
+        return if (selectedPose.all { landmark -> landmark != null }) {
+            PoseSelection(
+                landmarks = selectedPose.filterNotNull(),
+                isFromCurrentFrame = true,
+            )
+        } else {
+            PoseSelection(
+                landmarks =
+                    previousPose ?: List(SignFeatureSpec.SELECTED_POSE_LANDMARK_COUNT) {
+                        ZERO_POINT
+                    },
+                isFromCurrentFrame = false,
+            )
         }
+    }
 
     private fun createNormalizer(pose: List<LandmarkPoint>): LandmarkNormalizer {
-        val leftShoulder = pose[SignFeatureSpec.LEFT_SHOULDER_INDEX]
-        val rightShoulder = pose[SignFeatureSpec.RIGHT_SHOULDER_INDEX]
+        val leftShoulder = pose[SignFeatureSpec.SELECTED_LEFT_SHOULDER_INDEX]
+        val rightShoulder = pose[SignFeatureSpec.SELECTED_RIGHT_SHOULDER_INDEX]
         val shoulderCenter =
             LandmarkPoint(
                 x = (leftShoulder.x + rightShoulder.x) / 2f,
                 y = (leftShoulder.y + rightShoulder.y) / 2f,
                 z = (leftShoulder.z + rightShoulder.z) / 2f,
             )
-        val shoulderWidth = leftShoulder.distance2dTo(rightShoulder)
+        val shoulderWidth = leftShoulder.distanceTo(rightShoulder)
         val scale =
             when {
-                shoulderWidth > MIN_SHOULDER_WIDTH ->
-                    shoulderWidth.also { width ->
-                        previousShoulderWidth = width
-                    }
-                previousShoulderWidth != null -> previousShoulderWidth
+                shoulderWidth >= MIN_SHOULDER_WIDTH -> shoulderWidth
                 else -> DEFAULT_SCALE
             }
 
@@ -103,21 +91,61 @@ class LandmarkFeatureEncoder {
         )
     }
 
-    private fun writeLandmarks(
-        output: FloatArray,
-        startOffset: Int,
+    private fun createRawLandmarks(
+        frame: LandmarkFrameResult,
+        pose: List<LandmarkPoint>,
+    ): List<LandmarkPoint> =
+        createHandLandmarks(
+            landmarks = frame.leftHand.landmarks,
+            previous = previousLeftHand,
+            updatePrevious = { previousLeftHand = it },
+        ) +
+            createHandLandmarks(
+                landmarks = frame.rightHand.landmarks,
+                previous = previousRightHand,
+                updatePrevious = { previousRightHand = it },
+            ) +
+            pose
+
+    private fun createHandLandmarks(
         landmarks: List<LandmarkPoint>,
+        previous: List<LandmarkPoint>?,
+        updatePrevious: (List<LandmarkPoint>) -> Unit,
+    ): List<LandmarkPoint> {
+        if (landmarks.isEmpty()) {
+            return if (isHandForwardFillEnabled) {
+                previous ?: createZeroHandLandmarks()
+            } else {
+                createZeroHandLandmarks()
+            }
+        }
+
+        return List(SignFeatureSpec.HAND_LANDMARK_COUNT) { index ->
+            landmarks.getOrNull(index) ?: ZERO_POINT
+        }.also(updatePrevious)
+    }
+
+    private fun createZeroHandLandmarks(): List<LandmarkPoint> =
+        List(SignFeatureSpec.HAND_LANDMARK_COUNT) { ZERO_POINT }
+
+    private fun writeNormalizedLandmarks(
+        output: FloatArray,
+        rawLandmarks: List<LandmarkPoint>,
         normalizer: LandmarkNormalizer,
-    ): Int {
-        var offset = startOffset
-        landmarks.forEach { landmark ->
+    ) {
+        var offset = 0
+        rawLandmarks.forEach { landmark ->
             val normalized = normalizer.normalize(landmark)
             output[offset++] = normalized.x
             output[offset++] = normalized.y
             output[offset++] = normalized.z
         }
-        return offset
     }
+
+    private data class PoseSelection(
+        val landmarks: List<LandmarkPoint>,
+        val isFromCurrentFrame: Boolean,
+    )
 
     private data class LandmarkNormalizer(
         val center: LandmarkPoint,
@@ -131,14 +159,15 @@ class LandmarkFeatureEncoder {
             )
     }
 
-    private fun LandmarkPoint.distance2dTo(other: LandmarkPoint): Float {
+    private fun LandmarkPoint.distanceTo(other: LandmarkPoint): Float {
         val dx = x - other.x
         val dy = y - other.y
-        return sqrt(dx * dx + dy * dy)
+        val dz = z - other.z
+        return sqrt(dx * dx + dy * dy + dz * dz)
     }
 
     private companion object {
-        const val MIN_SHOULDER_WIDTH = 0.0001f
+        const val MIN_SHOULDER_WIDTH = 0.000001f
         const val DEFAULT_SCALE = 1f
         val ZERO_POINT = LandmarkPoint(0f, 0f, 0f)
     }
@@ -147,6 +176,8 @@ class LandmarkFeatureEncoder {
 class LandmarkFeatureFrame(
     val timestampMs: Long,
     val values: FloatArray,
+    val hasHands: Boolean = true,
+    val probe: LandmarkFeatureProbe = LandmarkFeatureProbe.empty(),
 ) {
     init {
         require(values.size == SignModelContract.FEATURE_DIMENSION) {
@@ -155,15 +186,92 @@ class LandmarkFeatureFrame(
     }
 }
 
+data class LandmarkFeatureProbe(
+    val raw: LandmarkFeatureProbePoints,
+    val normalized: LandmarkFeatureProbePoints,
+) {
+    companion object {
+        fun empty(): LandmarkFeatureProbe =
+            LandmarkFeatureProbe(
+                raw = LandmarkFeatureProbePoints.empty(),
+                normalized = LandmarkFeatureProbePoints.empty(),
+            )
+    }
+}
+
+data class LandmarkFeatureProbePoints(
+    val leftHandWrist: LandmarkPoint,
+    val rightHandWrist: LandmarkPoint,
+    val nose: LandmarkPoint,
+    val leftShoulder: LandmarkPoint,
+    val rightShoulder: LandmarkPoint,
+) {
+    companion object {
+        fun empty(): LandmarkFeatureProbePoints =
+            LandmarkFeatureProbePoints(
+                leftHandWrist = EMPTY_POINT,
+                rightHandWrist = EMPTY_POINT,
+                nose = EMPTY_POINT,
+                leftShoulder = EMPTY_POINT,
+                rightShoulder = EMPTY_POINT,
+            )
+
+        private val EMPTY_POINT = LandmarkPoint(0f, 0f, 0f)
+    }
+}
+
 object SignFeatureSpec {
-    const val POSE_LANDMARK_COUNT = 33
     const val HAND_LANDMARK_COUNT = 21
-    const val LIPS_LANDMARK_COUNT = 40
+    const val SELECTED_POSE_LANDMARK_COUNT = 5
     const val COORDINATE_SIZE = 3
+    const val NOSE_INDEX = 0
     const val LEFT_SHOULDER_INDEX = 11
     const val RIGHT_SHOULDER_INDEX = 12
-    const val POSE_OFFSET = 0
-    const val LEFT_HAND_OFFSET = POSE_LANDMARK_COUNT * COORDINATE_SIZE
+    const val LEFT_ELBOW_INDEX = 13
+    const val RIGHT_ELBOW_INDEX = 14
+    const val SELECTED_LEFT_SHOULDER_INDEX = 1
+    const val SELECTED_RIGHT_SHOULDER_INDEX = 2
+    const val LEFT_HAND_OFFSET = 0
     const val RIGHT_HAND_OFFSET = LEFT_HAND_OFFSET + HAND_LANDMARK_COUNT * COORDINATE_SIZE
-    const val LIPS_OFFSET = RIGHT_HAND_OFFSET + HAND_LANDMARK_COUNT * COORDINATE_SIZE
+    const val POSE_OFFSET = RIGHT_HAND_OFFSET + HAND_LANDMARK_COUNT * COORDINATE_SIZE
+    const val PROBE_LEFT_HAND_WRIST_INDEX = 0
+    const val PROBE_RIGHT_HAND_WRIST_INDEX = 21
+    const val PROBE_NOSE_INDEX = 42
+    const val PROBE_LEFT_SHOULDER_INDEX = 43
+    const val PROBE_RIGHT_SHOULDER_INDEX = 44
+    val POSE_LANDMARK_INDICES =
+        listOf(
+            NOSE_INDEX,
+            LEFT_SHOULDER_INDEX,
+            RIGHT_SHOULDER_INDEX,
+            LEFT_ELBOW_INDEX,
+            RIGHT_ELBOW_INDEX,
+        )
+}
+
+private fun List<LandmarkPoint>.toProbePoints(): LandmarkFeatureProbePoints =
+    LandmarkFeatureProbePoints(
+        leftHandWrist = this[SignFeatureSpec.PROBE_LEFT_HAND_WRIST_INDEX],
+        rightHandWrist = this[SignFeatureSpec.PROBE_RIGHT_HAND_WRIST_INDEX],
+        nose = this[SignFeatureSpec.PROBE_NOSE_INDEX],
+        leftShoulder = this[SignFeatureSpec.PROBE_LEFT_SHOULDER_INDEX],
+        rightShoulder = this[SignFeatureSpec.PROBE_RIGHT_SHOULDER_INDEX],
+    )
+
+private fun FloatArray.toProbePoints(): LandmarkFeatureProbePoints =
+    LandmarkFeatureProbePoints(
+        leftHandWrist = toPoint(SignFeatureSpec.PROBE_LEFT_HAND_WRIST_INDEX),
+        rightHandWrist = toPoint(SignFeatureSpec.PROBE_RIGHT_HAND_WRIST_INDEX),
+        nose = toPoint(SignFeatureSpec.PROBE_NOSE_INDEX),
+        leftShoulder = toPoint(SignFeatureSpec.PROBE_LEFT_SHOULDER_INDEX),
+        rightShoulder = toPoint(SignFeatureSpec.PROBE_RIGHT_SHOULDER_INDEX),
+    )
+
+private fun FloatArray.toPoint(pointIndex: Int): LandmarkPoint {
+    val offset = pointIndex * SignFeatureSpec.COORDINATE_SIZE
+    return LandmarkPoint(
+        x = this[offset],
+        y = this[offset + 1],
+        z = this[offset + 2],
+    )
 }

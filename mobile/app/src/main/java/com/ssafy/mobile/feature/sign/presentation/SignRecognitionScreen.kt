@@ -20,15 +20,18 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.common.util.concurrent.ListenableFuture
+import com.ssafy.mobile.BuildConfig
 import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
 import com.ssafy.mobile.core.vision.landmark.MediaPipeHolisticLandmarkExtractor
 import java.util.Locale
@@ -37,8 +40,11 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.delay
 
-private const val DEBUG_OVERLAY_ALPHA = 0.55f
+private const val DEBUG_OVERLAY_BACKGROUND_ALPHA = 0.72f
 private const val FPS_SAMPLE_INTERVAL_MILLIS = 1_000L
+private const val FRONT_CAMERA_PREVIEW_IS_MIRRORED = true
+private val DEBUG_OVERLAY_BACKGROUND = Color.Black.copy(alpha = DEBUG_OVERLAY_BACKGROUND_ALPHA)
+private val DEBUG_OVERLAY_TEXT_COLOR = Color.White
 
 @Composable
 fun SignRecognitionScreen(
@@ -84,15 +90,73 @@ private fun CameraPreviewContent(
     var cameraErrorMessage by remember { mutableStateOf<String?>(null) }
     var frameCount by remember { mutableStateOf(0L) }
     var fps by remember { mutableStateOf(0.0) }
+    var latestLandmarkFrame by remember { mutableStateOf<LandmarkFrameResult?>(null) }
+    var latestAnalysisImageSize by remember { mutableStateOf(IntSize.Zero) }
 
     DisposableEffect(landmarkExtractor) {
         onDispose { landmarkExtractor.close() }
     }
 
+    LaunchedEffect(isSessionActive) {
+        if (!isSessionActive) {
+            latestLandmarkFrame = null
+            latestAnalysisImageSize = IntSize.Zero
+        }
+    }
+
+    FrameAnalysisStatsEffect(
+        analyzedFrameCount = analyzedFrameCount,
+        isSessionActive = isSessionActive,
+        onStatsChanged = { currentFrameCount, currentFps ->
+            frameCount = currentFrameCount
+            fps = currentFps
+        },
+    )
+
+    if (isSessionActive) {
+        ActiveCameraBinding(
+            lifecycleOwner = lifecycleOwner,
+            previewView = previewView,
+            cameraProviderFuture = cameraProviderFuture,
+            orientation = configuration.orientation,
+            onFrameAvailable = { frame ->
+                analyzedFrameCount.incrementAndGet()
+                val landmarkFrame =
+                    landmarkExtractor.detect(
+                        bitmap = frame.bitmap,
+                        timestampMs = frame.timestampMs,
+                    )
+                previewView.post {
+                    latestLandmarkFrame = landmarkFrame
+                    latestAnalysisImageSize = IntSize(frame.bitmap.width, frame.bitmap.height)
+                }
+                currentOnLandmarkFrameAvailable(landmarkFrame)
+                currentOnFrameAvailable(frame)
+            },
+            onCameraErrorChanged = { message -> cameraErrorMessage = message },
+        )
+    }
+
+    CameraPreviewBox(
+        previewView = previewView,
+        cameraErrorMessage = cameraErrorMessage,
+        frameCount = frameCount,
+        fps = fps,
+        landmarkFrame = latestLandmarkFrame,
+        analysisImageSize = latestAnalysisImageSize,
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun FrameAnalysisStatsEffect(
+    analyzedFrameCount: AtomicLong,
+    isSessionActive: Boolean,
+    onStatsChanged: (Long, Double) -> Unit,
+) {
     LaunchedEffect(analyzedFrameCount, isSessionActive) {
         if (!isSessionActive) {
-            frameCount = 0L
-            fps = 0.0
+            onStatsChanged(0L, 0.0)
             return@LaunchedEffect
         }
 
@@ -109,41 +173,12 @@ private fun CameraPreviewContent(
                 elapsedMillis.coerceAtLeast(1L) /
                     FPS_SAMPLE_INTERVAL_MILLIS.toDouble()
 
-            frameCount = currentFrameCount
-            fps = framesSincePrevious / elapsedSeconds
+            onStatsChanged(currentFrameCount, framesSincePrevious / elapsedSeconds)
 
             previousFrameCount = currentFrameCount
             previousSampleTimeMillis = currentSampleTimeMillis
         }
     }
-
-    if (isSessionActive) {
-        ActiveCameraBinding(
-            lifecycleOwner = lifecycleOwner,
-            previewView = previewView,
-            cameraProviderFuture = cameraProviderFuture,
-            orientation = configuration.orientation,
-            onFrameAvailable = { frame ->
-                analyzedFrameCount.incrementAndGet()
-                val landmarkFrame =
-                    landmarkExtractor.detect(
-                        bitmap = frame.bitmap,
-                        timestampMs = frame.timestampMs,
-                    )
-                currentOnLandmarkFrameAvailable(landmarkFrame)
-                currentOnFrameAvailable(frame)
-            },
-            onCameraErrorChanged = { message -> cameraErrorMessage = message },
-        )
-    }
-
-    CameraPreviewBox(
-        previewView = previewView,
-        cameraErrorMessage = cameraErrorMessage,
-        frameCount = frameCount,
-        fps = fps,
-        modifier = modifier,
-    )
 }
 
 @Composable
@@ -228,6 +263,8 @@ private fun CameraPreviewBox(
     cameraErrorMessage: String?,
     frameCount: Long,
     fps: Double,
+    landmarkFrame: LandmarkFrameResult?,
+    analysisImageSize: IntSize,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
@@ -236,9 +273,19 @@ private fun CameraPreviewBox(
             modifier = Modifier.fillMaxSize(),
         )
 
+        if (BuildConfig.DEBUG) {
+            LandmarkDebugOverlay(
+                frame = landmarkFrame,
+                analysisImageSize = analysisImageSize,
+                mirrorHorizontally = FRONT_CAMERA_PREVIEW_IS_MIRRORED,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
         FrameAnalysisDebugOverlay(
             frameCount = frameCount,
             fps = fps,
+            landmarkFrame = landmarkFrame,
             modifier =
                 Modifier
                     .align(Alignment.TopStart)
@@ -264,17 +311,30 @@ private fun CameraPreviewBox(
 private fun FrameAnalysisDebugOverlay(
     frameCount: Long,
     fps: Double,
+    landmarkFrame: LandmarkFrameResult?,
     modifier: Modifier = Modifier,
 ) {
+    val landmarkSummary =
+        landmarkFrame
+            ?.let { frame ->
+                "\nPose: ${frame.pose.landmarks.size}" +
+                    "  L: ${frame.leftHand.landmarks.size}" +
+                    "  R: ${frame.rightHand.landmarks.size}" +
+                    "  Lips: ${frame.lips.landmarks.size}"
+            }.orEmpty()
+
     Surface(
         modifier = modifier,
         shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.scrim.copy(alpha = DEBUG_OVERLAY_ALPHA),
+        color = DEBUG_OVERLAY_BACKGROUND,
     ) {
         Text(
-            text = "Frames: $frameCount\nFPS: ${String.format(Locale.US, "%.1f", fps)}",
+            text =
+                "Frames: $frameCount\n" +
+                    "FPS: ${String.format(Locale.US, "%.1f", fps)}" +
+                    landmarkSummary,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            color = MaterialTheme.colorScheme.onPrimary,
+            color = DEBUG_OVERLAY_TEXT_COLOR,
             style = MaterialTheme.typography.labelMedium,
         )
     }

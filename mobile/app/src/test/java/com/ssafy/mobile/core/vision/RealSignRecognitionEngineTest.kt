@@ -76,10 +76,10 @@ class RealSignRecognitionEngineTest {
 
             yield()
             engine.start()
-            engine.onLandmarkFrame(createFrame(timestampMs = 1L))
-            engine.onLandmarkFrame(createFrame(timestampMs = 2L))
-            engine.onLandmarkFrame(createFrame(timestampMs = 3L))
-            engine.onLandmarkFrame(createFrame(timestampMs = 4L))
+            engine.submitFrame(createFrame(timestampMs = 1L))
+            engine.submitFrame(createFrame(timestampMs = 2L))
+            engine.submitFrame(createFrame(timestampMs = 3L))
+            engine.submitFrame(createFrame(timestampMs = 4L))
 
             val prediction = predictionDeferred.await()
             assertEquals(TEST_GLOSS, prediction.gloss)
@@ -93,7 +93,7 @@ class RealSignRecognitionEngineTest {
             val inferenceAdapter = RecordingInferenceAdapter()
             val engine = createEngine(inferenceAdapter = inferenceAdapter)
 
-            engine.onLandmarkFrame(createFrame(timestampMs = 1L))
+            engine.submitFrame(createFrame(timestampMs = 1L))
 
             assertEquals(0, inferenceAdapter.predictCallCount)
         }
@@ -112,10 +112,10 @@ class RealSignRecognitionEngineTest {
 
             yield()
             engine.start()
-            engine.onLandmarkFrame(createFrame(timestampMs = 1L))
+            engine.submitFrame(createFrame(timestampMs = 1L))
             engine.stop()
             engine.start()
-            engine.onLandmarkFrame(createFrame(timestampMs = 2L))
+            engine.submitFrame(createFrame(timestampMs = 2L))
 
             assertEquals(SignRecognitionEvent.Stopped, stoppedDeferred.await())
             assertEquals(0, inferenceAdapter.predictCallCount)
@@ -140,8 +140,8 @@ class RealSignRecognitionEngineTest {
 
             yield()
             engine.start()
-            engine.onLandmarkFrame(createFrame(timestampMs = 1L))
-            engine.onLandmarkFrame(createFrame(timestampMs = 2L))
+            engine.submitFrame(createFrame(timestampMs = 1L))
+            engine.submitFrame(createFrame(timestampMs = 2L))
 
             val error = errorDeferred.await()
             assertTrue(error.cause is IllegalStateException)
@@ -162,24 +162,29 @@ class RealSignRecognitionEngineTest {
 
             yield()
             engine.start()
-            engine.onLandmarkFrame(createNoHandsFrame(timestampMs = 0L))
-            engine.onLandmarkFrame(createNoHandsFrame(timestampMs = NO_HANDS_DELAY_MS))
+            engine.submitFrame(createFrame(timestampMs = 0L))
+            engine.submitFrame(createNoHandsFrame(timestampMs = 0L))
+            engine.submitFrame(createNoHandsFrame(timestampMs = NO_HANDS_DELAY_MS))
 
             assertEquals(SignRecognitionEvent.NoHandsDetected, noHandsDeferred.await())
         }
 
     @Test
-    fun clearsSequenceWhenHandsAreMissing() =
+    fun keepsNoHandsFramesInSequenceUntilResetDelay() =
         runBlocking {
             val inferenceAdapter = RecordingInferenceAdapter()
             val engine = createEngine(inferenceAdapter = inferenceAdapter)
 
             engine.start()
-            engine.onLandmarkFrame(createFrame(timestampMs = 1L))
-            engine.onLandmarkFrame(createNoHandsFrame(timestampMs = 2L))
-            engine.onLandmarkFrame(createFrame(timestampMs = 3L))
+            engine.submitFrame(createFrame(timestampMs = 1L))
+            engine.submitFrame(createNoHandsFrame(timestampMs = 2L))
 
-            assertEquals(0, inferenceAdapter.predictCallCount)
+            assertEquals(1, inferenceAdapter.predictCallCount)
+
+            engine.submitFrame(createNoHandsFrame(timestampMs = 2L + NO_HANDS_DELAY_MS))
+            engine.submitFrame(createFrame(timestampMs = 3L + NO_HANDS_DELAY_MS))
+
+            assertEquals(1, inferenceAdapter.predictCallCount)
         }
 
     @Test
@@ -199,7 +204,8 @@ class RealSignRecognitionEngineTest {
             yield()
             engine.start()
             repeatStablePredictionFrames(startTimestampMs = 1L, engine = engine)
-            engine.onLandmarkFrame(createNoHandsFrame(timestampMs = 10L))
+            engine.submitFrame(createNoHandsFrame(timestampMs = 10L))
+            engine.submitFrame(createNoHandsFrame(timestampMs = 10L + NO_HANDS_DELAY_MS))
             repeatStablePredictionFrames(startTimestampMs = 20L, engine = engine)
 
             val predictions = predictionsDeferred.await()
@@ -217,6 +223,11 @@ class RealSignRecognitionEngineTest {
             noHandsDetectionTracker =
                 NoHandsDetectionTracker(
                     detectionDelayMs = NO_HANDS_DELAY_MS,
+                ),
+            logger =
+                SignPipelineLogger(
+                    log = {},
+                    elapsedRealtime = { 0L },
                 ),
             predictionStabilizer =
                 SignPredictionStabilizer(
@@ -265,7 +276,7 @@ class RealSignRecognitionEngineTest {
             lips =
                 LandmarkGroup(
                     type = LandmarkGroupType.LIPS,
-                    landmarks = createLandmarks(SignFeatureSpec.LIPS_LANDMARK_COUNT),
+                    landmarks = emptyList(),
                 ),
         )
 
@@ -274,7 +285,7 @@ class RealSignRecognitionEngineTest {
         engine: RealSignRecognitionEngine,
     ) {
         repeat(TEST_SEQUENCE_LENGTH + TEST_REQUIRED_VOTES - 1) { index ->
-            engine.onLandmarkFrame(createFrame(timestampMs = startTimestampMs + index))
+            engine.submitFrame(createFrame(timestampMs = startTimestampMs + index))
         }
     }
 
@@ -291,12 +302,12 @@ class RealSignRecognitionEngineTest {
             lips =
                 LandmarkGroup(
                     type = LandmarkGroupType.LIPS,
-                    landmarks = createLandmarks(SignFeatureSpec.LIPS_LANDMARK_COUNT),
+                    landmarks = emptyList(),
                 ),
         )
 
     private fun createPoseLandmarks(): List<LandmarkPoint> =
-        createLandmarks(SignFeatureSpec.POSE_LANDMARK_COUNT).toMutableList().also { landmarks ->
+        createLandmarks(FULL_POSE_LANDMARK_COUNT).toMutableList().also { landmarks ->
             landmarks[SignFeatureSpec.LEFT_SHOULDER_INDEX] = LandmarkPoint(0f, 0f, 0f)
             landmarks[SignFeatureSpec.RIGHT_SHOULDER_INDEX] = LandmarkPoint(1f, 0f, 0f)
         }
@@ -318,6 +329,7 @@ class RealSignRecognitionEngineTest {
         const val TEST_PREDICTION_WINDOW_SIZE = 5
         const val TEST_REQUIRED_VOTES = 3
         const val NO_HANDS_DELAY_MS = 1_000L
+        const val FULL_POSE_LANDMARK_COUNT = 33
         const val FLOAT_DELTA = 0.0001f
         const val TIMEOUT_MS = 1_000L
     }

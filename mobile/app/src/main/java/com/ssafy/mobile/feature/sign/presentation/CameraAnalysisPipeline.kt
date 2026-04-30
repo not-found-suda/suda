@@ -47,18 +47,18 @@ internal fun bindCameraUseCases(
 ): ImageAnalysis {
     val targetRotation = previewView.display?.rotation ?: Surface.ROTATION_0
     val previewUseCase = createPreviewUseCase(previewView, targetRotation)
+    val cameraConfig = selectCamera(cameraProvider)
     val analysisUseCase =
         createImageAnalysisUseCase(
             analyzerExecutor = analyzerExecutor,
             targetRotation = targetRotation,
             onFrameAvailable = onFrameAvailable,
         )
-    val cameraSelector = selectCamera(cameraProvider)
 
     cameraProvider.unbindAll()
     cameraProvider.bindToLifecycle(
         lifecycleOwner,
-        cameraSelector,
+        cameraConfig.selector,
         previewUseCase,
         analysisUseCase,
     )
@@ -90,17 +90,30 @@ private fun createImageAnalysisUseCase(
         .setTargetRotation(targetRotation)
         .build()
         .also { analysis ->
-            analysis.setAnalyzer(analyzerExecutor, SignFrameAnalyzer(onFrameAvailable))
+            analysis.setAnalyzer(
+                analyzerExecutor,
+                SignFrameAnalyzer(
+                    onFrameAvailable = onFrameAvailable,
+                ),
+            )
         }
 
-private fun selectCamera(cameraProvider: ProcessCameraProvider): CameraSelector =
+private fun selectCamera(cameraProvider: ProcessCameraProvider): CameraAnalysisConfig =
     when {
         cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) ->
-            CameraSelector.DEFAULT_FRONT_CAMERA
+            CameraAnalysisConfig(
+                selector = CameraSelector.DEFAULT_FRONT_CAMERA,
+            )
         cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) ->
-            CameraSelector.DEFAULT_BACK_CAMERA
+            CameraAnalysisConfig(
+                selector = CameraSelector.DEFAULT_BACK_CAMERA,
+            )
         else -> error("No available camera")
     }
+
+private data class CameraAnalysisConfig(
+    val selector: CameraSelector,
+)
 
 private class SignFrameAnalyzer(
     private val onFrameAvailable: (YuvAnalysisFrame) -> Unit,
@@ -125,14 +138,12 @@ private fun ImageProxy.toYuvAnalysisFrame(): YuvAnalysisFrame =
         planes =
             planes.map { plane ->
                 YuvPlane(
-                    buffer = plane.buffer.asAnalyzerReadOnlyBuffer(),
+                    buffer = plane.buffer.asReadOnlyBuffer(),
                     rowStride = plane.rowStride,
                     pixelStride = plane.pixelStride,
                 )
             },
     )
-
-private fun ByteBuffer.asAnalyzerReadOnlyBuffer(): ByteBuffer = asReadOnlyBuffer()
 
 private fun ImageProxy.toUprightBitmap(): Bitmap {
     val nv21 = toNv21()

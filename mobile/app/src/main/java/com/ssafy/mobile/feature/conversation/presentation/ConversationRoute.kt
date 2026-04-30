@@ -17,12 +17,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,7 +54,7 @@ data class ConversationUiState(
 )
 
 @Composable
-fun ConversationRoute(
+fun conversationRoute(
     modifier: Modifier = Modifier,
     viewModel: ConversationViewModel = hiltViewModel(),
 ) {
@@ -62,7 +64,7 @@ fun ConversationRoute(
     val lastGlosses by viewModel.lastGlosses.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    // 세션 활성화 중에는 화면이 꺼지지 않도록 설정
+    // 세션 활성화 중에는 화면이 꺼지지 않도록 설정합니다.
     DisposableEffect(sessionState) {
         val activity = context.findActivity()
         val window = activity?.window
@@ -193,6 +195,14 @@ private fun SignRecognitionArea(
 
 @Composable
 private fun GlossRecognitionArea(lastGlosses: List<String>) {
+    val glossListState = rememberLazyListState()
+
+    LaunchedEffect(lastGlosses.size) {
+        if (lastGlosses.isNotEmpty()) {
+            glossListState.animateScrollToItem(lastGlosses.lastIndex)
+        }
+    }
+
     Box(
         modifier =
             Modifier
@@ -211,6 +221,7 @@ private fun GlossRecognitionArea(lastGlosses: List<String>) {
             )
         } else {
             LazyRow(
+                state = glossListState,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(lastGlosses) { gloss ->

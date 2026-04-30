@@ -1,6 +1,7 @@
 package com.ssafy.mobile.core.vision.inference
 
 import android.content.Context
+import android.util.Log
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import org.tensorflow.lite.Interpreter
@@ -21,6 +22,10 @@ class TfliteSignModelLoader(
                 readDirectAssetBuffer(modelAssetPath),
                 options,
             )
+        Log.d(
+            TAG,
+            "TFLite sign model loaded. model=$modelAssetPath, labelMap=$labelMapAssetPath",
+        )
         return TfliteSignModel(
             interpreter = interpreter,
             labelMap = labelMap,
@@ -47,6 +52,7 @@ class TfliteSignModelLoader(
             .use { reader -> reader.readText() }
 
     private companion object {
+        const val TAG = "SignPipeline"
         const val DEFAULT_THREAD_COUNT = 2
     }
 }

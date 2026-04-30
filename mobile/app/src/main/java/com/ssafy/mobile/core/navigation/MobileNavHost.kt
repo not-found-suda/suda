@@ -6,7 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import com.ssafy.mobile.feature.conversation.presentation.ConversationRoute
+import com.ssafy.mobile.feature.conversation.presentation.conversationRoute
 import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
 
 @Composable
@@ -21,7 +21,7 @@ fun MobileNavHost(
         modifier = modifier,
     ) {
         composable(Screen.Conversation.route) {
-            ConversationRoute(modifier = Modifier.fillMaxSize())
+            conversationRoute(modifier = Modifier.fillMaxSize())
         }
 
         composable(Screen.Sign.route) {

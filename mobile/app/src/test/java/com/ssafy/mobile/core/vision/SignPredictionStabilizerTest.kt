@@ -7,14 +7,14 @@ import org.junit.Test
 
 class SignPredictionStabilizerTest {
     @Test
-    fun ignoresLowConfidencePrediction() {
+    fun treatsLowConfidencePredictionAsNone() {
         val stabilizer = createStabilizer()
 
         assertNull(stabilizer.onPrediction(createPrediction(confidence = LOW_CONFIDENCE)))
     }
 
     @Test
-    fun ignoresNoneOrUnknownPrediction() {
+    fun treatsNoneOrUnknownPredictionAsNone() {
         val stabilizer = createStabilizer()
 
         assertNull(stabilizer.onPrediction(createPrediction(gloss = "none")))
@@ -22,14 +22,14 @@ class SignPredictionStabilizerTest {
     }
 
     @Test
-    fun emitsStablePredictionWhenRequiredVotesAreSatisfied() {
+    fun waitsForRequiredVotesBeforeEmittingCurrentModePrediction() {
         val stabilizer = createStabilizer()
 
-        assertNull(stabilizer.onPrediction(createPrediction(gloss = "엄마")))
-        assertNull(stabilizer.onPrediction(createPrediction(gloss = "아빠")))
-        val stablePrediction = stabilizer.onPrediction(createPrediction(gloss = "엄마"))
+        assertNull(stabilizer.onPrediction(createPrediction(gloss = TEST_GLOSS)))
+        assertNull(stabilizer.onPrediction(createPrediction(gloss = TEST_GLOSS)))
+        val stablePrediction = stabilizer.onPrediction(createPrediction(gloss = TEST_GLOSS))
 
-        assertEquals("엄마", stablePrediction?.gloss)
+        assertEquals(TEST_GLOSS, stablePrediction?.gloss)
         assertEquals(DEFAULT_CONFIDENCE, stablePrediction?.confidence ?: 0f, FLOAT_DELTA)
     }
 
@@ -37,27 +37,55 @@ class SignPredictionStabilizerTest {
     fun suppressesRepeatedSameGloss() {
         val stabilizer = createStabilizer()
 
-        stabilizer.onPrediction(createPrediction(gloss = "엄마"))
-        stabilizer.onPrediction(createPrediction(gloss = "아빠"))
-        stabilizer.onPrediction(createPrediction(gloss = "엄마"))
-        stabilizer.onPrediction(createPrediction(gloss = "엄마"))
+        repeat(REQUIRED_VOTES) {
+            stabilizer.onPrediction(createPrediction(gloss = TEST_GLOSS))
+        }
 
-        assertNull(stabilizer.onPrediction(createPrediction(gloss = "엄마")))
+        assertNull(stabilizer.onPrediction(createPrediction(gloss = TEST_GLOSS)))
+    }
+
+    @Test
+    fun suppressesDifferentGlossDuringEmitCooldown() {
+        val stabilizer =
+            SignPredictionStabilizer(
+                confidenceThreshold = CONFIDENCE_THRESHOLD,
+                windowSize = WINDOW_SIZE,
+                requiredVotes = REQUIRED_VOTES,
+                emitCooldownMs = EMIT_COOLDOWN_MS,
+            )
+
+        repeat(REQUIRED_VOTES) { index ->
+            stabilizer.onPrediction(
+                result = createPrediction(gloss = TEST_GLOSS),
+                timestampMs = index.toLong(),
+            )
+        }
+
+        repeat(REQUIRED_VOTES) { index ->
+            val stablePrediction =
+                stabilizer.onPrediction(
+                    result = createPrediction(gloss = OTHER_GLOSS),
+                    timestampMs = REQUIRED_VOTES + index.toLong(),
+                )
+            assertNull(stablePrediction)
+        }
     }
 
     @Test
     fun allowsSameGlossAfterReset() {
         val stabilizer = createStabilizer()
 
-        stabilizer.onPrediction(createPrediction(gloss = "엄마"))
-        stabilizer.onPrediction(createPrediction(gloss = "아빠"))
-        stabilizer.onPrediction(createPrediction(gloss = "엄마"))
+        repeat(REQUIRED_VOTES) {
+            stabilizer.onPrediction(createPrediction(gloss = TEST_GLOSS))
+        }
         stabilizer.reset()
-        stabilizer.onPrediction(createPrediction(gloss = "엄마"))
-        stabilizer.onPrediction(createPrediction(gloss = "아빠"))
-        val stablePrediction = stabilizer.onPrediction(createPrediction(gloss = "엄마"))
+        repeat(REQUIRED_VOTES - 1) {
+            stabilizer.onPrediction(createPrediction(gloss = TEST_GLOSS))
+        }
+        val stablePrediction =
+            stabilizer.onPrediction(createPrediction(gloss = TEST_GLOSS))
 
-        assertEquals("엄마", stablePrediction?.gloss)
+        assertEquals(TEST_GLOSS, stablePrediction?.gloss)
     }
 
     private fun createStabilizer(): SignPredictionStabilizer =
@@ -68,7 +96,7 @@ class SignPredictionStabilizerTest {
         )
 
     private fun createPrediction(
-        gloss: String = "엄마",
+        gloss: String = TEST_GLOSS,
         confidence: Float = DEFAULT_CONFIDENCE,
     ): SignInferenceResult =
         SignInferenceResult(
@@ -77,11 +105,14 @@ class SignPredictionStabilizerTest {
         )
 
     private companion object {
-        const val CONFIDENCE_THRESHOLD = 0.85f
+        const val TEST_GLOSS = "mom"
+        const val OTHER_GLOSS = "dad"
+        const val CONFIDENCE_THRESHOLD = 0.8f
         const val DEFAULT_CONFIDENCE = 0.9f
-        const val LOW_CONFIDENCE = 0.84f
+        const val LOW_CONFIDENCE = 0.79f
         const val FLOAT_DELTA = 0.0001f
         const val WINDOW_SIZE = 5
-        const val REQUIRED_VOTES = 2
+        const val REQUIRED_VOTES = 3
+        const val EMIT_COOLDOWN_MS = 1_000L
     }
 }

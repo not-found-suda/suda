@@ -2,6 +2,7 @@ package com.ssafy.mobile.core.vision.landmark
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.util.Log
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import com.google.mediapipe.tasks.core.BaseOptions
@@ -54,8 +55,14 @@ class MediaPipeHolisticLandmarkExtractor private constructor(
             val appContext = context.applicationContext
             val landmarker =
                 if (appContext.hasAsset(MODEL_ASSET_PATH)) {
-                    runCatching { createLandmarker(appContext) }.getOrNull()
+                    runCatching { createLandmarker(appContext) }
+                        .onSuccess {
+                            Log.d(TAG, "MediaPipe holistic landmarker loaded.")
+                        }.onFailure { throwable ->
+                            Log.e(TAG, "MediaPipe holistic landmarker load failed.", throwable)
+                        }.getOrNull()
                 } else {
+                    Log.w(TAG, "MediaPipe holistic landmarker asset is missing.")
                     null
                 }
 
@@ -77,6 +84,8 @@ class MediaPipeHolisticLandmarkExtractor private constructor(
 
             return HolisticLandmarker.createFromOptions(context, options)
         }
+
+        private const val TAG = "SignPipeline"
     }
 }
 

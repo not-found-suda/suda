@@ -8,46 +8,69 @@ class SignPredictionStabilizer(
     private val confidenceThreshold: Float = SignModelContract.CONFIDENCE_THRESHOLD,
     private val windowSize: Int = DEFAULT_WINDOW_SIZE,
     private val requiredVotes: Int = DEFAULT_REQUIRED_VOTES,
+    private val emitCooldownMs: Long = DEFAULT_EMIT_COOLDOWN_MS,
     private val ignoredGlosses: Set<String> = DEFAULT_IGNORED_GLOSSES,
 ) {
     private val recentPredictions = ArrayDeque<SignInferenceResult>(windowSize)
     private var lastEmittedGloss: String? = null
+    private var lastEmittedAtMs: Long? = null
 
     init {
         require(confidenceThreshold in MIN_CONFIDENCE..MAX_CONFIDENCE) {
-            "신뢰도 기준값은 $MIN_CONFIDENCE 이상 $MAX_CONFIDENCE 이하이어야 합니다."
+            "Confidence threshold must be between $MIN_CONFIDENCE and $MAX_CONFIDENCE."
         }
         require(windowSize > 0) {
-            "예측 결과 window 크기는 1 이상이어야 합니다."
+            "Prediction window size must be greater than 0."
         }
         require(requiredVotes in 1..windowSize) {
-            "확정에 필요한 vote 수는 1 이상 window 크기 이하이어야 합니다."
+            "Required votes must be between 1 and the prediction window size."
+        }
+        require(emitCooldownMs >= 0L) {
+            "Prediction emit cooldown must be 0 or greater."
         }
     }
 
-    fun onPrediction(result: SignInferenceResult): StableSignPrediction? {
-        var stablePrediction: StableSignPrediction? = null
-        if (isUsable(result)) {
-            addPrediction(result)
-            val candidate = findStableCandidate()
-            if (candidate != null && candidate.gloss != lastEmittedGloss) {
-                recentPredictions.clear()
-                lastEmittedGloss = candidate.gloss
-                stablePrediction = candidate
-            }
+    fun onPrediction(
+        result: SignInferenceResult,
+        timestampMs: Long = Long.MAX_VALUE,
+    ): StableSignPrediction? {
+        addPrediction(toVoteCandidate(result))
+        val candidate = findStableCandidate()
+        if (candidate != null && candidate.gloss != lastEmittedGloss && canEmitAt(timestampMs)) {
+            lastEmittedGloss = candidate.gloss
+            lastEmittedAtMs = timestampMs
+            recentPredictions.clear()
+            return candidate
         }
 
-        return stablePrediction
+        return null
     }
 
     fun reset() {
         recentPredictions.clear()
         lastEmittedGloss = null
+        lastEmittedAtMs = null
     }
 
-    private fun isUsable(result: SignInferenceResult): Boolean =
-        result.confidence >= confidenceThreshold &&
+    private fun canEmitAt(timestampMs: Long): Boolean {
+        val previousEmittedAtMs = lastEmittedAtMs
+        return timestampMs == Long.MAX_VALUE ||
+            previousEmittedAtMs == null ||
+            timestampMs - previousEmittedAtMs >= emitCooldownMs
+    }
+
+    private fun toVoteCandidate(result: SignInferenceResult): SignInferenceResult =
+        if (
+            result.confidence >= confidenceThreshold &&
             result.gloss.trim().lowercase() !in ignoredGlosses
+        ) {
+            result
+        } else {
+            SignInferenceResult(
+                gloss = NONE_GLOSS,
+                confidence = 0f,
+            )
+        }
 
     private fun addPrediction(result: SignInferenceResult) {
         if (recentPredictions.size == windowSize) {
@@ -58,11 +81,14 @@ class SignPredictionStabilizer(
 
     private fun findStableCandidate(): StableSignPrediction? =
         recentPredictions
-            .groupBy { prediction -> prediction.gloss }
-            .mapValues { (_, predictions) ->
+            .withIndex()
+            .groupBy { (_, prediction) -> prediction.gloss }
+            .mapValues { (_, indexedPredictions) ->
+                val predictions = indexedPredictions.map { (_, prediction) -> prediction }
                 PredictionVote(
                     gloss = predictions.first().gloss,
                     count = predictions.size,
+                    lastIndex = indexedPredictions.maxOf { (index, _) -> index },
                     confidence =
                         predictions
                             .map { prediction -> prediction.confidence }
@@ -71,10 +97,13 @@ class SignPredictionStabilizer(
                 )
             }.values
             .filter { vote -> vote.count >= requiredVotes }
+            .filter { vote -> vote.lastIndex == recentPredictions.lastIndex }
             .maxWithOrNull(
                 compareBy<PredictionVote> { vote -> vote.count }
+                    .thenBy { vote -> vote.lastIndex }
                     .thenBy { vote -> vote.confidence },
-            )?.let { vote ->
+            )?.takeIf { vote -> vote.gloss.trim().lowercase() !in ignoredGlosses }
+            ?.let { vote ->
                 StableSignPrediction(
                     gloss = vote.gloss,
                     confidence = vote.confidence,
@@ -84,17 +113,23 @@ class SignPredictionStabilizer(
     private data class PredictionVote(
         val gloss: String,
         val count: Int,
+        val lastIndex: Int,
         val confidence: Float,
     )
 
     private companion object {
         const val DEFAULT_WINDOW_SIZE = 5
         const val DEFAULT_REQUIRED_VOTES = 3
+        const val DEFAULT_EMIT_COOLDOWN_MS = 1_000L
         const val MIN_CONFIDENCE = 0f
         const val MAX_CONFIDENCE = 1f
+        const val NONE_GLOSS = "none"
         val DEFAULT_IGNORED_GLOSSES = setOf("none", "unknown", "<none>", "<unknown>")
     }
 }
+
+private val <T> ArrayDeque<T>.lastIndex: Int
+    get() = size - 1
 
 data class StableSignPrediction(
     val gloss: String,

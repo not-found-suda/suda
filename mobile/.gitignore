@@ -31,3 +31,6 @@ local.properties
 /.idea/assetWizardSettings.xml
 
 .DS_Store
+
+# MediaPipe official model assets are downloaded locally.
+/app/src/main/assets/models/holistic_landmarker.task

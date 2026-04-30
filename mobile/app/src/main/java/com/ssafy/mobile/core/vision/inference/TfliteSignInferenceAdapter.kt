@@ -1,6 +1,7 @@
 package com.ssafy.mobile.core.vision.inference
 
 import android.content.Context
+import android.util.Log
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import org.tensorflow.lite.DataType
@@ -13,6 +14,10 @@ class TfliteSignInferenceAdapter private constructor(
 
     init {
         model.interpreter.validateModelContract()
+        Log.d(
+            TAG,
+            "TFLite contract verified. input=[1, 30, 141], output=[1, 90]",
+        )
     }
 
     override fun predict(sequence: FloatArray): SignInferenceResult {
@@ -65,6 +70,7 @@ class TfliteSignInferenceAdapter private constructor(
         fun createOrFallback(context: Context): SignInferenceAdapter =
             SignInferenceAdapterFactory(context).create()
 
+        private const val TAG = "SignPipeline"
         private const val MIN_CONFIDENCE = 0f
     }
 }
@@ -89,9 +95,9 @@ private fun Interpreter.validateModelContract() {
         "TFLite output tensor must be FLOAT32."
     }
     require(inputTensor.shape().contentEquals(SignModelContract.inputShape)) {
-        "TFLite input shape must be [1, 30, 345]."
+        "TFLite input shape must be [1, 30, 141]."
     }
     require(outputTensor.shape().contentEquals(SignModelContract.outputShape)) {
-        "TFLite output shape must be [1, 110]."
+        "TFLite output shape must be [1, 90]."
     }
 }

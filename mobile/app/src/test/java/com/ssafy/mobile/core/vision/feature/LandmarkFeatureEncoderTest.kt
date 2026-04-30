@@ -17,19 +17,18 @@ class LandmarkFeatureEncoderTest {
         val feature = LandmarkFeatureEncoder().encode(createFrame()).values
 
         assertEquals(SignModelContract.FEATURE_DIMENSION, feature.size)
-        assertEquals(POSE_X_NORMALIZED, feature[SignFeatureSpec.POSE_OFFSET], FLOAT_DELTA)
         assertEquals(LEFT_HAND_X_NORMALIZED, feature[SignFeatureSpec.LEFT_HAND_OFFSET], FLOAT_DELTA)
         assertEquals(
             RIGHT_HAND_X_NORMALIZED,
             feature[SignFeatureSpec.RIGHT_HAND_OFFSET],
             FLOAT_DELTA,
         )
-        assertEquals(LIPS_X_NORMALIZED, feature[SignFeatureSpec.LIPS_OFFSET], FLOAT_DELTA)
+        assertEquals(POSE_X_NORMALIZED, feature[SignFeatureSpec.POSE_OFFSET], FLOAT_DELTA)
     }
 
     @Test
-    fun forwardFillsMissingLandmarksFromPreviousFrame() {
-        val encoder = LandmarkFeatureEncoder()
+    fun normalizesZeroPaddedRawHandLandmarks() {
+        val encoder = LandmarkFeatureEncoder(isHandForwardFillEnabled = false)
         encoder.encode(createFrame())
 
         val feature =
@@ -38,8 +37,47 @@ class LandmarkFeatureEncoderTest {
                 .values
 
         assertEquals(
+            NORMALIZED_ZERO_PADDED_HAND_VALUE,
+            feature[SignFeatureSpec.LEFT_HAND_OFFSET],
+            FLOAT_DELTA,
+        )
+    }
+
+    @Test
+    fun forwardFillsMissingHandLandmarksFromPreviousFrame() {
+        val encoder = LandmarkFeatureEncoder()
+        encoder.encode(createFrame())
+
+        val feature =
+            encoder
+                .encode(createFrame(leftHand = emptyList(), rightHand = emptyList()))
+                .values
+
+        assertEquals(
             LEFT_HAND_X_NORMALIZED,
             feature[SignFeatureSpec.LEFT_HAND_OFFSET],
+            FLOAT_DELTA,
+        )
+        assertEquals(
+            RIGHT_HAND_X_NORMALIZED,
+            feature[SignFeatureSpec.RIGHT_HAND_OFFSET],
+            FLOAT_DELTA,
+        )
+    }
+
+    @Test
+    fun forwardFillsMissingPoseLandmarksFromPreviousFrame() {
+        val encoder = LandmarkFeatureEncoder()
+        encoder.encode(createFrame())
+
+        val feature =
+            encoder
+                .encode(createFrame(pose = emptyList()))
+                .values
+
+        assertEquals(
+            POSE_X_NORMALIZED,
+            feature[SignFeatureSpec.POSE_OFFSET],
             FLOAT_DELTA,
         )
     }
@@ -56,7 +94,7 @@ class LandmarkFeatureEncoderTest {
                 .values
 
         assertEquals(
-            INITIAL_EMPTY_X_NORMALIZED,
+            NORMALIZED_ZERO_PADDED_HAND_VALUE,
             feature[SignFeatureSpec.LEFT_HAND_OFFSET],
             FLOAT_DELTA,
         )
@@ -74,14 +112,16 @@ class LandmarkFeatureEncoderTest {
     }
 
     private fun createFrame(
+        pose: List<LandmarkPoint> = createPoseLandmarks(),
         leftHand: List<LandmarkPoint> = createDefaultLeftHandLandmarks(),
+        rightHand: List<LandmarkPoint> = createDefaultRightHandLandmarks(),
     ): LandmarkFrameResult =
         LandmarkFrameResult(
             timestampMs = TIMESTAMP_MS,
             pose =
                 LandmarkGroup(
                     type = LandmarkGroupType.POSE,
-                    landmarks = createPoseLandmarks(),
+                    landmarks = pose,
                 ),
             leftHand =
                 HandLandmarks(
@@ -91,20 +131,12 @@ class LandmarkFeatureEncoderTest {
             rightHand =
                 HandLandmarks(
                     side = HandSide.RIGHT,
-                    landmarks =
-                        createLandmarks(
-                            count = SignFeatureSpec.HAND_LANDMARK_COUNT,
-                            firstPoint = LandmarkPoint(0.25f, 0f, 0f),
-                        ),
+                    landmarks = rightHand,
                 ),
             lips =
                 LandmarkGroup(
                     type = LandmarkGroupType.LIPS,
-                    landmarks =
-                        createLandmarks(
-                            count = SignFeatureSpec.LIPS_LANDMARK_COUNT,
-                            firstPoint = LandmarkPoint(1f, 0f, 0f),
-                        ),
+                    landmarks = emptyList(),
                 ),
         )
 
@@ -114,9 +146,15 @@ class LandmarkFeatureEncoderTest {
             firstPoint = LandmarkPoint(0.75f, 0f, 0f),
         )
 
+    private fun createDefaultRightHandLandmarks(): List<LandmarkPoint> =
+        createLandmarks(
+            count = SignFeatureSpec.HAND_LANDMARK_COUNT,
+            firstPoint = LandmarkPoint(0.25f, 0f, 0f),
+        )
+
     private fun createPoseLandmarks(): List<LandmarkPoint> =
         createLandmarks(
-            count = SignFeatureSpec.POSE_LANDMARK_COUNT,
+            count = FULL_POSE_LANDMARK_COUNT,
             firstPoint = LandmarkPoint(0.5f, 0f, 0f),
         ).toMutableList().also { landmarks ->
             landmarks[SignFeatureSpec.LEFT_SHOULDER_INDEX] = LandmarkPoint(0f, 0f, 0f)
@@ -138,10 +176,10 @@ class LandmarkFeatureEncoderTest {
     private companion object {
         const val TIMESTAMP_MS = 1_000L
         const val FLOAT_DELTA = 0.0001f
+        const val FULL_POSE_LANDMARK_COUNT = 33
         const val POSE_X_NORMALIZED = 0f
         const val LEFT_HAND_X_NORMALIZED = 0.25f
         const val RIGHT_HAND_X_NORMALIZED = -0.25f
-        const val LIPS_X_NORMALIZED = 0.5f
-        const val INITIAL_EMPTY_X_NORMALIZED = -0.5f
+        const val NORMALIZED_ZERO_PADDED_HAND_VALUE = -0.5f
     }
 }

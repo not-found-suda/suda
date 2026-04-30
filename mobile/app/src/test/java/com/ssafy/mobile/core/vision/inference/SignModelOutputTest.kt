@@ -7,28 +7,28 @@ import org.junit.Test
 
 class SignModelOutputTest {
     @Test
-    fun treatsTfliteOutputAsSoftmaxProbabilities() {
-        val probabilities =
-            MutableList(SignModelContract.CLASS_COUNT) { LOW_CONFIDENCE }.also {
-                it[EXPECTED_CLASS_INDEX] = HIGH_CONFIDENCE
+    fun convertsTfliteLogitsToSoftmaxProbabilities() {
+        val logits =
+            MutableList(SignModelContract.CLASS_COUNT) { LOW_LOGIT }.also {
+                it[EXPECTED_CLASS_INDEX] = HIGH_LOGIT
             }
 
-        val prediction = SignModelOutput(probabilities).topPrediction()
+        val prediction = SignModelOutput(logits).topPrediction()
 
-        assertEquals(ModelOutputActivation.SOFTMAX_PROBABILITY, SignModelContract.outputActivation)
+        assertEquals(ModelOutputActivation.LOGITS, SignModelContract.outputActivation)
         assertEquals(EXPECTED_CLASS_INDEX, prediction?.classIndex)
-        assertEquals(HIGH_CONFIDENCE, prediction?.confidence ?: 0f, FLOAT_DELTA)
+        assertTrue((prediction?.confidence ?: 0f) > SignModelContract.CONFIDENCE_THRESHOLD)
         assertTrue(prediction?.isConfident == true)
     }
 
     @Test
-    fun marksLowTopProbabilityAsNotConfident() {
-        val probabilities =
-            MutableList(SignModelContract.CLASS_COUNT) { LOW_CONFIDENCE }.also {
-                it[EXPECTED_CLASS_INDEX] = BELOW_THRESHOLD_CONFIDENCE
+    fun marksLowTopLogitSoftmaxProbabilityAsNotConfident() {
+        val logits =
+            MutableList(SignModelContract.CLASS_COUNT) { LOW_LOGIT }.also {
+                it[EXPECTED_CLASS_INDEX] = SLIGHTLY_HIGHER_LOGIT
             }
 
-        val prediction = SignModelOutput(probabilities).topPrediction()
+        val prediction = SignModelOutput(logits).topPrediction()
 
         assertEquals(EXPECTED_CLASS_INDEX, prediction?.classIndex)
         assertFalse(prediction?.isConfident == true)
@@ -36,9 +36,8 @@ class SignModelOutputTest {
 
     private companion object {
         const val EXPECTED_CLASS_INDEX = 7
-        const val LOW_CONFIDENCE = 0.001f
-        const val HIGH_CONFIDENCE = 0.9f
-        const val BELOW_THRESHOLD_CONFIDENCE = 0.5f
-        const val FLOAT_DELTA = 0.0001f
+        const val LOW_LOGIT = 0f
+        const val HIGH_LOGIT = 10f
+        const val SLIGHTLY_HIGHER_LOGIT = 1f
     }
 }

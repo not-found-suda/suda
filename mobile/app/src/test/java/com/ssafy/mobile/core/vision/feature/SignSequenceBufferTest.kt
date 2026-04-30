@@ -29,10 +29,24 @@ class SignSequenceBufferTest {
         val sequence = requireNotNull(buffer.buildSequenceInput())
 
         assertTrue(buffer.hasEnoughFrames)
+        assertTrue(buffer.hasEnoughHandFrames)
         assertEquals(TEST_SEQUENCE_LENGTH * SignModelContract.FEATURE_DIMENSION, sequence.size)
         assertEquals(1f, sequence[0], FLOAT_DELTA)
         assertEquals(2f, sequence[SignModelContract.FEATURE_DIMENSION], FLOAT_DELTA)
         assertEquals(3f, sequence[SignModelContract.FEATURE_DIMENSION * 2], FLOAT_DELTA)
+    }
+
+    @Test
+    fun returnsNullWhenBufferedSequenceHasTooFewHandFrames() {
+        val buffer = SignSequenceBuffer(sequenceLength = TEST_SEQUENCE_LENGTH)
+
+        buffer.add(createFeatureFrame(value = 1f, hasHands = false))
+        buffer.add(createFeatureFrame(value = 2f, hasHands = false))
+        buffer.add(createFeatureFrame(value = 3f, hasHands = false))
+
+        assertTrue(buffer.hasEnoughFrames)
+        assertFalse(buffer.hasEnoughHandFrames)
+        assertNull(buffer.buildSequenceInput())
     }
 
     @Test
@@ -65,10 +79,14 @@ class SignSequenceBufferTest {
         assertNull(buffer.buildSequenceInput())
     }
 
-    private fun createFeatureFrame(value: Float): LandmarkFeatureFrame =
+    private fun createFeatureFrame(
+        value: Float,
+        hasHands: Boolean = true,
+    ): LandmarkFeatureFrame =
         LandmarkFeatureFrame(
             timestampMs = TIMESTAMP_MS,
             values = FloatArray(SignModelContract.FEATURE_DIMENSION) { value },
+            hasHands = hasHands,
         )
 
     private companion object {

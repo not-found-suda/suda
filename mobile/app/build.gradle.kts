@@ -97,7 +97,10 @@ dependencies {
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
-    implementation(libs.mediapipe.tasks.vision)
+    implementation(libs.mediapipe.tasks.vision) {
+        exclude(group = "com.google.protobuf", module = "protobuf-javalite")
+    }
+    implementation(libs.protobuf.java)
     implementation(libs.tensorflow.lite)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.hilt.navigation.compose)

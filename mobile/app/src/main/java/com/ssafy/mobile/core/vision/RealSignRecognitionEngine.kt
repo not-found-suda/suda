@@ -19,6 +19,7 @@ class RealSignRecognitionEngine(
     private val inferenceAdapter: SignInferenceAdapter = FakeSignInferenceAdapter(),
     private val noHandsDetectionTracker: NoHandsDetectionTracker = NoHandsDetectionTracker(),
     private val predictionStabilizer: SignPredictionStabilizer = SignPredictionStabilizer(),
+    private val logger: SignPipelineLogger = SignPipelineLogger(),
 ) : SignRecognitionEngine {
     @Inject
     constructor(
@@ -29,9 +30,11 @@ class RealSignRecognitionEngine(
         inferenceAdapter = inferenceAdapter,
         noHandsDetectionTracker = NoHandsDetectionTracker(),
         predictionStabilizer = SignPredictionStabilizer(),
+        logger = SignPipelineLogger(),
     )
 
     private val isStarted = AtomicBoolean(false)
+    private var hasSeenHandsInSegment = false
     private val _events =
         MutableSharedFlow<SignRecognitionEvent>(
             extraBufferCapacity = EVENT_BUFFER_CAPACITY,
@@ -46,6 +49,8 @@ class RealSignRecognitionEngine(
         }
 
         resetSessionState()
+        logger.logEngineStarted()
+        logger.logHandForwardFillMode(featureEncoder.isHandForwardFillEnabled)
         _events.tryEmit(SignRecognitionEvent.Started)
         _events.tryEmit(SignRecognitionEvent.Ready)
     }
@@ -56,6 +61,7 @@ class RealSignRecognitionEngine(
         }
 
         resetSessionState()
+        logger.logEngineStopped()
         _events.tryEmit(SignRecognitionEvent.Stopped)
     }
 
@@ -75,12 +81,9 @@ class RealSignRecognitionEngine(
             }
     }
 
-    fun onLandmarkFrame(frame: LandmarkFrameResult) {
-        submitFrame(frame)
-    }
-
     private fun processFrame(frame: LandmarkFrameResult) {
-        if (handleNoHandsFrame(frame)) {
+        logger.logFrameState(frame)
+        if (shouldSkipFrame(frame)) {
             return
         }
 
@@ -93,29 +96,56 @@ class RealSignRecognitionEngine(
         frame: LandmarkFrameResult,
     ): SignRecognitionEvent.Prediction? {
         val feature = featureEncoder.encode(frame)
+        logger.logFeatureProbe(feature.probe)
         sequenceBuffer.add(feature)
-        val sequence = sequenceBuffer.buildSequenceInput() ?: return null
-        val result = inferenceAdapter.predict(sequence)
-        return predictionStabilizer
-            .onPrediction(result)
-            ?.let { stablePrediction ->
-                SignRecognitionEvent.Prediction(
-                    gloss = stablePrediction.gloss,
-                    confidence = stablePrediction.confidence,
+        val sequence = sequenceBuffer.buildReadySequenceInput(logger)
+        val result = sequence?.let { input -> inferenceAdapter.predict(input) }
+        result?.let { inferenceResult ->
+            logger.logInferenceResult(
+                sequenceSize = sequence.size,
+                gloss = inferenceResult.gloss,
+                confidence = inferenceResult.confidence,
+            )
+        }
+        val stablePrediction =
+            result?.let { inferenceResult ->
+                predictionStabilizer.onPrediction(
+                    result = inferenceResult,
                     timestampMs = frame.timestampMs,
                 )
             }
+        return stablePrediction?.let { prediction ->
+            logger.logPredictionEmitted(
+                gloss = prediction.gloss,
+                confidence = prediction.confidence,
+            )
+            SignRecognitionEvent.Prediction(
+                gloss = prediction.gloss,
+                confidence = prediction.confidence,
+                timestampMs = frame.timestampMs,
+            )
+        }
     }
 
-    private fun handleNoHandsFrame(frame: LandmarkFrameResult): Boolean {
-        val noHandsEvent = noHandsDetectionTracker.onFrame(frame)
+    private fun shouldSkipFrame(frame: LandmarkFrameResult): Boolean {
+        var shouldSkip = false
         if (frame.hasHands) {
-            return false
+            hasSeenHandsInSegment = true
+            noHandsDetectionTracker.onFrame(frame)
+        } else if (!hasSeenHandsInSegment) {
+            noHandsDetectionTracker.reset()
+            shouldSkip = true
+        } else {
+            val noHandsEvent = noHandsDetectionTracker.onFrame(frame)
+            if (noHandsEvent != null) {
+                resetRecognitionState()
+                logger.logNoHandsDetected()
+                _events.tryEmit(noHandsEvent)
+                shouldSkip = true
+            }
         }
 
-        resetRecognitionState()
-        noHandsEvent?.let { event -> _events.tryEmit(event) }
-        return true
+        return shouldSkip
     }
 
     fun close() {
@@ -129,6 +159,7 @@ class RealSignRecognitionEngine(
     }
 
     private fun resetRecognitionState() {
+        hasSeenHandsInSegment = false
         featureEncoder.reset()
         sequenceBuffer.clear()
         predictionStabilizer.reset()
@@ -138,3 +169,19 @@ class RealSignRecognitionEngine(
         const val EVENT_BUFFER_CAPACITY = 64
     }
 }
+
+private fun SignSequenceBuffer.buildReadySequenceInput(logger: SignPipelineLogger): FloatArray? =
+    when {
+        !hasEnoughFrames -> {
+            logger.logSequenceBuffering(size)
+            null
+        }
+        !hasEnoughHandFrames -> {
+            logger.logSequenceWaitingForHands(
+                handFrames = handFrameCount,
+                totalFrames = size,
+            )
+            null
+        }
+        else -> buildSequenceInput()
+    }

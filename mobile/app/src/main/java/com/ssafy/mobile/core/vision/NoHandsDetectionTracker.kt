@@ -39,6 +39,6 @@ class NoHandsDetectionTracker(
     }
 
     private companion object {
-        const val DEFAULT_DETECTION_DELAY_MS = 1_000L
+        const val DEFAULT_DETECTION_DELAY_MS = 1_500L
     }
 }
