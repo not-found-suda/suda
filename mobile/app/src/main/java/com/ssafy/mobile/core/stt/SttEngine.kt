@@ -9,10 +9,10 @@ interface SttEngine {
     /** STT 엔진에서 방출되는 이벤트 스트림 */
     val events: Flow<SttEvent>
 
-    /** 음성 인식을 시작합니다. */
-    fun startListening()
+    /** 음성 인식 시작 */
+    fun startListening(sessionId: Int)
 
-    /** 음성 인식을 중지합니다. */
+    /** 음성 인식 중지 */
     fun stopListening()
 
     /** 리소스를 해제합니다. */

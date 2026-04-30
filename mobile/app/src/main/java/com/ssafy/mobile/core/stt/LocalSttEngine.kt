@@ -42,15 +42,14 @@ class LocalSttEngine
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             }
 
-        override fun startListening() {
+        override fun startListening(sessionId: Int) {
             // SpeechRecognizer는 반드시 메인 스레드에서 동작해야 함
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 if (speechRecognizer == null) {
-                    speechRecognizer =
-                        SpeechRecognizer.createSpeechRecognizer(context).apply {
-                            setRecognitionListener(createRecognitionListener())
-                        }
+                    speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
                 }
+                // 매 세션마다 해당 sessionId를 캡처한 리스너로 교체하여 세션 격리 보장
+                speechRecognizer?.setRecognitionListener(createRecognitionListener(sessionId))
                 speechRecognizer?.startListening(recognizerIntent)
             }
         }
@@ -68,10 +67,10 @@ class LocalSttEngine
             }
         }
 
-        private fun createRecognitionListener() =
+        private fun createRecognitionListener(sessionId: Int) =
             object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {
-                    _events.tryEmit(SttEvent.Started)
+                    _events.tryEmit(SttEvent.Started(sessionId))
                 }
 
                 override fun onBeginningOfSpeech() {
@@ -79,7 +78,7 @@ class LocalSttEngine
                 }
 
                 override fun onRmsChanged(rmsdB: Float) {
-                    _events.tryEmit(SttEvent.VolumeChanged(rmsdB))
+                    _events.tryEmit(SttEvent.VolumeChanged(sessionId, rmsdB))
                 }
 
                 override fun onBufferReceived(buffer: ByteArray?) {
@@ -87,7 +86,7 @@ class LocalSttEngine
                 }
 
                 override fun onEndOfSpeech() {
-                    _events.tryEmit(SttEvent.Stopped)
+                    _events.tryEmit(SttEvent.EndOfSpeech(sessionId))
                 }
 
                 override fun onError(error: Int) {
@@ -102,15 +101,15 @@ class LocalSttEngine
                             SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "입력이 없어 인식을 종료합니다"
                             else -> "음성 인식 오류 (code: $error)"
                         }
-                    _events.tryEmit(SttEvent.Error(message))
-                    _events.tryEmit(SttEvent.Stopped)
+                    _events.tryEmit(SttEvent.Error(sessionId, message))
+                    _events.tryEmit(SttEvent.Stopped(sessionId))
                 }
 
                 override fun onResults(results: Bundle?) {
                     val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     if (!matches.isNullOrEmpty()) {
-                        _events.tryEmit(SttEvent.Results(matches[0]))
-                        _events.tryEmit(SttEvent.Stopped)
+                        _events.tryEmit(SttEvent.Results(sessionId, matches[0]))
+                        _events.tryEmit(SttEvent.Stopped(sessionId))
                     }
                 }
 
@@ -120,7 +119,7 @@ class LocalSttEngine
                             SpeechRecognizer.RESULTS_RECOGNITION,
                         )
                     if (!matches.isNullOrEmpty()) {
-                        _events.tryEmit(SttEvent.PartialResults(matches[0]))
+                        _events.tryEmit(SttEvent.PartialResults(sessionId, matches[0]))
                     }
                 }
 

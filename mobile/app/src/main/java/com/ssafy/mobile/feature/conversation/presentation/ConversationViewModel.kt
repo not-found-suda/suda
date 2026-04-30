@@ -2,6 +2,7 @@ package com.ssafy.mobile.feature.conversation.presentation
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ssafy.mobile.core.audio.AndroidAudioRecorder
 import com.ssafy.mobile.core.audio.AudioPlayer
 import com.ssafy.mobile.core.audio.TtsPlayer
 import com.ssafy.mobile.core.model.SignRecognitionEvent
@@ -15,6 +16,7 @@ import com.ssafy.mobile.feature.conversation.domain.model.MessageStatus
 import com.ssafy.mobile.feature.conversation.domain.model.SenderType
 import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +31,7 @@ enum class SessionState {
     Stopping,
 }
 
+@Suppress("TooManyFunctions")
 @HiltViewModel
 class ConversationViewModel
     @Inject
@@ -39,6 +42,7 @@ class ConversationViewModel
         private val ttsPlayer: TtsPlayer,
         private val sttEngine: SttEngine,
         private val networkMonitor: NetworkMonitor,
+        private val androidAudioRecorder: AndroidAudioRecorder,
     ) : ViewModel() {
         private val _sessionState = MutableStateFlow(SessionState.Idle)
         val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
@@ -66,6 +70,9 @@ class ConversationViewModel
         private var translationJob: Job? = null
         private var completionTimerJob: Job? = null
         private var sttJob: Job? = null
+        private var currentSttSessionId = 0
+        private var isResultsReceived = false
+        private var isStoppedReceived = false
 
         init {
             // 네트워크 상태 모니터링
@@ -133,27 +140,9 @@ class ConversationViewModel
                             )
 
                             response.audioBase64?.let { base64Audio ->
-                                sttEngine.stopListening()
-                                isTtsPlaying = true
-                                audioPlayer.playBase64(
-                                    base64Data = base64Audio,
-                                    onComplete = {
-                                        isTtsPlaying = false
-                                        if (_sessionState.value == SessionState.Active) {
-                                            sttEngine.startListening()
-                                        }
-                                    },
-                                    onError = {
-                                        isTtsPlaying = false
-                                        if (_sessionState.value == SessionState.Active) {
-                                            sttEngine.startListening()
-                                        }
-                                    },
-                                )
+                                handleTtsSuccess(base64Audio)
                             } ?: run {
-                                if (_sessionState.value == SessionState.Active) {
-                                    sttEngine.startListening()
-                                }
+                                startRecordingForStt()
                             }
 
                             _lastGlosses.value = emptyList()
@@ -163,9 +152,7 @@ class ConversationViewModel
                                 isFinal = true,
                                 senderType = SenderType.PARENT,
                             )
-                            if (_sessionState.value == SessionState.Active) {
-                                sttEngine.startListening()
-                            }
+                            startRecordingForStt()
                         }
                 }
         }
@@ -186,21 +173,38 @@ class ConversationViewModel
             isTtsPlaying = true
             ttsPlayer.speak(
                 text = fallbackText,
-                onComplete = {
-                    isTtsPlaying = false
-                    if (_sessionState.value == SessionState.Active) {
-                        sttEngine.startListening()
-                    }
-                },
-                onError = {
-                    isTtsPlaying = false
-                    if (_sessionState.value == SessionState.Active) {
-                        sttEngine.startListening()
-                    }
-                },
+                onComplete = { resumeListeningAfterTts() },
+                onError = { resumeListeningAfterTts() },
             )
 
             _lastGlosses.value = emptyList()
+        }
+
+        private fun startRecordingForStt() {
+            if (_sessionState.value != SessionState.Active || isTtsPlaying) return
+
+            // 새 세션 시작 시 상태 초기화 (오염 방지)
+            isResultsReceived = false
+            isStoppedReceived = false
+
+            if (_isOnline.value) {
+                androidAudioRecorder.start()
+            }
+            currentSttSessionId++
+            sttEngine.startListening(currentSttSessionId)
+        }
+
+        private suspend fun checkAndRestartStt() {
+            if (isResultsReceived && isStoppedReceived) {
+                // 잦은 재시작으로 인한 BUSY 에러 방지
+                kotlinx.coroutines.delay(STT_RESTART_DELAY_MS)
+                startRecordingForStt()
+            }
+        }
+
+        private fun stopRecordingForStt(): File? {
+            sttEngine.stopListening()
+            return androidAudioRecorder.stop()
         }
 
         fun startSession() {
@@ -214,39 +218,100 @@ class ConversationViewModel
             sttJob =
                 viewModelScope.launch {
                     sttEngine.events.collect { event ->
+                        if (event.sessionId != currentSttSessionId) return@collect
+
                         when (event) {
-                            is SttEvent.PartialResults ->
+                            is SttEvent.PartialResults -> {
+                                isResultsReceived = false
+                                isStoppedReceived = false
                                 updateOrAddChildMessage(
                                     event.text,
                                     isFinal = false,
                                 )
-                            is SttEvent.Results ->
-                                updateOrAddChildMessage(
-                                    event.text,
-                                    isFinal = true,
-                                )
+                            }
+                            is SttEvent.Results -> {
+                                if (_isOnline.value) {
+                                    val file = androidAudioRecorder.stop()
+                                    if (file != null) {
+                                        _sttText.value = "대화 내용을 분석 중입니다..."
+                                        performCloudStt(file)
+                                    } else {
+                                        _sttText.value = "" // 유효하지 않은 녹음은 텍스트 초기화
+                                    }
+                                } else {
+                                    updateOrAddChildMessage(
+                                        event.text,
+                                        isFinal = true,
+                                    )
+                                }
+                                isResultsReceived = true
+                                checkAndRestartStt()
+                            }
+                            is SttEvent.EndOfSpeech -> {
+                                // 필요 시 UI 처리 (예: "인식 완료, 처리 중...")
+                            }
                             is SttEvent.Stopped -> {
                                 if (_sessionState.value == SessionState.Active && !isTtsPlaying) {
-                                    // 잦은 재시작으로 인한 BUSY 에러 방지를 위해 약간의 딜레이 부여
-                                    kotlinx.coroutines.delay(STT_RESTART_DELAY_MS)
-                                    sttEngine.startListening()
+                                    isStoppedReceived = true
+                                    if (!_isOnline.value) {
+                                        isResultsReceived = true // 오프라인은 결과 대기 불필요
+                                    }
+                                    checkAndRestartStt()
                                 }
                             }
                             is SttEvent.VolumeChanged -> _micVolume.value = event.db
                             is SttEvent.Error -> {
+                                isResultsReceived = true
+                                isStoppedReceived = false
                                 // 에러 처리 (필요시 UI 알림 추가)
                             }
                             else -> {}
                         }
                     }
                 }
-            sttEngine.startListening()
+            startRecordingForStt()
+        }
+
+        private fun performCloudStt(audioFile: File) {
+            viewModelScope.launch {
+                translateRepository
+                    .translateSpeechToText(audioFile, "audio/mp4")
+                    .onSuccess { response ->
+                        val displayText =
+                            if (response.corrected) {
+                                response.correctedText
+                            } else {
+                                response.recognizedText
+                            }
+                        updateOrAddChildMessage(displayText, isFinal = true)
+                        _sttText.value = ""
+                    }.onFailure {
+                        _sttText.value = "인식에 실패했습니다."
+                    }
+            }
+        }
+
+        private fun handleTtsSuccess(base64Audio: String) {
+            stopRecordingForStt()
+            isTtsPlaying = true
+            audioPlayer.playBase64(
+                base64Data = base64Audio,
+                onComplete = { resumeListeningAfterTts() },
+                onError = { resumeListeningAfterTts() },
+            )
+        }
+
+        private fun resumeListeningAfterTts() {
+            isTtsPlaying = false
+            startRecordingForStt()
         }
 
         fun stopSession() {
             _sessionState.value = SessionState.Idle
             signRecognitionEngine.stop()
-            sttEngine.stopListening()
+            stopRecordingForStt()
+            isResultsReceived = false
+            isStoppedReceived = false
             _lastGlosses.value = emptyList()
             _translatedText.value = ""
             _sttText.value = ""
@@ -308,7 +373,7 @@ class ConversationViewModel
             super.onCleared()
             audioPlayer.stop()
             ttsPlayer.stop()
-            sttEngine.stopListening()
+            stopRecordingForStt()
         }
 
         fun onLandmarkFrame(frame: LandmarkFrameResult) {
@@ -319,6 +384,6 @@ class ConversationViewModel
 
         companion object {
             private const val COMPLETION_THRESHOLD_MS = 2000L
-            private const val STT_RESTART_DELAY_MS = 100L
+            private const val STT_RESTART_DELAY_MS = 500L
         }
     }
