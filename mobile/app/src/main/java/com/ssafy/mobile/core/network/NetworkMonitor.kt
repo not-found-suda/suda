@@ -28,26 +28,18 @@ class NetworkMonitor
                 val callback =
                     object : ConnectivityManager.NetworkCallback() {
                         override fun onAvailable(network: Network) {
-                            // no-op: 실제 온라인 여부는 onCapabilitiesChanged에서 VALIDATED 체크 후 결정
+                            // 실제 인터넷 사용 가능 여부는 onCapabilitiesChanged에서 검증합니다.
                         }
 
                         override fun onLost(network: Network) {
-                            trySend(false)
+                            trySend(connectivityManager.isCurrentlyOnline())
                         }
 
                         override fun onCapabilitiesChanged(
                             network: Network,
                             networkCapabilities: NetworkCapabilities,
                         ) {
-                            val hasInternet =
-                                networkCapabilities.hasCapability(
-                                    NetworkCapabilities.NET_CAPABILITY_INTERNET,
-                                )
-                            val isValidated =
-                                networkCapabilities.hasCapability(
-                                    NetworkCapabilities.NET_CAPABILITY_VALIDATED,
-                                )
-                            trySend(hasInternet && isValidated)
+                            trySend(connectivityManager.isCurrentlyOnline())
                         }
                     }
 
@@ -59,24 +51,20 @@ class NetworkMonitor
                     callback,
                 )
 
-                val initialStatus =
-                    connectivityManager.activeNetwork?.let { network ->
-                        val capabilities = connectivityManager.getNetworkCapabilities(network)
-                        val hasInternet =
-                            capabilities?.hasCapability(
-                                NetworkCapabilities.NET_CAPABILITY_INTERNET,
-                            ) == true
-                        val isValidated =
-                            capabilities?.hasCapability(
-                                NetworkCapabilities.NET_CAPABILITY_VALIDATED,
-                            ) == true
-                        hasInternet && isValidated
-                    } ?: false
-                trySend(initialStatus)
+                trySend(connectivityManager.isCurrentlyOnline())
 
                 awaitClose {
                     connectivityManager.unregisterNetworkCallback(callback)
                 }
             }.distinctUntilChanged()
                 .conflate()
+
+        private fun ConnectivityManager.isCurrentlyOnline(): Boolean =
+            activeNetwork
+                ?.let(::getNetworkCapabilities)
+                ?.isValidatedInternet() == true
+
+        private fun NetworkCapabilities.isValidatedInternet(): Boolean =
+            hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }

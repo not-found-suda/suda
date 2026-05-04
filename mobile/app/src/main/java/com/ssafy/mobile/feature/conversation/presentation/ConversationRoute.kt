@@ -36,9 +36,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.ssafy.mobile.core.ui.components.AppOfflineBanner
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+import com.ssafy.mobile.core.ui.feedback.AppNetworkStatusBanner
 import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
 import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
 import com.ssafy.mobile.feature.conversation.presentation.components.SubtitleList
@@ -124,7 +124,7 @@ private fun ConversationScreen(
                     sessionState = uiState.sessionState,
                     onOpenSignDebug = onOpenSignDebug,
                 )
-                AppOfflineBanner(isOnline = uiState.isOnline)
+                AppNetworkStatusBanner(isOnline = uiState.isOnline)
             }
         },
         bottomBar = {
