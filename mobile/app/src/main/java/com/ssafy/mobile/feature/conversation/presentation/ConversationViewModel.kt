@@ -446,10 +446,10 @@ class ConversationViewModel
                 Log.d(
                     TAG,
                     "Cloud STT upload started: path=${audioFile.absolutePath}, " +
-                        "size=${audioFile.length()}, mime=audio/mp4",
+                        "size=${audioFile.length()}, mime=$CLOUD_STT_AUDIO_MIME_TYPE",
                 )
                 translateRepository
-                    .translateSpeechToText(audioFile, "audio/mp4")
+                    .translateSpeechToText(audioFile, CLOUD_STT_AUDIO_MIME_TYPE)
                     .onSuccess { response ->
                         cloudSttFailureCount = 0
                         val displayText =
@@ -636,5 +636,6 @@ class ConversationViewModel
             private const val CLOUD_STT_STOP_REASON_CANCELLED = "cancelled"
             private const val CLOUD_STT_ANALYZING_MESSAGE = "대화 내용을 분석 중입니다..."
             private const val CLOUD_STT_FAILURE_MESSAGE = "인식에 실패했습니다."
+            private const val CLOUD_STT_AUDIO_MIME_TYPE = "audio/wav"
         }
     }
