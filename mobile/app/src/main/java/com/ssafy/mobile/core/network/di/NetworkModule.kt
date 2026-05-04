@@ -20,9 +20,7 @@ object NetworkModule {
     @Singleton
     fun provideHttpLoggingInterceptor(): HttpLoggingInterceptor =
         HttpLoggingInterceptor().apply {
-            // BuildConfig.DEBUG 가 없으므로 현재는 기본적으로 BODY 로깅
-            // 실제 상용화 시에는 구분 필요
-            level = HttpLoggingInterceptor.Level.BODY
+            level = HttpLoggingInterceptor.Level.BASIC
         }
 
     @Provides
