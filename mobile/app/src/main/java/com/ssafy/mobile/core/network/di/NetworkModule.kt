@@ -1,10 +1,15 @@
 package com.ssafy.mobile.core.network.di
 
+import com.ssafy.mobile.core.network.AuthInterceptor
+import com.ssafy.mobile.core.network.MockRefreshTokenClient
+import com.ssafy.mobile.core.network.RefreshTokenClient
+import com.ssafy.mobile.core.network.TokenAuthenticator
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import java.util.concurrent.TimeUnit
+import javax.inject.Named
 import javax.inject.Singleton
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -18,16 +23,39 @@ object NetworkModule {
 
     @Provides
     @Singleton
+    fun provideRefreshTokenClient(): RefreshTokenClient = MockRefreshTokenClient()
+
+    @Provides
+    @Singleton
+    @Named("NoAuth")
+    fun provideNoAuthOkHttpClient(loggingInterceptor: HttpLoggingInterceptor): OkHttpClient =
+        OkHttpClient
+            .Builder()
+            .addInterceptor(loggingInterceptor)
+            .connectTimeout(NETWORK_TIMEOUT_SEC, TimeUnit.SECONDS)
+            .readTimeout(NETWORK_TIMEOUT_SEC, TimeUnit.SECONDS)
+            .writeTimeout(NETWORK_TIMEOUT_SEC, TimeUnit.SECONDS)
+            .build()
+
+    @Provides
+    @Singleton
     fun provideHttpLoggingInterceptor(): HttpLoggingInterceptor =
         HttpLoggingInterceptor().apply {
+            // BASIC 레벨은 Request/Response 라인만 로깅하며 Header(토큰)를 로깅하지 않아 보안상 안전함
             level = HttpLoggingInterceptor.Level.BASIC
         }
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(loggingInterceptor: HttpLoggingInterceptor): OkHttpClient =
+    fun provideOkHttpClient(
+        loggingInterceptor: HttpLoggingInterceptor,
+        authInterceptor: AuthInterceptor,
+        tokenAuthenticator: TokenAuthenticator,
+    ): OkHttpClient =
         OkHttpClient
             .Builder()
+            .addInterceptor(authInterceptor)
+            .authenticator(tokenAuthenticator)
             .addInterceptor(loggingInterceptor)
             .connectTimeout(NETWORK_TIMEOUT_SEC, TimeUnit.SECONDS)
             .readTimeout(NETWORK_TIMEOUT_SEC, TimeUnit.SECONDS)
