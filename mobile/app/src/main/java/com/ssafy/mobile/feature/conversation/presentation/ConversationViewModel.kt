@@ -78,6 +78,7 @@ class ConversationViewModel
         private var currentSttSessionId = 0
         private var isResultsReceived = false
         private var isStoppedReceived = false
+        private var cloudSttFailureCount = 0
 
         init {
             // 네트워크 상태 모니터링
@@ -227,21 +228,26 @@ class ConversationViewModel
                     while (isActive && canUseCloudStt()) {
                         val fileName = "stt_audio_$currentSttSessionId"
                         val started = androidAudioRecorder.start(fileName)
-                        if (!started) {
-                            Log.w(TAG, "Cloud STT recorder start failed")
-                            delay(CLOUD_STT_RETRY_DELAY_MS)
-                            continue
+                        val nextDelayMs =
+                            if (!started) {
+                                Log.w(TAG, "Cloud STT recorder start failed")
+                                CLOUD_STT_RETRY_DELAY_MS
+                            } else {
+                                Log.d(TAG, "Cloud STT recording started: $fileName")
+                                val audioFile = waitForCloudSpeechFile()
+                                if (audioFile != null && canUseCloudStt()) {
+                                    updateOrAddChildMessage(
+                                        text = CLOUD_STT_ANALYZING_MESSAGE,
+                                        isFinal = false,
+                                    )
+                                    performCloudStt(audioFile)
+                                } else {
+                                    CLOUD_STT_RETRY_DELAY_MS
+                                }
+                            }
+                        if (canUseCloudStt()) {
+                            delay(nextDelayMs)
                         }
-
-                        Log.d(TAG, "Cloud STT recording started: $fileName")
-                        val audioFile = waitForCloudSpeechFile()
-                        if (audioFile != null && canUseCloudStt()) {
-                            _sttText.value = "대화 내용을 분석 중입니다..."
-                            performCloudStt(audioFile)
-                            return@launch
-                        }
-
-                        delay(CLOUD_STT_RETRY_DELAY_MS)
                     }
                 }
         }
@@ -252,6 +258,9 @@ class ConversationViewModel
             var lastVoiceAt = startedAt
             var peakAmplitude = 0
             var stopReason = CLOUD_STT_STOP_REASON_CANCELLED
+            var voiceFrameCount = 0
+            var consecutiveVoiceFrameCount = 0
+            var maxConsecutiveVoiceFrameCount = 0
 
             while (currentCoroutineContext().isActive && canUseCloudStt()) {
                 delay(CLOUD_STT_POLL_INTERVAL_MS)
@@ -263,8 +272,14 @@ class ConversationViewModel
                 val now = System.currentTimeMillis()
                 val recordingDuration = now - startedAt
                 if (amplitude >= CLOUD_STT_VOICE_THRESHOLD) {
-                    speechDetected = true
+                    voiceFrameCount++
+                    consecutiveVoiceFrameCount++
+                    maxConsecutiveVoiceFrameCount =
+                        maxOf(maxConsecutiveVoiceFrameCount, consecutiveVoiceFrameCount)
+                    speechDetected = voiceFrameCount >= CLOUD_STT_MIN_VOICE_FRAME_COUNT
                     lastVoiceAt = now
+                } else {
+                    consecutiveVoiceFrameCount = 0
                 }
 
                 val currentStopReason =
@@ -286,21 +301,30 @@ class ConversationViewModel
                 "Cloud STT recording stopped: path=${file?.absolutePath}, " +
                     "size=${file?.length()}, speechDetected=$speechDetected, " +
                     "peakAmplitude=$peakAmplitude, duration=$recordingDuration, " +
-                    "reason=$stopReason",
+                    "reason=$stopReason, voiceFrames=$voiceFrameCount, " +
+                    "maxConsecutiveVoiceFrames=$maxConsecutiveVoiceFrameCount",
             )
 
-            return file?.takeIf {
-                shouldUploadCloudAudioFile(
-                    file = it,
-                    speechDetected = speechDetected,
-                    peakAmplitude = peakAmplitude,
-                )
-            } ?: run {
+            val shouldUpload =
+                file?.let {
+                    shouldUploadCloudAudioFile(
+                        file = it,
+                        speechDetected = speechDetected,
+                        peakAmplitude = peakAmplitude,
+                        recordingDuration = recordingDuration,
+                        voiceFrameCount = voiceFrameCount,
+                    )
+                } == true
+            return if (shouldUpload) {
+                file
+            } else {
                 Log.d(
                     TAG,
                     "Cloud STT recording discarded: speechDetected=$speechDetected, " +
-                        "peakAmplitude=$peakAmplitude, size=${file?.length()}",
+                        "peakAmplitude=$peakAmplitude, duration=$recordingDuration, " +
+                        "voiceFrames=$voiceFrameCount, size=${file?.length()}",
                 )
+                file?.let(::deleteCloudSttAudioFile)
                 null
             }
         }
@@ -333,8 +357,12 @@ class ConversationViewModel
             file: File,
             speechDetected: Boolean,
             peakAmplitude: Int,
+            recordingDuration: Long,
+            voiceFrameCount: Int,
         ): Boolean =
             isValidCloudAudioFile(file) &&
+                recordingDuration >= CLOUD_STT_MIN_UPLOAD_RECORDING_MS &&
+                voiceFrameCount >= CLOUD_STT_MIN_VOICE_FRAME_COUNT &&
                 (speechDetected || peakAmplitude >= CLOUD_STT_FALLBACK_VOICE_THRESHOLD)
 
         private suspend fun checkAndRestartStt() {
@@ -349,7 +377,9 @@ class ConversationViewModel
             cloudSttJob?.cancel()
             cloudSttJob = null
             sttEngine.stopListening()
-            return androidAudioRecorder.stop()
+            val file = androidAudioRecorder.stop()
+            file?.let(::deleteCloudSttAudioFile)
+            return file
         }
 
         fun startSession() {
@@ -410,9 +440,9 @@ class ConversationViewModel
             startRecordingForStt()
         }
 
-        private fun performCloudStt(audioFile: File) {
-            viewModelScope.launch {
-                var restartDelayMs = STT_RESTART_DELAY_MS
+        private suspend fun performCloudStt(audioFile: File): Long {
+            var restartDelayMs = STT_RESTART_DELAY_MS
+            try {
                 Log.d(
                     TAG,
                     "Cloud STT upload started: path=${audioFile.absolutePath}, " +
@@ -421,31 +451,55 @@ class ConversationViewModel
                 translateRepository
                     .translateSpeechToText(audioFile, "audio/mp4")
                     .onSuccess { response ->
+                        cloudSttFailureCount = 0
                         val displayText =
                             buildCloudSttDisplayText(
                                 recognizedText = response.recognizedText,
                                 correctedText = response.correctedText,
                                 corrected = response.corrected,
                             )
-                        updateOrAddChildMessage(displayText, isFinal = true)
-                        _sttText.value = ""
+                        if (canUseCloudStt()) {
+                            updateOrAddChildMessage(displayText, isFinal = true)
+                            _sttText.value = ""
+                        }
                         Log.d(
                             TAG,
                             "Cloud STT upload succeeded: recognized=${response.recognizedText}, " +
                                 "corrected=${response.correctedText}, isCorrected=${response.corrected}",
                         )
                     }.onFailure {
-                        Log.w(TAG, "Cloud STT upload failed", it)
-                        restartDelayMs = CLOUD_STT_FAILURE_RETRY_DELAY_MS
-                        _sttText.value = "인식에 실패했습니다."
+                        cloudSttFailureCount++
+                        restartDelayMs = getCloudSttFailureRetryDelay()
+                        Log.w(
+                            TAG,
+                            "Cloud STT upload failed: failureCount=$cloudSttFailureCount, " +
+                                "retryDelayMs=$restartDelayMs",
+                            it,
+                        )
+                        if (canUseCloudStt()) {
+                            updateOrAddChildMessage(
+                                text = CLOUD_STT_FAILURE_MESSAGE,
+                                isFinal = true,
+                            )
+                        }
                     }
+            } finally {
+                deleteCloudSttAudioFile(audioFile)
+            }
+            return restartDelayMs
+        }
 
-                if (_sessionState.value == SessionState.Active && !isTtsPlaying) {
-                    delay(restartDelayMs)
-                    startRecordingForStt()
-                }
+        private fun deleteCloudSttAudioFile(audioFile: File) {
+            if (audioFile.exists() && !audioFile.delete()) {
+                Log.d(TAG, "Cloud STT temp file delete failed: path=${audioFile.absolutePath}")
             }
         }
+
+        private fun getCloudSttFailureRetryDelay(): Long =
+            minOf(
+                CLOUD_STT_FAILURE_RETRY_DELAY_MS * cloudSttFailureCount,
+                CLOUD_STT_MAX_FAILURE_RETRY_DELAY_MS,
+            )
 
         private fun buildCloudSttDisplayText(
             recognizedText: String,
@@ -491,6 +545,7 @@ class ConversationViewModel
             _sttText.value = ""
             _micVolume.value = 0f
             _messages.value = emptyList()
+            cloudSttFailureCount = 0
             translationJob?.cancel()
             completionTimerJob?.cancel()
             sttJob?.cancel()
@@ -564,17 +619,22 @@ class ConversationViewModel
             private const val STT_RESTART_DELAY_MS = 500L
             private const val CLOUD_STT_POLL_INTERVAL_MS = 150L
             private const val CLOUD_STT_MIN_RECORDING_MS = 500L
+            private const val CLOUD_STT_MIN_UPLOAD_RECORDING_MS = 1500L
             private const val CLOUD_STT_SILENCE_TIMEOUT_MS = 500L
             private const val CLOUD_STT_MAX_RECORDING_MS = 2800L
             private const val CLOUD_STT_NO_SPEECH_TIMEOUT_MS = 1200L
             private const val CLOUD_STT_RETRY_DELAY_MS = 500L
             private const val CLOUD_STT_FAILURE_RETRY_DELAY_MS = 1500L
+            private const val CLOUD_STT_MAX_FAILURE_RETRY_DELAY_MS = 5000L
             private const val CLOUD_STT_VOICE_THRESHOLD = 5000
             private const val CLOUD_STT_FALLBACK_VOICE_THRESHOLD = 5000
+            private const val CLOUD_STT_MIN_VOICE_FRAME_COUNT = 2
             private const val CLOUD_STT_MIN_FILE_BYTES = 1024L
             private const val CLOUD_STT_STOP_REASON_SILENCE = "silence"
             private const val CLOUD_STT_STOP_REASON_MAX_DURATION = "max_duration"
             private const val CLOUD_STT_STOP_REASON_NO_SPEECH = "no_speech"
             private const val CLOUD_STT_STOP_REASON_CANCELLED = "cancelled"
+            private const val CLOUD_STT_ANALYZING_MESSAGE = "대화 내용을 분석 중입니다..."
+            private const val CLOUD_STT_FAILURE_MESSAGE = "인식에 실패했습니다."
         }
     }
