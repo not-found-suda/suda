@@ -115,10 +115,30 @@ public class TranslationServiceImpl implements TranslationService {
     try {
       correctionResult = childSpeechCorrectionClient.correct(recognizedText);
     } catch (Exception e) {
-      throw new BusinessException(TranslationErrorCode.CHILD_SPEECH_CORRECTION_FAILED);
+      log.warn(
+          "[STT] Child speech correction failed. fallback to recognizedText. traceId={}, recognizedText={}, exceptionClass={}, message={}",
+          getTraceId(),
+          recognizedText,
+          e.getClass().getName(),
+          e.getMessage(),
+          e);
+
+      return new SpeechToTextResponseDto(
+          recognizedText, recognizedText, false, null, resolvedLocale);
     }
 
     String correctedText = correctionResult.correctedText();
+
+    if (correctedText == null || correctedText.isBlank()) {
+      log.warn(
+          "[STT] Child speech correction returned empty text. fallback to recognizedText. traceId={}, recognizedText={}",
+          getTraceId(),
+          recognizedText);
+
+      return new SpeechToTextResponseDto(
+          recognizedText, recognizedText, false, null, resolvedLocale);
+    }
+
     boolean corrected = !recognizedText.trim().equals(correctedText.trim());
 
     return new SpeechToTextResponseDto(

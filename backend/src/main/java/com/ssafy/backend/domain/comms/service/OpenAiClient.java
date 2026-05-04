@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 @Component
 public class OpenAiClient {
@@ -34,8 +35,26 @@ public class OpenAiClient {
       }
 
       return clean(result);
+
+    } catch (RestClientResponseException e) {
+      log.warn(
+          "Gemini request failed. status={}, responseHeaders={}, responseBody={}, exceptionClass={}, message={}",
+          e.getStatusCode(),
+          e.getResponseHeaders(),
+          abbreviate(e.getResponseBodyAsString(), 1000),
+          e.getClass().getName(),
+          e.getMessage(),
+          e);
+
+      throw new IllegalStateException("Gemini 문장 보정 호출에 실패했습니다.", e);
+
     } catch (Exception e) {
-      log.warn("Gemini request failed. reason={}", e.getMessage());
+      log.warn(
+          "Gemini request failed. exceptionClass={}, message={}",
+          e.getClass().getName(),
+          e.getMessage(),
+          e);
+
       throw new IllegalStateException("Gemini 문장 보정 호출에 실패했습니다.", e);
     }
   }
@@ -65,6 +84,7 @@ public class OpenAiClient {
             .uri(url)
             .header("x-goog-api-key", gemini.apiKey())
             .contentType(MediaType.APPLICATION_JSON)
+            .accept(MediaType.APPLICATION_JSON)
             .body(request)
             .retrieve()
             .body(GeminiResponse.class);
@@ -84,6 +104,18 @@ public class OpenAiClient {
 
   private String clean(String result) {
     return result.trim().replace("\"", "").replace("'", "").replace("`", "").split("\\n")[0].trim();
+  }
+
+  private String abbreviate(String value, int maxLength) {
+    if (value == null) {
+      return null;
+    }
+
+    if (value.length() <= maxLength) {
+      return value;
+    }
+
+    return value.substring(0, maxLength) + "...";
   }
 
   private record GeminiRequest(
