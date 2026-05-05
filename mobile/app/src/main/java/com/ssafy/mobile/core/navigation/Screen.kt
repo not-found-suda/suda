@@ -7,6 +7,8 @@ sealed class Screen(
 
     data object Login : Screen("login_route")
 
+    data object Signup : Screen("signup_route")
+
     data object ChildSelect : Screen("child_select_route")
 
     data object Home : Screen("home_route")

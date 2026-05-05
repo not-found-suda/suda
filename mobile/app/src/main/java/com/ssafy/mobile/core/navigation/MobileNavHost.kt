@@ -13,8 +13,10 @@ import com.ssafy.mobile.feature.login.presentation.LoginRoute
 import com.ssafy.mobile.feature.placeholder.ChildSelectPlaceholderRoute
 import com.ssafy.mobile.feature.placeholder.HomePlaceholderRoute
 import com.ssafy.mobile.feature.sign.presentation.SignDebugRoute
+import com.ssafy.mobile.feature.signup.presentation.SignupRoute
 
 @Composable
+@Suppress("LongMethod")
 fun MobileNavHost(
     navController: NavHostController,
     modifier: Modifier = Modifier,
@@ -58,7 +60,16 @@ fun MobileNavHost(
                     }
                 },
                 onNavigateToSignup = {
-                    // [S14P31A404-232] 회원가입 화면은 후속 티켓에서 구현
+                    navController.navigate(Screen.Signup.route)
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        composable(Screen.Signup.route) {
+            SignupRoute(
+                onNavigateToLogin = {
+                    navController.popBackStack(Screen.Login.route, inclusive = false)
                 },
                 modifier = Modifier.fillMaxSize(),
             )
