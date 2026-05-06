@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.feature.quiz.domain.model.MockQuizQuestions
@@ -49,9 +50,11 @@ fun quizQuestionRoute(modifier: Modifier = Modifier) {
     var quizState by remember {
         mutableStateOf(QuizSessionReducer.start(MockQuizQuestions.items))
     }
+    val recordingViewModel: QuizRecordingViewModel = hiltViewModel()
     val recordingController =
         rememberQuizRecordingController(
             currentQuestionId = quizState.currentQuestion?.id,
+            recorder = recordingViewModel.recorder,
             onSubmitRecording = {
                 quizState = submitMockAnswer(quizState)
             },

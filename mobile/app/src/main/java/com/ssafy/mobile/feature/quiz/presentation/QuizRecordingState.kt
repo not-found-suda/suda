@@ -1,8 +1,5 @@
 package com.ssafy.mobile.feature.quiz.presentation
 
-import android.Manifest
-import android.content.Context
-import android.content.pm.PackageManager
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -15,9 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
-import androidx.core.content.ContextCompat
 import com.ssafy.mobile.core.audio.AndroidAudioRecorder
 import kotlinx.coroutines.delay
 
@@ -47,14 +42,10 @@ internal class QuizRecordingController(
 @Suppress("CyclomaticComplexMethod")
 internal fun rememberQuizRecordingController(
     currentQuestionId: Long?,
+    recorder: AndroidAudioRecorder,
     onSubmitRecording: () -> Unit,
 ): QuizRecordingController {
-    val context = LocalContext.current
     val submitRecording by rememberUpdatedState(onSubmitRecording)
-    val recorder =
-        remember(context) {
-            AndroidAudioRecorder(context.applicationContext)
-        }
     var status by remember {
         mutableStateOf(QuizRecordingStatus.Idle)
     }
@@ -103,11 +94,6 @@ internal fun rememberQuizRecordingController(
     }
 
     fun startRecording() {
-        if (!context.hasRecordAudioPermission()) {
-            status = QuizRecordingStatus.PermissionError
-            return
-        }
-
         val questionId = currentQuestionId ?: return
         val startedAtMs = System.currentTimeMillis()
         val started = recorder.start(fileName = "quiz_answer_${questionId}_$startedAtMs")
@@ -197,12 +183,6 @@ private fun QuizRecordingStatus.message(answerAttemptCount: Int?): String =
         QuizRecordingStatus.Timeout -> "시간이 끝나 녹음을 멈췄어요. 다시 말할 수 있어요."
         QuizRecordingStatus.PermissionError -> "마이크 권한을 확인한 뒤 다시 시도해 주세요."
     }
-
-private fun Context.hasRecordAudioPermission(): Boolean =
-    ContextCompat.checkSelfPermission(
-        this,
-        Manifest.permission.RECORD_AUDIO,
-    ) == PackageManager.PERMISSION_GRANTED
 
 private const val RECORDING_MAX_DURATION_MS = 5_000L
 private const val RECORDING_MIN_DURATION_MS = 500L
