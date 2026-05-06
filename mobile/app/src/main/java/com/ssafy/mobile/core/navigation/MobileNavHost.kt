@@ -7,20 +7,56 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.ssafy.mobile.BuildConfig
+import com.ssafy.mobile.feature.appentry.AppEntryRoute
 import com.ssafy.mobile.feature.conversation.presentation.conversationRoute
+import com.ssafy.mobile.feature.placeholder.ChildSelectPlaceholderRoute
+import com.ssafy.mobile.feature.placeholder.HomePlaceholderRoute
+import com.ssafy.mobile.feature.placeholder.LoginPlaceholderRoute
 import com.ssafy.mobile.feature.sign.presentation.SignDebugRoute
 
 @Composable
 fun MobileNavHost(
     navController: NavHostController,
     modifier: Modifier = Modifier,
-    startDestination: String = Screen.Conversation.route,
+    startDestination: String = Screen.AppEntry.route,
 ) {
     NavHost(
         navController = navController,
         startDestination = startDestination,
         modifier = modifier,
     ) {
+        composable(Screen.AppEntry.route) {
+            AppEntryRoute(
+                onNavigateToLogin = {
+                    navController.navigate(Screen.Login.route) {
+                        popUpTo(Screen.AppEntry.route) { inclusive = true }
+                    }
+                },
+                onNavigateToChildSelect = {
+                    navController.navigate(Screen.ChildSelect.route) {
+                        popUpTo(Screen.AppEntry.route) { inclusive = true }
+                    }
+                },
+                onNavigateToHome = {
+                    navController.navigate(Screen.Home.route) {
+                        popUpTo(Screen.AppEntry.route) { inclusive = true }
+                    }
+                },
+            )
+        }
+
+        composable(Screen.Login.route) {
+            LoginPlaceholderRoute(modifier = Modifier.fillMaxSize())
+        }
+
+        composable(Screen.ChildSelect.route) {
+            ChildSelectPlaceholderRoute(modifier = Modifier.fillMaxSize())
+        }
+
+        composable(Screen.Home.route) {
+            HomePlaceholderRoute(modifier = Modifier.fillMaxSize())
+        }
+
         composable(Screen.Conversation.route) {
             val onOpenSignDebug: (() -> Unit)? =
                 if (BuildConfig.DEBUG) {
