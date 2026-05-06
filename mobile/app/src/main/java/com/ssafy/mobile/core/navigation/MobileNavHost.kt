@@ -11,8 +11,9 @@ import com.ssafy.mobile.feature.appentry.AppEntryRoute
 import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileEditRoute
 import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileSelectRoute
 import com.ssafy.mobile.feature.conversation.presentation.conversationRoute
+import com.ssafy.mobile.feature.home.presentation.HomeRoute
 import com.ssafy.mobile.feature.login.presentation.LoginRoute
-import com.ssafy.mobile.feature.placeholder.HomePlaceholderRoute
+import com.ssafy.mobile.feature.mypage.presentation.MyPageRoute
 import com.ssafy.mobile.feature.quiz.presentation.quizQuestionRoute
 import com.ssafy.mobile.feature.sign.presentation.SignDebugRoute
 import com.ssafy.mobile.feature.signup.presentation.SignupRoute
@@ -107,7 +108,19 @@ fun MobileNavHost(
         }
 
         composable(Screen.Home.route) {
-            HomePlaceholderRoute(modifier = Modifier.fillMaxSize())
+            HomeRoute(
+                onStartLearning = {
+                    navController.navigate(Screen.Quiz.route) {
+                        launchSingleTop = true
+                    }
+                },
+                onStartConversation = {
+                    navController.navigate(Screen.Conversation.route) {
+                        launchSingleTop = true
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         composable(Screen.Quiz.route) {
@@ -126,6 +139,12 @@ fun MobileNavHost(
 
             conversationRoute(
                 onOpenSignDebug = onOpenSignDebug,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        composable(Screen.MyPage.route) {
+            MyPageRoute(
                 modifier = Modifier.fillMaxSize(),
             )
         }
