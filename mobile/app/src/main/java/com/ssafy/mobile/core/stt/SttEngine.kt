@@ -9,6 +9,8 @@ interface SttEngine {
     /** STT 엔진에서 방출되는 이벤트 스트림 */
     val events: Flow<SttEvent>
 
+    fun nextSessionId(): Int
+
     /** 음성 인식 시작 */
     fun startListening(sessionId: Int)
 

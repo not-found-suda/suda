@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,9 +38,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.feature.quiz.domain.model.MockQuizQuestions
+import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
 import com.ssafy.mobile.feature.quiz.domain.model.QuizQuestion
 import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionReducer
 import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionState
@@ -51,14 +54,30 @@ fun quizQuestionRoute(modifier: Modifier = Modifier) {
         mutableStateOf(QuizSessionReducer.start(MockQuizQuestions.items))
     }
     val recordingViewModel: QuizRecordingViewModel = hiltViewModel()
+    val recordingStatus by recordingViewModel.status.collectAsStateWithLifecycle()
+    val recognizedText by recordingViewModel.recognizedText.collectAsStateWithLifecycle()
     val recordingController =
-        rememberQuizRecordingController(
-            currentQuestionId = quizState.currentQuestion?.id,
-            recorder = recordingViewModel.recorder,
-            onSubmitRecording = {
-                quizState = submitMockAnswer(quizState)
+        QuizRecordingController(
+            status = recordingStatus,
+            onRecordButtonClick = {
+                when (recordingStatus) {
+                    QuizRecordingStatus.Recording -> recordingViewModel.stopListening()
+                    QuizRecordingStatus.Processing -> Unit
+                    else -> recordingViewModel.startListening()
+                }
             },
+            reset = recordingViewModel::reset,
         )
+
+    LaunchedEffect(quizState.currentQuestion?.id) {
+        recordingViewModel.reset()
+    }
+
+    LaunchedEffect(recognizedText) {
+        val sttText = recognizedText ?: return@LaunchedEffect
+        quizState = submitSttAnswer(quizState, sttText)
+        recordingViewModel.consumeRecognizedText()
+    }
 
     QuizQuestionScreen(
         state = quizState,
@@ -168,11 +187,10 @@ private fun QuizQuestionContent(
         QuizActionArea(
             isLastQuestion = state.isLastQuestion,
             recordingStatus = recordingStatus,
-            answerAttemptCount =
-                state.answers
-                    .firstOrNull {
-                        it.questionId == question.id
-                    }?.attemptCount,
+            answer =
+                state.answers.firstOrNull {
+                    it.questionId == question.id
+                },
             onAnswerClick = onAnswerClick,
             onNextClick = onNextClick,
         )
@@ -324,12 +342,12 @@ private fun QuizPrompt(
 private fun QuizActionArea(
     isLastQuestion: Boolean,
     recordingStatus: QuizRecordingStatus,
-    answerAttemptCount: Int?,
+    answer: QuizAnswer?,
     onAnswerClick: () -> Unit,
     onNextClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val hasAnswered = answerAttemptCount != null
+    val hasAnswered = answer != null
     val isRecording = recordingStatus == QuizRecordingStatus.Recording
     val isProcessing = recordingStatus == QuizRecordingStatus.Processing
     val canSkipQuestion = recordingStatus.canSkipQuestion
@@ -364,7 +382,8 @@ private fun QuizActionArea(
 
         QuizRecordingStatusText(
             recordingStatus = recordingStatus,
-            answerAttemptCount = answerAttemptCount,
+            answerAttemptCount = answer?.attemptCount,
+            recognizedText = answer?.sttText,
         )
     }
 }
@@ -373,7 +392,10 @@ private const val MOCK_SUCCESS_STAR = 3
 private const val PERCENT_MAX = 100
 private const val FIRST_LETTER_COUNT = 1
 
-private fun submitMockAnswer(state: QuizSessionState): QuizSessionState {
+private fun submitSttAnswer(
+    state: QuizSessionState,
+    sttText: String,
+): QuizSessionState {
     val question = state.currentQuestion ?: return state
     val submitState =
         if (state.answers.any { it.questionId == question.id }) {
@@ -384,7 +406,7 @@ private fun submitMockAnswer(state: QuizSessionState): QuizSessionState {
 
     return QuizSessionReducer.submitCurrentAnswer(
         state = submitState,
-        sttText = question.word,
+        sttText = sttText,
         star = MOCK_SUCCESS_STAR,
     )
 }

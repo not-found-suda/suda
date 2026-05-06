@@ -26,6 +26,7 @@ sealed class SttEvent(
     /** 인식 중 발생한 에러 */
     class Error(
         sessionId: Int,
+        val type: SttErrorType,
         val message: String,
     ) : SttEvent(sessionId)
 
@@ -44,4 +45,16 @@ sealed class SttEvent(
     class Stopped(
         sessionId: Int,
     ) : SttEvent(sessionId)
+}
+
+enum class SttErrorType {
+    RecognizerUnavailable,
+    PermissionRequired,
+    StartFailed,
+    SpeechTimeout,
+    NoMatch,
+    RecognizerBusy,
+    Audio,
+    Network,
+    Unknown,
 }

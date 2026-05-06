@@ -213,7 +213,7 @@ class ConversationViewModel
             cloudSttJob?.cancel()
             cloudSttJob = null
             androidAudioRecorder.stop()
-            currentSttSessionId++
+            currentSttSessionId = sttEngine.nextSessionId()
             sttEngine.startListening(currentSttSessionId)
         }
 
@@ -221,7 +221,7 @@ class ConversationViewModel
             if (cloudSttJob?.isActive == true) return
 
             sttEngine.stopListening()
-            currentSttSessionId++
+            currentSttSessionId = sttEngine.nextSessionId()
 
             cloudSttJob =
                 viewModelScope.launch {
