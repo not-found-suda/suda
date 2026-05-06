@@ -10,6 +10,7 @@ import androidx.compose.ui.text.style.TextAlign
 enum class QuizRecordingStatus {
     Idle,
     Recording,
+    FallbackRecording,
     Processing,
     Completed,
     NoSpeech,
@@ -69,6 +70,8 @@ private fun QuizRecordingStatus.message(
                 "$answerAttemptCount 번째 답변이에요. 다시 말해볼까요?"
             }
         QuizRecordingStatus.Recording -> "듣고 있어요. 다 말했으면 버튼을 눌러 주세요."
+        QuizRecordingStatus.FallbackRecording ->
+            "서버 인식이 어려워 기기에서 다시 듣고 있어요. 한 번 더 말해 주세요."
         QuizRecordingStatus.Processing -> "말한 단어를 인식하고 있어요."
         QuizRecordingStatus.Completed ->
             if (recognizedText.isNullOrBlank()) {

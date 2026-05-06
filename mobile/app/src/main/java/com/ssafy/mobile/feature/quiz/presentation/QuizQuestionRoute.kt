@@ -61,7 +61,9 @@ fun quizQuestionRoute(modifier: Modifier = Modifier) {
             status = recordingStatus,
             onRecordButtonClick = {
                 when (recordingStatus) {
-                    QuizRecordingStatus.Recording -> recordingViewModel.stopListening()
+                    QuizRecordingStatus.Recording,
+                    QuizRecordingStatus.FallbackRecording,
+                    -> recordingViewModel.stopListening()
                     QuizRecordingStatus.Processing -> Unit
                     else -> recordingViewModel.startListening()
                 }
@@ -348,7 +350,9 @@ private fun QuizActionArea(
     modifier: Modifier = Modifier,
 ) {
     val hasAnswered = answer != null
-    val isRecording = recordingStatus == QuizRecordingStatus.Recording
+    val isRecording =
+        recordingStatus == QuizRecordingStatus.Recording ||
+            recordingStatus == QuizRecordingStatus.FallbackRecording
     val isProcessing = recordingStatus == QuizRecordingStatus.Processing
     val canSkipQuestion = recordingStatus.canSkipQuestion
     val canMoveNext = (hasAnswered || canSkipQuestion) && !isRecording && !isProcessing
