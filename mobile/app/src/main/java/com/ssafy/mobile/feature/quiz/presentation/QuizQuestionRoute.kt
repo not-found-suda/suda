@@ -46,6 +46,7 @@ import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
 import com.ssafy.mobile.feature.quiz.domain.model.QuizQuestion
 import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionReducer
 import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionState
+import com.ssafy.mobile.feature.quiz.domain.model.QuizStarScorer
 import kotlin.math.roundToInt
 
 @Composable
@@ -355,12 +356,17 @@ private fun QuizActionArea(
             recordingStatus == QuizRecordingStatus.FallbackRecording
     val isProcessing = recordingStatus == QuizRecordingStatus.Processing
     val canSkipQuestion = recordingStatus.canSkipQuestion
-    val canMoveNext = (hasAnswered || canSkipQuestion) && !isRecording && !isProcessing
+    val hasSuccessfulAnswer = (answer?.star ?: 0) >= PASSING_STAR
+    val canMoveNext = (hasSuccessfulAnswer || canSkipQuestion) && !isRecording && !isProcessing
 
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (answer != null) {
+            QuizStarResultCard(answer = answer)
+        }
+
         AppPrimaryButton(
             text =
                 when {
@@ -375,11 +381,12 @@ private fun QuizActionArea(
 
         AppSecondaryButton(
             text =
-                when {
-                    canSkipQuestion -> "이번 문제 넘어가기"
-                    isLastQuestion -> "결과 보기"
-                    else -> "다음 문제"
-                },
+                nextButtonText(
+                    canSkipQuestion = canSkipQuestion,
+                    hasAnswered = hasAnswered,
+                    hasSuccessfulAnswer = hasSuccessfulAnswer,
+                    isLastQuestion = isLastQuestion,
+                ),
             onClick = onNextClick,
             enabled = canMoveNext,
         )
@@ -392,9 +399,22 @@ private fun QuizActionArea(
     }
 }
 
-private const val MOCK_SUCCESS_STAR = 3
+private fun nextButtonText(
+    canSkipQuestion: Boolean,
+    hasAnswered: Boolean,
+    hasSuccessfulAnswer: Boolean,
+    isLastQuestion: Boolean,
+): String =
+    when {
+        canSkipQuestion -> "이번 문제 넘어가기"
+        hasAnswered && !hasSuccessfulAnswer -> "별 3개에 도전해요"
+        isLastQuestion -> "결과 보기"
+        else -> "다음 문제"
+    }
+
 private const val PERCENT_MAX = 100
 private const val FIRST_LETTER_COUNT = 1
+private const val PASSING_STAR = 3
 
 private fun submitSttAnswer(
     state: QuizSessionState,
@@ -411,6 +431,10 @@ private fun submitSttAnswer(
     return QuizSessionReducer.submitCurrentAnswer(
         state = submitState,
         sttText = sttText,
-        star = MOCK_SUCCESS_STAR,
+        star =
+            QuizStarScorer.score(
+                targetWord = question.word,
+                sttText = sttText,
+            ),
     )
 }
