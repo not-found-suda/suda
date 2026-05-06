@@ -7,21 +7,25 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssafy.mobile.core.auth.AuthState
+import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 
 @Composable
 fun AppEntryRoute(
@@ -43,33 +47,53 @@ fun AppEntryRoute(
         }
     }
 
-    when (authState) {
-        is AuthState.Restoring -> {
-            RestoringContent(modifier = modifier)
+    Surface(
+        modifier = modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
+    ) {
+        when (authState) {
+            is AuthState.Restoring -> {
+                RestoringContent()
+            }
+
+            is AuthState.RestoreFailed -> {
+                RestoreFailedContent(
+                    onRetry = viewModel::retryRestoreSession,
+                    onNavigateToLogin = onNavigateToLogin,
+                )
+            }
+
+            else -> Unit
         }
-        is AuthState.RestoreFailed -> {
-            RestoreFailedContent(
-                onRetry = viewModel::retryRestoreSession,
-                onNavigateToLogin = onNavigateToLogin,
-                modifier = modifier,
-            )
-        }
-        else -> Unit
     }
 }
 
 @Composable
 private fun RestoringContent(modifier: Modifier = Modifier) {
     Column(
-        modifier = modifier.fillMaxSize(),
+        modifier =
+            modifier
+                .fillMaxSize()
+                .padding(horizontal = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        CircularProgressIndicator()
-        Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "세션을 복원하고 있어요.",
-            style = MaterialTheme.typography.bodyMedium,
+            text = "SUDA",
+            style = MaterialTheme.typography.displayMedium,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Black,
+        )
+        Spacer(modifier = Modifier.height(48.dp))
+        CircularProgressIndicator(
+            modifier = Modifier.size(36.dp),
+            strokeWidth = 3.dp,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            text = "소중한 우리 아이와의 대화를 준비 중입니다.",
+            style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
@@ -86,36 +110,36 @@ private fun RestoreFailedContent(
         modifier =
             modifier
                 .fillMaxSize()
-                .padding(24.dp),
+                .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
-            text = "세션을 복원하지 못했어요",
-            style = MaterialTheme.typography.headlineSmall,
+            text = "로그인 정보를\n불러오지 못했습니다",
+            style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
+            fontWeight = FontWeight.Bold,
+            lineHeight = 36.sp,
         )
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "잠시 후 다시 시도하거나\n로그인 화면으로 이동해 주세요.",
+            text = "일시적인 오류이거나 기기 보안 설정 문제일 수 있습니다.\n다시 시도하거나 로그인 화면으로 이동해 주세요.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
-        Spacer(modifier = Modifier.height(24.dp))
-        Button(
+        Spacer(modifier = Modifier.height(48.dp))
+        AppPrimaryButton(
+            text = "다시 시도하기",
             onClick = onRetry,
             modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(text = "다시 시도")
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedButton(
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        AppSecondaryButton(
+            text = "로그인 화면으로 이동",
             onClick = onNavigateToLogin,
             modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(text = "로그인 화면으로 이동")
-        }
+        )
     }
 }

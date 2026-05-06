@@ -35,6 +35,7 @@ class AppEntryViewModel
         }
 
         fun retryRestoreSession() {
+            if (_authState.value is AuthState.Restoring) return
             restoreSession()
         }
 
