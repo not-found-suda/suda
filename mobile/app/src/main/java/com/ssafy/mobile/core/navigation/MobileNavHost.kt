@@ -9,9 +9,9 @@ import androidx.navigation.compose.composable
 import com.ssafy.mobile.BuildConfig
 import com.ssafy.mobile.feature.appentry.AppEntryRoute
 import com.ssafy.mobile.feature.conversation.presentation.conversationRoute
+import com.ssafy.mobile.feature.login.presentation.LoginRoute
 import com.ssafy.mobile.feature.placeholder.ChildSelectPlaceholderRoute
 import com.ssafy.mobile.feature.placeholder.HomePlaceholderRoute
-import com.ssafy.mobile.feature.placeholder.LoginPlaceholderRoute
 import com.ssafy.mobile.feature.sign.presentation.SignDebugRoute
 
 @Composable
@@ -46,7 +46,22 @@ fun MobileNavHost(
         }
 
         composable(Screen.Login.route) {
-            LoginPlaceholderRoute(modifier = Modifier.fillMaxSize())
+            LoginRoute(
+                onNavigateToHome = {
+                    navController.navigate(Screen.Home.route) {
+                        popUpTo(Screen.Login.route) { inclusive = true }
+                    }
+                },
+                onNavigateToChildSelect = {
+                    navController.navigate(Screen.ChildSelect.route) {
+                        popUpTo(Screen.Login.route) { inclusive = true }
+                    }
+                },
+                onNavigateToSignup = {
+                    // [S14P31A404-232] 회원가입 화면은 후속 티켓에서 구현
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         composable(Screen.ChildSelect.route) {
