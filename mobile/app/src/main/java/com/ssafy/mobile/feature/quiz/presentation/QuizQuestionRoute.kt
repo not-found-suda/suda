@@ -49,29 +49,24 @@ fun quizQuestionRoute(modifier: Modifier = Modifier) {
     var quizState by remember {
         mutableStateOf(QuizSessionReducer.start(MockQuizQuestions.items))
     }
+    val recordingController =
+        rememberQuizRecordingController(
+            currentQuestionId = quizState.currentQuestion?.id,
+            onSubmitRecording = {
+                quizState = submitMockAnswer(quizState)
+            },
+        )
 
     QuizQuestionScreen(
         state = quizState,
-        onAnswerClick = {
-            val question = quizState.currentQuestion
-            val answerText = question?.word.orEmpty()
-            val submitState =
-                if (question != null && quizState.answers.any { it.questionId == question.id }) {
-                    QuizSessionReducer.retryCurrentQuestion(quizState)
-                } else {
-                    quizState
-                }
-            quizState =
-                QuizSessionReducer.submitCurrentAnswer(
-                    state = submitState,
-                    sttText = answerText,
-                    star = MOCK_SUCCESS_STAR,
-                )
-        },
+        recordingStatus = recordingController.status,
+        onAnswerClick = recordingController.onRecordButtonClick,
         onNextClick = {
+            recordingController.reset()
             quizState = QuizSessionReducer.moveToNextQuestion(quizState)
         },
         onRestartClick = {
+            recordingController.reset()
             quizState = QuizSessionReducer.start(MockQuizQuestions.items)
         },
         modifier = modifier,
@@ -79,8 +74,9 @@ fun quizQuestionRoute(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun QuizQuestionScreen(
+private fun QuizQuestionScreen(
     state: QuizSessionState,
+    recordingStatus: QuizRecordingStatus,
     onAnswerClick: () -> Unit,
     onNextClick: () -> Unit,
     onRestartClick: () -> Unit,
@@ -130,6 +126,7 @@ fun QuizQuestionScreen(
                 QuizQuestionContent(
                     state = state,
                     question = requireNotNull(state.currentQuestion),
+                    recordingStatus = recordingStatus,
                     onAnswerClick = onAnswerClick,
                     onNextClick = onNextClick,
                     modifier = Modifier.fillMaxSize(),
@@ -143,6 +140,7 @@ fun QuizQuestionScreen(
 private fun QuizQuestionContent(
     state: QuizSessionState,
     question: QuizQuestion,
+    recordingStatus: QuizRecordingStatus,
     onAnswerClick: () -> Unit,
     onNextClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -166,6 +164,7 @@ private fun QuizQuestionContent(
 
         QuizActionArea(
             isLastQuestion = state.isLastQuestion,
+            recordingStatus = recordingStatus,
             answerAttemptCount =
                 state.answers
                     .firstOrNull {
@@ -321,114 +320,68 @@ private fun QuizPrompt(
 @Composable
 private fun QuizActionArea(
     isLastQuestion: Boolean,
+    recordingStatus: QuizRecordingStatus,
     answerAttemptCount: Int?,
     onAnswerClick: () -> Unit,
     onNextClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val hasAnswered = answerAttemptCount != null
+    val isRecording = recordingStatus == QuizRecordingStatus.Recording
+    val isProcessing = recordingStatus == QuizRecordingStatus.Processing
+    val canSkipQuestion = recordingStatus.canSkipQuestion
+    val canMoveNext = (hasAnswered || canSkipQuestion) && !isRecording && !isProcessing
 
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         AppPrimaryButton(
-            text = if (hasAnswered) "다시 말하기" else "답변하기",
+            text =
+                when {
+                    isRecording -> "말하기 완료"
+                    isProcessing -> "녹음 확인 중"
+                    hasAnswered -> "다시 말하기"
+                    else -> "답변하기"
+                },
             onClick = onAnswerClick,
+            enabled = !isProcessing,
         )
 
         AppSecondaryButton(
-            text = if (isLastQuestion) "결과 보기" else "다음 문제",
+            text =
+                when {
+                    canSkipQuestion -> "이번 문제 넘어가기"
+                    isLastQuestion -> "결과 보기"
+                    else -> "다음 문제"
+                },
             onClick = onNextClick,
-            enabled = hasAnswered,
+            enabled = canMoveNext,
         )
 
-        if (!hasAnswered) {
-            Text(
-                text = "답변 후 다음 문제로 넘어갈 수 있어요.",
-                modifier = Modifier.fillMaxWidth(),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-        } else {
-            Text(
-                text = "$answerAttemptCount 번째 답변이 임시 저장됐어요.",
-                modifier = Modifier.fillMaxWidth(),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-                textAlign = TextAlign.Center,
-            )
-        }
-    }
-}
-
-@Composable
-private fun QuizFinishedState(
-    solvedCount: Int,
-    totalCount: Int,
-    onRestartClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    QuizMessageState(
-        title = "퀴즈를 모두 풀었어요",
-        description = "$totalCount 문제 중 $solvedCount 문제를 답변했어요.",
-        actionText = "다시 시작",
-        onActionClick = onRestartClick,
-        modifier = modifier,
-    )
-}
-
-@Composable
-private fun QuizMessageState(
-    title: String,
-    description: String,
-    modifier: Modifier = Modifier,
-    actionText: String? = null,
-    onActionClick: (() -> Unit)? = null,
-) {
-    Box(
-        modifier = modifier.padding(24.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(28.dp),
-            colors =
-                CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        ) {
-            Column(
-                modifier = Modifier.padding(28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                )
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-
-                if (actionText != null && onActionClick != null) {
-                    AppPrimaryButton(
-                        text = actionText,
-                        onClick = onActionClick,
-                    )
-                }
-            }
-        }
+        QuizRecordingStatusText(
+            recordingStatus = recordingStatus,
+            answerAttemptCount = answerAttemptCount,
+        )
     }
 }
 
 private const val MOCK_SUCCESS_STAR = 3
 private const val PERCENT_MAX = 100
 private const val FIRST_LETTER_COUNT = 1
+
+private fun submitMockAnswer(state: QuizSessionState): QuizSessionState {
+    val question = state.currentQuestion ?: return state
+    val submitState =
+        if (state.answers.any { it.questionId == question.id }) {
+            QuizSessionReducer.retryCurrentQuestion(state)
+        } else {
+            state
+        }
+
+    return QuizSessionReducer.submitCurrentAnswer(
+        state = submitState,
+        sttText = question.word,
+        star = MOCK_SUCCESS_STAR,
+    )
+}
