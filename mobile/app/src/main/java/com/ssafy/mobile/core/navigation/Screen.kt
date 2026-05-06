@@ -22,4 +22,10 @@ sealed class Screen(
     data object MyPage : Screen("my_page_route")
 
     data object Sign : Screen("sign_route")
+
+    data object LearningCategory : Screen("learning_category_route")
+
+    data object WordList : Screen("learning_words/{categoryId}") {
+        fun createRoute(categoryId: Long) = "learning_words/$categoryId"
+    }
 }

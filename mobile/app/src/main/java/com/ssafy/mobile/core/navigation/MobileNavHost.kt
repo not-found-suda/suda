@@ -4,14 +4,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
 import com.ssafy.mobile.BuildConfig
 import com.ssafy.mobile.feature.appentry.AppEntryRoute
 import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileEditRoute
 import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileSelectRoute
 import com.ssafy.mobile.feature.conversation.presentation.conversationRoute
 import com.ssafy.mobile.feature.home.presentation.HomeRoute
+import com.ssafy.mobile.feature.learning.presentation.category.LearningCategoryRoute
+import com.ssafy.mobile.feature.learning.presentation.wordlist.WordListPlaceholderRoute
 import com.ssafy.mobile.feature.login.presentation.LoginRoute
 import com.ssafy.mobile.feature.mypage.presentation.MyPageRoute
 import com.ssafy.mobile.feature.quiz.presentation.quizQuestionRoute
@@ -119,7 +123,7 @@ fun MobileNavHost(
         composable(Screen.Home.route) {
             HomeRoute(
                 onStartLearning = {
-                    navController.navigate(Screen.Quiz.route) {
+                    navController.navigate(Screen.LearningCategory.route) {
                         launchSingleTop = true
                     }
                 },
@@ -176,6 +180,29 @@ fun MobileNavHost(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
+        }
+
+        composable(Screen.LearningCategory.route) {
+            LearningCategoryRoute(
+                onNavigateToWordList = { categoryId ->
+                    navController.navigate(Screen.WordList.createRoute(categoryId))
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        composable(
+            route = Screen.WordList.route,
+            arguments =
+                listOf(
+                    navArgument("categoryId") { type = NavType.LongType },
+                ),
+        ) { backStackEntry ->
+            val categoryId = backStackEntry.arguments?.getLong("categoryId") ?: 0L
+            WordListPlaceholderRoute(
+                categoryId = categoryId,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
     }
 }

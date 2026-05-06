@@ -230,7 +230,7 @@ private val bottomNavigationItems =
             iconText = "홈",
         ),
         BottomNavigationItem(
-            screen = Screen.Quiz,
+            screen = Screen.LearningCategory,
             label = "학습",
             iconText = "학습",
         ),
