@@ -11,23 +11,32 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.ssafy.mobile.core.navigation.MobileNavHost
+import com.ssafy.mobile.core.navigation.Screen
 import com.ssafy.mobile.core.permission.PermissionGuide
 import com.ssafy.mobile.core.permission.PermissionHandler
 import com.ssafy.mobile.core.permission.PermissionRequestState
@@ -84,11 +93,15 @@ private fun PermissionGate(
     onRequestPermissions: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .systemBarsPadding(),
+    ) {
         when (permissionState) {
             PermissionRequestState.Granted -> {
-                val navController = rememberNavController()
-                MobileNavHost(navController = navController)
+                MobileAppShell(modifier = Modifier.fillMaxSize())
             }
             PermissionRequestState.Denied -> {
                 PermissionGuide(
@@ -122,6 +135,69 @@ private fun PermissionGate(
 }
 
 @Composable
+private fun MobileAppShell(modifier: Modifier = Modifier) {
+    val navController = rememberNavController()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        bottomBar = {
+            if (bottomNavigationItems.any { it.screen.route == currentRoute }) {
+                AppBottomNavigationBar(
+                    navController = navController,
+                    currentRoute = currentRoute,
+                )
+            }
+        },
+    ) { innerPadding ->
+        MobileNavHost(
+            navController = navController,
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+        )
+    }
+}
+
+@Composable
+private fun AppBottomNavigationBar(
+    navController: NavHostController,
+    currentRoute: String?,
+) {
+    NavigationBar {
+        bottomNavigationItems.forEach { item ->
+            val selected = currentRoute == item.screen.route
+            NavigationBarItem(
+                selected = selected,
+                onClick = {
+                    if (!selected) {
+                        navController.navigate(item.screen.route) {
+                            launchSingleTop = true
+                            restoreState = true
+                            popUpTo(Screen.Home.route) {
+                                saveState = true
+                            }
+                        }
+                    }
+                },
+                icon = {
+                    Text(
+                        text = item.iconText,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                },
+                label = {
+                    Text(text = item.label)
+                },
+            )
+        }
+    }
+}
+
+@Composable
 private fun PermissionCheckingContent(modifier: Modifier = Modifier) {
     Column(
         modifier = modifier.padding(24.dp),
@@ -138,3 +214,34 @@ private fun PermissionCheckingContent(modifier: Modifier = Modifier) {
         )
     }
 }
+
+@Immutable
+private data class BottomNavigationItem(
+    val screen: Screen,
+    val label: String,
+    val iconText: String,
+)
+
+private val bottomNavigationItems =
+    listOf(
+        BottomNavigationItem(
+            screen = Screen.Home,
+            label = "홈",
+            iconText = "홈",
+        ),
+        BottomNavigationItem(
+            screen = Screen.Quiz,
+            label = "학습",
+            iconText = "학습",
+        ),
+        BottomNavigationItem(
+            screen = Screen.Conversation,
+            label = "소통",
+            iconText = "소통",
+        ),
+        BottomNavigationItem(
+            screen = Screen.MyPage,
+            label = "마이",
+            iconText = "마이",
+        ),
+    )

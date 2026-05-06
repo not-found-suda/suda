@@ -19,5 +19,7 @@ sealed class Screen(
 
     data object Conversation : Screen("conversation_route")
 
+    data object MyPage : Screen("my_page_route")
+
     data object Sign : Screen("sign_route")
 }
