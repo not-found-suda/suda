@@ -8,7 +8,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.ssafy.mobile.BuildConfig
 import com.ssafy.mobile.feature.appentry.AppEntryRoute
-import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileCreatePlaceholderRoute
+import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileEditRoute
 import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileSelectRoute
 import com.ssafy.mobile.feature.conversation.presentation.conversationRoute
 import com.ssafy.mobile.feature.login.presentation.LoginRoute
@@ -78,6 +78,7 @@ fun MobileNavHost(
 
         composable(Screen.ChildSelect.route) {
             ChildProfileSelectRoute(
+                navController = navController,
                 onNavigateToHome = {
                     navController.navigate(Screen.Home.route) {
                         popUpTo(Screen.ChildSelect.route) { inclusive = true }
@@ -91,7 +92,17 @@ fun MobileNavHost(
         }
 
         composable(Screen.ChildProfileCreate.route) {
-            ChildProfileCreatePlaceholderRoute(modifier = Modifier.fillMaxSize())
+            ChildProfileEditRoute(
+                onNavigateBack = { changed ->
+                    if (changed) {
+                        navController.previousBackStackEntry
+                            ?.savedStateHandle
+                            ?.set("child_profile_changed", true)
+                    }
+                    navController.popBackStack()
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         composable(Screen.Home.route) {

@@ -26,16 +26,20 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavController
 import com.ssafy.mobile.feature.childprofile.domain.model.ChildProfile
 
 @Composable
 fun ChildProfileSelectRoute(
+    navController: NavController,
     onNavigateToHome: () -> Unit,
     onNavigateToCreate: () -> Unit,
     modifier: Modifier = Modifier,
@@ -43,6 +47,22 @@ fun ChildProfileSelectRoute(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isSelecting by viewModel.isSelecting.collectAsStateWithLifecycle()
+
+    // 이전 화면에서 전달된 변경 플래그 확인
+    val refreshNeeded by navController.currentBackStackEntry
+        ?.savedStateHandle
+        ?.getStateFlow("child_profile_changed", false)
+        ?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(false) }
+
+    LaunchedEffect(refreshNeeded) {
+        if (refreshNeeded) {
+            viewModel.loadProfiles()
+            navController.currentBackStackEntry?.savedStateHandle?.set(
+                "child_profile_changed",
+                false,
+            )
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.navigationEvent.collect { event ->
@@ -103,6 +123,7 @@ private fun ChildProfileSelectScreen(
                     profiles = uiState.profiles,
                     isSelecting = isSelecting,
                     onProfileSelect = onProfileSelect,
+                    onNavigateToCreate = onNavigateToCreate,
                 )
             }
             is ChildProfileSelectUiState.Empty -> {
@@ -136,6 +157,7 @@ private fun ProfileList(
     profiles: List<ChildProfile>,
     isSelecting: Boolean,
     onProfileSelect: (Long) -> Unit,
+    onNavigateToCreate: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
@@ -148,6 +170,17 @@ private fun ProfileList(
                 enabled = !isSelecting,
                 onClick = { onProfileSelect(profile.childId) },
             )
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(8.dp))
+            TextButton(
+                onClick = onNavigateToCreate,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isSelecting,
+            ) {
+                Text(text = "+ 아이 추가하기")
+            }
         }
     }
 }
