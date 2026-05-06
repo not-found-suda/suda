@@ -55,12 +55,19 @@ class ChildProfileSelectViewModel
                         withContext(Dispatchers.IO) {
                             childProfileRepository.getChildProfiles()
                         }
+                    val activeChildId =
+                        withContext(Dispatchers.IO) {
+                            activeChildStorage.getActiveChildId()
+                        }
 
                     _uiState.value =
                         if (profiles.isEmpty()) {
                             ChildProfileSelectUiState.Empty
                         } else {
-                            ChildProfileSelectUiState.Success(profiles)
+                            ChildProfileSelectUiState.Success(
+                                profiles = profiles,
+                                activeChildId = activeChildId,
+                            )
                         }
                 } catch (e: CancellationException) {
                     throw e

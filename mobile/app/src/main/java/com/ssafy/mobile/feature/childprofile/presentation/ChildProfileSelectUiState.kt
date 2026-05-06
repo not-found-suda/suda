@@ -7,6 +7,7 @@ sealed interface ChildProfileSelectUiState {
 
     data class Success(
         val profiles: List<ChildProfile>,
+        val activeChildId: Long? = null,
     ) : ChildProfileSelectUiState
 
     data object Empty : ChildProfileSelectUiState

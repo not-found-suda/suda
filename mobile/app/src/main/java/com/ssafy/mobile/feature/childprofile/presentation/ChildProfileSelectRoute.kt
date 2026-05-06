@@ -30,6 +30,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -121,6 +122,7 @@ private fun ChildProfileSelectScreen(
             is ChildProfileSelectUiState.Success -> {
                 ProfileList(
                     profiles = uiState.profiles,
+                    activeChildId = uiState.activeChildId,
                     isSelecting = isSelecting,
                     onProfileSelect = onProfileSelect,
                     onNavigateToCreate = onNavigateToCreate,
@@ -155,6 +157,7 @@ private fun LoadingContent() {
 @Composable
 private fun ProfileList(
     profiles: List<ChildProfile>,
+    activeChildId: Long?,
     isSelecting: Boolean,
     onProfileSelect: (Long) -> Unit,
     onNavigateToCreate: () -> Unit,
@@ -167,6 +170,7 @@ private fun ProfileList(
         items(profiles) { profile ->
             ProfileItem(
                 profile = profile,
+                isSelected = profile.childId == activeChildId,
                 enabled = !isSelecting,
                 onClick = { onProfileSelect(profile.childId) },
             )
@@ -188,6 +192,7 @@ private fun ProfileList(
 @Composable
 private fun ProfileItem(
     profile: ChildProfile,
+    isSelected: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
@@ -201,7 +206,12 @@ private fun ProfileItem(
                 ),
         colors =
             CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                containerColor =
+                    if (isSelected) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    },
             ),
     ) {
         Row(
@@ -231,7 +241,7 @@ private fun ProfileItem(
 
             Spacer(modifier = Modifier.width(16.dp))
 
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = profile.name,
                     style = MaterialTheme.typography.titleMedium,
@@ -243,6 +253,15 @@ private fun ProfileItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+
+            if (isSelected) {
+                Text(
+                    text = "현재 선택됨",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                )
             }
         }
     }

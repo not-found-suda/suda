@@ -82,8 +82,17 @@ fun MobileNavHost(
             ChildProfileSelectRoute(
                 navController = navController,
                 onNavigateToHome = {
-                    navController.navigate(Screen.Home.route) {
-                        popUpTo(Screen.ChildSelect.route) { inclusive = true }
+                    val poppedToHome =
+                        navController.popBackStack(
+                            route = Screen.Home.route,
+                            inclusive = false,
+                        )
+
+                    if (!poppedToHome) {
+                        navController.navigate(Screen.Home.route) {
+                            popUpTo(Screen.ChildSelect.route) { inclusive = true }
+                            launchSingleTop = true
+                        }
                     }
                 },
                 onNavigateToCreate = {
@@ -118,6 +127,9 @@ fun MobileNavHost(
                     navController.navigate(Screen.Conversation.route) {
                         launchSingleTop = true
                     }
+                },
+                onNavigateToChildSelect = {
+                    navController.navigate(Screen.ChildSelect.route)
                 },
                 modifier = Modifier.fillMaxSize(),
             )
