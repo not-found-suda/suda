@@ -13,6 +13,7 @@ import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileSelectRout
 import com.ssafy.mobile.feature.conversation.presentation.conversationRoute
 import com.ssafy.mobile.feature.login.presentation.LoginRoute
 import com.ssafy.mobile.feature.placeholder.HomePlaceholderRoute
+import com.ssafy.mobile.feature.quiz.presentation.quizQuestionRoute
 import com.ssafy.mobile.feature.sign.presentation.SignDebugRoute
 import com.ssafy.mobile.feature.signup.presentation.SignupRoute
 
@@ -107,6 +108,12 @@ fun MobileNavHost(
 
         composable(Screen.Home.route) {
             HomePlaceholderRoute(modifier = Modifier.fillMaxSize())
+        }
+
+        composable(Screen.Quiz.route) {
+            quizQuestionRoute(
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         composable(Screen.Conversation.route) {
