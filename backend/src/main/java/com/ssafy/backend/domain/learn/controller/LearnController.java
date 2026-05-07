@@ -1,12 +1,11 @@
 package com.ssafy.backend.domain.learn.controller;
 
 import com.ssafy.backend.domain.learn.docs.LearnControllerDocs;
-import com.ssafy.backend.domain.learn.dto.response.LearnCategoryResponse;
-import com.ssafy.backend.domain.learn.dto.response.LearnLevelResponse;
-import com.ssafy.backend.domain.learn.dto.response.LearnWordResponse;
+import com.ssafy.backend.domain.learn.dto.response.LearnCategoryListResponse;
+import com.ssafy.backend.domain.learn.dto.response.LearnLevelListResponse;
+import com.ssafy.backend.domain.learn.dto.response.LearnWordListResponse;
 import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
 import com.ssafy.backend.domain.learn.service.LearnService;
-import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -23,17 +22,17 @@ public class LearnController implements LearnControllerDocs {
   }
 
   @GetMapping("/categories")
-  public List<LearnCategoryResponse> getCategories() {
+  public LearnCategoryListResponse getCategories() {
     return learnService.getCategories();
   }
 
   @GetMapping("/levels")
-  public List<LearnLevelResponse> getLevels() {
+  public LearnLevelListResponse getLevels() {
     return learnService.getLevels();
   }
 
   @GetMapping("/words")
-  public List<LearnWordResponse> getWords(
+  public LearnWordListResponse getWords(
       @RequestParam Long categoryId, @RequestParam LearnDifficulty difficulty) {
     return learnService.getWords(categoryId, difficulty);
   }

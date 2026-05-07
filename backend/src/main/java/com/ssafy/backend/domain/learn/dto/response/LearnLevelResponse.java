@@ -1,3 +1,5 @@
 package com.ssafy.backend.domain.learn.dto.response;
 
-public record LearnLevelResponse(String code, String name) {}
+import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
+
+public record LearnLevelResponse(LearnDifficulty difficulty, String name, String description) {}
