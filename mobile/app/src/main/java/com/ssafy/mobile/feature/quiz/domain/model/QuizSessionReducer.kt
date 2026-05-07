@@ -34,16 +34,21 @@ object QuizSessionReducer {
         star: Int,
     ): QuizSessionState {
         val question = state.currentQuestion ?: return state
+        val previousAnswer =
+            state.answers.firstOrNull {
+                it.questionId == question.id
+            }
         val answer =
             QuizAnswer(
                 questionId = question.id,
                 sttText = sttText,
                 star = star,
-                attemptCount = state.retryCount + 1,
+                attemptCount = (previousAnswer?.attemptCount ?: 0) + 1,
             )
 
         return state.copy(
             answers = state.answers.replaceAnswer(answer),
+            retryCount = (answer.attemptCount - 1).coerceAtLeast(0),
         )
     }
 

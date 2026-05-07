@@ -44,6 +44,7 @@ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.feature.quiz.domain.model.MockQuizQuestions
 import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
 import com.ssafy.mobile.feature.quiz.domain.model.QuizQuestion
+import com.ssafy.mobile.feature.quiz.domain.model.QuizRetryPolicy
 import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionReducer
 import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionState
 import com.ssafy.mobile.feature.quiz.domain.model.QuizStarScorer
@@ -356,15 +357,27 @@ private fun QuizActionArea(
             recordingStatus == QuizRecordingStatus.FallbackRecording
     val isProcessing = recordingStatus == QuizRecordingStatus.Processing
     val canSkipQuestion = recordingStatus.canSkipQuestion
-    val hasSuccessfulAnswer = (answer?.star ?: 0) >= PASSING_STAR
-    val canMoveNext = (hasSuccessfulAnswer || canSkipQuestion) && !isRecording && !isProcessing
+    val hasSuccessfulAnswer = QuizRetryPolicy.hasSuccessfulAnswer(answer)
+    val remainingRetryCount = QuizRetryPolicy.remainingRetryCount(answer)
+    val retryLimitReached = QuizRetryPolicy.isRetryLimitReached(answer)
+    val canMoveNext =
+        QuizRetryPolicy.canMoveNext(
+            answer = answer,
+            canSkipQuestion = canSkipQuestion,
+        ) &&
+            !isRecording &&
+            !isProcessing
+    val canRecordAnswer = !isProcessing && !retryLimitReached
 
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (answer != null) {
-            QuizStarResultCard(answer = answer)
+            QuizStarResultCard(
+                answer = answer,
+                remainingRetryCount = remainingRetryCount,
+            )
         }
 
         AppPrimaryButton(
@@ -372,19 +385,21 @@ private fun QuizActionArea(
                 when {
                     isRecording -> "말하기 완료"
                     isProcessing -> "녹음 확인 중"
-                    hasAnswered -> "다시 말하기"
+                    retryLimitReached -> "재도전 완료"
+                    hasAnswered -> quizRetryButtonText(remainingRetryCount)
                     else -> "답변하기"
                 },
             onClick = onAnswerClick,
-            enabled = !isProcessing,
+            enabled = canRecordAnswer,
         )
 
         AppSecondaryButton(
             text =
-                nextButtonText(
+                quizNextButtonText(
                     canSkipQuestion = canSkipQuestion,
                     hasAnswered = hasAnswered,
                     hasSuccessfulAnswer = hasSuccessfulAnswer,
+                    retryLimitReached = retryLimitReached,
                     isLastQuestion = isLastQuestion,
                 ),
             onClick = onNextClick,
@@ -399,37 +414,17 @@ private fun QuizActionArea(
     }
 }
 
-private fun nextButtonText(
-    canSkipQuestion: Boolean,
-    hasAnswered: Boolean,
-    hasSuccessfulAnswer: Boolean,
-    isLastQuestion: Boolean,
-): String =
-    when {
-        canSkipQuestion -> "이번 문제 넘어가기"
-        hasAnswered && !hasSuccessfulAnswer -> "별 3개에 도전해요"
-        isLastQuestion -> "결과 보기"
-        else -> "다음 문제"
-    }
-
 private const val PERCENT_MAX = 100
 private const val FIRST_LETTER_COUNT = 1
-private const val PASSING_STAR = 3
 
 private fun submitSttAnswer(
     state: QuizSessionState,
     sttText: String,
 ): QuizSessionState {
     val question = state.currentQuestion ?: return state
-    val submitState =
-        if (state.answers.any { it.questionId == question.id }) {
-            QuizSessionReducer.retryCurrentQuestion(state)
-        } else {
-            state
-        }
 
     return QuizSessionReducer.submitCurrentAnswer(
-        state = submitState,
+        state = state,
         sttText = sttText,
         star =
             QuizStarScorer.score(

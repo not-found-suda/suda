@@ -77,14 +77,16 @@ class QuizSessionReducerTest {
 
     @Test
     fun submitCurrentAnswerStoresLatestAnswerForCurrentQuestion() {
-        val retryState =
-            QuizSessionReducer.retryCurrentQuestion(
-                QuizSessionReducer.start(MockQuizQuestions.items),
+        val firstAnsweredState =
+            QuizSessionReducer.submitCurrentAnswer(
+                state = QuizSessionReducer.start(MockQuizQuestions.items),
+                sttText = "물",
+                star = ONE_STAR,
             )
 
         val answeredState =
             QuizSessionReducer.submitCurrentAnswer(
-                state = retryState,
+                state = firstAnsweredState,
                 sttText = "밥",
                 star = THREE_STARS,
             )
@@ -130,6 +132,27 @@ class QuizSessionReducerTest {
         assertEquals(1, secondAnsweredState.answers.size)
         assertEquals("밥", secondAnsweredState.answers.first().sttText)
         assertEquals(THREE_STARS, secondAnsweredState.answers.first().star)
+        assertEquals(TWO_ATTEMPTS, secondAnsweredState.answers.first().attemptCount)
+    }
+
+    @Test
+    fun submitCurrentAnswerUsesPreviousAnswerAttemptCountEvenWhenRetryCountIsReset() {
+        val firstAnsweredState =
+            QuizSessionReducer.submitCurrentAnswer(
+                state = QuizSessionReducer.start(MockQuizQuestions.items),
+                sttText = "물",
+                star = ONE_STAR,
+            )
+        val stateWithResetRetryCount = firstAnsweredState.copy(retryCount = NO_RETRY)
+
+        val secondAnsweredState =
+            QuizSessionReducer.submitCurrentAnswer(
+                state = stateWithResetRetryCount,
+                sttText = "밥",
+                star = THREE_STARS,
+            )
+
+        assertEquals(TWO_ATTEMPTS, secondAnsweredState.answers.first().attemptCount)
     }
 
     @Test

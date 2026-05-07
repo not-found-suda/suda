@@ -23,9 +23,10 @@ import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
 @Composable
 internal fun QuizStarResultCard(
     answer: QuizAnswer,
+    remainingRetryCount: Int,
     modifier: Modifier = Modifier,
 ) {
-    val resultText = answer.star.toStarResultText()
+    val resultText = answer.toStarResultText(remainingRetryCount)
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
@@ -77,8 +78,8 @@ private data class StarResultText(
     val description: String,
 )
 
-private fun Int.toStarResultText(): StarResultText =
-    when (coerceIn(MIN_STAR, MAX_STAR)) {
+private fun QuizAnswer.toStarResultText(remainingRetryCount: Int): StarResultText =
+    when (star.coerceIn(MIN_STAR, MAX_STAR)) {
         MAX_STAR ->
             StarResultText(
                 title = "정말 잘했어요!",
@@ -87,13 +88,20 @@ private fun Int.toStarResultText(): StarResultText =
         TWO_STARS ->
             StarResultText(
                 title = "거의 다 왔어요!",
-                description = "조금만 더 또박또박 말하면 더 좋아요.",
+                description = retryDescription(remainingRetryCount),
             )
         else ->
             StarResultText(
                 title = "다시 한 번 해봐요!",
-                description = "천천히 듣고 같은 단어를 다시 말해볼 수 있어요.",
+                description = retryDescription(remainingRetryCount),
             )
+    }
+
+private fun retryDescription(remainingRetryCount: Int): String =
+    if (remainingRetryCount > 0) {
+        "천천히 듣고 다시 말해볼 수 있어요. ${remainingRetryCount}번 더 도전할 수 있어요."
+    } else {
+        "충분히 연습했어요. 다음 문제로 넘어가도 괜찮아요."
     }
 
 @Composable
