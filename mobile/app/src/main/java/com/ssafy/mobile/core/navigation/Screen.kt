@@ -25,7 +25,10 @@ sealed class Screen(
 
     data object LearningCategory : Screen("learning_category_route")
 
-    data object WordList : Screen("learning_words/{categoryId}") {
-        fun createRoute(categoryId: Long) = "learning_words/$categoryId"
+    data object WordList : Screen("learning_words/{categoryId}?categoryName={categoryName}") {
+        fun createRoute(
+            categoryId: Long,
+            categoryName: String,
+        ) = "learning_words/$categoryId?categoryName=${android.net.Uri.encode(categoryName)}"
     }
 }

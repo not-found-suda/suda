@@ -15,7 +15,7 @@ import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileSelectRout
 import com.ssafy.mobile.feature.conversation.presentation.conversationRoute
 import com.ssafy.mobile.feature.home.presentation.HomeRoute
 import com.ssafy.mobile.feature.learning.presentation.category.LearningCategoryRoute
-import com.ssafy.mobile.feature.learning.presentation.wordlist.WordListPlaceholderRoute
+import com.ssafy.mobile.feature.learning.presentation.wordlist.LearningWordListRoute
 import com.ssafy.mobile.feature.login.presentation.LoginRoute
 import com.ssafy.mobile.feature.mypage.presentation.MyPageRoute
 import com.ssafy.mobile.feature.quiz.presentation.quizQuestionRoute
@@ -184,8 +184,8 @@ fun MobileNavHost(
 
         composable(Screen.LearningCategory.route) {
             LearningCategoryRoute(
-                onNavigateToWordList = { categoryId ->
-                    navController.navigate(Screen.WordList.createRoute(categoryId))
+                onNavigateToWordList = { categoryId, categoryName ->
+                    navController.navigate(Screen.WordList.createRoute(categoryId, categoryName))
                 },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -196,11 +196,16 @@ fun MobileNavHost(
             arguments =
                 listOf(
                     navArgument("categoryId") { type = NavType.LongType },
+                    navArgument("categoryName") {
+                        type = NavType.StringType
+                        nullable = true
+                    },
                 ),
-        ) { backStackEntry ->
-            val categoryId = backStackEntry.arguments?.getLong("categoryId") ?: 0L
-            WordListPlaceholderRoute(
-                categoryId = categoryId,
+        ) {
+            LearningWordListRoute(
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
                 modifier = Modifier.fillMaxSize(),
             )
         }

@@ -1,7 +1,7 @@
-package com.ssafy.mobile.feature.learning.presentation.category
+package com.ssafy.mobile.feature.learning.presentation.wordlist
 
+import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,12 +12,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -26,6 +29,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -35,39 +40,35 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssafy.mobile.core.ui.components.AppErrorText
 import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
-import com.ssafy.mobile.feature.learning.domain.model.LearningCategory
-
-private const val GRID_COLUMNS = 2
-private val GRID_HORIZONTAL_PADDING = 20.dp
-private val GRID_VERTICAL_PADDING = 8.dp
-private val GRID_SPACING = 16.dp
-private val HEADER_HORIZONTAL_PADDING = 24.dp
-private val HEADER_VERTICAL_PADDING = 32.dp
-private val CARD_CORNER_RADIUS = 16.dp
-private val CARD_PADDING = 12.dp
-private val CARD_ELEVATION = 2.dp
-private const val ASPECT_RATIO_SQUARE = 1f
+import com.ssafy.mobile.feature.learning.domain.model.LearningWord
 
 @Composable
-fun LearningCategoryRoute(
-    onNavigateToWordList: (Long, String) -> Unit,
+fun LearningWordListRoute(
+    onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: LearningCategoryViewModel = hiltViewModel(),
+    viewModel: LearningWordListViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
-    LearningCategoryScreen(
+    LearningWordListScreen(
+        categoryName = viewModel.categoryName,
         uiState = uiState,
-        onCategoryClick = onNavigateToWordList,
-        onRetryClick = viewModel::loadCategories,
+        onBackClick = onNavigateBack,
+        onWordClick = {
+            Toast.makeText(context, "학습 시작 기능은 준비 중입니다.", Toast.LENGTH_SHORT).show()
+        },
+        onRetryClick = viewModel::loadWords,
         modifier = modifier,
     )
 }
 
 @Composable
-internal fun LearningCategoryScreen(
-    uiState: LearningCategoryUiState,
-    onCategoryClick: (Long, String) -> Unit,
+internal fun LearningWordListScreen(
+    categoryName: String?,
+    uiState: LearningWordListUiState,
+    onBackClick: () -> Unit,
+    onWordClick: (LearningWord) -> Unit,
     onRetryClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -75,16 +76,15 @@ internal fun LearningCategoryScreen(
         modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            HeaderSection()
+        Column(modifier = Modifier.fillMaxSize()) {
+            WordListHeader(
+                categoryName = categoryName ?: "단어 목록",
+                onBackClick = onBackClick,
+            )
 
-            Box(
-                modifier = Modifier.weight(1f),
-            ) {
+            Box(modifier = Modifier.weight(1f)) {
                 when (uiState) {
-                    is LearningCategoryUiState.Loading -> {
+                    is LearningWordListUiState.Loading -> {
                         Box(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center,
@@ -93,33 +93,30 @@ internal fun LearningCategoryScreen(
                         }
                     }
 
-                    is LearningCategoryUiState.Success -> {
-                        CategoryGrid(
-                            categories = uiState.categories,
-                            onCategoryClick = onCategoryClick,
+                    is LearningWordListUiState.Success -> {
+                        WordGrid(
+                            words = uiState.words,
+                            onWordClick = onWordClick,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
 
-                    is LearningCategoryUiState.Empty -> {
+                    is LearningWordListUiState.Empty -> {
                         Box(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
-                                text = "준비된 학습 주제가 없습니다.",
+                                text = "준비된 단어가 없습니다.",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
 
-                    is LearningCategoryUiState.Error -> {
+                    is LearningWordListUiState.Error -> {
                         Column(
-                            modifier =
-                                Modifier
-                                    .fillMaxSize()
-                                    .padding(HEADER_HORIZONTAL_PADDING),
+                            modifier = Modifier.fillMaxSize().padding(24.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
                         ) {
@@ -138,110 +135,144 @@ internal fun LearningCategoryScreen(
 }
 
 @Composable
-private fun HeaderSection() {
+private fun WordListHeader(
+    categoryName: String,
+    onBackClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(
         modifier =
-            Modifier
+            modifier
                 .fillMaxWidth()
-                .padding(
-                    horizontal = HEADER_HORIZONTAL_PADDING,
-                    vertical = HEADER_VERTICAL_PADDING,
-                ),
+                .padding(top = 12.dp, bottom = 12.dp, start = 8.dp, end = 24.dp),
     ) {
+        IconButton(onClick = onBackClick) {
+            Text(
+                text = "뒤로",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
         Text(
-            text = "어떤 주제로 배워볼까요?",
+            text = categoryName,
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(start = 16.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
-        Spacer(modifier = Modifier.height(8.dp))
+
         Text(
-            text = "오늘 배울 단어 주제를 골라 주세요.",
+            text = "함께 배울 단어들을 확인해 보세요.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, top = 4.dp),
         )
     }
 }
 
 @Composable
-private fun CategoryGrid(
-    categories: List<LearningCategory>,
-    onCategoryClick: (Long, String) -> Unit,
+private fun WordGrid(
+    words: List<LearningWord>,
+    onWordClick: (LearningWord) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyVerticalGrid(
-        columns = GridCells.Fixed(GRID_COLUMNS),
-        contentPadding =
-            PaddingValues(
-                horizontal = GRID_HORIZONTAL_PADDING,
-                vertical = GRID_VERTICAL_PADDING,
-            ),
-        horizontalArrangement = Arrangement.spacedBy(GRID_SPACING),
-        verticalArrangement = Arrangement.spacedBy(GRID_SPACING),
+        columns = GridCells.Fixed(2),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
         modifier = modifier,
     ) {
-        items(categories, key = { it.categoryId }) { category ->
-            CategoryCard(
-                category = category,
-                onClick = { onCategoryClick(category.categoryId, category.name) },
+        items(words, key = { it.id }) { word ->
+            WordCard(
+                word = word,
+                onClick = { onWordClick(word) },
             )
         }
     }
 }
 
 @Composable
-private fun CategoryCard(
-    category: LearningCategory,
+private fun WordCard(
+    word: LearningWord,
     onClick: () -> Unit,
 ) {
     Card(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(CARD_CORNER_RADIUS))
-                .clickable(onClick = onClick),
-        shape = RoundedCornerShape(CARD_CORNER_RADIUS),
+                .clip(RoundedCornerShape(24.dp)),
+        onClick = onClick,
+        shape = RoundedCornerShape(24.dp),
         colors =
             CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface,
             ),
-        elevation = CardDefaults.cardElevation(defaultElevation = CARD_ELEVATION),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(CARD_PADDING),
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Placeholder for image (S14P31A404-239 티켓에서 고도화 예정)
+            // Placeholder for image
             Box(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .aspectRatio(ASPECT_RATIO_SQUARE)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.primaryContainer),
+                        .aspectRatio(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors =
+                                    listOf(
+                                        MaterialTheme.colorScheme.primaryContainer,
+                                        MaterialTheme.colorScheme.secondaryContainer.copy(
+                                            alpha = 0.5f,
+                                        ),
+                                    ),
+                            ),
+                        ),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = category.name.firstOrNull()?.toString() ?: "",
-                    style = MaterialTheme.typography.displaySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    fontWeight = FontWeight.Bold,
-                )
+                // Placeholder icon/text
+                Box(
+                    modifier =
+                        Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.3f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = word.word.firstOrNull()?.toString() ?: "",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.Black,
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                text = category.name,
+                text = word.word,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
 
-            if (!category.description.isNullOrBlank()) {
+            if (!word.displayText.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = category.description,
+                    text = word.displayText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
