@@ -103,6 +103,7 @@ private fun HolisticLandmarkerResult.toLandmarkFrameResult(): LandmarkFrameResul
             pose = poseLandmarks().toMediaPipePoints(),
             leftHand = leftHandLandmarks().toMediaPipePoints(),
             rightHand = rightHandLandmarks().toMediaPipePoints(),
+            face = faceLandmarks().toMediaPipePoints(),
             lips = faceLandmarks().toLipMediaPipePoints(),
         ),
     )

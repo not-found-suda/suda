@@ -5,6 +5,7 @@ data class LandmarkFrameResult(
     val pose: LandmarkGroup,
     val leftHand: HandLandmarks,
     val rightHand: HandLandmarks,
+    val face: LandmarkGroup = LandmarkGroup.empty(LandmarkGroupType.FACE),
     val lips: LandmarkGroup,
 ) {
     val hasHands: Boolean = leftHand.hasLandmarks || rightHand.hasLandmarks
@@ -12,6 +13,7 @@ data class LandmarkFrameResult(
         !pose.hasLandmarks &&
             !leftHand.hasLandmarks &&
             !rightHand.hasLandmarks &&
+            !face.hasLandmarks &&
             !lips.hasLandmarks
 
     companion object {
@@ -21,6 +23,7 @@ data class LandmarkFrameResult(
                 pose = LandmarkGroup.empty(LandmarkGroupType.POSE),
                 leftHand = HandLandmarks.empty(HandSide.LEFT),
                 rightHand = HandLandmarks.empty(HandSide.RIGHT),
+                face = LandmarkGroup.empty(LandmarkGroupType.FACE),
                 lips = LandmarkGroup.empty(LandmarkGroupType.LIPS),
             )
     }
@@ -58,6 +61,7 @@ data class HandLandmarks(
 
 enum class LandmarkGroupType {
     POSE,
+    FACE,
     LIPS,
 }
 

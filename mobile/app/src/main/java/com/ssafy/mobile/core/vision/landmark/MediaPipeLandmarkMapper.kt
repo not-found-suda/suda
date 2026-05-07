@@ -23,6 +23,11 @@ object MediaPipeLandmarkMapper {
                     side = HandSide.RIGHT,
                     landmarks = result.rightHand.mapToLandmarkPoints(),
                 ),
+            face =
+                LandmarkGroup(
+                    type = LandmarkGroupType.FACE,
+                    landmarks = result.face.mapToLandmarkPoints(),
+                ),
             lips =
                 LandmarkGroup(
                     type = LandmarkGroupType.LIPS,
@@ -37,12 +42,14 @@ data class MediaPipeLandmarkResult(
     val pose: List<MediaPipeLandmarkPoint> = emptyList(),
     val leftHand: List<MediaPipeLandmarkPoint> = emptyList(),
     val rightHand: List<MediaPipeLandmarkPoint> = emptyList(),
+    val face: List<MediaPipeLandmarkPoint> = emptyList(),
     val lips: List<MediaPipeLandmarkPoint> = emptyList(),
 ) {
     val isEmpty: Boolean =
         pose.isEmpty() &&
             leftHand.isEmpty() &&
             rightHand.isEmpty() &&
+            face.isEmpty() &&
             lips.isEmpty()
 }
 

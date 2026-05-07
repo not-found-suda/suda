@@ -45,7 +45,7 @@ class LandmarkFeatureEncoderTest {
 
     @Test
     fun forwardFillsMissingHandLandmarksFromPreviousFrame() {
-        val encoder = LandmarkFeatureEncoder()
+        val encoder = LandmarkFeatureEncoder(isHandForwardFillEnabled = true)
         encoder.encode(createFrame())
 
         val feature =

@@ -16,7 +16,8 @@ class TfliteSignInferenceAdapter private constructor(
         model.interpreter.validateModelContract()
         Log.d(
             TAG,
-            "TFLite contract verified. input=[1, 30, 141], output=[1, 90]",
+            "TFLite contract verified. input=${SignModelContract.inputShape.contentToString()}, " +
+                "output=${SignModelContract.outputShape.contentToString()}",
         )
     }
 
@@ -55,7 +56,8 @@ class TfliteSignInferenceAdapter private constructor(
     companion object {
         fun create(
             context: Context,
-            modelAssetPath: String = SignModelContract.MODEL_ASSET_PATH,
+            variant: SignModelVariant = SignModelVariant.DEFAULT,
+            modelAssetPath: String = variant.modelAssetPath,
             labelMapAssetPath: String = SignModelContract.LABEL_MAP_ASSET_PATH,
         ): TfliteSignInferenceAdapter =
             TfliteSignInferenceAdapter(
@@ -95,9 +97,9 @@ private fun Interpreter.validateModelContract() {
         "TFLite output tensor must be FLOAT32."
     }
     require(inputTensor.shape().contentEquals(SignModelContract.inputShape)) {
-        "TFLite input shape must be [1, 30, 141]."
+        "TFLite input shape must be ${SignModelContract.inputShape.contentToString()}."
     }
     require(outputTensor.shape().contentEquals(SignModelContract.outputShape)) {
-        "TFLite output shape must be [1, 90]."
+        "TFLite output shape must be ${SignModelContract.outputShape.contentToString()}."
     }
 }

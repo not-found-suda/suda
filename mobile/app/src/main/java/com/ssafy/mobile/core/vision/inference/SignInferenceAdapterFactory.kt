@@ -5,7 +5,8 @@ import java.io.IOException
 
 class SignInferenceAdapterFactory(
     private val context: Context,
-    private val modelAssetPath: String = SignModelContract.MODEL_ASSET_PATH,
+    private val variant: SignModelVariant = SignModelVariant.DEFAULT,
+    private val modelAssetPath: String = variant.modelAssetPath,
     private val labelMapAssetPath: String = SignModelContract.LABEL_MAP_ASSET_PATH,
 ) {
     fun create(): SignInferenceAdapter {
@@ -22,6 +23,7 @@ class SignInferenceAdapterFactory(
             SignInferenceAdapterPolicy.TFLITE ->
                 TfliteSignInferenceAdapter.create(
                     context = appContext,
+                    variant = variant,
                     modelAssetPath = modelAssetPath,
                     labelMapAssetPath = labelMapAssetPath,
                 )
