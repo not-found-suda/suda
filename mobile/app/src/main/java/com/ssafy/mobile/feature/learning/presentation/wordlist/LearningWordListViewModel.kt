@@ -21,7 +21,7 @@ class LearningWordListViewModel
         savedStateHandle: SavedStateHandle,
         private val wordRepository: LearningWordRepository,
     ) : ViewModel() {
-        private val categoryId: Long = checkNotNull(savedStateHandle["categoryId"])
+        val categoryId: Long = checkNotNull(savedStateHandle["categoryId"])
         val categoryName: String? = savedStateHandle["categoryName"]
 
         private val _uiState =

@@ -1,10 +1,13 @@
 package com.ssafy.mobile.feature.learning.di
 
 import com.ssafy.mobile.feature.learning.data.api.LearningCategoryApiService
+import com.ssafy.mobile.feature.learning.data.api.LearningQuizApiService
 import com.ssafy.mobile.feature.learning.data.api.LearningWordApiService
 import com.ssafy.mobile.feature.learning.data.repository.RemoteLearningCategoryRepository
+import com.ssafy.mobile.feature.learning.data.repository.RemoteLearningQuizRepository
 import com.ssafy.mobile.feature.learning.data.repository.RemoteLearningWordRepository
 import com.ssafy.mobile.feature.learning.domain.repository.LearningCategoryRepository
+import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizRepository
 import com.ssafy.mobile.feature.learning.domain.repository.LearningWordRepository
 import dagger.Binds
 import dagger.Module
@@ -29,6 +32,12 @@ internal abstract class LearningModule {
         repository: RemoteLearningWordRepository,
     ): LearningWordRepository
 
+    @Binds
+    @Singleton
+    abstract fun bindLearningQuizRepository(
+        repository: RemoteLearningQuizRepository,
+    ): LearningQuizRepository
+
     companion object {
         @Provides
         @Singleton
@@ -39,5 +48,10 @@ internal abstract class LearningModule {
         @Singleton
         fun provideLearningWordApiService(retrofit: Retrofit): LearningWordApiService =
             retrofit.create(LearningWordApiService::class.java)
+
+        @Provides
+        @Singleton
+        fun provideLearningQuizApiService(retrofit: Retrofit): LearningQuizApiService =
+            retrofit.create(LearningQuizApiService::class.java)
     }
 }

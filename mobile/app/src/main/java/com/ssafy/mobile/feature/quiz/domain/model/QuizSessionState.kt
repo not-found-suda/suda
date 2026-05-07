@@ -8,17 +8,21 @@ data class QuizSessionState(
     val isFinished: Boolean = false,
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
+    val sessionId: Long? = null,
+    val totalQuestionCountOverride: Int? = null,
+    val currentQuestionNumberOverride: Int? = null,
 ) {
     val totalQuestionCount: Int
-        get() = questions.size
+        get() = totalQuestionCountOverride ?: questions.size
 
     val currentQuestionNumber: Int
         get() =
-            when {
-                questions.isEmpty() -> 0
-                isFinished -> totalQuestionCount
-                else -> currentQuestionIndex + 1
-            }
+            currentQuestionNumberOverride
+                ?: when {
+                    questions.isEmpty() -> 0
+                    isFinished -> totalQuestionCount
+                    else -> currentQuestionIndex + 1
+                }
 
     val currentQuestion: QuizQuestion?
         get() = questions.getOrNull(currentQuestionIndex).takeUnless { isFinished }
@@ -32,7 +36,7 @@ data class QuizSessionState(
             }
 
     val isLastQuestion: Boolean
-        get() = questions.isNotEmpty() && currentQuestionIndex == questions.lastIndex
+        get() = questions.isNotEmpty() && currentQuestionNumber == totalQuestionCount
 
     companion object {
         private const val EMPTY_PROGRESS = 0f

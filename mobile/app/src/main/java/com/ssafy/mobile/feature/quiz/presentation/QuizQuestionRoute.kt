@@ -1,4 +1,9 @@
-@file:Suppress("MagicNumber")
+@file:Suppress(
+    "CyclomaticComplexMethod",
+    "FunctionNaming",
+    "LongParameterList",
+    "MagicNumber",
+)
 
 package com.ssafy.mobile.feature.quiz.presentation
 
@@ -27,35 +32,33 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ssafy.mobile.core.ui.components.AppNetworkImage
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
-import com.ssafy.mobile.feature.quiz.domain.model.MockQuizQuestions
 import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
 import com.ssafy.mobile.feature.quiz.domain.model.QuizQuestion
 import com.ssafy.mobile.feature.quiz.domain.model.QuizRetryPolicy
-import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionReducer
 import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionState
-import com.ssafy.mobile.feature.quiz.domain.model.QuizStarScorer
 import kotlin.math.roundToInt
 
 @Composable
-fun quizQuestionRoute(modifier: Modifier = Modifier) {
-    var quizState by remember {
-        mutableStateOf(QuizSessionReducer.start(MockQuizQuestions.items))
-    }
-    val recordingViewModel: QuizRecordingViewModel = hiltViewModel()
+fun quizQuestionRoute(
+    modifier: Modifier = Modifier,
+    quizViewModel: QuizQuestionViewModel = hiltViewModel(),
+    recordingViewModel: QuizRecordingViewModel = hiltViewModel(),
+) {
+    val quizState by quizViewModel.quizState.collectAsStateWithLifecycle()
+    val answerSubmitState by quizViewModel.answerSubmitState.collectAsStateWithLifecycle()
     val recordingStatus by recordingViewModel.status.collectAsStateWithLifecycle()
     val recognizedText by recordingViewModel.recognizedText.collectAsStateWithLifecycle()
     val recordingController =
@@ -66,6 +69,7 @@ fun quizQuestionRoute(modifier: Modifier = Modifier) {
                     QuizRecordingStatus.Recording,
                     QuizRecordingStatus.FallbackRecording,
                     -> recordingViewModel.stopListening()
+
                     QuizRecordingStatus.Processing -> Unit
                     else -> recordingViewModel.startListening()
                 }
@@ -79,21 +83,26 @@ fun quizQuestionRoute(modifier: Modifier = Modifier) {
 
     LaunchedEffect(recognizedText) {
         val sttText = recognizedText ?: return@LaunchedEffect
-        quizState = submitSttAnswer(quizState, sttText)
+        quizViewModel.submitRecognizedText(sttText)
         recordingViewModel.consumeRecognizedText()
     }
 
     QuizQuestionScreen(
         state = quizState,
+        answerSubmitState = answerSubmitState,
         recordingStatus = recordingController.status,
         onAnswerClick = recordingController.onRecordButtonClick,
         onNextClick = {
             recordingController.reset()
-            quizState = QuizSessionReducer.moveToNextQuestion(quizState)
+            quizViewModel.moveToNextQuestion()
         },
         onRestartClick = {
             recordingController.reset()
-            quizState = QuizSessionReducer.start(MockQuizQuestions.items)
+            quizViewModel.restart()
+        },
+        onRetryClick = {
+            recordingController.reset()
+            quizViewModel.retry()
         },
         modifier = modifier,
     )
@@ -102,10 +111,12 @@ fun quizQuestionRoute(modifier: Modifier = Modifier) {
 @Composable
 private fun QuizQuestionScreen(
     state: QuizSessionState,
+    answerSubmitState: QuizAnswerSubmitState,
     recordingStatus: QuizRecordingStatus,
     onAnswerClick: () -> Unit,
     onNextClick: () -> Unit,
     onRestartClick: () -> Unit,
+    onRetryClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -115,7 +126,7 @@ private fun QuizQuestionScreen(
         when {
             state.isLoading -> {
                 QuizMessageState(
-                    title = "문제를 불러오는 중이에요",
+                    title = "퀴즈를 불러오는 중이에요",
                     description = "잠시만 기다려 주세요.",
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -123,10 +134,10 @@ private fun QuizQuestionScreen(
 
             state.errorMessage != null -> {
                 QuizMessageState(
-                    title = "문제를 불러오지 못했어요",
+                    title = "퀴즈를 불러오지 못했어요",
                     description = state.errorMessage,
-                    actionText = "다시 시작",
-                    onActionClick = onRestartClick,
+                    actionText = "다시 시도",
+                    onActionClick = onRetryClick,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -134,7 +145,7 @@ private fun QuizQuestionScreen(
             state.questions.isEmpty() -> {
                 QuizMessageState(
                     title = "준비된 문제가 없어요",
-                    description = "학습할 단어가 추가되면 여기에서 시작할 수 있어요.",
+                    description = "이 카테고리에 준비된 퀴즈 문제가 아직 없어요.",
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -152,6 +163,7 @@ private fun QuizQuestionScreen(
                 QuizQuestionContent(
                     state = state,
                     question = requireNotNull(state.currentQuestion),
+                    answerSubmitState = answerSubmitState,
                     recordingStatus = recordingStatus,
                     onAnswerClick = onAnswerClick,
                     onNextClick = onNextClick,
@@ -166,6 +178,7 @@ private fun QuizQuestionScreen(
 private fun QuizQuestionContent(
     state: QuizSessionState,
     question: QuizQuestion,
+    answerSubmitState: QuizAnswerSubmitState,
     recordingStatus: QuizRecordingStatus,
     onAnswerClick: () -> Unit,
     onNextClick: () -> Unit,
@@ -191,6 +204,7 @@ private fun QuizQuestionContent(
         QuizActionArea(
             isLastQuestion = state.isLastQuestion,
             recordingStatus = recordingStatus,
+            answerSubmitState = answerSubmitState,
             answer =
                 state.answers.firstOrNull {
                     it.questionId == question.id
@@ -275,7 +289,19 @@ private fun QuizQuestionCard(
                     ),
             contentAlignment = Alignment.Center,
         ) {
-            QuizImagePlaceholder(word = question.word)
+            AppNetworkImage(
+                imageUrl = question.imageUrl,
+                contentDescription = question.word,
+                fallbackText = question.word,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit,
+                placeholder = {
+                    QuizImagePlaceholder(
+                        word = question.word,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                },
+            )
         }
     }
 }
@@ -285,6 +311,8 @@ private fun QuizImagePlaceholder(
     word: String,
     modifier: Modifier = Modifier,
 ) {
+    val displayText = word.takeIf { it.isNotBlank() }?.take(FIRST_LETTER_COUNT) ?: "?"
+
     Column(
         modifier = modifier.padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -299,7 +327,7 @@ private fun QuizImagePlaceholder(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = word.take(FIRST_LETTER_COUNT),
+                text = displayText,
                 style = MaterialTheme.typography.displaySmall,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Black,
@@ -321,20 +349,23 @@ private fun QuizPrompt(
     question: QuizQuestion,
     modifier: Modifier = Modifier,
 ) {
+    val targetText =
+        question.word.takeIf { it.isNotBlank() } ?: "그림을 보고 단어를 말해 주세요"
+
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = question.word,
-            style = MaterialTheme.typography.displayMedium,
+            text = targetText,
+            style = MaterialTheme.typography.displaySmall,
             fontWeight = FontWeight.Black,
             color = MaterialTheme.colorScheme.onBackground,
             textAlign = TextAlign.Center,
         )
         Text(
-            text = "이 단어를 소리 내어 말해볼까요?",
+            text = "음성 인식 후 답변을 저장할게요",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -346,6 +377,7 @@ private fun QuizPrompt(
 private fun QuizActionArea(
     isLastQuestion: Boolean,
     recordingStatus: QuizRecordingStatus,
+    answerSubmitState: QuizAnswerSubmitState,
     answer: QuizAnswer?,
     onAnswerClick: () -> Unit,
     onNextClick: () -> Unit,
@@ -356,18 +388,23 @@ private fun QuizActionArea(
         recordingStatus == QuizRecordingStatus.Recording ||
             recordingStatus == QuizRecordingStatus.FallbackRecording
     val isProcessing = recordingStatus == QuizRecordingStatus.Processing
-    val canSkipQuestion = recordingStatus.canSkipQuestion
+    val isSubmitting = answerSubmitState == QuizAnswerSubmitState.Submitting
+    val isCompletionPending = answerSubmitState is QuizAnswerSubmitState.CompletionPending
+    val canSkipQuestion = false
     val hasSuccessfulAnswer = QuizRetryPolicy.hasSuccessfulAnswer(answer)
     val remainingRetryCount = QuizRetryPolicy.remainingRetryCount(answer)
     val retryLimitReached = QuizRetryPolicy.isRetryLimitReached(answer)
+    val canRecordAnswer =
+        !isProcessing &&
+            !isSubmitting &&
+            !isCompletionPending &&
+            !hasSuccessfulAnswer &&
+            !retryLimitReached
     val canMoveNext =
-        QuizRetryPolicy.canMoveNext(
-            answer = answer,
-            canSkipQuestion = canSkipQuestion,
-        ) &&
+        (isCompletionPending || QuizRetryPolicy.canMoveNext(answer, canSkipQuestion)) &&
             !isRecording &&
-            !isProcessing
-    val canRecordAnswer = !isProcessing && !retryLimitReached
+            !isProcessing &&
+            !isSubmitting
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -384,10 +421,11 @@ private fun QuizActionArea(
             text =
                 when {
                     isRecording -> "말하기 완료"
-                    isProcessing -> "녹음 확인 중"
-                    retryLimitReached -> "재도전 완료"
+                    isProcessing -> "음성 인식 중..."
+                    isSubmitting -> "답변 저장 중..."
+                    isCompletionPending -> "답변 저장 완료"
                     hasAnswered -> quizRetryButtonText(remainingRetryCount)
-                    else -> "답변하기"
+                    else -> "말하기"
                 },
             onClick = onAnswerClick,
             enabled = canRecordAnswer,
@@ -395,13 +433,17 @@ private fun QuizActionArea(
 
         AppSecondaryButton(
             text =
-                quizNextButtonText(
-                    canSkipQuestion = canSkipQuestion,
-                    hasAnswered = hasAnswered,
-                    hasSuccessfulAnswer = hasSuccessfulAnswer,
-                    retryLimitReached = retryLimitReached,
-                    isLastQuestion = isLastQuestion,
-                ),
+                if (isCompletionPending) {
+                    "결과 보기 다시 시도"
+                } else {
+                    quizNextButtonText(
+                        canSkipQuestion = canSkipQuestion,
+                        hasAnswered = hasAnswered,
+                        hasSuccessfulAnswer = hasSuccessfulAnswer,
+                        retryLimitReached = retryLimitReached,
+                        isLastQuestion = isLastQuestion,
+                    )
+                },
             onClick = onNextClick,
             enabled = canMoveNext,
         )
@@ -411,25 +453,42 @@ private fun QuizActionArea(
             answerAttemptCount = answer?.attemptCount,
             recognizedText = answer?.sttText,
         )
+
+        AnswerSubmitStatusText(answerSubmitState)
+    }
+}
+
+@Composable
+private fun AnswerSubmitStatusText(
+    state: QuizAnswerSubmitState,
+    modifier: Modifier = Modifier,
+) {
+    val message =
+        when (state) {
+            QuizAnswerSubmitState.Idle -> null
+            QuizAnswerSubmitState.Submitting -> "답변을 저장하고 있어요..."
+            QuizAnswerSubmitState.Success -> "답변을 저장했어요."
+            is QuizAnswerSubmitState.CompletionPending -> state.message
+            is QuizAnswerSubmitState.Error -> state.message
+        }
+
+    if (message != null) {
+        Text(
+            text = message,
+            modifier = modifier.fillMaxWidth(),
+            style = MaterialTheme.typography.bodySmall,
+            color =
+                if (state is QuizAnswerSubmitState.Error ||
+                    state is QuizAnswerSubmitState.CompletionPending
+                ) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
 private const val PERCENT_MAX = 100
 private const val FIRST_LETTER_COUNT = 1
-
-private fun submitSttAnswer(
-    state: QuizSessionState,
-    sttText: String,
-): QuizSessionState {
-    val question = state.currentQuestion ?: return state
-
-    return QuizSessionReducer.submitCurrentAnswer(
-        state = state,
-        sttText = sttText,
-        star =
-            QuizStarScorer.score(
-                targetWord = question.word,
-                sttText = sttText,
-            ),
-    )
-}

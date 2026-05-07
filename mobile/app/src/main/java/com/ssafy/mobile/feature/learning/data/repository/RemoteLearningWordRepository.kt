@@ -12,26 +12,28 @@ import kotlin.coroutines.cancellation.CancellationException
 private const val TAG = "RemoteLearningWordRepo"
 private const val HTTP_STATUS_UNAUTHORIZED = 401
 private const val HTTP_STATUS_FORBIDDEN = 403
-private const val DEFAULT_DIFFICULTY = "EASY"
 
 class RemoteLearningWordRepository
     @Inject
     constructor(
         private val apiService: LearningWordApiService,
     ) : LearningWordRepository {
-        override suspend fun getWords(categoryId: Long): Result<List<LearningWord>> =
+        override suspend fun getWords(
+            categoryId: Long,
+            difficulty: String,
+        ): Result<List<LearningWord>> =
             try {
                 val response =
                     apiService.getWords(
                         categoryId = categoryId,
-                        difficulty = DEFAULT_DIFFICULTY,
+                        difficulty = difficulty,
                     )
 
                 if (response.isSuccessful) {
                     val body =
                         response.body()
                             ?: return Result.failure(IllegalStateException("단어 목록 응답이 비어 있습니다."))
-                    Result.success(body.map { it.toDomain() })
+                    Result.success(body.words.map { it.toDomain() })
                 } else {
                     val errorCode = response.code()
                     val userMessage =

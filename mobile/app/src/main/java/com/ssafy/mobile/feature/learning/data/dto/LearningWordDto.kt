@@ -18,6 +18,12 @@ data class LearningWordDto(
     val audioUrl: String? = null,
 )
 
+@Serializable
+data class LearningWordsResponseDto(
+    @SerialName("words")
+    val words: List<LearningWordDto>,
+)
+
 fun LearningWordDto.toDomain(): LearningWord =
     LearningWord(
         id = wordId,

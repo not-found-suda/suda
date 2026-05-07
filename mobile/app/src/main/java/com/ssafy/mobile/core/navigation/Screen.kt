@@ -15,7 +15,12 @@ sealed class Screen(
 
     data object Home : Screen("home_route")
 
-    data object Quiz : Screen("quiz_question_route")
+    data object Quiz : Screen("quiz_question_route/{categoryId}?difficulty={difficulty}") {
+        fun createRoute(
+            categoryId: Long,
+            difficulty: String = "EASY",
+        ) = "quiz_question_route/$categoryId?difficulty=${android.net.Uri.encode(difficulty)}"
+    }
 
     data object Conversation : Screen("conversation_route")
 

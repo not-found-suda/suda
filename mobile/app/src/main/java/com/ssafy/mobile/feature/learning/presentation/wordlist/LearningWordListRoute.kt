@@ -1,6 +1,5 @@
 package com.ssafy.mobile.feature.learning.presentation.wordlist
 
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,7 +29,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -46,19 +44,16 @@ import com.ssafy.mobile.feature.learning.domain.model.LearningWord
 @Composable
 fun LearningWordListRoute(
     onNavigateBack: () -> Unit,
+    onStartQuiz: (Long) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: LearningWordListViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-
     LearningWordListScreen(
         categoryName = viewModel.categoryName,
         uiState = uiState,
         onBackClick = onNavigateBack,
-        onWordClick = {
-            Toast.makeText(context, "학습 시작 기능은 준비 중입니다.", Toast.LENGTH_SHORT).show()
-        },
+        onWordClick = { onStartQuiz(viewModel.categoryId) },
         onRetryClick = viewModel::loadWords,
         modifier = modifier,
     )

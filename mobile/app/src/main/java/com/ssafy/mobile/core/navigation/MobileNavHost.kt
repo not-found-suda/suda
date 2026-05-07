@@ -139,7 +139,17 @@ fun MobileNavHost(
             )
         }
 
-        composable(Screen.Quiz.route) {
+        composable(
+            route = Screen.Quiz.route,
+            arguments =
+                listOf(
+                    navArgument("categoryId") { type = NavType.LongType },
+                    navArgument("difficulty") {
+                        type = NavType.StringType
+                        defaultValue = "EASY"
+                    },
+                ),
+        ) {
             quizQuestionRoute(
                 modifier = Modifier.fillMaxSize(),
             )
@@ -205,6 +215,9 @@ fun MobileNavHost(
             LearningWordListRoute(
                 onNavigateBack = {
                     navController.popBackStack()
+                },
+                onStartQuiz = { categoryId ->
+                    navController.navigate(Screen.Quiz.createRoute(categoryId))
                 },
                 modifier = Modifier.fillMaxSize(),
             )

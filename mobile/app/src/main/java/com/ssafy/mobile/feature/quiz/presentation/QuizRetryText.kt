@@ -17,7 +17,7 @@ internal fun quizNextButtonText(
 
 internal fun quizRetryButtonText(remainingRetryCount: Int): String =
     if (remainingRetryCount > 0) {
-        "다시 말하기 (${remainingRetryCount}회 남음)"
+        "다시 말하기(${remainingRetryCount}번 남음)"
     } else {
         "다시 말하기"
     }
