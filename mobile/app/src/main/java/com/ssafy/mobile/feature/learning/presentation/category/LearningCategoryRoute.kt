@@ -34,6 +34,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssafy.mobile.core.ui.components.AppErrorText
 import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
+import com.ssafy.mobile.core.ui.components.AppNetworkImage
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.feature.learning.domain.model.LearningCategory
 
@@ -211,23 +212,16 @@ private fun CategoryCard(
             modifier = Modifier.fillMaxWidth().padding(CARD_PADDING),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Placeholder for image (S14P31A404-239 티켓에서 고도화 예정)
-            Box(
+            AppNetworkImage(
+                imageUrl = category.thumbnailUrl,
+                contentDescription = category.name,
+                fallbackText = category.name,
                 modifier =
                     Modifier
                         .fillMaxWidth()
                         .aspectRatio(ASPECT_RATIO_SQUARE)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = category.name.firstOrNull()?.toString() ?: "",
-                    style = MaterialTheme.typography.displaySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
+                        .clip(RoundedCornerShape(12.dp)),
+            )
 
             Spacer(modifier = Modifier.height(12.dp))
 

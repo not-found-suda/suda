@@ -39,6 +39,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssafy.mobile.core.ui.components.AppErrorText
 import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
+import com.ssafy.mobile.core.ui.components.AppNetworkImage
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.feature.learning.domain.model.LearningWord
 
@@ -220,43 +221,19 @@ private fun WordCard(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Placeholder for image
-            Box(
+            AppNetworkImage(
+                imageUrl = word.imageUrl,
+                contentDescription = word.word,
+                fallbackText = word.word,
                 modifier =
                     Modifier
                         .fillMaxWidth()
                         .aspectRatio(1f)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(
-                            Brush.linearGradient(
-                                colors =
-                                    listOf(
-                                        MaterialTheme.colorScheme.primaryContainer,
-                                        MaterialTheme.colorScheme.secondaryContainer.copy(
-                                            alpha = 0.5f,
-                                        ),
-                                    ),
-                            ),
-                        ),
-                contentAlignment = Alignment.Center,
-            ) {
-                // Placeholder icon/text
-                Box(
-                    modifier =
-                        Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.3f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = word.word.firstOrNull()?.toString() ?: "",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        fontWeight = FontWeight.Black,
-                    )
-                }
-            }
+                        .clip(RoundedCornerShape(16.dp)),
+                placeholder = {
+                    WordFallback(word = word.word)
+                },
+            )
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -280,6 +257,48 @@ private fun WordCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun WordFallback(
+    word: String,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier =
+            modifier
+                .fillMaxSize()
+                .background(
+                    Brush.linearGradient(
+                        colors =
+                            listOf(
+                                MaterialTheme.colorScheme.primaryContainer,
+                                MaterialTheme.colorScheme.secondaryContainer.copy(
+                                    alpha = 0.5f,
+                                ),
+                            ),
+                    ),
+                ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier =
+                Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(
+                        MaterialTheme.colorScheme.surface.copy(alpha = 0.3f),
+                    ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = word.firstOrNull()?.toString() ?: "",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                fontWeight = FontWeight.Black,
+            )
         }
     }
 }
