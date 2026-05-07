@@ -6,6 +6,7 @@ import java.util.ArrayDeque
 
 class SignPredictionStabilizer(
     private val confidenceThreshold: Float = SignModelContract.CONFIDENCE_THRESHOLD,
+    private val marginThreshold: Float = SignModelContract.MARGIN_THRESHOLD,
     private val windowSize: Int = DEFAULT_WINDOW_SIZE,
     private val requiredVotes: Int = DEFAULT_REQUIRED_VOTES,
     private val emitCooldownMs: Long = DEFAULT_EMIT_COOLDOWN_MS,
@@ -18,6 +19,9 @@ class SignPredictionStabilizer(
     init {
         require(confidenceThreshold in MIN_CONFIDENCE..MAX_CONFIDENCE) {
             "Confidence threshold must be between $MIN_CONFIDENCE and $MAX_CONFIDENCE."
+        }
+        require(marginThreshold in MIN_CONFIDENCE..MAX_CONFIDENCE) {
+            "Margin threshold must be between $MIN_CONFIDENCE and $MAX_CONFIDENCE."
         }
         require(windowSize > 0) {
             "Prediction window size must be greater than 0."
@@ -34,16 +38,25 @@ class SignPredictionStabilizer(
         result: SignInferenceResult,
         timestampMs: Long = Long.MAX_VALUE,
     ): StableSignPrediction? {
-        addPrediction(toVoteCandidate(result))
-        val candidate = findStableCandidate()
-        if (candidate != null && candidate.gloss != lastEmittedGloss && canEmitAt(timestampMs)) {
-            lastEmittedGloss = candidate.gloss
-            lastEmittedAtMs = timestampMs
+        var stablePrediction: StableSignPrediction? = null
+        if (canVote(result)) {
+            addPrediction(result)
+            val candidate = findStableCandidate()
+            if (
+                candidate != null &&
+                candidate.gloss != lastEmittedGloss &&
+                canEmitAt(timestampMs)
+            ) {
+                lastEmittedGloss = candidate.gloss
+                lastEmittedAtMs = timestampMs
+                recentPredictions.clear()
+                stablePrediction = candidate
+            }
+        } else {
             recentPredictions.clear()
-            return candidate
         }
 
-        return null
+        return stablePrediction
     }
 
     fun reset() {
@@ -59,18 +72,10 @@ class SignPredictionStabilizer(
             timestampMs - previousEmittedAtMs >= emitCooldownMs
     }
 
-    private fun toVoteCandidate(result: SignInferenceResult): SignInferenceResult =
-        if (
-            result.confidence >= confidenceThreshold &&
+    private fun canVote(result: SignInferenceResult): Boolean =
+        result.confidence >= confidenceThreshold &&
+            result.margin >= marginThreshold &&
             result.gloss.trim().lowercase() !in ignoredGlosses
-        ) {
-            result
-        } else {
-            SignInferenceResult(
-                gloss = NONE_GLOSS,
-                confidence = 0f,
-            )
-        }
 
     private fun addPrediction(result: SignInferenceResult) {
         if (recentPredictions.size == windowSize) {
@@ -118,8 +123,8 @@ class SignPredictionStabilizer(
     )
 
     companion object {
-        const val DEFAULT_WINDOW_SIZE = 5
-        const val DEFAULT_REQUIRED_VOTES = 3
+        const val DEFAULT_WINDOW_SIZE = 6
+        const val DEFAULT_REQUIRED_VOTES = 4
         const val DEFAULT_EMIT_COOLDOWN_MS = 1_000L
         const val MIN_CONFIDENCE = 0f
         const val MAX_CONFIDENCE = 1f

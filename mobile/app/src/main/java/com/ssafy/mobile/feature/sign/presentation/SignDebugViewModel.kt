@@ -291,8 +291,8 @@ class SignDebugViewModel
                 )
             val TARGET_FPS_OPTIONS = listOf(10, 15, 24, 30)
             val FRAME_INTERVAL_OPTIONS = listOf(1, 2, 3, 4)
-            val THRESHOLD_OPTIONS = listOf(0.70f, 0.80f, 0.90f, 0.95f)
-            val SMOOTHING_OPTIONS = listOf(3, 5, 7)
+            val THRESHOLD_OPTIONS = listOf(0.70f, 0.75f, 0.80f, 0.90f)
+            val SMOOTHING_OPTIONS = listOf(4, 6, 8)
             const val DEBUG_METRICS_UPDATE_INTERVAL_MILLIS = 100L
         }
     }

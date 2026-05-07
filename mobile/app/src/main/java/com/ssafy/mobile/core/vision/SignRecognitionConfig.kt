@@ -7,6 +7,7 @@ data class SignRecognitionConfig(
     val sequenceLength: Int = SignModelContract.SEQUENCE_LENGTH,
     val minimumHandFrameRatio: Float = SignSequenceBuffer.DEFAULT_MINIMUM_HAND_FRAME_RATIO,
     val confidenceThreshold: Float = SignModelContract.CONFIDENCE_THRESHOLD,
+    val marginThreshold: Float = SignModelContract.MARGIN_THRESHOLD,
     val smoothingWindowSize: Int = SignPredictionStabilizer.DEFAULT_WINDOW_SIZE,
     val smoothingRequiredVotes: Int = SignPredictionStabilizer.DEFAULT_REQUIRED_VOTES,
     val emitCooldownMs: Long = SignPredictionStabilizer.DEFAULT_EMIT_COOLDOWN_MS,
@@ -20,6 +21,9 @@ data class SignRecognitionConfig(
         }
         require(confidenceThreshold in MIN_CONFIDENCE..MAX_CONFIDENCE) {
             "Confidence threshold must be between $MIN_CONFIDENCE and $MAX_CONFIDENCE."
+        }
+        require(marginThreshold in MIN_CONFIDENCE..MAX_CONFIDENCE) {
+            "Margin threshold must be between $MIN_CONFIDENCE and $MAX_CONFIDENCE."
         }
         require(smoothingWindowSize > 0) {
             "Smoothing window size must be greater than 0."

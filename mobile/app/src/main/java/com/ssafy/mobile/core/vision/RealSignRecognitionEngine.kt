@@ -79,6 +79,7 @@ class RealSignRecognitionEngine(
         predictionStabilizer =
             SignPredictionStabilizer(
                 confidenceThreshold = config.confidenceThreshold,
+                marginThreshold = config.marginThreshold,
                 windowSize = config.smoothingWindowSize,
                 requiredVotes = config.smoothingRequiredVotes,
                 emitCooldownMs = config.emitCooldownMs,

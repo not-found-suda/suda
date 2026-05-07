@@ -6,6 +6,7 @@ object SignModelContract {
     const val FEATURE_DIMENSION = 332
     const val CLASS_COUNT = 7
     const val CONFIDENCE_THRESHOLD = 0.75f
+    const val MARGIN_THRESHOLD = 0.08f
     const val FLOAT_BYTE_SIZE = 4
     const val FLAT_SEQUENCE_INPUT_SIZE = SEQUENCE_LENGTH * FEATURE_DIMENSION
     val MODEL_ASSET_PATH = SignModelVariant.DEFAULT.modelAssetPath
@@ -36,11 +37,22 @@ data class SignModelOutput(
                 ModelOutputActivation.LOGITS -> values.toSoftmaxProbabilities()
                 ModelOutputActivation.PROBABILITIES -> values
             }
-        val indexedConfidence = probabilities.withIndex().maxByOrNull { it.value } ?: return null
+        val rankedProbabilities =
+            probabilities
+                .withIndex()
+                .sortedByDescending { indexedValue -> indexedValue.value }
+        val indexedConfidence = rankedProbabilities.firstOrNull() ?: return null
+        val nextConfidence =
+            rankedProbabilities.getOrNull(1)?.value
+                ?: SignInferenceResult.MIN_CONFIDENCE
+        val margin = indexedConfidence.value - nextConfidence
         return SignModelPrediction(
             classIndex = indexedConfidence.index,
             confidence = indexedConfidence.value,
-            isConfident = indexedConfidence.value >= SignModelContract.CONFIDENCE_THRESHOLD,
+            margin = margin,
+            isConfident =
+                indexedConfidence.value >= SignModelContract.CONFIDENCE_THRESHOLD &&
+                    margin >= SignModelContract.MARGIN_THRESHOLD,
         )
     }
 }
@@ -48,6 +60,7 @@ data class SignModelOutput(
 data class SignModelPrediction(
     val classIndex: Int,
     val confidence: Float,
+    val margin: Float,
     val isConfident: Boolean,
 )
 

@@ -42,6 +42,7 @@ class TfliteSignInferenceAdapter private constructor(
                     model.labelMap.glossFor(result.classIndex)
                 } ?: SignModelContract.UNKNOWN_GLOSS,
             confidence = prediction?.confidence ?: MIN_CONFIDENCE,
+            margin = prediction?.margin ?: MIN_CONFIDENCE,
         )
     }
 
