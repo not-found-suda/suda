@@ -72,7 +72,10 @@ public class AuthService {
 
     LoginResponseDto response =
         new LoginResponseDto(
-            tokenPair.accessToken(), "Bearer", jwtProperties.getAccessTokenTtlSeconds());
+            tokenPair.accessToken(),
+            tokenPair.refreshToken(),
+            "Bearer",
+            jwtProperties.getAccessTokenTtlSeconds());
     return new LoginResult(response, tokenPair.refreshToken());
   }
 
@@ -107,7 +110,10 @@ public class AuthService {
 
     RefreshTokenResponseDto response =
         new RefreshTokenResponseDto(
-            tokenPair.accessToken(), "Bearer", jwtProperties.getAccessTokenTtlSeconds());
+            tokenPair.accessToken(),
+            tokenPair.refreshToken(),
+            "Bearer",
+            jwtProperties.getAccessTokenTtlSeconds());
     return new RefreshTokenResult(response, tokenPair.refreshToken());
   }
 
