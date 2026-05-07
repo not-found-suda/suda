@@ -15,7 +15,9 @@ import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
 import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
 import com.ssafy.mobile.feature.conversation.domain.model.MessageStatus
 import com.ssafy.mobile.feature.conversation.domain.model.SenderType
+import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
 import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
+import com.ssafy.mobile.feature.conversation.domain.repository.TranslationModeRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import javax.inject.Inject
@@ -35,13 +37,14 @@ enum class SessionState {
     Stopping,
 }
 
-@Suppress("TooManyFunctions")
+@Suppress("LargeClass", "LongParameterList", "TooManyFunctions")
 @HiltViewModel
 class ConversationViewModel
     @Inject
     constructor(
         private val signRecognitionEngine: SignRecognitionEngine,
         private val translateRepository: TranslateRepository,
+        private val translationModeRepository: TranslationModeRepository,
         private val audioPlayer: AudioPlayer,
         private val ttsPlayer: TtsPlayer,
         private val sttEngine: SttEngine,
@@ -53,6 +56,12 @@ class ConversationViewModel
 
         private val _isOnline = MutableStateFlow(true)
         val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
+
+        private val _translationMode = MutableStateFlow(TranslationMode.DEFAULT)
+        val translationMode: StateFlow<TranslationMode> = _translationMode.asStateFlow()
+
+        private val _translationModeNotice = MutableStateFlow<String?>(null)
+        val translationModeNotice: StateFlow<String?> = _translationModeNotice.asStateFlow()
 
         private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
         val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
@@ -78,9 +87,25 @@ class ConversationViewModel
         private var currentSttSessionId = 0
         private var isResultsReceived = false
         private var isStoppedReceived = false
+        private var isCloudSttFallbackActive = false
         private var cloudSttFailureCount = 0
 
         init {
+            viewModelScope.launch {
+                translationModeRepository.translationMode.collect { mode ->
+                    val previousMode = _translationMode.value
+                    _translationMode.value = mode
+                    if (previousMode != mode) {
+                        resetCloudSttFallback()
+                        _translationModeNotice.value = null
+                        if (_sessionState.value == SessionState.Active && !isTtsPlaying) {
+                            stopRecordingForStt()
+                            startRecordingForStt()
+                        }
+                    }
+                }
+            }
+
             // 네트워크 상태 모니터링
             viewModelScope.launch {
                 networkMonitor.isOnline.collect { online ->
@@ -91,6 +116,10 @@ class ConversationViewModel
                         _sessionState.value == SessionState.Active &&
                         !isTtsPlaying
                     ) {
+                        if (online) {
+                            resetCloudSttFallback()
+                        }
+                        updateNetworkFallbackNotice(online)
                         stopRecordingForStt()
                         startRecordingForStt()
                     }
@@ -125,16 +154,38 @@ class ConversationViewModel
 
         private fun requestTranslation(words: List<String>) {
             translationJob?.cancel()
-            if (_isOnline.value) {
-                // [온라인 모드] 기존 클라우드 번역 로직
-                performCloudTranslation(words)
-            } else {
-                // [오프라인 모드] Fallback 로직
-                performOfflineFallback(words)
+            when (_translationMode.value) {
+                TranslationMode.AUTO ->
+                    if (_isOnline.value) {
+                        performCloudTranslation(
+                            words = words,
+                            fallbackOnFailure = true,
+                        )
+                    } else {
+                        performOnDeviceTranslation(
+                            words = words,
+                            notice = NOTICE_AUTO_OFFLINE_FALLBACK,
+                        )
+                    }
+
+                TranslationMode.SERVER ->
+                    if (_isOnline.value) {
+                        performCloudTranslation(
+                            words = words,
+                            fallbackOnFailure = false,
+                        )
+                    } else {
+                        showServerOnlyUnavailableMessage()
+                    }
+
+                TranslationMode.ON_DEVICE -> performOnDeviceTranslation(words = words)
             }
         }
 
-        private fun performCloudTranslation(words: List<String>) {
+        private fun performCloudTranslation(
+            words: List<String>,
+            fallbackOnFailure: Boolean,
+        ) {
             // 0. 교정 중인 부모 메시지 추가
             addOrUpdateMessage(
                 text = "교정 중...",
@@ -147,6 +198,7 @@ class ConversationViewModel
                     translateRepository
                         .translateSignToSpeech(words)
                         .onSuccess { response ->
+                            _translationModeNotice.value = null
                             _translatedText.value = response.correctedText
                             addOrUpdateMessage(
                                 text = response.correctedText,
@@ -161,18 +213,35 @@ class ConversationViewModel
                             }
 
                             _lastGlosses.value = emptyList()
-                        }.onFailure {
-                            addOrUpdateMessage(
-                                text = "번역에 실패했습니다. 다시 시도해 주세요.",
-                                isFinal = true,
-                                senderType = SenderType.PARENT,
-                            )
-                            startRecordingForStt()
+                        }.onFailure { throwable ->
+                            if (fallbackOnFailure) {
+                                Log.w(
+                                    TAG,
+                                    "Cloud translation failed. fallback to on-device.",
+                                    throwable,
+                                )
+                                performOnDeviceTranslation(
+                                    words = words,
+                                    notice = NOTICE_AUTO_SERVER_FALLBACK,
+                                )
+                            } else {
+                                addOrUpdateMessage(
+                                    text = "서버 번역에 실패했습니다. 다시 시도해 주세요.",
+                                    isFinal = true,
+                                    senderType = SenderType.PARENT,
+                                )
+                                _lastGlosses.value = emptyList()
+                                startRecordingForStt()
+                            }
                         }
                 }
         }
 
-        private fun performOfflineFallback(words: List<String>) {
+        private fun performOnDeviceTranslation(
+            words: List<String>,
+            notice: String? = null,
+        ) {
+            notice?.let { _translationModeNotice.value = it }
             val fallbackText = words.joinToString(" ")
             _translatedText.value = fallbackText
 
@@ -202,10 +271,10 @@ class ConversationViewModel
             isResultsReceived = false
             isStoppedReceived = false
 
-            if (_isOnline.value) {
-                startCloudRecordingLoop()
-            } else {
-                startLocalSttListening()
+            when {
+                shouldUseCloudStt() -> startCloudRecordingLoop()
+                shouldUseLocalStt() -> startLocalSttListening()
+                else -> showServerOnlyUnavailableMessage()
             }
         }
 
@@ -248,6 +317,9 @@ class ConversationViewModel
                         if (canUseCloudStt()) {
                             delay(nextDelayMs)
                         }
+                    }
+                    if (canStartLocalSttAfterCloudLoop()) {
+                        startLocalSttFromCloudLoop()
                     }
                 }
         }
@@ -329,8 +401,35 @@ class ConversationViewModel
             }
         }
 
+        private fun shouldUseCloudStt(): Boolean =
+            when (_translationMode.value) {
+                TranslationMode.AUTO -> _isOnline.value && !isCloudSttFallbackActive
+                TranslationMode.SERVER -> _isOnline.value
+                TranslationMode.ON_DEVICE -> false
+            }
+
+        private fun shouldUseLocalStt(): Boolean =
+            when (_translationMode.value) {
+                TranslationMode.AUTO -> !_isOnline.value || isCloudSttFallbackActive
+                TranslationMode.SERVER -> false
+                TranslationMode.ON_DEVICE -> true
+            }
+
         private fun canUseCloudStt(): Boolean =
-            _sessionState.value == SessionState.Active && _isOnline.value && !isTtsPlaying
+            _sessionState.value == SessionState.Active && shouldUseCloudStt() && !isTtsPlaying
+
+        private fun canHandleLocalSttEvent(): Boolean =
+            _sessionState.value == SessionState.Active && shouldUseLocalStt() && !isTtsPlaying
+
+        private fun canStartLocalSttAfterCloudLoop(): Boolean =
+            _sessionState.value == SessionState.Active && shouldUseLocalStt() && !isTtsPlaying
+
+        private fun startLocalSttFromCloudLoop() {
+            cloudSttJob = null
+            androidAudioRecorder.stop()
+            currentSttSessionId = sttEngine.nextSessionId()
+            sttEngine.startListening(currentSttSessionId)
+        }
 
         private fun getCloudRecordingStopReason(
             speechDetected: Boolean,
@@ -384,6 +483,7 @@ class ConversationViewModel
 
         fun startSession() {
             _sessionState.value = SessionState.Active
+            resetCloudSttFallback()
             signRecognitionEngine.start()
 
             // 1. 기존 STT 수집이 있다면 취소
@@ -393,7 +493,7 @@ class ConversationViewModel
             sttJob =
                 viewModelScope.launch {
                     sttEngine.events.collect { event ->
-                        if (event.sessionId != currentSttSessionId || _isOnline.value) {
+                        if (event.sessionId != currentSttSessionId || !canHandleLocalSttEvent()) {
                             return@collect
                         }
 
@@ -420,7 +520,7 @@ class ConversationViewModel
                             is SttEvent.Stopped -> {
                                 if (_sessionState.value == SessionState.Active && !isTtsPlaying) {
                                     isStoppedReceived = true
-                                    if (!_isOnline.value) {
+                                    if (shouldUseLocalStt()) {
                                         isResultsReceived = true // 오프라인은 결과 대기 불필요
                                     }
                                     checkAndRestartStt()
@@ -470,6 +570,11 @@ class ConversationViewModel
                     }.onFailure {
                         cloudSttFailureCount++
                         restartDelayMs = getCloudSttFailureRetryDelay()
+                        if (shouldFallbackToLocalStt()) {
+                            isCloudSttFallbackActive = true
+                            _translationModeNotice.value = NOTICE_AUTO_STT_FALLBACK
+                            restartDelayMs = STT_RESTART_DELAY_MS
+                        }
                         Log.w(
                             TAG,
                             "Cloud STT upload failed: failureCount=$cloudSttFailureCount, " +
@@ -534,6 +639,12 @@ class ConversationViewModel
             startRecordingForStt()
         }
 
+        fun updateTranslationMode(mode: TranslationMode) {
+            viewModelScope.launch {
+                translationModeRepository.saveTranslationMode(mode)
+            }
+        }
+
         fun stopSession() {
             _sessionState.value = SessionState.Idle
             signRecognitionEngine.stop()
@@ -542,10 +653,11 @@ class ConversationViewModel
             isStoppedReceived = false
             _lastGlosses.value = emptyList()
             _translatedText.value = ""
+            _translationModeNotice.value = null
             _sttText.value = ""
             _micVolume.value = 0f
             _messages.value = emptyList()
-            cloudSttFailureCount = 0
+            resetCloudSttFallback()
             translationJob?.cancel()
             completionTimerJob?.cancel()
             sttJob?.cancel()
@@ -600,6 +712,36 @@ class ConversationViewModel
             addOrUpdateMessage(text, isFinal, SenderType.CHILD)
         }
 
+        private fun updateNetworkFallbackNotice(isOnline: Boolean) {
+            _translationModeNotice.value =
+                when {
+                    _translationMode.value == TranslationMode.AUTO && !isOnline ->
+                        NOTICE_AUTO_OFFLINE_FALLBACK
+                    _translationMode.value == TranslationMode.SERVER && !isOnline ->
+                        NOTICE_SERVER_OFFLINE
+                    else -> null
+                }
+        }
+
+        private fun shouldFallbackToLocalStt(): Boolean =
+            _translationMode.value == TranslationMode.AUTO &&
+                cloudSttFailureCount >= AUTO_CLOUD_STT_FALLBACK_FAILURE_COUNT
+
+        private fun resetCloudSttFallback() {
+            isCloudSttFallbackActive = false
+            cloudSttFailureCount = 0
+        }
+
+        private fun showServerOnlyUnavailableMessage() {
+            _translationModeNotice.value = NOTICE_SERVER_OFFLINE
+            addOrUpdateMessage(
+                text = "서버 모드에서는 네트워크 연결이 필요합니다.",
+                isFinal = true,
+                senderType = SenderType.PARENT,
+            )
+            _lastGlosses.value = emptyList()
+        }
+
         override fun onCleared() {
             super.onCleared()
             audioPlayer.stop()
@@ -637,5 +779,14 @@ class ConversationViewModel
             private const val CLOUD_STT_ANALYZING_MESSAGE = "대화 내용을 분석 중입니다..."
             private const val CLOUD_STT_FAILURE_MESSAGE = "인식에 실패했습니다."
             private const val CLOUD_STT_AUDIO_MIME_TYPE = "audio/wav"
+            private const val AUTO_CLOUD_STT_FALLBACK_FAILURE_COUNT = 1
+            private const val NOTICE_AUTO_OFFLINE_FALLBACK =
+                "자동 모드: 네트워크가 없어 기기 내 처리로 전환했어요."
+            private const val NOTICE_AUTO_SERVER_FALLBACK =
+                "자동 모드: 서버 처리 실패로 기기 내 처리로 전환했어요."
+            private const val NOTICE_AUTO_STT_FALLBACK =
+                "자동 모드: 서버 음성 인식 실패로 기기 내 인식으로 전환했어요."
+            private const val NOTICE_SERVER_OFFLINE =
+                "서버 모드: 네트워크 연결 후 다시 사용할 수 있어요."
         }
     }

@@ -1,3 +1,5 @@
+@file:Suppress("MagicNumber", "TooManyFunctions")
+
 package com.ssafy.mobile.feature.conversation.presentation
 
 import android.app.Activity
@@ -5,6 +7,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.util.Log
 import android.view.WindowManager
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,8 +24,10 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -33,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -41,6 +47,7 @@ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.core.ui.feedback.AppNetworkStatusBanner
 import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
 import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
+import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
 import com.ssafy.mobile.feature.conversation.presentation.components.SubtitleList
 import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
 
@@ -53,6 +60,8 @@ data class ConversationUiState(
     val isOnline: Boolean,
     val messages: List<ChatMessage>,
     val lastGlosses: List<String>,
+    val translationMode: TranslationMode,
+    val translationModeNotice: String?,
 )
 
 @Composable
@@ -65,6 +74,8 @@ fun conversationRoute(
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val lastGlosses by viewModel.lastGlosses.collectAsStateWithLifecycle()
+    val translationMode by viewModel.translationMode.collectAsStateWithLifecycle()
+    val translationModeNotice by viewModel.translationModeNotice.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // 세션 활성화 중에는 화면이 꺼지지 않도록 설정합니다.
@@ -95,12 +106,15 @@ fun conversationRoute(
             isOnline = isOnline,
             messages = messages,
             lastGlosses = lastGlosses,
+            translationMode = translationMode,
+            translationModeNotice = translationModeNotice,
         )
 
     ConversationScreen(
         uiState = uiState,
         onStartSession = viewModel::startSession,
         onStopSession = viewModel::stopSession,
+        onTranslationModeSelected = viewModel::updateTranslationMode,
         onLandmarkFrame = viewModel::onLandmarkFrame,
         onOpenSignDebug = onOpenSignDebug,
         modifier = modifier,
@@ -112,6 +126,7 @@ private fun ConversationScreen(
     uiState: ConversationUiState,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
+    onTranslationModeSelected: (TranslationMode) -> Unit,
     onLandmarkFrame: (LandmarkFrameResult) -> Unit,
     onOpenSignDebug: (() -> Unit)?,
     modifier: Modifier = Modifier,
@@ -122,9 +137,12 @@ private fun ConversationScreen(
             Column {
                 SessionHeader(
                     sessionState = uiState.sessionState,
+                    translationMode = uiState.translationMode,
+                    onTranslationModeSelected = onTranslationModeSelected,
                     onOpenSignDebug = onOpenSignDebug,
                 )
                 AppNetworkStatusBanner(isOnline = uiState.isOnline)
+                TranslationModeNotice(text = uiState.translationModeNotice)
             }
         },
         bottomBar = {
@@ -243,71 +261,164 @@ private fun GlossRecognitionArea(lastGlosses: List<String>) {
 @Composable
 private fun SessionHeader(
     sessionState: SessionState,
+    translationMode: TranslationMode,
+    onTranslationModeSelected: (TranslationMode) -> Unit,
     onOpenSignDebug: (() -> Unit)?,
 ) {
-    Row(
+    Column(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            text = "SUDA 소통 세션",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-        )
-
         Row(
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            if (onOpenSignDebug != null) {
+            Text(
+                text = "SUDA 소통 세션",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+            )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (onOpenSignDebug != null) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .sizeIn(minWidth = 72.dp, minHeight = 40.dp)
+                                .background(
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    shape = CircleShape,
+                                ).clickable(onClick = onOpenSignDebug)
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "디버그",
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
                 Box(
                     modifier =
                         Modifier
-                            .sizeIn(minWidth = 72.dp, minHeight = 40.dp)
+                            .size(8.dp)
                             .background(
-                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                color =
+                                    if (sessionState ==
+                                        SessionState.Active
+                                    ) {
+                                        Color.Green
+                                    } else {
+                                        Color.Gray
+                                    },
                                 shape = CircleShape,
-                            ).clickable(onClick = onOpenSignDebug)
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "디버그",
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+                            ),
+                )
+                Text(
+                    text = if (sessionState == SessionState.Active) " LIVE" else " IDLE",
+                    modifier = Modifier.padding(start = 4.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (sessionState == SessionState.Active) Color.Green else Color.Gray,
+                )
             }
-            Box(
+        }
+
+        TranslationModeSelector(
+            selectedMode = translationMode,
+            onModeSelected = onTranslationModeSelected,
+        )
+    }
+}
+
+@Composable
+private fun TranslationModeSelector(
+    selectedMode: TranslationMode,
+    onModeSelected: (TranslationMode) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        TranslationMode.entries.forEach { mode ->
+            val selected = mode == selectedMode
+            Surface(
                 modifier =
                     Modifier
-                        .size(8.dp)
-                        .background(
-                            color =
-                                if (sessionState ==
-                                    SessionState.Active
-                                ) {
-                                    Color.Green
-                                } else {
-                                    Color.Gray
-                                },
-                            shape = CircleShape,
-                        ),
-            )
-            Text(
-                text = if (sessionState == SessionState.Active) " LIVE" else " IDLE",
-                modifier = Modifier.padding(start = 4.dp),
-                style = MaterialTheme.typography.labelMedium,
-                color = if (sessionState == SessionState.Active) Color.Green else Color.Gray,
-            )
+                        .weight(1f)
+                        .clickable { onModeSelected(mode) },
+                shape = RoundedCornerShape(999.dp),
+                color =
+                    if (selected) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surface
+                    },
+                border =
+                    BorderStroke(
+                        width = 1.dp,
+                        color =
+                            if (selected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.outlineVariant
+                            },
+                    ),
+            ) {
+                Text(
+                    text = mode.label(),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                    style = MaterialTheme.typography.labelLarge,
+                    color =
+                        if (selected) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    textAlign = TextAlign.Center,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
         }
     }
 }
+
+@Composable
+private fun TranslationModeNotice(text: String?) {
+    if (text.isNullOrBlank()) return
+
+    Surface(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+private fun TranslationMode.label(): String =
+    when (this) {
+        TranslationMode.AUTO -> "자동"
+        TranslationMode.SERVER -> "서버"
+        TranslationMode.ON_DEVICE -> "기기"
+    }
 
 @Composable
 private fun SessionControls(

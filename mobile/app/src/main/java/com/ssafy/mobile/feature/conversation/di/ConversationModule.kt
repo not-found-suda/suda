@@ -6,8 +6,10 @@ import com.ssafy.mobile.core.vision.SignRecognitionEngine
 import com.ssafy.mobile.core.vision.inference.SignInferenceAdapter
 import com.ssafy.mobile.core.vision.inference.TfliteSignInferenceAdapter
 import com.ssafy.mobile.feature.conversation.data.remote.TranslateApiService
+import com.ssafy.mobile.feature.conversation.data.repository.DataStoreTranslationModeRepository
 import com.ssafy.mobile.feature.conversation.data.repository.DefaultTranslateRepository
 import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
+import com.ssafy.mobile.feature.conversation.domain.repository.TranslationModeRepository
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -25,6 +27,12 @@ abstract class ConversationModule {
     abstract fun bindTranslateRepository(
         repository: DefaultTranslateRepository,
     ): TranslateRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindTranslationModeRepository(
+        repository: DataStoreTranslationModeRepository,
+    ): TranslationModeRepository
 
     @Binds
     @Singleton
