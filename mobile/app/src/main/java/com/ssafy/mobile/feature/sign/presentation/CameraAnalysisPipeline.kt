@@ -13,6 +13,7 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.UseCase
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.lifecycle.LifecycleOwner
@@ -48,7 +49,7 @@ internal fun bindCameraUseCases(
     analyzerExecutor: Executor,
     settings: CameraAnalysisSettings = CameraAnalysisSettings(),
     onFrameAvailable: (YuvAnalysisFrame) -> Unit,
-): ImageAnalysis {
+): CameraBinding {
     val targetRotation = previewView.display?.rotation ?: Surface.ROTATION_0
     val previewUseCase = createPreviewUseCase(previewView, targetRotation)
     val cameraConfig = selectCamera(cameraProvider)
@@ -68,8 +69,16 @@ internal fun bindCameraUseCases(
         analysisUseCase,
     )
 
-    return analysisUseCase
+    return CameraBinding(
+        previewUseCase = previewUseCase,
+        analysisUseCase = analysisUseCase,
+    )
 }
+
+internal data class CameraBinding(
+    val previewUseCase: UseCase,
+    val analysisUseCase: ImageAnalysis,
+)
 
 private fun createPreviewUseCase(
     previewView: PreviewView,

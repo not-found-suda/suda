@@ -10,32 +10,48 @@ import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.holisticlandmarker.HolisticLandmarker
 import com.google.mediapipe.tasks.vision.holisticlandmarker.HolisticLandmarkerResult
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 class MediaPipeHolisticLandmarkExtractor private constructor(
     private val landmarker: HolisticLandmarker?,
 ) : AutoCloseable {
     private val lastTimestampMs = AtomicLong(Long.MIN_VALUE)
+    private val isClosed = AtomicBoolean(false)
+    private val landmarkerLock = Any()
 
     fun detect(
         bitmap: Bitmap,
         timestampMs: Long,
     ): LandmarkFrameResult {
-        val activeLandmarker = landmarker ?: return LandmarkFrameResult.empty(timestampMs)
         val inputTimestampMs = nextTimestamp(timestampMs)
         val result =
-            runCatching {
-                activeLandmarker.detectForVideo(
-                    BitmapImageBuilder(bitmap).build(),
-                    inputTimestampMs,
-                )
-            }.getOrNull()
+            landmarker?.let { activeLandmarker ->
+                synchronized(landmarkerLock) {
+                    if (isClosed.get()) {
+                        null
+                    } else {
+                        runCatching {
+                            activeLandmarker.detectForVideo(
+                                BitmapImageBuilder(bitmap).build(),
+                                inputTimestampMs,
+                            )
+                        }.getOrNull()
+                    }
+                }
+            }
 
         return result?.toLandmarkFrameResult() ?: LandmarkFrameResult.empty(inputTimestampMs)
     }
 
     override fun close() {
-        landmarker?.close()
+        if (!isClosed.compareAndSet(false, true)) {
+            return
+        }
+
+        synchronized(landmarkerLock) {
+            landmarker?.close()
+        }
     }
 
     private fun nextTimestamp(timestampMs: Long): Long {

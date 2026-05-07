@@ -743,10 +743,15 @@ class ConversationViewModel
         }
 
         override fun onCleared() {
-            super.onCleared()
+            signRecognitionEngine.stop()
             audioPlayer.stop()
             ttsPlayer.stop()
             stopRecordingForStt()
+            translationJob?.cancel()
+            completionTimerJob?.cancel()
+            sttJob?.cancel()
+            cloudSttJob?.cancel()
+            super.onCleared()
         }
 
         fun onLandmarkFrame(frame: LandmarkFrameResult) {
