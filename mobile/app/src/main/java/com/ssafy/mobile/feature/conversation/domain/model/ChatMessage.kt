@@ -8,6 +8,7 @@ import java.util.UUID
 enum class SenderType {
     PARENT, // 농인 (부모)
     CHILD, // 청인 (자녀)
+    SYSTEM, // 세션 상태/오류 안내
 }
 
 /**

@@ -54,9 +54,11 @@ import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
 private const val TAG = "ConversationRoute"
 private const val SUBTITLE_WIDTH_FRACTION = 0.95f
 private const val SUBTITLE_HEIGHT_FRACTION = 0.4f
+private const val PHASE_CARD_ALPHA = 0.88f
 
 data class ConversationUiState(
     val sessionState: SessionState,
+    val conversationPhase: ConversationPhase,
     val isOnline: Boolean,
     val messages: List<ChatMessage>,
     val lastGlosses: List<String>,
@@ -71,6 +73,7 @@ fun conversationRoute(
     viewModel: ConversationViewModel = hiltViewModel(),
 ) {
     val sessionState by viewModel.sessionState.collectAsStateWithLifecycle()
+    val conversationPhase by viewModel.conversationPhase.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val lastGlosses by viewModel.lastGlosses.collectAsStateWithLifecycle()
@@ -103,6 +106,7 @@ fun conversationRoute(
     val uiState =
         ConversationUiState(
             sessionState = sessionState,
+            conversationPhase = conversationPhase,
             isOnline = isOnline,
             messages = messages,
             lastGlosses = lastGlosses,
@@ -137,6 +141,7 @@ private fun ConversationScreen(
             Column {
                 SessionHeader(
                     sessionState = uiState.sessionState,
+                    conversationPhase = uiState.conversationPhase,
                     translationMode = uiState.translationMode,
                     onTranslationModeSelected = onTranslationModeSelected,
                     onOpenSignDebug = onOpenSignDebug,
@@ -162,13 +167,17 @@ private fun ConversationScreen(
             // 카메라 인식 영역 및 자막 오버레이
             SignRecognitionArea(
                 sessionState = uiState.sessionState,
+                conversationPhase = uiState.conversationPhase,
                 messages = uiState.messages,
                 onLandmarkFrame = onLandmarkFrame,
                 modifier = Modifier.weight(1.0f),
             )
 
             // 실시간 인식 결과 영역 (글로스 나열)
-            GlossRecognitionArea(lastGlosses = uiState.lastGlosses)
+            GlossRecognitionArea(
+                lastGlosses = uiState.lastGlosses,
+                conversationPhase = uiState.conversationPhase,
+            )
         }
     }
 }
@@ -176,6 +185,7 @@ private fun ConversationScreen(
 @Composable
 private fun SignRecognitionArea(
     sessionState: SessionState,
+    conversationPhase: ConversationPhase,
     messages: List<ChatMessage>,
     onLandmarkFrame: (LandmarkFrameResult) -> Unit,
     modifier: Modifier = Modifier,
@@ -198,7 +208,20 @@ private fun SignRecognitionArea(
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 16.dp),
         ) {
-            SubtitleList(messages = messages)
+            SubtitleList(
+                messages = messages,
+                emptyText = conversationPhase.subtitlePlaceholder(),
+            )
+        }
+
+        if (sessionState == SessionState.Active) {
+            ConversationPhaseCard(
+                phase = conversationPhase,
+                modifier =
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 16.dp, start = 16.dp, end = 16.dp),
+            )
         }
 
         if (sessionState == SessionState.Idle) {
@@ -220,7 +243,10 @@ private fun SignRecognitionArea(
 }
 
 @Composable
-private fun GlossRecognitionArea(lastGlosses: List<String>) {
+private fun GlossRecognitionArea(
+    lastGlosses: List<String>,
+    conversationPhase: ConversationPhase,
+) {
     val glossListState = rememberLazyListState()
 
     LaunchedEffect(lastGlosses.size) {
@@ -241,7 +267,7 @@ private fun GlossRecognitionArea(lastGlosses: List<String>) {
     ) {
         if (lastGlosses.isEmpty()) {
             Text(
-                text = "수어 인식 대기 중...",
+                text = conversationPhase.glossPlaceholder(),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -261,6 +287,7 @@ private fun GlossRecognitionArea(lastGlosses: List<String>) {
 @Composable
 private fun SessionHeader(
     sessionState: SessionState,
+    conversationPhase: ConversationPhase,
     translationMode: TranslationMode,
     onTranslationModeSelected: (TranslationMode) -> Unit,
     onOpenSignDebug: (() -> Unit)?,
@@ -324,7 +351,7 @@ private fun SessionHeader(
                             ),
                 )
                 Text(
-                    text = if (sessionState == SessionState.Active) " LIVE" else " IDLE",
+                    text = conversationPhase.headerLabel(sessionState),
                     modifier = Modifier.padding(start = 4.dp),
                     style = MaterialTheme.typography.labelMedium,
                     color = if (sessionState == SessionState.Active) Color.Green else Color.Gray,
@@ -336,6 +363,35 @@ private fun SessionHeader(
             selectedMode = translationMode,
             onModeSelected = onTranslationModeSelected,
         )
+    }
+}
+
+@Composable
+private fun ConversationPhaseCard(
+    phase: ConversationPhase,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = phase.containerColor(),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = phase.title(),
+                style = MaterialTheme.typography.titleSmall,
+                color = phase.contentColor(),
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = phase.description(),
+                style = MaterialTheme.typography.bodySmall,
+                color = phase.contentColor(),
+            )
+        }
     }
 }
 
@@ -418,6 +474,87 @@ private fun TranslationMode.label(): String =
         TranslationMode.AUTO -> "자동"
         TranslationMode.SERVER -> "서버"
         TranslationMode.ON_DEVICE -> "기기"
+    }
+
+private fun ConversationPhase.headerLabel(sessionState: SessionState): String =
+    if (sessionState == SessionState.Active) {
+        " ${title()}"
+    } else {
+        " IDLE"
+    }
+
+private fun ConversationPhase.title(): String =
+    when (this) {
+        ConversationPhase.Idle -> "대기 중"
+        ConversationPhase.Preparing -> "준비 중"
+        ConversationPhase.RecognizingSign -> "수어 인식 중"
+        ConversationPhase.NoHandsDetected -> "손 인식 대기"
+        ConversationPhase.CollectingSigns -> "문장 수집 중"
+        ConversationPhase.Translating -> "번역 중"
+        ConversationPhase.Speaking -> "음성 재생 중"
+        ConversationPhase.ListeningSpeech -> "음성 듣는 중"
+        ConversationPhase.AnalyzingSpeech -> "음성 분석 중"
+        ConversationPhase.Fallback -> "기기 처리 전환"
+        ConversationPhase.Error -> "확인 필요"
+    }
+
+private fun ConversationPhase.description(): String =
+    when (this) {
+        ConversationPhase.Idle -> "대화를 시작하면 카메라와 음성 인식이 함께 동작합니다."
+        ConversationPhase.Preparing -> "카메라와 수어 인식 모델을 준비하고 있어요."
+        ConversationPhase.RecognizingSign -> "화면 안에서 수어를 보여 주세요."
+        ConversationPhase.NoHandsDetected -> "손이 화면에 잘 보이도록 위치를 맞춰 주세요."
+        ConversationPhase.CollectingSigns -> "인식된 수어를 문장으로 묶고 있어요."
+        ConversationPhase.Translating -> "수어 문장을 자연스러운 말로 바꾸는 중입니다."
+        ConversationPhase.Speaking -> "번역된 문장을 음성으로 재생하고 있어요."
+        ConversationPhase.ListeningSpeech -> "상대방의 말을 듣고 자막으로 옮길 준비가 됐어요."
+        ConversationPhase.AnalyzingSpeech -> "방금 들은 음성을 분석하고 있어요."
+        ConversationPhase.Fallback -> "서버 대신 기기 내 처리로 이어가고 있어요."
+        ConversationPhase.Error -> "일시적으로 처리하지 못했습니다. 세션을 다시 시도해 주세요."
+    }
+
+private fun ConversationPhase.subtitlePlaceholder(): String =
+    when (this) {
+        ConversationPhase.Idle -> "대화를 시작하면 자막이 여기에 표시됩니다."
+        ConversationPhase.Preparing -> "소통 세션을 준비하고 있어요."
+        ConversationPhase.RecognizingSign,
+        ConversationPhase.NoHandsDetected,
+        -> "수어 또는 음성 자막이 여기에 표시됩니다."
+        ConversationPhase.CollectingSigns -> "수어 문장을 모으고 있어요."
+        ConversationPhase.Translating -> "번역 결과를 기다리는 중입니다."
+        ConversationPhase.Speaking -> "번역 음성을 재생하고 있어요."
+        ConversationPhase.ListeningSpeech -> "상대방의 말을 듣고 있어요."
+        ConversationPhase.AnalyzingSpeech -> "음성을 분석하고 있어요."
+        ConversationPhase.Fallback -> "기기 내 처리로 자막을 이어가고 있어요."
+        ConversationPhase.Error -> "상태 안내 또는 오류 메시지가 여기에 표시됩니다."
+    }
+
+private fun ConversationPhase.glossPlaceholder(): String =
+    when (this) {
+        ConversationPhase.Idle -> "세션 시작 전입니다."
+        ConversationPhase.Preparing -> "수어 인식 준비 중..."
+        ConversationPhase.NoHandsDetected -> "손을 화면 안에 보여 주세요."
+        ConversationPhase.Translating -> "번역 중..."
+        ConversationPhase.Speaking -> "음성 재생 중..."
+        ConversationPhase.Fallback -> "기기 내 처리로 전환됨"
+        ConversationPhase.Error -> "세션 상태를 확인해 주세요."
+        else -> "수어 인식 대기 중..."
+    }
+
+@Composable
+private fun ConversationPhase.containerColor(): Color =
+    when (this) {
+        ConversationPhase.Error -> MaterialTheme.colorScheme.errorContainer
+        ConversationPhase.Fallback -> MaterialTheme.colorScheme.tertiaryContainer
+        else -> MaterialTheme.colorScheme.surface.copy(alpha = PHASE_CARD_ALPHA)
+    }
+
+@Composable
+private fun ConversationPhase.contentColor(): Color =
+    when (this) {
+        ConversationPhase.Error -> MaterialTheme.colorScheme.onErrorContainer
+        ConversationPhase.Fallback -> MaterialTheme.colorScheme.onTertiaryContainer
+        else -> MaterialTheme.colorScheme.onSurface
     }
 
 @Composable
