@@ -1,8 +1,13 @@
-package com.ssafy.mobile.feature.login.data.dto
+package com.ssafy.mobile.core.network.dto
 
 import com.google.gson.annotations.SerializedName
 
-data class LoginResponseDto(
+data class RefreshRequestDto(
+    @SerializedName("refreshToken")
+    val refreshToken: String,
+)
+
+data class RefreshResponseDto(
     @SerializedName("accessToken")
     val accessToken: String,
     @SerializedName("refreshToken")

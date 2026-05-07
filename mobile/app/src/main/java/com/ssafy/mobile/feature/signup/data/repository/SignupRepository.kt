@@ -16,9 +16,17 @@ class SignupRepository
         suspend fun signup(
             email: String,
             password: String,
+            name: String,
         ): SignupResponseDto =
             try {
-                val response = signupApiService.signup(SignupRequestDto(email, password))
+                val response =
+                    signupApiService.signup(
+                        SignupRequestDto(
+                            email = email,
+                            password = password,
+                            name = name,
+                        ),
+                    )
 
                 if (response.isSuccessful) {
                     response.body() ?: error("응답 본문이 비어 있습니다.")

@@ -48,9 +48,11 @@ fun SignupRoute(
     val email by viewModel.email.collectAsStateWithLifecycle()
     val password by viewModel.password.collectAsStateWithLifecycle()
     val confirmPassword by viewModel.confirmPassword.collectAsStateWithLifecycle()
+    val name by viewModel.name.collectAsStateWithLifecycle()
     val emailError by viewModel.emailError.collectAsStateWithLifecycle()
     val passwordError by viewModel.passwordError.collectAsStateWithLifecycle()
     val confirmPasswordError by viewModel.confirmPasswordError.collectAsStateWithLifecycle()
+    val nameError by viewModel.nameError.collectAsStateWithLifecycle()
 
     LaunchedEffect(uiState) {
         if (uiState is SignupUiState.Success) {
@@ -62,13 +64,16 @@ fun SignupRoute(
         email = email,
         password = password,
         confirmPassword = confirmPassword,
+        name = name,
         emailError = emailError,
         passwordError = passwordError,
         confirmPasswordError = confirmPasswordError,
+        nameError = nameError,
         uiState = uiState,
         onEmailChanged = viewModel::onEmailChanged,
         onPasswordChanged = viewModel::onPasswordChanged,
         onConfirmPasswordChanged = viewModel::onConfirmPasswordChanged,
+        onNameChanged = viewModel::onNameChanged,
         onSignupClick = viewModel::signup,
         onNavigateToLogin = onNavigateToLogin,
         modifier = modifier,
@@ -81,13 +86,16 @@ private fun SignupScreen(
     email: String,
     password: String,
     confirmPassword: String,
+    name: String,
     emailError: String?,
     passwordError: String?,
     confirmPasswordError: String?,
+    nameError: String?,
     uiState: SignupUiState,
     onEmailChanged: (String) -> Unit,
     onPasswordChanged: (String) -> Unit,
     onConfirmPasswordChanged: (String) -> Unit,
+    onNameChanged: (String) -> Unit,
     onSignupClick: () -> Unit,
     onNavigateToLogin: () -> Unit,
     modifier: Modifier = Modifier,
@@ -112,13 +120,16 @@ private fun SignupScreen(
             email = email,
             password = password,
             confirmPassword = confirmPassword,
+            name = name,
             emailError = emailError,
             passwordError = passwordError,
             confirmPasswordError = confirmPasswordError,
+            nameError = nameError,
             isLoading = isLoading,
             onEmailChanged = onEmailChanged,
             onPasswordChanged = onPasswordChanged,
             onConfirmPasswordChanged = onConfirmPasswordChanged,
+            onNameChanged = onNameChanged,
             onSignupClick = onSignupClick,
         )
 
@@ -164,13 +175,16 @@ private fun SignupInputFields(
     email: String,
     password: String,
     confirmPassword: String,
+    name: String,
     emailError: String?,
     passwordError: String?,
     confirmPasswordError: String?,
+    nameError: String?,
     isLoading: Boolean,
     onEmailChanged: (String) -> Unit,
     onPasswordChanged: (String) -> Unit,
     onConfirmPasswordChanged: (String) -> Unit,
+    onNameChanged: (String) -> Unit,
     onSignupClick: () -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
@@ -192,6 +206,32 @@ private fun SignupInputFields(
         keyboardOptions =
             KeyboardOptions(
                 keyboardType = KeyboardType.Email,
+                imeAction = ImeAction.Next,
+            ),
+        keyboardActions =
+            KeyboardActions(
+                onNext = { focusManager.moveFocus(FocusDirection.Down) },
+            ),
+        modifier = Modifier.fillMaxWidth(),
+    )
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    OutlinedTextField(
+        value = name,
+        onValueChange = onNameChanged,
+        label = { Text("보호자 이름") },
+        placeholder = { Text("이름을 입력해 주세요") },
+        isError = nameError != null,
+        supportingText =
+            nameError?.let {
+                { Text(text = it, color = MaterialTheme.colorScheme.error) }
+            },
+        singleLine = true,
+        enabled = !isLoading,
+        keyboardOptions =
+            KeyboardOptions(
+                keyboardType = KeyboardType.Text,
                 imeAction = ImeAction.Next,
             ),
         keyboardActions =

@@ -3,6 +3,7 @@ package com.ssafy.mobile.core.network
 import com.ssafy.mobile.core.auth.TokenStorage
 import java.net.HttpURLConnection
 import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -77,15 +78,32 @@ class TokenAuthenticator
                         return@runBlocking null
                     }
 
-                    // 3. Refresh API 호출 (동기)
-                    val newAccessToken = refreshTokenClient.refresh(refreshToken)
+                    // 3. Refresh API 호출 (동기적으로 대기)
+                    val refreshResponse = refreshTokenClient.refresh(refreshToken)
 
-                    if (newAccessToken != null) {
-                        // 성공: 새 토큰 저장 후 기존 실패했던 요청 재시도
-                        tokenStorage.updateAccessToken(newAccessToken)
+                    if (refreshResponse != null) {
+                        // 성공: 새 토큰들 저장 후 기존 실패했던 요청 재시도
+                        try {
+                            tokenStorage.clearTokens()
+                            tokenStorage.saveTokens(
+                                accessToken = refreshResponse.accessToken,
+                                refreshToken = refreshResponse.refreshToken,
+                            )
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: IllegalArgumentException) {
+                            android.util.Log.e("TokenAuthenticator", "Invalid token format", e)
+                            tokenStorage.clearTokens()
+                            return@runBlocking null
+                        } catch (e: java.security.GeneralSecurityException) {
+                            android.util.Log.e("TokenAuthenticator", "Security storage error", e)
+                            tokenStorage.clearTokens()
+                            return@runBlocking null
+                        }
+
                         response.request
                             .newBuilder()
-                            .header("Authorization", "Bearer $newAccessToken")
+                            .header("Authorization", "Bearer ${refreshResponse.accessToken}")
                             .build()
                     } else {
                         // 실패: 토큰 파기 및 인증 만료 처리

@@ -1,8 +1,8 @@
 package com.ssafy.mobile.core.network.di
 
 import com.ssafy.mobile.core.network.AuthInterceptor
-import com.ssafy.mobile.core.network.MockRefreshTokenClient
 import com.ssafy.mobile.core.network.RefreshTokenClient
+import com.ssafy.mobile.core.network.RetrofitRefreshTokenClient
 import com.ssafy.mobile.core.network.TokenAuthenticator
 import dagger.Module
 import dagger.Provides
@@ -23,7 +23,9 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideRefreshTokenClient(): RefreshTokenClient = MockRefreshTokenClient()
+    fun provideRefreshTokenClient(
+        @Named("NoAuth") retrofit: Retrofit,
+    ): RefreshTokenClient = RetrofitRefreshTokenClient(retrofit)
 
     @Provides
     @Singleton

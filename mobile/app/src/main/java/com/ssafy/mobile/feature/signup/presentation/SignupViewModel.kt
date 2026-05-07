@@ -27,6 +27,7 @@ class SignupViewModel
             private const val TAG = "SignupViewModel"
             private const val PASSWORD_MIN_LENGTH = 8
             private const val PASSWORD_MAX_LENGTH = 20
+            private const val NAME_MAX_LENGTH = 50
             private const val PWD_LETTERS = "(?=.*[A-Za-z])"
             private const val PWD_DIGITS = "(?=.*\\d)"
             private const val PWD_SPECIALS = "(?=.*[!@#\$%^&*()_+\\-={}\\[\\]:;,.?/~])"
@@ -50,6 +51,9 @@ class SignupViewModel
         private val _confirmPassword = MutableStateFlow("")
         val confirmPassword: StateFlow<String> = _confirmPassword.asStateFlow()
 
+        private val _name = MutableStateFlow("")
+        val name: StateFlow<String> = _name.asStateFlow()
+
         private val _emailError = MutableStateFlow<String?>(null)
         val emailError: StateFlow<String?> = _emailError.asStateFlow()
 
@@ -58,6 +62,9 @@ class SignupViewModel
 
         private val _confirmPasswordError = MutableStateFlow<String?>(null)
         val confirmPasswordError: StateFlow<String?> = _confirmPasswordError.asStateFlow()
+
+        private val _nameError = MutableStateFlow<String?>(null)
+        val nameError: StateFlow<String?> = _nameError.asStateFlow()
 
         fun onEmailChanged(value: String) {
             _email.value = value
@@ -74,7 +81,13 @@ class SignupViewModel
             _confirmPasswordError.value = null
         }
 
+        fun onNameChanged(value: String) {
+            _name.value = value
+            _nameError.value = null
+        }
+
         fun signup() {
+            if (_uiState.value is SignupUiState.Loading) return
             if (!validateInputs()) return
 
             _uiState.value = SignupUiState.Loading
@@ -82,7 +95,11 @@ class SignupViewModel
             viewModelScope.launch {
                 try {
                     withContext(Dispatchers.IO) {
-                        signupRepository.signup(_email.value.trim(), _password.value)
+                        signupRepository.signup(
+                            email = _email.value.trim(),
+                            password = _password.value,
+                            name = _name.value.trim(),
+                        )
                     }
 
                     _uiState.value = SignupUiState.Success
@@ -123,6 +140,15 @@ class SignupViewModel
                 isValid = false
             } else if (!Patterns.EMAIL_ADDRESS.matcher(emailValue).matches()) {
                 _emailError.value = "올바른 이메일 형식을 입력해 주세요."
+                isValid = false
+            }
+
+            val nameValue = _name.value.trim()
+            if (nameValue.isEmpty()) {
+                _nameError.value = "이름을 입력해 주세요."
+                isValid = false
+            } else if (nameValue.length > NAME_MAX_LENGTH) {
+                _nameError.value = "이름은 50자 이내로 입력해 주세요."
                 isValid = false
             }
 

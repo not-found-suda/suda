@@ -58,6 +58,7 @@ class LoginViewModel
         }
 
         fun login() {
+            if (_uiState.value is LoginUiState.Loading) return
             if (!validateInputs()) return
 
             _uiState.value = LoginUiState.Loading
@@ -72,7 +73,10 @@ class LoginViewModel
                     try {
                         withContext(Dispatchers.IO) {
                             tokenStorage.clearTokens()
-                            tokenStorage.updateAccessToken(response.accessToken)
+                            tokenStorage.saveTokens(
+                                accessToken = response.accessToken,
+                                refreshToken = response.refreshToken,
+                            )
                         }
                     } catch (e: CancellationException) {
                         throw e
