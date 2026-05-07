@@ -151,8 +151,9 @@ class QuizQuestionViewModel
                                     }
                                 }.onFailure { throwable ->
                                     _answerSubmitState.value =
-                                        QuizAnswerSubmitState.Error(
-                                            throwable.message ?: "답변 저장에 실패했습니다.",
+                                        QuizAnswerSubmitState.SaveFailed(
+                                            throwable.message
+                                                ?: "답변 저장에 실패했습니다. 다시 시도해주세요.",
                                         )
                                 }
                         }

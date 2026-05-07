@@ -11,6 +11,10 @@ sealed interface QuizAnswerSubmitState {
         val message: String,
     ) : QuizAnswerSubmitState
 
+    data class SaveFailed(
+        val message: String,
+    ) : QuizAnswerSubmitState
+
     data class Error(
         val message: String,
     ) : QuizAnswerSubmitState
