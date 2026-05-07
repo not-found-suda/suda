@@ -7,6 +7,6 @@ interface ChildProfileRepository {
 
     suspend fun createChildProfile(
         name: String,
-        age: Int,
+        birthDate: String,
     )
 }
