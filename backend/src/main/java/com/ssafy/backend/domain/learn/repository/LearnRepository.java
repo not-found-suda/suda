@@ -11,14 +11,14 @@ public interface LearnRepository extends JpaRepository<Learn, Long> {
   @Query(
       value =
           """
-          SELECT *
-          FROM learn
-          WHERE category_id = :categoryId
-            AND difficulty = :difficulty
-            AND active = true
-          ORDER BY RANDOM()
-          LIMIT :limit
-          """,
+      SELECT *
+      FROM learn
+      WHERE category_id = :categoryId
+        AND difficulty = :difficulty
+        AND active = true
+      ORDER BY sort_order ASC, id ASC
+      LIMIT :limit
+      """,
       nativeQuery = true)
   List<Learn> findRandomWordsByCategoryAndDifficulty(
       @Param("categoryId") Long categoryId,

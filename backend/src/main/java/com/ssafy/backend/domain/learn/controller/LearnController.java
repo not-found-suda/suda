@@ -2,6 +2,7 @@ package com.ssafy.backend.domain.learn.controller;
 
 import com.ssafy.backend.domain.learn.docs.LearnControllerDocs;
 import com.ssafy.backend.domain.learn.dto.response.LearnCategoryResponse;
+import com.ssafy.backend.domain.learn.dto.response.LearnLevelResponse;
 import com.ssafy.backend.domain.learn.dto.response.LearnWordResponse;
 import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
 import com.ssafy.backend.domain.learn.service.LearnService;
@@ -24,6 +25,11 @@ public class LearnController implements LearnControllerDocs {
   @GetMapping("/categories")
   public List<LearnCategoryResponse> getCategories() {
     return learnService.getCategories();
+  }
+
+  @GetMapping("/levels")
+  public List<LearnLevelResponse> getLevels() {
+    return learnService.getLevels();
   }
 
   @GetMapping("/words")

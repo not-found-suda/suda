@@ -1,6 +1,7 @@
 package com.ssafy.backend.domain.learn.docs;
 
 import com.ssafy.backend.domain.learn.dto.response.LearnCategoryResponse;
+import com.ssafy.backend.domain.learn.dto.response.LearnLevelResponse;
 import com.ssafy.backend.domain.learn.dto.response.LearnWordResponse;
 import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
 import com.ssafy.backend.global.docs.ApiErrorCodes;
@@ -19,6 +20,13 @@ public interface LearnControllerDocs {
       security = {@SecurityRequirement(name = "bearerAuth")})
   @ApiErrorCodes({"COMMON_UNAUTHORIZED"})
   List<LearnCategoryResponse> getCategories();
+
+  @Operation(
+      summary = "난이도 목록 조회",
+      description = "학습 가능한 난이도 목록을 조회합니다.",
+      security = {@SecurityRequirement(name = "bearerAuth")})
+  @ApiErrorCodes({"COMMON_UNAUTHORIZED"})
+  List<LearnLevelResponse> getLevels();
 
   @Operation(
       summary = "카테고리/난이도별 단어 목록 조회",
