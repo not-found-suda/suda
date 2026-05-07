@@ -2,6 +2,7 @@ package com.ssafy.backend.domain.auth.docs;
 
 import com.ssafy.backend.domain.auth.dto.LoginRequestDto;
 import com.ssafy.backend.domain.auth.dto.LoginResponseDto;
+import com.ssafy.backend.domain.auth.dto.RefreshTokenRequestDto;
 import com.ssafy.backend.domain.auth.dto.RefreshTokenResponseDto;
 import com.ssafy.backend.domain.auth.dto.SignupRequestDto;
 import com.ssafy.backend.domain.auth.dto.SignupResponseDto;
@@ -34,13 +35,13 @@ public interface AuthApiDocs {
       content = @Content(schema = @Schema(implementation = LoginResponseDto.class)))
   ResponseEntity<LoginResponseDto> login(LoginRequestDto request);
 
-  @Operation(summary = "토큰 재발급", description = "리프레시 토큰 쿠키를 사용해 액세스 토큰을 재발급합니다.")
+  @Operation(summary = "토큰 재발급", description = "Request Body의 리프레시 토큰으로 액세스 토큰을 재발급합니다.")
   @ApiErrorCodes({"AUTH_INVALID_REFRESH_TOKEN", "AUTH_INACTIVE_ACCOUNT"})
   @ApiResponse(
       responseCode = "200",
       description = "성공",
       content = @Content(schema = @Schema(implementation = RefreshTokenResponseDto.class)))
-  ResponseEntity<RefreshTokenResponseDto> refresh(HttpServletRequest request);
+  ResponseEntity<RefreshTokenResponseDto> refresh(RefreshTokenRequestDto request);
 
   @Operation(
       summary = "로그아웃",
@@ -48,5 +49,5 @@ public interface AuthApiDocs {
       security = {@SecurityRequirement(name = "bearerAuth")})
   @ApiErrorCodes({"COMMON_UNAUTHORIZED"})
   @ApiResponse(responseCode = "204", description = "콘텐츠 없음")
-  ResponseEntity<Void> logout(HttpServletRequest request);
+  ResponseEntity<Void> logout(RefreshTokenRequestDto requestDto, HttpServletRequest request);
 }

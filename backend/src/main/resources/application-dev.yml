@@ -21,7 +21,3 @@ auth:
     issuer: "${AUTH_JWT_ISSUER}"
     access-token-ttl-seconds: "${AUTH_ACCESS_TOKEN_TTL_SECONDS}"
     refresh-token-ttl-seconds: "${AUTH_REFRESH_TOKEN_TTL_SECONDS}"
-    refresh-token-cookie-name: "${AUTH_REFRESH_COOKIE_NAME}"
-    refresh-token-cookie-secure: "${AUTH_REFRESH_COOKIE_SECURE}"
-    refresh-token-cookie-same-site: "${AUTH_REFRESH_COOKIE_SAME_SITE}"
-    refresh-token-cookie-path: "${AUTH_REFRESH_COOKIE_PATH}"
