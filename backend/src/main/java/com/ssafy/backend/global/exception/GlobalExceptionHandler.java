@@ -1,6 +1,7 @@
 package com.ssafy.backend.global.exception;
 
 import com.ssafy.backend.domain.auth.exception.AuthErrorCode;
+import com.ssafy.backend.domain.child.exception.ChildProfileErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -177,6 +178,17 @@ public class GlobalExceptionHandler {
       return ResponseEntity.status(errorCode.getHttpStatus())
           .body(ProblemDetails.of(errorCode, request.getRequestURI()));
     }
+    if (isDuplicateChildProfileNameViolation(exception)) {
+      ChildProfileErrorCode errorCode = ChildProfileErrorCode.DUPLICATE_NAME;
+      log.warn(
+          "Duplicate child profile name violation: method={}, uri={}, code={}, message={}",
+          request.getMethod(),
+          request.getRequestURI(),
+          errorCode.getCode(),
+          errorCode.getMessage());
+      return ResponseEntity.status(errorCode.getHttpStatus())
+          .body(ProblemDetails.of(errorCode, request.getRequestURI()));
+    }
 
     CommonErrorCode errorCode = CommonErrorCode.INTERNAL_SERVER_ERROR;
     log.error(
@@ -219,6 +231,24 @@ public class GlobalExceptionHandler {
                 || lower.contains("(email)")
                 || lower.contains(" email ");
         if (duplicateKey && emailKey) {
+          return true;
+        }
+      }
+      current = current.getCause();
+    }
+    return false;
+  }
+
+  private boolean isDuplicateChildProfileNameViolation(Throwable throwable) {
+    Throwable current = throwable;
+    while (current != null) {
+      String message = current.getMessage();
+      if (message != null) {
+        String lower = message.toLowerCase();
+        boolean duplicateKey =
+            lower.contains("duplicate key") || lower.contains("unique constraint");
+        boolean childProfileNameKey = lower.contains("ux_child_profiles_user_active_name_lower");
+        if (duplicateKey && childProfileNameKey) {
           return true;
         }
       }
