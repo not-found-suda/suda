@@ -3,7 +3,6 @@
 package com.ssafy.mobile.feature.sign.presentation
 
 import android.os.SystemClock
-import androidx.camera.core.ImageAnalysis
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Box
@@ -38,6 +37,7 @@ import com.ssafy.mobile.core.vision.landmark.MediaPipeHolisticLandmarkExtractor
 import java.util.Locale
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.delay
 
@@ -275,11 +275,19 @@ private fun CameraBindingEffect(
         cameraAnalysisSettings,
     ) {
         val executor = ContextCompat.getMainExecutor(context)
-        var boundAnalysisUseCase: ImageAnalysis? = null
+        val isDisposed = AtomicBoolean(false)
+        var cameraBinding: CameraBinding? = null
         val listener =
             Runnable {
+                if (isDisposed.get()) {
+                    return@Runnable
+                }
+
                 runCatching {
                     val cameraProvider = cameraProviderFuture.get()
+                    if (isDisposed.get()) {
+                        return@Runnable
+                    }
                     bindCameraUseCases(
                         cameraProvider = cameraProvider,
                         lifecycleOwner = lifecycleOwner,
@@ -288,20 +296,40 @@ private fun CameraBindingEffect(
                         settings = cameraAnalysisSettings,
                         onFrameAvailable = onFrameAvailable,
                     )
-                }.onSuccess { analysisUseCase ->
-                    boundAnalysisUseCase = analysisUseCase
+                }.onSuccess { binding ->
+                    if (isDisposed.get()) {
+                        binding.analysisUseCase.clearAnalyzer()
+                        runCatching {
+                            cameraProviderFuture.get().unbind(
+                                binding.previewUseCase,
+                                binding.analysisUseCase,
+                            )
+                        }
+                        return@onSuccess
+                    }
+                    cameraBinding = binding
                     onCameraErrorChanged(null)
                 }.onFailure {
-                    onCameraErrorChanged("Could not start the camera. Please restart the app.")
+                    if (!isDisposed.get()) {
+                        onCameraErrorChanged("Could not start the camera. Please restart the app.")
+                    }
                 }
             }
 
         cameraProviderFuture.addListener(listener, executor)
 
         onDispose {
-            boundAnalysisUseCase?.clearAnalyzer()
+            isDisposed.set(true)
+            cameraBinding?.analysisUseCase?.clearAnalyzer()
             if (cameraProviderFuture.isDone) {
-                runCatching { cameraProviderFuture.get().unbindAll() }
+                cameraBinding?.let { binding ->
+                    runCatching {
+                        cameraProviderFuture.get().unbind(
+                            binding.previewUseCase,
+                            binding.analysisUseCase,
+                        )
+                    }
+                }
             }
         }
     }
