@@ -585,7 +585,6 @@ private fun SpeechInputPhase.title(): String =
         SpeechInputPhase.Idle -> "대기 중"
         SpeechInputPhase.Listening -> "음성 듣는 중"
         SpeechInputPhase.Analyzing -> "음성 분석 중"
-        SpeechInputPhase.PausedForOutput -> "음성 잠시 멈춤"
         SpeechInputPhase.Fallback -> "기기 인식 전환"
         SpeechInputPhase.Error -> "확인 필요"
     }
@@ -595,7 +594,6 @@ private fun SpeechInputPhase.description(): String =
         SpeechInputPhase.Idle -> "대화를 시작하면 마이크 인식이 준비됩니다."
         SpeechInputPhase.Listening -> "상대방의 말을 듣고 자막으로 옮길 준비가 됐어요."
         SpeechInputPhase.Analyzing -> "방금 들은 음성을 분석하고 있어요."
-        SpeechInputPhase.PausedForOutput -> "앱 음성이 다시 입력되지 않도록 마이크만 잠시 멈췄어요."
         SpeechInputPhase.Fallback -> "서버 대신 기기 내 음성 인식으로 이어가고 있어요."
         SpeechInputPhase.Error -> "음성 인식을 일시적으로 처리하지 못했습니다."
     }
@@ -607,7 +605,6 @@ private fun subtitlePlaceholder(
     when {
         signInputPhase == SignInputPhase.Translating -> "수어 번역 결과를 기다리는 중입니다."
         speechInputPhase == SpeechInputPhase.Analyzing -> "음성을 분석하고 있어요."
-        speechInputPhase == SpeechInputPhase.PausedForOutput -> "번역 음성을 재생하는 동안 마이크만 잠시 멈췄어요."
         signInputPhase.isWarning() || speechInputPhase.isWarning() ->
             "상태 안내 또는 오류 메시지가 여기에 표시됩니다."
         else -> "수어 또는 음성 자막이 여기에 표시됩니다."
