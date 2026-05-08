@@ -2,7 +2,10 @@
 data/
 
 ### Models ###
-models/
+models/*
+!models/transformer_mobile/
+!models/transformer_mobile/**
+models/BiLSTM/
 
 ### Python Cache ###
 __pycache__/
