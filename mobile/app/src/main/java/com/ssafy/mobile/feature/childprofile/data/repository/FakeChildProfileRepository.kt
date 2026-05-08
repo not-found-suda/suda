@@ -26,8 +26,20 @@ class FakeChildProfileRepository
             val baseProfiles =
                 if (BuildConfig.DEBUG && USE_SAMPLE_DATA) {
                     listOf(
-                        ChildProfile(childId = 1L, name = "민준", age = 6),
-                        ChildProfile(childId = 2L, name = "서연", age = 4),
+                        ChildProfile(
+                            childId = 1L,
+                            name = "민준",
+                            birthDate = "2020-05-01",
+                            age = 6,
+                            active = true,
+                        ),
+                        ChildProfile(
+                            childId = 2L,
+                            name = "서연",
+                            birthDate = "2022-03-15",
+                            age = 4,
+                            active = true,
+                        ),
                     )
                 } else {
                     emptyList()
@@ -38,7 +50,7 @@ class FakeChildProfileRepository
 
         override suspend fun createChildProfile(
             name: String,
-            age: Int,
+            birthDate: String,
         ) {
             // 네트워크 지연 시뮬레이션
             delay(LOADING_DELAY_MS)
@@ -49,7 +61,9 @@ class FakeChildProfileRepository
                 ChildProfile(
                     childId = newId,
                     name = name,
-                    age = age,
+                    birthDate = birthDate,
+                    age = 6, // Fake age
+                    active = true,
                 )
             createdProfiles.add(newProfile)
         }

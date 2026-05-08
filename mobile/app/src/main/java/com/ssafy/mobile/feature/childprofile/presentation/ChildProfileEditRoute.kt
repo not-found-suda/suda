@@ -34,7 +34,7 @@ fun ChildProfileEditRoute(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val name by viewModel.name.collectAsStateWithLifecycle()
-    val age by viewModel.age.collectAsStateWithLifecycle()
+    val birthDate by viewModel.birthDate.collectAsStateWithLifecycle()
 
     LaunchedEffect(uiState) {
         if (uiState is ChildProfileEditUiState.Success) {
@@ -45,9 +45,9 @@ fun ChildProfileEditRoute(
     ChildProfileEditScreen(
         uiState = uiState,
         name = name,
-        age = age,
+        birthDate = birthDate,
         onNameChange = viewModel::onNameChange,
-        onAgeChange = viewModel::onAgeChange,
+        onBirthDateChange = viewModel::onBirthDateChange,
         onSave = viewModel::saveProfile,
         onBack = { onNavigateBack(false) },
         modifier = modifier,
@@ -59,9 +59,9 @@ fun ChildProfileEditRoute(
 private fun ChildProfileEditScreen(
     uiState: ChildProfileEditUiState,
     name: String,
-    age: String,
+    birthDate: String,
     onNameChange: (String) -> Unit,
-    onAgeChange: (String) -> Unit,
+    onBirthDateChange: (String) -> Unit,
     onSave: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -97,6 +97,7 @@ private fun ChildProfileEditScreen(
                 value = name,
                 onValueChange = onNameChange,
                 label = { Text("아이 이름") },
+                placeholder = { Text("예: 민준") },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !isSaving,
                 singleLine = true,
@@ -105,9 +106,10 @@ private fun ChildProfileEditScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             OutlinedTextField(
-                value = age,
-                onValueChange = onAgeChange,
-                label = { Text("아이 나이") },
+                value = birthDate,
+                onValueChange = onBirthDateChange,
+                label = { Text("생년월일") },
+                placeholder = { Text("예: 20200501") },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !isSaving,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
