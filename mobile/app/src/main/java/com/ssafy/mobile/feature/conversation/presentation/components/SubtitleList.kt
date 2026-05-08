@@ -24,6 +24,7 @@ import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
 fun SubtitleList(
     messages: List<ChatMessage>,
     emptyText: String,
+    onFeedbackClick: ((ChatMessage) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -47,7 +48,10 @@ fun SubtitleList(
             }
         } else {
             items(messages, key = { it.id }) { message ->
-                SubtitleBubble(message = message)
+                SubtitleBubble(
+                    message = message,
+                    onFeedbackClick = onFeedbackClick,
+                )
             }
         }
     }

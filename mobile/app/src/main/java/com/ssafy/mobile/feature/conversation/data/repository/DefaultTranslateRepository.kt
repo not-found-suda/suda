@@ -4,6 +4,9 @@ import com.ssafy.mobile.feature.conversation.data.remote.TranslateApiService
 import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechRequest
 import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechResponse
 import com.ssafy.mobile.feature.conversation.data.remote.model.SpeechToTextResponse
+import com.ssafy.mobile.feature.conversation.data.remote.model.TranslationFeedbackRequest
+import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
+import com.ssafy.mobile.feature.conversation.domain.model.TranslationFeedbackReason
 import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
 import java.io.File
 import java.io.IOException
@@ -60,6 +63,30 @@ class DefaultTranslateRepository
                 if (response.isSuccessful) {
                     response.body() ?: throw IllegalStateException(ERROR_EMPTY_BODY)
                 } else {
+                    val errorBody = response.errorBody()?.string().orEmpty()
+                    throw IOException(
+                        "$ERROR_API_PREFIX ${response.code()} ${response.message()} " +
+                            errorBody.take(ERROR_BODY_PREVIEW_LENGTH),
+                    )
+                }
+            }
+
+        override suspend fun submitTranslationFeedback(
+            message: ChatMessage,
+            reason: TranslationFeedbackReason,
+        ): Result<Unit> =
+            runCatching {
+                val response =
+                    apiService.submitTranslationFeedback(
+                        request =
+                            TranslationFeedbackRequest(
+                                clientMessageId = message.id,
+                                translatedText = message.text,
+                                reason = reason.name,
+                            ),
+                    )
+
+                if (!response.isSuccessful) {
                     val errorBody = response.errorBody()?.string().orEmpty()
                     throw IOException(
                         "$ERROR_API_PREFIX ${response.code()} ${response.message()} " +

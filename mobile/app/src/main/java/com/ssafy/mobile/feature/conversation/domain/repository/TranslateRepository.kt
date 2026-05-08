@@ -2,6 +2,8 @@ package com.ssafy.mobile.feature.conversation.domain.repository
 
 import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechResponse
 import com.ssafy.mobile.feature.conversation.data.remote.model.SpeechToTextResponse
+import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
+import com.ssafy.mobile.feature.conversation.domain.model.TranslationFeedbackReason
 import java.io.File
 
 /**
@@ -20,4 +22,12 @@ interface TranslateRepository {
         audioFile: File,
         mimeType: String,
     ): Result<SpeechToTextResponse>
+
+    /**
+     * 번역 결과 오류 신고
+     */
+    suspend fun submitTranslationFeedback(
+        message: ChatMessage,
+        reason: TranslationFeedbackReason,
+    ): Result<Unit>
 }

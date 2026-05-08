@@ -34,6 +34,15 @@ data class SpeechToTextResponse(
 )
 
 /**
+ * 번역 오류 신고 요청 DTO
+ */
+data class TranslationFeedbackRequest(
+    @SerializedName("clientMessageId") val clientMessageId: String,
+    @SerializedName("translatedText") val translatedText: String,
+    @SerializedName("reason") val reason: String,
+)
+
+/**
  * RFC 9457 표준 에러 응답 DTO
  */
 data class ApiErrorResponse(

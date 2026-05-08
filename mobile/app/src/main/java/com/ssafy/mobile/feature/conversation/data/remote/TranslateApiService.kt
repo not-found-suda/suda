@@ -3,6 +3,7 @@ package com.ssafy.mobile.feature.conversation.data.remote
 import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechRequest
 import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechResponse
 import com.ssafy.mobile.feature.conversation.data.remote.model.SpeechToTextResponse
+import com.ssafy.mobile.feature.conversation.data.remote.model.TranslationFeedbackRequest
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import retrofit2.Response
@@ -36,4 +37,12 @@ interface TranslateApiService {
         @Part("audioMimeType") audioMimeType: RequestBody,
         @Query("dryRun") dryRun: Boolean = false,
     ): Response<SpeechToTextResponse>
+
+    /**
+     * 번역 결과 오류 신고
+     */
+    @POST("v1/translation/feedback")
+    suspend fun submitTranslationFeedback(
+        @Body request: TranslationFeedbackRequest,
+    ): Response<Unit>
 }

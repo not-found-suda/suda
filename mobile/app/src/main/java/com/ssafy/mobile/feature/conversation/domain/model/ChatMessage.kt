@@ -27,5 +27,6 @@ data class ChatMessage(
     val text: String,
     val senderType: SenderType,
     val status: MessageStatus = MessageStatus.COMPLETED,
+    val isFeedbackAvailable: Boolean = false,
     val timestamp: Long = System.currentTimeMillis(),
 )
