@@ -14,9 +14,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
@@ -25,14 +27,22 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -47,6 +57,7 @@ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.core.ui.feedback.AppNetworkStatusBanner
 import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
 import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
+import com.ssafy.mobile.feature.conversation.domain.model.TranslationFeedbackReason
 import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
 import com.ssafy.mobile.feature.conversation.presentation.components.SubtitleList
 import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
@@ -66,6 +77,7 @@ data class ConversationUiState(
     val lastGlosses: List<String>,
     val translationMode: TranslationMode,
     val translationModeNotice: String?,
+    val translationFeedbackSubmitState: TranslationFeedbackSubmitState,
 )
 
 @Composable
@@ -82,6 +94,8 @@ fun conversationRoute(
     val lastGlosses by viewModel.lastGlosses.collectAsStateWithLifecycle()
     val translationMode by viewModel.translationMode.collectAsStateWithLifecycle()
     val translationModeNotice by viewModel.translationModeNotice.collectAsStateWithLifecycle()
+    val translationFeedbackSubmitState by
+        viewModel.translationFeedbackSubmitState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // 세션 활성화 중에는 화면이 꺼지지 않도록 설정합니다.
@@ -116,29 +130,57 @@ fun conversationRoute(
             lastGlosses = lastGlosses,
             translationMode = translationMode,
             translationModeNotice = translationModeNotice,
+            translationFeedbackSubmitState = translationFeedbackSubmitState,
         )
 
     ConversationScreen(
         uiState = uiState,
-        onStartSession = viewModel::startSession,
-        onStopSession = viewModel::stopSession,
-        onTranslationModeSelected = viewModel::updateTranslationMode,
-        onLandmarkFrame = viewModel::onLandmarkFrame,
-        onOpenSignDebug = onOpenSignDebug,
+        actions =
+            ConversationActions(
+                onStartSession = viewModel::startSession,
+                onStopSession = viewModel::stopSession,
+                onTranslationModeSelected = viewModel::updateTranslationMode,
+                onLandmarkFrame = viewModel::onLandmarkFrame,
+                onFeedbackReasonConfirmed = viewModel::submitTranslationFeedback,
+                onFeedbackDismissed = viewModel::clearTranslationFeedbackSubmitState,
+                onOpenSignDebug = onOpenSignDebug,
+            ),
         modifier = modifier,
     )
 }
 
+private data class ConversationActions(
+    val onStartSession: () -> Unit,
+    val onStopSession: () -> Unit,
+    val onTranslationModeSelected: (TranslationMode) -> Unit,
+    val onLandmarkFrame: (LandmarkFrameResult) -> Unit,
+    val onFeedbackReasonConfirmed: (ChatMessage, TranslationFeedbackReason) -> Unit,
+    val onFeedbackDismissed: () -> Unit,
+    val onOpenSignDebug: (() -> Unit)?,
+)
+
+private data class TranslationFeedbackSheetUiState(
+    val message: ChatMessage,
+    val selectedReason: TranslationFeedbackReason?,
+    val submitState: TranslationFeedbackSubmitState,
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ConversationScreen(
     uiState: ConversationUiState,
-    onStartSession: () -> Unit,
-    onStopSession: () -> Unit,
-    onTranslationModeSelected: (TranslationMode) -> Unit,
-    onLandmarkFrame: (LandmarkFrameResult) -> Unit,
-    onOpenSignDebug: (() -> Unit)?,
+    actions: ConversationActions,
     modifier: Modifier = Modifier,
 ) {
+    var feedbackTargetMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var selectedFeedbackReason by remember { mutableStateOf<TranslationFeedbackReason?>(null) }
+
+    fun closeFeedbackSheet() {
+        feedbackTargetMessage = null
+        selectedFeedbackReason = null
+        actions.onFeedbackDismissed()
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -148,8 +190,8 @@ private fun ConversationScreen(
                     signInputPhase = uiState.signInputPhase,
                     speechInputPhase = uiState.speechInputPhase,
                     translationMode = uiState.translationMode,
-                    onTranslationModeSelected = onTranslationModeSelected,
-                    onOpenSignDebug = onOpenSignDebug,
+                    onTranslationModeSelected = actions.onTranslationModeSelected,
+                    onOpenSignDebug = actions.onOpenSignDebug,
                 )
                 AppNetworkStatusBanner(isOnline = uiState.isOnline)
                 TranslationModeNotice(text = uiState.translationModeNotice)
@@ -158,8 +200,8 @@ private fun ConversationScreen(
         bottomBar = {
             SessionControls(
                 sessionState = uiState.sessionState,
-                onStartSession = onStartSession,
-                onStopSession = onStopSession,
+                onStartSession = actions.onStartSession,
+                onStopSession = actions.onStopSession,
             )
         },
     ) { paddingValues ->
@@ -175,7 +217,11 @@ private fun ConversationScreen(
                 signInputPhase = uiState.signInputPhase,
                 speechInputPhase = uiState.speechInputPhase,
                 messages = uiState.messages,
-                onLandmarkFrame = onLandmarkFrame,
+                onLandmarkFrame = actions.onLandmarkFrame,
+                onFeedbackClick = { message ->
+                    feedbackTargetMessage = message
+                    selectedFeedbackReason = null
+                },
                 modifier = Modifier.weight(1.0f),
             )
 
@@ -186,6 +232,51 @@ private fun ConversationScreen(
             )
         }
     }
+
+    TranslationFeedbackSheetHost(
+        uiState =
+            feedbackTargetMessage?.let { message ->
+                TranslationFeedbackSheetUiState(
+                    message = message,
+                    selectedReason = selectedFeedbackReason,
+                    submitState = uiState.translationFeedbackSubmitState,
+                )
+            },
+        actions = actions,
+        onReasonSelected = { selectedFeedbackReason = it },
+        onDismiss = { closeFeedbackSheet() },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TranslationFeedbackSheetHost(
+    uiState: TranslationFeedbackSheetUiState?,
+    actions: ConversationActions,
+    onReasonSelected: (TranslationFeedbackReason) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    if (uiState == null) return
+
+    val feedbackSheetState = rememberModalBottomSheetState()
+    val isFeedbackSubmitting =
+        uiState.submitState == TranslationFeedbackSubmitState.Submitting
+
+    ModalBottomSheet(
+        onDismissRequest = {
+            if (!isFeedbackSubmitting) {
+                onDismiss()
+            }
+        },
+        sheetState = feedbackSheetState,
+    ) {
+        TranslationFeedbackSheet(
+            uiState = uiState,
+            onReasonSelected = onReasonSelected,
+            onConfirmClick = actions.onFeedbackReasonConfirmed,
+            onCancelClick = onDismiss,
+        )
+    }
 }
 
 @Composable
@@ -195,6 +286,7 @@ private fun SignRecognitionArea(
     speechInputPhase: SpeechInputPhase,
     messages: List<ChatMessage>,
     onLandmarkFrame: (LandmarkFrameResult) -> Unit,
+    onFeedbackClick: (ChatMessage) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -218,6 +310,7 @@ private fun SignRecognitionArea(
             SubtitleList(
                 messages = messages,
                 emptyText = subtitlePlaceholder(signInputPhase, speechInputPhase),
+                onFeedbackClick = onFeedbackClick,
             )
         }
 
@@ -244,6 +337,168 @@ private fun SignRecognitionArea(
                     text = "세션을 시작하려면 버튼을 누르세요",
                     color = Color.White,
                     style = MaterialTheme.typography.titleMedium,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TranslationFeedbackSheet(
+    uiState: TranslationFeedbackSheetUiState,
+    onReasonSelected: (TranslationFeedbackReason) -> Unit,
+    onConfirmClick: (ChatMessage, TranslationFeedbackReason) -> Unit,
+    onCancelClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val isSubmitting = uiState.submitState == TranslationFeedbackSubmitState.Submitting
+    val isSuccess = uiState.submitState == TranslationFeedbackSubmitState.Success
+
+    Column(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = "번역 신고",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = uiState.message.text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+
+        TranslationFeedbackReason.entries.forEach { reason ->
+            TranslationFeedbackReasonRow(
+                reason = reason,
+                selected = reason == uiState.selectedReason,
+                enabled = !isSubmitting && !isSuccess,
+                onClick = { onReasonSelected(reason) },
+            )
+        }
+
+        TranslationFeedbackStatusText(submitState = uiState.submitState)
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(
+                onClick = onCancelClick,
+                enabled = !isSubmitting,
+            ) {
+                Text(text = "취소")
+            }
+            TextButton(
+                onClick = {
+                    when (uiState.submitState) {
+                        TranslationFeedbackSubmitState.Idle ->
+                            uiState.selectedReason?.let { reason ->
+                                onConfirmClick(uiState.message, reason)
+                            }
+                        is TranslationFeedbackSubmitState.Error ->
+                            uiState.selectedReason?.let { reason ->
+                                onConfirmClick(uiState.message, reason)
+                            }
+                        TranslationFeedbackSubmitState.Success -> onCancelClick()
+                        TranslationFeedbackSubmitState.Submitting -> Unit
+                    }
+                },
+                enabled = uiState.selectedReason != null && !isSubmitting,
+            ) {
+                Text(text = uiState.submitState.actionText())
+            }
+        }
+    }
+}
+
+@Composable
+private fun TranslationFeedbackStatusText(
+    submitState: TranslationFeedbackSubmitState,
+    modifier: Modifier = Modifier,
+) {
+    val text =
+        when (submitState) {
+            TranslationFeedbackSubmitState.Idle -> null
+            TranslationFeedbackSubmitState.Submitting -> "피드백을 제출하는 중입니다."
+            TranslationFeedbackSubmitState.Success -> "피드백이 접수되었습니다."
+            is TranslationFeedbackSubmitState.Error -> submitState.message
+        }
+
+    if (text != null) {
+        Text(
+            text = text,
+            modifier = modifier.fillMaxWidth(),
+            style = MaterialTheme.typography.bodySmall,
+            color =
+                when (submitState) {
+                    is TranslationFeedbackSubmitState.Error -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+        )
+    }
+}
+
+private fun TranslationFeedbackSubmitState.actionText(): String =
+    when (this) {
+        TranslationFeedbackSubmitState.Idle -> "제출"
+        TranslationFeedbackSubmitState.Submitting -> "제출 중"
+        TranslationFeedbackSubmitState.Success -> "확인"
+        is TranslationFeedbackSubmitState.Error -> "다시 제출"
+    }
+
+@Composable
+private fun TranslationFeedbackReasonRow(
+    reason: TranslationFeedbackReason,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .clickable(
+                    enabled = enabled,
+                    onClick = onClick,
+                ),
+        shape = RoundedCornerShape(12.dp),
+        color =
+            if (selected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            RadioButton(
+                selected = selected,
+                onClick = onClick,
+                enabled = enabled,
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = reason.label,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = reason.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

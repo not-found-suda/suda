@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,6 +29,7 @@ private const val MAX_BUBBLE_WIDTH = 280
 @Composable
 fun SubtitleBubble(
     message: ChatMessage,
+    onFeedbackClick: ((ChatMessage) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val style = subtitleBubbleStyle(message.senderType)
@@ -57,9 +59,21 @@ fun SubtitleBubble(
                     lineHeight = 22.sp,
                 )
             }
+
+            if (message.canReportTranslation() && onFeedbackClick != null) {
+                TextButton(onClick = { onFeedbackClick(message) }) {
+                    Text(
+                        text = "신고",
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            }
         }
     }
 }
+
+private fun ChatMessage.canReportTranslation(): Boolean =
+    isFeedbackAvailable && status == MessageStatus.COMPLETED
 
 @Composable
 private fun subtitleBubbleStyle(senderType: SenderType): SubtitleBubbleStyle =

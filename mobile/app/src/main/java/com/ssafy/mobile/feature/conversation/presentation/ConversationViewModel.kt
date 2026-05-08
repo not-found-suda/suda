@@ -15,6 +15,7 @@ import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
 import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
 import com.ssafy.mobile.feature.conversation.domain.model.MessageStatus
 import com.ssafy.mobile.feature.conversation.domain.model.SenderType
+import com.ssafy.mobile.feature.conversation.domain.model.TranslationFeedbackReason
 import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
 import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
 import com.ssafy.mobile.feature.conversation.domain.repository.TranslationModeRepository
@@ -87,6 +88,13 @@ class ConversationViewModel
         private val _translationModeNotice = MutableStateFlow<String?>(null)
         val translationModeNotice: StateFlow<String?> = _translationModeNotice.asStateFlow()
 
+        private val _translationFeedbackSubmitState =
+            MutableStateFlow<TranslationFeedbackSubmitState>(
+                TranslationFeedbackSubmitState.Idle,
+            )
+        val translationFeedbackSubmitState: StateFlow<TranslationFeedbackSubmitState> =
+            _translationFeedbackSubmitState.asStateFlow()
+
         private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
         val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
@@ -115,6 +123,7 @@ class ConversationViewModel
         private var isCloudSttFallbackActive = false
         private var cloudSttFailureCount = 0
         private var cloudSttDiscardCount = 0
+        private var pendingFeedbackRequest: TranslationFeedbackRequest? = null
 
         init {
             viewModelScope.launch {
@@ -273,6 +282,7 @@ class ConversationViewModel
                                 text = response.correctedText,
                                 isFinal = true,
                                 senderType = SenderType.PARENT,
+                                isFeedbackAvailable = true,
                             )
 
                             response.audioBase64?.let { base64Audio ->
@@ -325,6 +335,7 @@ class ConversationViewModel
                 text = fallbackText,
                 isFinal = true,
                 senderType = SenderType.PARENT,
+                isFeedbackAvailable = true,
             )
 
             // 시스템 TTS로 재생
@@ -781,6 +792,23 @@ class ConversationViewModel
             }
         }
 
+        fun submitTranslationFeedback(
+            message: ChatMessage,
+            reason: TranslationFeedbackReason,
+        ) {
+            pendingFeedbackRequest =
+                TranslationFeedbackRequest(
+                    message = message,
+                    reason = reason,
+                )
+            submitPendingTranslationFeedback()
+        }
+
+        fun clearTranslationFeedbackSubmitState() {
+            _translationFeedbackSubmitState.value = TranslationFeedbackSubmitState.Idle
+            pendingFeedbackRequest = null
+        }
+
         fun stopSession() {
             _sessionState.value = SessionState.Idle
             _signInputPhase.value = SignInputPhase.Idle
@@ -810,6 +838,7 @@ class ConversationViewModel
             text: String,
             isFinal: Boolean,
             senderType: SenderType,
+            isFeedbackAvailable: Boolean = false,
         ) {
             _messages.update { currentList ->
                 val lastMessage = currentList.lastOrNull()
@@ -826,6 +855,7 @@ class ConversationViewModel
                                 } else {
                                     MessageStatus.PENDING
                                 },
+                            isFeedbackAvailable = isFeedbackAvailable,
                         )
                 } else {
                     currentList +
@@ -838,6 +868,7 @@ class ConversationViewModel
                                 } else {
                                     MessageStatus.PENDING
                                 },
+                            isFeedbackAvailable = isFeedbackAvailable,
                         )
                 }
             }
@@ -923,6 +954,34 @@ class ConversationViewModel
             _lastGlosses.value = emptyList()
         }
 
+        private fun submitPendingTranslationFeedback() {
+            val request = pendingFeedbackRequest ?: return
+            if (
+                _translationFeedbackSubmitState.value ==
+                TranslationFeedbackSubmitState.Submitting
+            ) {
+                return
+            }
+
+            _translationFeedbackSubmitState.value =
+                TranslationFeedbackSubmitState.Submitting
+            viewModelScope.launch {
+                translateRepository
+                    .submitTranslationFeedback(
+                        message = request.message,
+                        reason = request.reason,
+                    ).onSuccess {
+                        _translationFeedbackSubmitState.value =
+                            TranslationFeedbackSubmitState.Success
+                    }.onFailure {
+                        _translationFeedbackSubmitState.value =
+                            TranslationFeedbackSubmitState.Error(
+                                message = "피드백 제출에 실패했습니다. 다시 시도해 주세요.",
+                            )
+                    }
+            }
+        }
+
         override fun onCleared() {
             signRecognitionEngine.stop()
             audioPlayer.stop()
@@ -940,6 +999,11 @@ class ConversationViewModel
 
             signRecognitionEngine.submitFrame(frame)
         }
+
+        private data class TranslationFeedbackRequest(
+            val message: ChatMessage,
+            val reason: TranslationFeedbackReason,
+        )
 
         companion object {
             private const val TAG = "ConversationViewModel"
