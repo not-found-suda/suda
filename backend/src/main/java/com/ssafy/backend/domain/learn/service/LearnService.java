@@ -9,6 +9,7 @@ import com.ssafy.backend.domain.learn.dto.response.LearnWordResponse;
 import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
 import com.ssafy.backend.domain.learn.repository.LearnCategoryRepository;
 import com.ssafy.backend.domain.learn.repository.LearnRepository;
+import com.ssafy.backend.global.storage.AssetUrlResolver;
 import java.util.Arrays;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,11 +22,15 @@ public class LearnService {
 
   private final LearnCategoryRepository learnCategoryRepository;
   private final LearnRepository learnRepository;
+  private final AssetUrlResolver assetUrlResolver;
 
   public LearnService(
-      LearnCategoryRepository learnCategoryRepository, LearnRepository learnRepository) {
+      LearnCategoryRepository learnCategoryRepository,
+      LearnRepository learnRepository,
+      AssetUrlResolver assetUrlResolver) {
     this.learnCategoryRepository = learnCategoryRepository;
     this.learnRepository = learnRepository;
+    this.assetUrlResolver = assetUrlResolver;
   }
 
   public LearnCategoryListResponse getCategories() {
@@ -37,7 +42,7 @@ public class LearnService {
                         category.getId(),
                         category.getName(),
                         category.getDescription(),
-                        category.getThumbnailUrl()))
+                        assetUrlResolver.toUrl(category.getThumbnailUrl())))
             .toList());
   }
 
@@ -63,8 +68,8 @@ public class LearnService {
                         word.getId(),
                         word.getWord(),
                         word.getDisplayText(),
-                        word.getImageUrl(),
-                        word.getAudioUrl()))
+                        assetUrlResolver.toUrl(word.getImageUrl()),
+                        assetUrlResolver.toUrl(word.getAudioUrl())))
             .toList());
   }
 }

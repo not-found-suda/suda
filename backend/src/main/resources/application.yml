@@ -41,3 +41,7 @@ external-api:
   timeout:
     connect: 3s
     read: 10s
+
+app:
+  asset:
+    cloud-front-domain: ${ASSET_CLOUDFRONT_DOMAIN:https://d14zyw67949hvk.cloudfront.net}

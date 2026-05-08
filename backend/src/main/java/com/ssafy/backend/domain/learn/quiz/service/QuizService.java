@@ -19,6 +19,7 @@ import com.ssafy.backend.domain.learn.quiz.repository.QuizQuestionRepository;
 import com.ssafy.backend.domain.learn.quiz.repository.QuizSessionRepository;
 import com.ssafy.backend.domain.learn.repository.LearnRepository;
 import com.ssafy.backend.global.exception.BusinessException;
+import com.ssafy.backend.global.storage.AssetUrlResolver;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +38,7 @@ public class QuizService {
   private final ChildProfileRepository childProfileRepository;
   private final ClovaSttClient clovaSttClient;
   private final QuizGradingService quizGradingService;
+  private final AssetUrlResolver assetUrlResolver;
 
   public QuizService(
       QuizSessionRepository quizSessionRepository,
@@ -45,7 +47,8 @@ public class QuizService {
       LearnRepository learnRepository,
       ChildProfileRepository childProfileRepository,
       ClovaSttClient clovaSttClient,
-      QuizGradingService quizGradingService) {
+      QuizGradingService quizGradingService,
+      AssetUrlResolver assetUrlResolver) {
     this.quizSessionRepository = quizSessionRepository;
     this.quizQuestionRepository = quizQuestionRepository;
     this.quizAnswerRepository = quizAnswerRepository;
@@ -53,6 +56,7 @@ public class QuizService {
     this.childProfileRepository = childProfileRepository;
     this.clovaSttClient = clovaSttClient;
     this.quizGradingService = quizGradingService;
+    this.assetUrlResolver = assetUrlResolver;
   }
 
   @Transactional
@@ -111,7 +115,7 @@ public class QuizService {
         word.getId(),
         question.getQuestionNumber(),
         session.getTotalQuestionCount(),
-        word.getImageUrl());
+        assetUrlResolver.toUrl(word.getImageUrl()));
   }
 
   @Transactional
