@@ -3,11 +3,13 @@ package com.ssafy.backend.domain.auth.controller;
 import com.ssafy.backend.domain.auth.docs.AuthApiDocs;
 import com.ssafy.backend.domain.auth.dto.LoginRequestDto;
 import com.ssafy.backend.domain.auth.dto.LoginResponseDto;
+import com.ssafy.backend.domain.auth.dto.OAuthLoginRequestDto;
 import com.ssafy.backend.domain.auth.dto.RefreshTokenRequestDto;
 import com.ssafy.backend.domain.auth.dto.RefreshTokenResponseDto;
 import com.ssafy.backend.domain.auth.dto.SignupRequestDto;
 import com.ssafy.backend.domain.auth.dto.SignupResponseDto;
 import com.ssafy.backend.domain.auth.service.AuthService;
+import com.ssafy.backend.domain.auth.service.OAuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -25,9 +27,11 @@ public class AuthController implements AuthApiDocs {
   private static final String BEARER_PREFIX = "Bearer ";
 
   private final AuthService authService;
+  private final OAuthService oAuthService;
 
-  public AuthController(AuthService authService) {
+  public AuthController(AuthService authService, OAuthService oAuthService) {
     this.authService = authService;
+    this.oAuthService = oAuthService;
   }
 
   @PostMapping("/signup")
@@ -59,6 +63,13 @@ public class AuthController implements AuthApiDocs {
     String accessToken = resolveAccessToken(request);
     authService.logout(requestDto.refreshToken(), accessToken);
     return ResponseEntity.noContent().build();
+  }
+
+  @PostMapping("/oauth/naver")
+  @Override
+  public ResponseEntity<LoginResponseDto> loginWithNaver(
+      @Valid @RequestBody OAuthLoginRequestDto requestDto) {
+    return ResponseEntity.ok(oAuthService.loginWithNaver(requestDto));
   }
 
   private String resolveAccessToken(HttpServletRequest request) {

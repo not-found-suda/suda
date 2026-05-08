@@ -1,7 +1,9 @@
 package com.ssafy.backend.global.exception;
 
 import com.ssafy.backend.domain.auth.exception.AuthErrorCode;
+import com.ssafy.backend.domain.auth.exception.OAuthErrorCode;
 import com.ssafy.backend.domain.child.exception.ChildProfileErrorCode;
+import com.ssafy.backend.domain.social.exception.SocialAccountErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -168,6 +170,17 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ProblemDetail> handleDataIntegrityViolation(
       DataIntegrityViolationException exception, HttpServletRequest request) {
     if (isDuplicateEmailViolation(exception)) {
+      if (isOAuthRequest(request)) {
+        OAuthErrorCode errorCode = OAuthErrorCode.EMAIL_ALREADY_EXISTS;
+        log.warn(
+            "Duplicate OAuth email violation: method={}, uri={}, code={}, message={}",
+            request.getMethod(),
+            request.getRequestURI(),
+            errorCode.getCode(),
+            errorCode.getMessage());
+        return ResponseEntity.status(errorCode.getHttpStatus())
+            .body(ProblemDetails.of(errorCode, request.getRequestURI()));
+      }
       AuthErrorCode errorCode = AuthErrorCode.DUPLICATE_EMAIL;
       log.warn(
           "Duplicate email violation: method={}, uri={}, code={}, message={}",
@@ -182,6 +195,17 @@ public class GlobalExceptionHandler {
       ChildProfileErrorCode errorCode = ChildProfileErrorCode.DUPLICATE_NAME;
       log.warn(
           "Duplicate child profile name violation: method={}, uri={}, code={}, message={}",
+          request.getMethod(),
+          request.getRequestURI(),
+          errorCode.getCode(),
+          errorCode.getMessage());
+      return ResponseEntity.status(errorCode.getHttpStatus())
+          .body(ProblemDetails.of(errorCode, request.getRequestURI()));
+    }
+    if (isDuplicateSocialAccountViolation(exception)) {
+      SocialAccountErrorCode errorCode = SocialAccountErrorCode.ALREADY_LINKED;
+      log.warn(
+          "Duplicate social account violation: method={}, uri={}, code={}, message={}",
           request.getMethod(),
           request.getRequestURI(),
           errorCode.getCode(),
@@ -239,6 +263,10 @@ public class GlobalExceptionHandler {
     return false;
   }
 
+  private boolean isOAuthRequest(HttpServletRequest request) {
+    return request.getRequestURI() != null && request.getRequestURI().contains("/auth/oauth/");
+  }
+
   private boolean isDuplicateChildProfileNameViolation(Throwable throwable) {
     Throwable current = throwable;
     while (current != null) {
@@ -249,6 +277,26 @@ public class GlobalExceptionHandler {
             lower.contains("duplicate key") || lower.contains("unique constraint");
         boolean childProfileNameKey = lower.contains("ux_child_profiles_user_active_name_lower");
         if (duplicateKey && childProfileNameKey) {
+          return true;
+        }
+      }
+      current = current.getCause();
+    }
+    return false;
+  }
+
+  private boolean isDuplicateSocialAccountViolation(Throwable throwable) {
+    Throwable current = throwable;
+    while (current != null) {
+      String message = current.getMessage();
+      if (message != null) {
+        String lower = message.toLowerCase();
+        boolean duplicateKey =
+            lower.contains("duplicate key") || lower.contains("unique constraint");
+        boolean socialAccountKey =
+            lower.contains("ux_social_accounts_provider_user")
+                || lower.contains("ux_social_accounts_user_provider");
+        if (duplicateKey && socialAccountKey) {
           return true;
         }
       }

@@ -2,6 +2,7 @@ package com.ssafy.backend.domain.auth.docs;
 
 import com.ssafy.backend.domain.auth.dto.LoginRequestDto;
 import com.ssafy.backend.domain.auth.dto.LoginResponseDto;
+import com.ssafy.backend.domain.auth.dto.OAuthLoginRequestDto;
 import com.ssafy.backend.domain.auth.dto.RefreshTokenRequestDto;
 import com.ssafy.backend.domain.auth.dto.RefreshTokenResponseDto;
 import com.ssafy.backend.domain.auth.dto.SignupRequestDto;
@@ -50,4 +51,21 @@ public interface AuthApiDocs {
   @ApiErrorCodes({"COMMON_UNAUTHORIZED"})
   @ApiResponse(responseCode = "204", description = "콘텐츠 없음")
   ResponseEntity<Void> logout(RefreshTokenRequestDto requestDto, HttpServletRequest request);
+
+  @Operation(
+      summary = "네이버 OAuth 로그인",
+      description = "네이버 authorization code + PKCE 방식으로 소셜 로그인을 처리합니다.")
+  @ApiErrorCodes({
+    "VALIDATION_INVALID_INPUT",
+    "OAUTH_INVALID_AUTHORIZATION_CODE",
+    "OAUTH_EMAIL_ALREADY_EXISTS",
+    "AUTH_INACTIVE_ACCOUNT",
+    "SOCIAL_ACCOUNT_ALREADY_LINKED",
+    "OAUTH_PROVIDER_ERROR"
+  })
+  @ApiResponse(
+      responseCode = "200",
+      description = "성공",
+      content = @Content(schema = @Schema(implementation = LoginResponseDto.class)))
+  ResponseEntity<LoginResponseDto> loginWithNaver(OAuthLoginRequestDto request);
 }

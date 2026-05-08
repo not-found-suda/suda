@@ -68,15 +68,7 @@ public class AuthService {
     }
 
     TokenPair tokenPair = createTokenPair(user.id(), user.role());
-    persistRefreshToken(tokenPair.refreshToken());
-
-    LoginResponseDto response =
-        new LoginResponseDto(
-            tokenPair.accessToken(),
-            tokenPair.refreshToken(),
-            "Bearer",
-            jwtProperties.getAccessTokenTtlSeconds());
-    return new LoginResult(response, tokenPair.refreshToken());
+    return toLoginResult(tokenPair);
   }
 
   @Transactional
@@ -146,6 +138,12 @@ public class AuthService {
     accessTokenBlacklistStore.blacklist(accessJti, Duration.ofSeconds(ttlSeconds));
   }
 
+  @Transactional
+  public LoginResult issueLoginTokens(Long userId, Role role) {
+    TokenPair tokenPair = createTokenPair(userId, role);
+    return toLoginResult(tokenPair);
+  }
+
   private boolean isValidPassword(String rawPassword, String storedPassword) {
     if (rawPassword == null || storedPassword == null) {
       return false;
@@ -186,6 +184,17 @@ public class AuthService {
     Long userId = jwtTokenProvider.getUserId(refreshToken);
     refreshTokenStore.save(
         refreshJti, userId, Duration.ofSeconds(jwtProperties.getRefreshTokenTtlSeconds()));
+  }
+
+  private LoginResult toLoginResult(TokenPair tokenPair) {
+    persistRefreshToken(tokenPair.refreshToken());
+    LoginResponseDto response =
+        new LoginResponseDto(
+            tokenPair.accessToken(),
+            tokenPair.refreshToken(),
+            "Bearer",
+            jwtProperties.getAccessTokenTtlSeconds());
+    return new LoginResult(response, tokenPair.refreshToken());
   }
 
   public record LoginResult(LoginResponseDto response, String refreshToken) {}
