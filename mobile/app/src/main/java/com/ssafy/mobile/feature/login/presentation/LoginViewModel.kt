@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ssafy.mobile.core.auth.TokenStorage
 import com.ssafy.mobile.core.session.ActiveChildStorage
+import com.ssafy.mobile.feature.learning.data.repository.LearningQuizAnswerSubmissionQueueSyncer
 import com.ssafy.mobile.feature.login.data.repository.LoginException
 import com.ssafy.mobile.feature.login.data.repository.LoginRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -27,6 +28,8 @@ class LoginViewModel
         private val loginRepository: LoginRepository,
         private val tokenStorage: TokenStorage,
         private val activeChildStorage: ActiveChildStorage,
+        private val learningQuizAnswerSubmissionQueueSyncer:
+            LearningQuizAnswerSubmissionQueueSyncer,
     ) : ViewModel() {
         companion object {
             private const val TAG = "LoginViewModel"
@@ -101,6 +104,7 @@ class LoginViewModel
                             activeChildStorage.getActiveChildId() != null
                         }
 
+                    learningQuizAnswerSubmissionQueueSyncer.requestSync()
                     _uiState.value = LoginUiState.Success(hasActiveChild = hasActiveChild)
                 } catch (e: CancellationException) {
                     throw e

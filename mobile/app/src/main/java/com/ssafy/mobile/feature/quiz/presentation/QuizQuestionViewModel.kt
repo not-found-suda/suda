@@ -3,7 +3,9 @@ package com.ssafy.mobile.feature.quiz.presentation
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ssafy.mobile.feature.learning.data.repository.LearningQuizAnswerSubmissionQueueSyncer
 import com.ssafy.mobile.feature.learning.domain.model.LearningQuizAnswerResult
+import com.ssafy.mobile.feature.learning.domain.model.LearningQuizAnswerSubmissionSyncEvent
 import com.ssafy.mobile.feature.learning.domain.model.LearningQuizQuestion
 import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizRepository
 import com.ssafy.mobile.feature.learning.domain.repository.LearningWordRepository
@@ -27,6 +29,7 @@ class QuizQuestionViewModel
         savedStateHandle: SavedStateHandle,
         private val quizRepository: LearningQuizRepository,
         private val wordRepository: LearningWordRepository,
+        private val queueSyncer: LearningQuizAnswerSubmissionQueueSyncer,
     ) : ViewModel() {
         private val categoryId: Long =
             checkNotNull(savedStateHandle["categoryId"]) {
@@ -44,6 +47,11 @@ class QuizQuestionViewModel
         val answerSubmitState: StateFlow<QuizAnswerSubmitState> = _answerSubmitState.asStateFlow()
 
         init {
+            viewModelScope.launch {
+                queueSyncer.events.collect { event ->
+                    handleAnswerSubmissionSyncEvent(event)
+                }
+            }
             startSession()
         }
 
@@ -74,7 +82,7 @@ class QuizQuestionViewModel
                     question != null &&
                     trimmedText.isNotBlank()
 
-            if (canSubmitLocalAnswer && question != null) {
+            if (canSubmitLocalAnswer) {
                 if (question.word.isBlank()) {
                     _answerSubmitState.value =
                         QuizAnswerSubmitState.Error("문제 단어 정보를 확인할 수 없습니다.")
@@ -336,10 +344,62 @@ class QuizQuestionViewModel
                 }
         }
 
-        private fun List<QuizAnswer>.replaceAnswer(answer: QuizAnswer): List<QuizAnswer> =
-            filterNot { it.questionId == answer.questionId } + answer
+        private fun handleAnswerSubmissionSyncEvent(event: LearningQuizAnswerSubmissionSyncEvent) {
+            val state = _quizState.value
+            val question = state.currentQuestion
+            when (event) {
+                is LearningQuizAnswerSubmissionSyncEvent.AnswerSynced -> {
+                    val result = event.result
+                    val isCurrentFailedAnswer =
+                        _answerSubmitState.value is QuizAnswerSubmitState.SaveFailed &&
+                            state.sessionId == result.sessionId &&
+                            question?.id == result.questionId
+
+                    if (isCurrentFailedAnswer) {
+                        applyAnswerResult(result)
+                        if (result.hasNext) {
+                            _answerSubmitState.value = QuizAnswerSubmitState.Success
+                            loadCurrentQuestion(result.sessionId)
+                        } else {
+                            isCompletionPending = true
+                            viewModelScope.launch {
+                                _answerSubmitState.value = QuizAnswerSubmitState.Submitting
+                                completeSession(result.sessionId)
+                            }
+                        }
+                    }
+                }
+                is LearningQuizAnswerSubmissionSyncEvent.AnswerAcceptedWithoutResult -> {
+                    val isCurrentFailedAnswer =
+                        _answerSubmitState.value is QuizAnswerSubmitState.SaveFailed &&
+                            state.sessionId == event.sessionId &&
+                            question?.id == event.questionId
+
+                    if (isCurrentFailedAnswer) {
+                        _answerSubmitState.value = QuizAnswerSubmitState.Success
+                        if (state.isLastQuestion()) {
+                            isCompletionPending = true
+                            viewModelScope.launch {
+                                _answerSubmitState.value = QuizAnswerSubmitState.Submitting
+                                completeSession(event.sessionId)
+                            }
+                        } else {
+                            loadCurrentQuestion(event.sessionId)
+                        }
+                    }
+                }
+            }
+        }
 
         private companion object {
             const val DEFAULT_DIFFICULTY = "EASY"
         }
     }
+
+private fun List<QuizAnswer>.replaceAnswer(answer: QuizAnswer): List<QuizAnswer> =
+    filterNot { it.questionId == answer.questionId } + answer
+
+private fun QuizSessionState.isLastQuestion(): Boolean =
+    currentQuestionNumberOverride != null &&
+        totalQuestionCountOverride != null &&
+        currentQuestionNumberOverride >= totalQuestionCountOverride
