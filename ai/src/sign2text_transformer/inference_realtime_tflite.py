@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import time
@@ -7,10 +8,7 @@ from pathlib import Path
 import cv2
 import mediapipe as mp
 import numpy as np
-import torch
 from PIL import Image, ImageDraw, ImageFont
-
-from model import KSLTransformerV5
 
 
 INPUT_DIM = 332
@@ -30,11 +28,11 @@ NEUTRAL_FACE_WINDOW = 45
 MIN_NEUTRAL_FACE_SAMPLES = 15
 QUESTION_EYEBROW_DELTA_THRESHOLD = 0.055
 
-# Relative model paths are resolved from BASE_DIR. Absolute paths also work.
 BASE_DIR = Path(__file__).resolve().parent / "models"
-MODEL_DIR = Path("7words_test")
-MODEL_PATH = None
-LABEL_MAP_PATH = None
+DEFAULT_MODEL_DIR = Path("7words_test_great")
+DEFAULT_TFLITE_KIND = os.environ.get("V5_TFLITE_KIND", "float16")
+MODEL_PATH = os.environ.get("V5_TFLITE_MODEL_PATH", "")
+LABEL_MAP_PATH = os.environ.get("V5_LABEL_MAP_PATH", "")
 DEFAULT_LABELS = [
     "기차",
     "장난감",
@@ -75,6 +73,22 @@ LEFT_EYE_CENTER_IDXS = [33, 133]
 RIGHT_EYE_CENTER_IDXS = [362, 263]
 
 
+def import_tflite_interpreter():
+    try:
+        from tflite_runtime.interpreter import Interpreter
+
+        return Interpreter, "tflite_runtime"
+    except ImportError:
+        try:
+            import tensorflow as tf
+
+            return tf.lite.Interpreter, "tensorflow"
+        except ImportError as e:
+            raise ImportError(
+                "TFLite runtime was not found. Install tensorflow or tflite-runtime first."
+            ) from e
+
+
 def resolve_from_base(path):
     path = Path(path)
     if path.is_absolute():
@@ -82,34 +96,48 @@ def resolve_from_base(path):
     return (BASE_DIR / path).resolve()
 
 
-def find_latest_numbered_pair(model_dir):
+def find_latest_tflite_pair(model_dir, kind=DEFAULT_TFLITE_KIND):
     model_dir = resolve_from_base(model_dir)
-    pairs = []
+    candidates = []
 
-    legacy_model_path = model_dir / "best_sign_model_v5.pt"
-    legacy_label_map_path = model_dir / "label_map_v5.json"
-    if legacy_model_path.exists() and legacy_label_map_path.exists():
-        pairs.append((0, legacy_model_path, legacy_label_map_path))
-
-    for model_path in model_dir.glob("best_sign_model_v5_*.pt"):
-        suffix = model_path.stem.replace("best_sign_model_v5_", "")
-        if not suffix.isdigit():
-            continue
-
+    for tflite_path in model_dir.glob(f"*_{kind}.tflite"):
+        suffix = extract_suffix(tflite_path)
         label_map_path = model_dir / f"label_map_v5_{suffix}.json"
-        if label_map_path.exists():
-            pairs.append((int(suffix), model_path, label_map_path))
-            continue
+        if suffix is not None and label_map_path.exists():
+            candidates.append((suffix, tflite_path, label_map_path))
 
-        config_path = model_dir / f"train_config_v5_{suffix}.json"
-        if config_path.exists():
-            pairs.append((int(suffix), model_path, config_path))
+    if not candidates:
+        for tflite_path in model_dir.glob("*.tflite"):
+            suffix = extract_suffix(tflite_path)
+            label_map_path = model_dir / f"label_map_v5_{suffix}.json"
+            if suffix is not None and label_map_path.exists():
+                candidates.append((suffix, tflite_path, label_map_path))
 
-    if not pairs:
+    legacy_label_map = model_dir / "label_map_v5.json"
+    legacy_tflite = model_dir / f"best_sign_model_v5_{kind}.tflite"
+    if legacy_tflite.exists() and legacy_label_map.exists():
+        candidates.append((0, legacy_tflite, legacy_label_map))
+
+    if not candidates:
         return None, None
 
-    _, model_path, label_map_path = sorted(pairs, key=lambda item: item[0])[-1]
-    return model_path, label_map_path
+    _, tflite_path, label_map_path = sorted(candidates, key=lambda item: item[0])[-1]
+    return tflite_path, label_map_path
+
+
+def extract_suffix(tflite_path):
+    stem = tflite_path.stem
+    for marker in ("_float32", "_float16"):
+        if stem.endswith(marker):
+            stem = stem[: -len(marker)]
+
+    prefix = "best_sign_model_v5_"
+    if stem.startswith(prefix):
+        suffix = stem.replace(prefix, "")
+        if suffix.isdigit():
+            return int(suffix)
+
+    return None
 
 
 def load_label_map(label_map_path):
@@ -122,7 +150,10 @@ def load_label_map(label_map_path):
     if isinstance(raw, list):
         return {idx: label for idx, label in enumerate(raw)}
 
-    return {int(k): v for k, v in raw.items()}
+    if isinstance(raw, dict):
+        return {int(k): v for k, v in raw.items()}
+
+    return {idx: label for idx, label in enumerate(DEFAULT_LABELS)}
 
 
 def _flatten_landmarks(landmarks, idxs):
@@ -305,38 +336,82 @@ def format_topk(probs, label_map, k=3):
     return ", ".join(f"{label_map[int(idx)]}:{float(probs[idx]):.3f}" for idx in top_indices)
 
 
-def main():
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def softmax(logits):
+    logits = logits.astype(np.float32)
+    logits = logits - np.max(logits)
+    exp = np.exp(logits)
+    return exp / np.sum(exp)
 
-    if MODEL_PATH is None or LABEL_MAP_PATH is None:
-        model_path, label_map_path = find_latest_numbered_pair(MODEL_DIR)
+
+class TFLiteSignClassifier:
+    def __init__(self, tflite_path):
+        Interpreter, runtime_name = import_tflite_interpreter()
+        self.runtime_name = runtime_name
+        self.interpreter = Interpreter(model_path=str(tflite_path))
+        self.interpreter.allocate_tensors()
+        self.input_details = self.interpreter.get_input_details()
+        self.output_details = self.interpreter.get_output_details()
+
+        self.input_index = self.input_details[0]["index"]
+        self.output_index = self.output_details[0]["index"]
+        self.input_dtype = self.input_details[0]["dtype"]
+
+    def predict(self, input_array):
+        batched = np.expand_dims(input_array, axis=0).astype(self.input_dtype)
+        self.interpreter.set_tensor(self.input_index, batched)
+        self.interpreter.invoke()
+        output = self.interpreter.get_tensor(self.output_index)[0].astype(np.float32)
+
+    # Current TFLite exports include softmax, but keep this robust for logits.
+        if np.any(output < -1e-6) or not np.isclose(float(np.sum(output)), 1.0, atol=1e-3):
+            output = softmax(output)
+        return output
+
+    def describe(self):
+        return {
+            "runtime": self.runtime_name,
+            "input_shape": self.input_details[0]["shape"].tolist(),
+            "input_dtype": str(self.input_details[0]["dtype"]),
+            "output_shape": self.output_details[0]["shape"].tolist(),
+            "output_dtype": str(self.output_details[0]["dtype"]),
+        }
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Realtime webcam inference for V5 TFLite models.")
+    parser.add_argument("--model-dir", default=str(DEFAULT_MODEL_DIR), help="Model directory under Transformer_v5_Impl/models")
+    parser.add_argument("--kind", choices=("float16", "float32"), default=DEFAULT_TFLITE_KIND)
+    parser.add_argument("--model", default=MODEL_PATH, help="Explicit .tflite path")
+    parser.add_argument("--label-map", default=LABEL_MAP_PATH, help="Explicit label_map_v5_*.json path")
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+
+    if args.model and args.label_map:
+        model_path = resolve_from_base(args.model)
+        label_map_path = resolve_from_base(args.label_map)
     else:
-        model_path = resolve_from_base(MODEL_PATH)
-        label_map_path = resolve_from_base(LABEL_MAP_PATH)
+        model_path, label_map_path = find_latest_tflite_pair(args.model_dir, args.kind)
 
     if model_path is None or not model_path.exists():
-        print("V5 model file was not found.")
-        print(f"Configured directory: {resolve_from_base(MODEL_DIR)}")
+        print("V5 TFLite model file was not found.")
+        print(f"Configured directory: {resolve_from_base(args.model_dir)}")
+        print(f"Requested kind: {args.kind}")
         return
 
     if label_map_path is None or not label_map_path.exists():
         print("V5 label map file was not found.")
-        print(f"Configured directory: {resolve_from_base(MODEL_DIR)}")
+        print(f"Configured directory: {resolve_from_base(args.model_dir)}")
         return
 
     label_map = load_label_map(label_map_path)
-    model = KSLTransformerV5(
-        input_dim=INPUT_DIM,
-        num_classes=len(label_map),
-        d_model=128,
-        num_heads=8,
-        num_layers=3,
-    ).to(device)
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model.eval()
+    classifier = TFLiteSignClassifier(model_path)
 
-    print(f"V5 model loaded: {model_path}")
+    print(f"V5 TFLite model loaded: {model_path}")
     print(f"Label map loaded: {label_map_path}")
+    print(f"TFLite details: {classifier.describe()}")
     print(
         "Runtime thresholds: "
         f"confidence={CONFIDENCE_THRESHOLD}, margin={AMBIGUITY_MARGIN_THRESHOLD}, "
@@ -412,38 +487,33 @@ def main():
                 frame_window.append(keypoints)
 
             if hand_visible and len(frame_window) >= MIN_FRAMES_FOR_PREDICTION:
-                input_array, valid_length = pad_sequence(frame_window)
-                input_tensor = torch.from_numpy(input_array).unsqueeze(0).to(device)
-                length_tensor = torch.tensor([valid_length], dtype=torch.long, device=device)
+                input_array, _ = pad_sequence(frame_window)
+                probs_np = classifier.predict(input_array)
+                top_indices = np.argsort(probs_np)[::-1]
+                idx = int(top_indices[0])
+                predicted_label = label_map[idx]
+                top2_idx = int(top_indices[1]) if len(top_indices) > 1 else idx
+                current_confidence = float(probs_np[idx])
+                current_margin = current_confidence - float(probs_np[top2_idx])
+                inference_count += 1
 
-                with torch.no_grad():
-                    probs = model(input_tensor, lengths=length_tensor, return_probs=True)
-                    probs_np = probs.cpu().numpy()[0]
-                    top_indices = np.argsort(probs_np)[::-1]
-                    idx = int(top_indices[0])
-                    predicted_label = label_map[idx]
-                    top2_idx = int(top_indices[1]) if len(top_indices) > 1 else idx
-                    current_confidence = float(probs_np[idx])
-                    current_margin = current_confidence - float(probs_np[top2_idx])
-                    inference_count += 1
+                if inference_count % DEBUG_TOPK_EVERY_N_FRAMES == 0:
+                    print(
+                        f"Top-{min(3, len(label_map))}: {format_topk(probs_np, label_map)} | "
+                        f"margin={current_margin:.3f}"
+                    )
 
-                    if inference_count % DEBUG_TOPK_EVERY_N_FRAMES == 0:
-                        print(
-                            f"Top-{min(3, len(label_map))}: {format_topk(probs_np, label_map)} | "
-                            f"margin={current_margin:.3f}"
-                        )
-
-                    if LOCK_ACTION_UNTIL_NO_HANDS and locked_action is not None and predicted_label != locked_action:
-                        current_action = locked_action
+                if LOCK_ACTION_UNTIL_NO_HANDS and locked_action is not None and predicted_label != locked_action:
+                    current_action = locked_action
+                else:
+                    if (
+                        current_confidence >= CONFIDENCE_THRESHOLD
+                        and current_margin >= AMBIGUITY_MARGIN_THRESHOLD
+                    ):
+                        prediction_window.append(predicted_label)
                     else:
-                        if (
-                            current_confidence >= CONFIDENCE_THRESHOLD
-                            and current_margin >= AMBIGUITY_MARGIN_THRESHOLD
-                        ):
-                            prediction_window.append(predicted_label)
-                        else:
-                            prediction_window.clear()
-                            prediction_window.append("none")
+                        prediction_window.clear()
+                        prediction_window.append("none")
 
                 if prediction_window:
                     candidate, count = Counter(prediction_window).most_common(1)[0]
@@ -472,6 +542,7 @@ def main():
             display_frame = draw_text(
                 display_frame,
                 [
+                    f"TFLite: {args.kind}",
                     f"Prediction: {current_action}",
                     f"Confidence: {current_confidence:.3f}",
                     f"Margin: {current_margin:.3f}",
@@ -483,7 +554,7 @@ def main():
                 ],
             )
 
-            cv2.imshow("KSL Transformer V5 Real-time", display_frame)
+            cv2.imshow("KSL Transformer V5 TFLite Real-time", display_frame)
 
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break

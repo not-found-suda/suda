@@ -1,219 +1,453 @@
 import os
-import glob
-import re
+import random
+from glob import glob
+
 import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
+from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
-class KSLDataset(Dataset):
-    def __init__(self, data_list, labels, max_len=30, is_train=False, none_idx=None):
-        """
-        data_list: .npy 파일 경로들의 리스트
-        labels: 파일 경로에 대응하는 정수형 라벨(클래스 인덱스) 리스트
-        max_len: 고정할 프레임 수 (기본 30)
-        is_train: 데이터 증강을 적용할지 여부
-        none_idx: 'none' 클래스의 인덱스 (정지 상태 증강에 사용)
-        """
+
+TARGET_CLASSES = [
+    "기차",
+    "장난감",
+    "놀다",
+    "가다",
+    "일어나다",
+    "병원",
+    "조심",
+]
+TARGET_VARIANTS = {
+    "가다": ["가다4"],
+    "일어나다": ["일어나다2"],
+}
+MAX_FILES_PER_CLASS = {
+    "기차": 60,
+    "장난감": 60,
+    "놀다": 60,
+    "병원": 60,
+    "조심": 60,
+}
+TARGET_SAMPLES_PER_CLASS = 80
+USE_AUGMENTATION = True
+AUGMENT_SEED = 2026
+NOISE_STD = 0.01
+TIME_SCALE_RANGE = (0.9, 1.1)
+TIME_SHIFT_RANGE = (-2, 2)
+FILE_SAMPLE_SEED = 42
+PRIORITY_FILE_KEYWORDS = tuple(
+    keyword.strip()
+    for keyword in os.environ.get("V5_PRIORITY_FILE_KEYWORDS", "_FRONT,_LEFT,_RIGHT").split(",")
+    if keyword.strip()
+)
+INPUT_DIM = 332
+LANDMARK_DIM = 282
+DISTANCE_DIM = 50
+LEFT_SHOULDER_IDX = 90
+RIGHT_SHOULDER_IDX = 91
+MIN_NONZERO_RATIO = 0.01
+
+
+class KSLDatasetV5(Dataset):
+    def __init__(self, data_list, labels, max_len=30, input_dim=INPUT_DIM):
         self.data_list = data_list
         self.labels = labels
         self.max_len = max_len
-        self.is_train = is_train
-        self.none_idx = none_idx
+        self.input_dim = input_dim
 
     def __len__(self):
         return len(self.data_list)
 
     def __getitem__(self, idx):
-        # 1. npy 파일 로드 (형태: [frames, 141])
-        npy_path = self.data_list[idx]
-        data = np.load(npy_path)
-        
-        # 2. 전처리 (정규화 - 모바일 스펙과 동일하게 적용)
-        data = self.normalize_landmarks(data)
-
-        # 3. 프레임 길이 맞추기 (Uniform Sampling / Padding)
-        data = self.adjust_sequence_length(data)
-        
+        item = self.data_list[idx]
         label = self.labels[idx]
-        
-        # 4. 일반적인 공간/시간 데이터 증강 (Train 데이터에만 적용)
-        if self.is_train:
-            data = self.augment_data(data)
-        
-        # FloatTensor로 변환 시, NumPy와 PyTorch의 메모리 공유로 인한 Multiprocessing 충돌 원천 차단 (강제 copy)
-        data = np.array(data, dtype=np.float32).copy()
-        
-        # shape가 (30, 141)이 아니면 0으로 채움 (배치 사이즈 불일치 원천 차단)
-        if data.shape != (self.max_len, 141):
-            data = np.zeros((self.max_len, 141), dtype=np.float32)
-            
-        return torch.from_numpy(data).float(), torch.tensor(label, dtype=torch.long)
+        if isinstance(item, dict):
+            file_path = item["path"]
+            augment = item.get("augment", False)
+            augment_seed = item.get("seed", idx)
+        else:
+            file_path = item
+            augment = False
+            augment_seed = idx
 
-    def normalize_landmarks(self, data):
+        data = np.load(file_path)
+        if augment:
+            data = self.augment_sequence(data, augment_seed)
+        data = self.normalize_features(data)
+        padded_data, valid_length = self.adjust_sequence_length(data)
+
+        padded_data = np.array(padded_data, dtype=np.float32).copy()
+        return (
+            torch.from_numpy(padded_data).float(),
+            torch.tensor(label, dtype=torch.long),
+            torch.tensor(valid_length, dtype=torch.long),
+        )
+
+    def augment_sequence(self, data, seed):
+        if data.ndim != 2 or data.shape[0] < 2 or data.shape[1] != self.input_dim:
+            return data
+
+        rng = np.random.default_rng(seed)
+        augmented = np.array(data, dtype=np.float32).copy()
+        augmented = self.temporal_resample(augmented, float(rng.uniform(*TIME_SCALE_RANGE)))
+
+        shift = int(rng.integers(TIME_SHIFT_RANGE[0], TIME_SHIFT_RANGE[1] + 1))
+        if shift > 0:
+            augmented = np.vstack([np.repeat(augmented[:1], shift, axis=0), augmented[:-shift]])
+        elif shift < 0:
+            shift_abs = abs(shift)
+            augmented = np.vstack([augmented[shift_abs:], np.repeat(augmented[-1:], shift_abs, axis=0)])
+
+        noise = rng.normal(0.0, NOISE_STD, size=augmented.shape).astype(np.float32)
+        return (augmented + noise).astype(np.float32)
+
+    def temporal_resample(self, data, scale):
+        frames = data.shape[0]
+        scaled_frames = max(2, int(round(frames * scale)))
+        src_positions = np.linspace(0, frames - 1, scaled_frames)
+        scaled = np.zeros((scaled_frames, self.input_dim), dtype=np.float32)
+
+        for i, pos in enumerate(src_positions):
+            low = int(np.floor(pos))
+            high = int(np.ceil(pos))
+            weight = pos - low
+            if low == high:
+                scaled[i] = data[low]
+            else:
+                scaled[i] = data[low] * (1 - weight) + data[high] * weight
+
+        target_positions = np.linspace(0, scaled_frames - 1, frames)
+        restored = np.zeros((frames, self.input_dim), dtype=np.float32)
+        for i, pos in enumerate(target_positions):
+            low = int(np.floor(pos))
+            high = int(np.ceil(pos))
+            weight = pos - low
+            if low == high:
+                restored[i] = scaled[low]
+            else:
+                restored[i] = scaled[low] * (1 - weight) + scaled[high] * weight
+
+        return restored
+
+    def normalize_features(self, data):
         """
-        모바일 스펙 2-1에 명시된 정규화(Translation & Scale Invariance) 적용
-        data shape: (frames, 141)
-        - 141 = LH(63) + RH(63) + Pose(15)
-        - 어깨 좌표 인덱스: Pose의 11, 12번 (141차원 벡터 내 위치: 126+3, 126+6 ...)
+        Feature layout:
+        - first 282 dims: 94 landmark points x (x, y, z)
+        - last 50 dims: hand-tip to face-anchor distances
         """
-        normalized_data = np.zeros_like(data)
-        
-        for i in range(data.shape[0]): # 매 프레임마다 반복
+        if len(data) == 0:
+            return data
+
+        if data.ndim != 2 or data.shape[1] != self.input_dim:
+            return np.zeros((0, self.input_dim), dtype=np.float32)
+
+        normalized_data = np.zeros_like(data, dtype=np.float32)
+
+        for i in range(data.shape[0]):
             frame = data[i]
-            
-            # x, y, z 좌표를 (47, 3) 형태로 변환하여 계산하기 쉽게 함 (LH 21 + RH 21 + Pose 5 = 47)
-            pts = frame.reshape(-1, 3)
-            
-            # 141차원 벡터 내 어깨 위치: LH(21) + RH(21) + Nose(1) 다음이 어깨
-            # pts[43] = Left Shoulder, pts[44] = Right Shoulder
-            l_shoulder = pts[43]
-            r_shoulder = pts[44]
-            
-            # 1단계: 위치 통일 (어깨 중심점을 0,0,0으로)
+            landmarks = frame[:LANDMARK_DIM].reshape(-1, 3)
+            distances = frame[LANDMARK_DIM:]
+
+            l_shoulder = landmarks[LEFT_SHOULDER_IDX]
+            r_shoulder = landmarks[RIGHT_SHOULDER_IDX]
+
             shoulder_center = (l_shoulder + r_shoulder) / 2.0
-            pts_translated = pts - shoulder_center
-            
-            # 2단계: 거리/크기 통일 (어깨 너비를 1.0으로)
             shoulder_width = np.linalg.norm(l_shoulder - r_shoulder)
-            
-            # 0으로 나누는 에러 방지
             if shoulder_width < 1e-6:
                 shoulder_width = 1.0
-                
-            pts_scaled = pts_translated / shoulder_width
-            
-            # 다시 (141,) 1차원 배열로 복구
-            normalized_data[i] = pts_scaled.flatten()
-            
+
+            normalized_landmarks = (landmarks - shoulder_center) / shoulder_width
+            normalized_distances = distances / shoulder_width
+            normalized_data[i] = np.concatenate(
+                [normalized_landmarks.flatten(), normalized_distances],
+            )
+
         return normalized_data
 
     def adjust_sequence_length(self, data):
-        """
-        프레임 수를 무조건 self.max_len(30)으로 맞춤
-        길면 Uniform Sampling (간격 두고 추출), 짧으면 마지막 프레임으로 Forward Fill 패딩
-        """
-        frames = data.shape[0] if len(data.shape) > 0 else 0
-        
-        # 1. 추출 실패로 인해 비어 있거나 형태가 깨진 데이터 방어
-        if frames == 0 or len(data.shape) < 2 or data.shape[1] != 141:
-            return np.zeros((self.max_len, 141), dtype=np.float32)
-            
+        if len(data.shape) < 2 or data.shape[1] != self.input_dim:
+            return np.zeros((self.max_len, self.input_dim), dtype=np.float32), 0
+
+        frames = data.shape[0]
+        if frames == 0:
+            return np.zeros((self.max_len, self.input_dim), dtype=np.float32), 0
+
         if frames == self.max_len:
-            pass
-        elif frames > self.max_len:
-            # 길면 균등하게 30개를 뽑아냄 (방식 A)
+            return np.array(data, dtype=np.float32), self.max_len
+
+        if frames > self.max_len:
             indices = np.linspace(0, frames - 1, self.max_len, dtype=int)
-            data = data[indices]
-        else:
-            # 짧으면 마지막 프레임을 복사해서 채워 넣음
-            pad_len = self.max_len - frames
-            last_frame = data[-1:]
-            padding = np.repeat(last_frame, pad_len, axis=0)
-            data = np.vstack((data, padding))
-            
-        # 2. PyTorch DataLoader 호환성을 위해 새 배열로 래핑하여 리턴
-        return np.array(data, dtype=np.float32)
-            
-    def augment_data(self, data):
-        """
-        3D 좌표 데이터의 본질을 훼손하지 않는 3가지 안전한 증강 기법
-        """
-        augmented = data.copy()
-        
-        # 1. Spatial Jittering (50% 확률로 랜드마크 추출 오차 및 손떨림 모방)
-        if np.random.rand() < 0.5:
-            # 숄더 너비 정규화 기준값에서 0.02 정도의 미세 노이즈
-            noise = np.random.normal(loc=0.0, scale=0.02, size=augmented.shape)
-            augmented += noise
-            
-        # 2. Random Scaling (50% 확률로 체형, 팔 길이 다양성 모방)
-        if np.random.rand() < 0.5:
-            scale_factor = np.random.uniform(0.9, 1.1) # 0.9배 ~ 1.1배
-            augmented *= scale_factor
-            
-        # 3. Temporal Masking (50% 확률로 순간적인 화면 이탈 모방)
-        if np.random.rand() < 0.5:
-            num_masks = np.random.randint(1, 3) # 1개 또는 2개 프레임 무작위 삭제
-            mask_indices = np.random.choice(augmented.shape[0], num_masks, replace=False)
-            augmented[mask_indices] = 0.0 # 프레임의 모든 좌표를 0으로
-            
-        return augmented
+            sampled = data[indices]
+            return np.array(sampled, dtype=np.float32), self.max_len
 
-def clean_class_name(cls_name):
-    """
-    폴더명에서 숫자를 제거하여 통합된 클래스 이름 반환 ('걷다1', '걷다2' -> '걷다')
-    """
-    return re.sub(r'\d+', '', cls_name).strip()
+        if frames < 15:
+            indices = np.linspace(0, frames - 1, self.max_len)
+            upsampled = np.zeros((self.max_len, self.input_dim), dtype=np.float32)
 
-def create_dataloaders(data_dir, batch_size=32, max_len=30, max_classes=None):
-    """
-    폴더 구조(단어별 폴더)를 읽어서 Train/Val 80:20 분리 후 DataLoader 반환
-    """
-    raw_classes = sorted([d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d)) and not d.startswith('.')])
-    
-    # 숫자 꼬리표 떼고 순수 단어들만 모으기
-    unique_classes = set()
-    for rc in raw_classes:
-        unique_classes.add(clean_class_name(rc))
-        
-    sorted_unique_classes = sorted(list(unique_classes))
-    
-    # 30개 등 특정 개수만 먼저 뽑고 싶을 경우
-    if max_classes is not None:
-        sorted_unique_classes = sorted_unique_classes[:max_classes]
-        
-    class_to_idx = {cls_name: i for i, cls_name in enumerate(sorted_unique_classes)}
-    
+            for i, float_idx in enumerate(indices):
+                low = int(np.floor(float_idx))
+                high = int(np.ceil(float_idx))
+                weight = float_idx - low
+
+                if low == high:
+                    upsampled[i] = data[low]
+                else:
+                    upsampled[i] = data[low] * (1 - weight) + data[high] * weight
+
+            return upsampled, self.max_len
+
+        pad_len = self.max_len - frames
+        last_frame = data[-1:]
+        padding = np.repeat(last_frame, pad_len, axis=0)
+        padded = np.vstack((data, padding))
+        return np.array(padded, dtype=np.float32), self.max_len
+
+
+def _find_class_files(class_dir, allowed_variants=None):
+    # Variants are stored under the representative class.
+    if allowed_variants:
+        files = []
+        for variant_name in allowed_variants:
+            variant_dir = os.path.join(class_dir, variant_name)
+            files.extend(glob(os.path.join(variant_dir, "**", "*.npy"), recursive=True))
+        return sorted(files)
+
+    return sorted(glob(os.path.join(class_dir, "**", "*.npy"), recursive=True))
+
+
+def _is_usable_npy(file_path, input_dim=INPUT_DIM):
+    try:
+        data = np.load(file_path, mmap_mode="r")
+        if data.ndim != 2 or data.shape[1] != input_dim or data.shape[0] == 0:
+            return False, f"bad shape={tuple(data.shape)}"
+
+        sample = np.asarray(data[: min(len(data), 30)])
+        nonzero_ratio = float(np.count_nonzero(sample) / max(sample.size, 1))
+        if nonzero_ratio < MIN_NONZERO_RATIO:
+            return False, f"near-zero nonzero_ratio={nonzero_ratio:.4f}, shape={tuple(data.shape)}"
+
+        return True, None
+    except Exception as e:
+        return False, f"load error={e}"
+
+
+def _is_priority_file(file_path):
+    return any(keyword in os.path.basename(file_path) for keyword in PRIORITY_FILE_KEYWORDS)
+
+
+def _limit_files_for_class(class_name, files):
+    max_files = MAX_FILES_PER_CLASS.get(class_name)
+    if max_files is None or len(files) <= max_files:
+        return files
+
+    priority_files = [file_path for file_path in files if _is_priority_file(file_path)]
+    priority_file_set = set(priority_files)
+    remaining_files = [file_path for file_path in files if file_path not in priority_file_set]
+
+    rng = random.Random(FILE_SAMPLE_SEED)
+    rng.shuffle(priority_files)
+    rng.shuffle(remaining_files)
+
+    selected_files = priority_files[:max_files]
+    if len(selected_files) < max_files:
+        selected_files.extend(remaining_files[: max_files - len(selected_files)])
+
+    return sorted(selected_files)
+
+
+def _build_class_lists(
+    data_dir,
+    target_classes,
+    input_dim=INPUT_DIM,
+    validate_files=True,
+    target_variants=None,
+):
+    classes = []
     all_files = []
     all_labels = []
-    
-    # 데이터 수집 (걷다1, 걷다2 폴더의 영상들이 모두 '걷다' 인덱스로 뭉쳐짐)
-    for rc in raw_classes:
-        clean_name = clean_class_name(rc)
-        
-        # 제한된 클래스 목록에 없으면 스킵
-        if clean_name not in class_to_idx:
+    class_counts = {}
+    variant_counts = {}
+    skipped_files = []
+
+    for class_name in target_classes:
+        class_dir = os.path.join(data_dir, class_name)
+        if not os.path.isdir(class_dir):
             continue
-            
-        cls_idx = class_to_idx[clean_name]
-        cls_dir = os.path.join(data_dir, rc)
-        
-        files = glob.glob(os.path.join(cls_dir, '*.npy'))
-        
-        # [데이터 불균형 해결] none 클래스의 파일이 너무 적다면, 다른 단어 평균 개수(약 100개)에 맞게 강제 복제(Oversampling)
-        if clean_name == 'none' and 0 < len(files) < 100:
-            multiplier = max(1, 100 // len(files))
-            files = files * multiplier
-            
+
+        allowed_variants = target_variants.get(class_name) if target_variants else None
+        candidate_files = _find_class_files(class_dir, allowed_variants=allowed_variants)
+        files = []
+        for file_path in candidate_files:
+            if not validate_files:
+                files.append(file_path)
+                continue
+
+            is_usable, reason = _is_usable_npy(file_path, input_dim=input_dim)
+            if is_usable:
+                files.append(file_path)
+            else:
+                skipped_files.append((file_path, reason))
+
+        if not files:
+            continue
+
+        files = _limit_files_for_class(class_name, files)
+
+        label_idx = len(classes)
+        classes.append(class_name)
+        class_counts[class_name] = len(files)
         all_files.extend(files)
-        all_labels.extend([cls_idx] * len(files))
-        
-    print(f"📊 정제된 총 클래스 수: {len(sorted_unique_classes)}개 (원본 폴더 수: {len(raw_classes)}개)")
-    
-    # Class Weight 계산 (데이터 불균형 극복)
-    label_counts = np.bincount(all_labels)
-    total_samples = len(all_labels)
-    num_classes = len(class_to_idx)
-    # 데이터가 적은 클래스(예: none)에 엄청난 가중치가 부여됨
-    class_weights = total_samples / (num_classes * (label_counts + 1e-6))
-    class_weights_tensor = torch.FloatTensor(class_weights)
-    
-    # none 클래스 식별 (증강용)
-    none_idx = class_to_idx.get('none', None)
-    
-    # Stratified Split (단어별 비율을 유지하면서 80:20으로 나눔)
-    X_train, X_val, y_train, y_val = train_test_split(
-        all_files, all_labels, 
-        test_size=0.2, 
-        random_state=42, 
-        stratify=all_labels # 핵심: 모든 단어가 고르게 80:20으로 찢어지도록 보장
+        all_labels.extend([label_idx] * len(files))
+
+        for file_path in files:
+            rel_path = os.path.relpath(file_path, class_dir)
+            variant_name = rel_path.split(os.sep)[0] if os.sep in rel_path else class_name
+            variant_counts[f"{class_name}/{variant_name}"] = variant_counts.get(f"{class_name}/{variant_name}", 0) + 1
+
+    return classes, all_files, all_labels, class_counts, variant_counts, skipped_files
+
+
+def _can_stratify(labels, num_classes):
+    if len(labels) < num_classes * 2:
+        return False
+    label_counts = np.bincount(labels, minlength=num_classes)
+    return bool(np.all(label_counts >= 2))
+
+
+def _make_augmented_train_items(x_train, y_train, classes):
+    if not USE_AUGMENTATION:
+        return x_train, y_train, {}
+
+    rng = random.Random(AUGMENT_SEED)
+    train_items = list(x_train)
+    train_labels = list(y_train)
+    augmentation_counts = {}
+
+    for class_idx, class_name in enumerate(classes):
+        class_files = [path for path, label in zip(x_train, y_train) if label == class_idx]
+        if not class_files:
+            continue
+
+        current_count = len(class_files)
+        needed = max(0, TARGET_SAMPLES_PER_CLASS - current_count)
+        augmentation_counts[class_name] = needed
+
+        for aug_idx in range(needed):
+            source_path = class_files[aug_idx % len(class_files)]
+            train_items.append(
+                {
+                    "path": source_path,
+                    "augment": True,
+                    "seed": rng.randint(0, 2**31 - 1),
+                }
+            )
+            train_labels.append(class_idx)
+
+    return train_items, train_labels, augmentation_counts
+
+
+def create_dataloaders_v5(
+    data_dir,
+    batch_size=16,
+    max_len=30,
+    input_dim=INPUT_DIM,
+    target_classes=None,
+    val_ratio=0.2,
+    validate_files=True,
+    balanced_sampling=True,
+    target_variants=None,
+):
+    target_classes = target_classes or TARGET_CLASSES
+    target_variants = TARGET_VARIANTS if target_variants is None else target_variants
+    classes, all_files, all_labels, class_counts, variant_counts, skipped_files = _build_class_lists(
+        data_dir,
+        target_classes,
+        input_dim=input_dim,
+        validate_files=validate_files,
+        target_variants=target_variants,
     )
-    
-    train_dataset = KSLDataset(X_train, y_train, max_len, is_train=True, none_idx=none_idx)
-    val_dataset = KSLDataset(X_val, y_val, max_len, is_train=False, none_idx=none_idx)
-    
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
-    
-    return train_loader, val_loader, class_to_idx, class_weights_tensor
+
+    if not classes:
+        raise ValueError(f"No valid class directories found under: {data_dir}")
+
+    if len(classes) < 2:
+        raise ValueError("At least two classes are required for training.")
+
+    if len(all_files) != len(all_labels):
+        raise ValueError("File list and label list are misaligned.")
+
+    label_counts = np.bincount(all_labels, minlength=len(classes))
+    class_weights = len(all_labels) / (len(classes) * (label_counts + 1e-6))
+    class_weights_tensor = torch.tensor(class_weights, dtype=torch.float32)
+
+    stratify = all_labels if _can_stratify(all_labels, len(classes)) else None
+    X_train, X_val, y_train, y_val = train_test_split(
+        all_files,
+        all_labels,
+        test_size=val_ratio,
+        random_state=42,
+        stratify=stratify,
+    )
+
+    X_train_items, y_train_items, augmentation_counts = _make_augmented_train_items(X_train, y_train, classes)
+
+    train_dataset = KSLDatasetV5(X_train_items, y_train_items, max_len=max_len, input_dim=input_dim)
+    val_dataset = KSLDatasetV5(X_val, y_val, max_len=max_len, input_dim=input_dim)
+
+    train_sampler = None
+    train_shuffle = True
+    if balanced_sampling:
+        train_label_counts = np.bincount(y_train_items, minlength=len(classes))
+        sample_weights = [1.0 / max(train_label_counts[label], 1) for label in y_train_items]
+        train_sampler = WeightedRandomSampler(
+            weights=torch.tensor(sample_weights, dtype=torch.double),
+            num_samples=len(y_train_items),
+            replacement=True,
+        )
+        train_shuffle = False
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=train_shuffle,
+        sampler=train_sampler,
+    )
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+
+    train_label_counts = np.bincount(y_train_items, minlength=len(classes))
+    val_label_counts = np.bincount(y_val, minlength=len(classes))
+    priority_file_counts = {
+        class_name: sum(1 for file_path, label in zip(all_files, all_labels) if label == idx and _is_priority_file(file_path))
+        for idx, class_name in enumerate(classes)
+    }
+
+    stats = {
+        "class_counts": class_counts,
+        "variant_counts": variant_counts,
+        "priority_file_keywords": PRIORITY_FILE_KEYWORDS,
+        "priority_file_counts": priority_file_counts,
+        "train_class_counts": {classes[idx]: int(train_label_counts[idx]) for idx in range(len(classes))},
+        "val_class_counts": {classes[idx]: int(val_label_counts[idx]) for idx in range(len(classes))},
+        "train_size": len(X_train_items),
+        "original_train_size": len(X_train),
+        "val_size": len(X_val),
+        "total_size": len(X_train_items) + len(X_val),
+        "original_total_size": len(all_files),
+        "stratified_split": stratify is not None,
+        "skipped_files": skipped_files,
+        "balanced_sampling": balanced_sampling,
+        "target_variants": target_variants,
+        "max_files_per_class": MAX_FILES_PER_CLASS,
+        "file_sample_seed": FILE_SAMPLE_SEED,
+        "use_augmentation": USE_AUGMENTATION,
+        "target_samples_per_class": TARGET_SAMPLES_PER_CLASS,
+        "augmentation_counts": augmentation_counts,
+        "augmentation": {
+            "seed": AUGMENT_SEED,
+            "noise_std": NOISE_STD,
+            "time_scale_range": TIME_SCALE_RANGE,
+            "time_shift_range": TIME_SHIFT_RANGE,
+        },
+    }
+
+    return train_loader, val_loader, classes, class_weights_tensor, stats
