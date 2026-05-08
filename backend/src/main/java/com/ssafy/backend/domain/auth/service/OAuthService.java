@@ -19,15 +19,11 @@ public class OAuthService {
 
   public LoginResponseDto loginWithNaver(OAuthLoginRequestDto requestDto) {
     if (requestDto == null) {
-      throw new BusinessException(OAuthErrorCode.INVALID_AUTHORIZATION_CODE);
+      throw new BusinessException(OAuthErrorCode.INVALID_PROVIDER_TOKEN);
     }
 
     NaverOAuthClient.NaverProfile profile =
-        naverOAuthClient.getProfile(
-            requestDto.authorizationCode(),
-            requestDto.state(),
-            requestDto.codeVerifier(),
-            requestDto.redirectUri());
+        naverOAuthClient.getProfile(requestDto.providerAccessToken());
     return oAuthLoginProcessor.loginWithNaverProfile(profile);
   }
 }
