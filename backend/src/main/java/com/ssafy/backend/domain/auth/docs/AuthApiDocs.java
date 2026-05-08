@@ -52,7 +52,9 @@ public interface AuthApiDocs {
   @ApiResponse(responseCode = "204", description = "콘텐츠 없음")
   ResponseEntity<Void> logout(RefreshTokenRequestDto requestDto, HttpServletRequest request);
 
-  @Operation(summary = "네이버 OAuth 로그인", description = "네이버 Access Token으로 소셜 로그인을 처리합니다.")
+  @Operation(
+      summary = "네이버 OAuth 로그인",
+      description = "네이버 authorization code + PKCE 방식으로 소셜 로그인을 처리합니다.")
   @ApiErrorCodes({
     "VALIDATION_INVALID_INPUT",
     "OAUTH_INVALID_AUTHORIZATION_CODE",

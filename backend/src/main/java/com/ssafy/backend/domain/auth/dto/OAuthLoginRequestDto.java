@@ -21,4 +21,10 @@ public record OAuthLoginRequestDto(
             description = "PKCE code verifier",
             example = "pkce-code-verifier",
             requiredMode = Schema.RequiredMode.REQUIRED)
-        String codeVerifier) {}
+        String codeVerifier,
+    @NotBlank(message = "redirectUri는 필수입니다.")
+        @Schema(
+            description = "네이버 authorize 요청에 사용한 redirect URI",
+            example = "com.ssafy.mobile://oauth/naver",
+            requiredMode = Schema.RequiredMode.REQUIRED)
+        String redirectUri) {}

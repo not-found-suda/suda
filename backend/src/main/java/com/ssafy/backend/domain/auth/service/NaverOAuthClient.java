@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
 @Component
@@ -27,8 +28,10 @@ public class NaverOAuthClient {
     this.oAuthProperties = oAuthProperties;
   }
 
-  public NaverProfile getProfile(String authorizationCode, String state, String codeVerifier) {
-    NaverTokenResponse tokenResponse = exchangeToken(authorizationCode, state, codeVerifier);
+  public NaverProfile getProfile(
+      String authorizationCode, String state, String codeVerifier, String redirectUri) {
+    NaverTokenResponse tokenResponse =
+        exchangeToken(authorizationCode, state, codeVerifier, redirectUri);
     if (tokenResponse == null || isBlank(tokenResponse.accessToken())) {
       throw new BusinessException(OAuthErrorCode.INVALID_AUTHORIZATION_CODE);
     }
@@ -36,7 +39,7 @@ public class NaverOAuthClient {
   }
 
   private NaverTokenResponse exchangeToken(
-      String authorizationCode, String state, String codeVerifier) {
+      String authorizationCode, String state, String codeVerifier, String redirectUri) {
     OAuthProperties.Naver naver = oAuthProperties.naver();
     if (naver == null || isBlank(naver.clientId()) || isBlank(naver.clientSecret())) {
       throw new BusinessException(OAuthErrorCode.PROVIDER_ERROR);
@@ -46,6 +49,7 @@ public class NaverOAuthClient {
     form.add("grant_type", "authorization_code");
     form.add("client_id", naver.clientId());
     form.add("client_secret", naver.clientSecret());
+    form.add("redirect_uri", redirectUri);
     form.add("code", authorizationCode);
     form.add("state", state);
     form.add("code_verifier", codeVerifier);
@@ -69,6 +73,8 @@ public class NaverOAuthClient {
       if (exception.getStatusCode().is4xxClientError()) {
         throw new BusinessException(OAuthErrorCode.INVALID_AUTHORIZATION_CODE);
       }
+      throw new BusinessException(OAuthErrorCode.PROVIDER_ERROR);
+    } catch (RestClientException exception) {
       throw new BusinessException(OAuthErrorCode.PROVIDER_ERROR);
     }
   }
@@ -98,6 +104,8 @@ public class NaverOAuthClient {
       if (exception.getStatusCode().value() == 401) {
         throw new BusinessException(OAuthErrorCode.INVALID_AUTHORIZATION_CODE);
       }
+      throw new BusinessException(OAuthErrorCode.PROVIDER_ERROR);
+    } catch (RestClientException exception) {
       throw new BusinessException(OAuthErrorCode.PROVIDER_ERROR);
     }
   }

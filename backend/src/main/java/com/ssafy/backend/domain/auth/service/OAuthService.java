@@ -48,7 +48,10 @@ public class OAuthService {
 
     NaverOAuthClient.NaverProfile profile =
         naverOAuthClient.getProfile(
-            requestDto.authorizationCode(), requestDto.state(), requestDto.codeVerifier());
+            requestDto.authorizationCode(),
+            requestDto.state(),
+            requestDto.codeVerifier(),
+            requestDto.redirectUri());
     User user = findOrCreateUser(profile);
     if (!user.isActive()) {
       throw new BusinessException(AuthErrorCode.INACTIVE_ACCOUNT);
