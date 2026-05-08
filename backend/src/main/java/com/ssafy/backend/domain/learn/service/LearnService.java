@@ -54,7 +54,7 @@ public class LearnService {
   public LearnWordListResponse getWords(Long categoryId, LearnDifficulty difficulty) {
     return new LearnWordListResponse(
         learnRepository
-            .findRandomWordsByCategoryAndDifficulty(
+            .findWordsByCategoryAndDifficultyOrderBySortOrder(
                 categoryId, difficulty.name(), DEFAULT_WORD_COUNT)
             .stream()
             .map(
