@@ -43,6 +43,7 @@ fun ChildProfileSelectRoute(
     navController: NavController,
     onNavigateToHome: () -> Unit,
     onNavigateToCreate: () -> Unit,
+    onNavigateToEdit: (Long) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ChildProfileSelectViewModel = hiltViewModel(),
 ) {
@@ -79,6 +80,7 @@ fun ChildProfileSelectRoute(
         onProfileSelect = viewModel::selectProfile,
         onRetry = viewModel::retry,
         onNavigateToCreate = onNavigateToCreate,
+        onNavigateToEdit = onNavigateToEdit,
         modifier = modifier,
     )
 }
@@ -90,6 +92,7 @@ private fun ChildProfileSelectScreen(
     onProfileSelect: (Long) -> Unit,
     onRetry: () -> Unit,
     onNavigateToCreate: () -> Unit,
+    onNavigateToEdit: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -126,6 +129,7 @@ private fun ChildProfileSelectScreen(
                     isSelecting = isSelecting,
                     onProfileSelect = onProfileSelect,
                     onNavigateToCreate = onNavigateToCreate,
+                    onNavigateToEdit = onNavigateToEdit,
                 )
             }
             is ChildProfileSelectUiState.Empty -> {
@@ -161,6 +165,7 @@ private fun ProfileList(
     isSelecting: Boolean,
     onProfileSelect: (Long) -> Unit,
     onNavigateToCreate: () -> Unit,
+    onNavigateToEdit: (Long) -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
@@ -173,6 +178,7 @@ private fun ProfileList(
                 isSelected = profile.childId == activeChildId,
                 enabled = !isSelecting,
                 onClick = { onProfileSelect(profile.childId) },
+                onEditClick = { onNavigateToEdit(profile.childId) },
             )
         }
 
@@ -195,6 +201,7 @@ private fun ProfileItem(
     isSelected: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
+    onEditClick: () -> Unit,
 ) {
     Card(
         modifier =
@@ -261,6 +268,17 @@ private fun ProfileItem(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold,
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+            }
+
+            TextButton(
+                onClick = onEditClick,
+                enabled = enabled,
+            ) {
+                Text(
+                    text = "수정",
+                    style = MaterialTheme.typography.labelMedium,
                 )
             }
         }

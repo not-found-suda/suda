@@ -102,12 +102,34 @@ fun MobileNavHost(
                 onNavigateToCreate = {
                     navController.navigate(Screen.ChildProfileCreate.route)
                 },
+                onNavigateToEdit = { childId ->
+                    navController.navigate(Screen.ChildProfileEdit.createRoute(childId))
+                },
                 modifier = Modifier.fillMaxSize(),
             )
         }
 
         composable(Screen.ChildProfileCreate.route) {
             ChildProfileEditRoute(
+                onNavigateBack = { changed ->
+                    if (changed) {
+                        navController.previousBackStackEntry
+                            ?.savedStateHandle
+                            ?.set("child_profile_changed", true)
+                    }
+                    navController.popBackStack()
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        composable(
+            route = Screen.ChildProfileEdit.route,
+            arguments = listOf(navArgument("childId") { type = NavType.LongType }),
+        ) { backStackEntry ->
+            val childId = backStackEntry.arguments?.getLong("childId")
+            ChildProfileEditRoute(
+                childId = childId,
                 onNavigateBack = { changed ->
                     if (changed) {
                         navController.previousBackStackEntry

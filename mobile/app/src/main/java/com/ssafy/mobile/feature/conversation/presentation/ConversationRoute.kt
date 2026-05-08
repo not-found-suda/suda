@@ -14,9 +14,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
@@ -25,14 +27,22 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -47,6 +57,7 @@ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.core.ui.feedback.AppNetworkStatusBanner
 import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
 import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
+import com.ssafy.mobile.feature.conversation.domain.model.TranslationFeedbackReason
 import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
 import com.ssafy.mobile.feature.conversation.presentation.components.SubtitleList
 import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
@@ -54,14 +65,19 @@ import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
 private const val TAG = "ConversationRoute"
 private const val SUBTITLE_WIDTH_FRACTION = 0.95f
 private const val SUBTITLE_HEIGHT_FRACTION = 0.4f
+private const val PHASE_CARD_ALPHA = 0.88f
+private const val INPUT_LANE_LABEL_ALPHA = 0.14f
 
 data class ConversationUiState(
     val sessionState: SessionState,
+    val signInputPhase: SignInputPhase,
+    val speechInputPhase: SpeechInputPhase,
     val isOnline: Boolean,
     val messages: List<ChatMessage>,
     val lastGlosses: List<String>,
     val translationMode: TranslationMode,
     val translationModeNotice: String?,
+    val translationFeedbackSubmitState: TranslationFeedbackSubmitState,
 )
 
 @Composable
@@ -71,11 +87,15 @@ fun conversationRoute(
     viewModel: ConversationViewModel = hiltViewModel(),
 ) {
     val sessionState by viewModel.sessionState.collectAsStateWithLifecycle()
+    val signInputPhase by viewModel.signInputPhase.collectAsStateWithLifecycle()
+    val speechInputPhase by viewModel.speechInputPhase.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val lastGlosses by viewModel.lastGlosses.collectAsStateWithLifecycle()
     val translationMode by viewModel.translationMode.collectAsStateWithLifecycle()
     val translationModeNotice by viewModel.translationModeNotice.collectAsStateWithLifecycle()
+    val translationFeedbackSubmitState by
+        viewModel.translationFeedbackSubmitState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // 세션 활성화 중에는 화면이 꺼지지 않도록 설정합니다.
@@ -103,43 +123,75 @@ fun conversationRoute(
     val uiState =
         ConversationUiState(
             sessionState = sessionState,
+            signInputPhase = signInputPhase,
+            speechInputPhase = speechInputPhase,
             isOnline = isOnline,
             messages = messages,
             lastGlosses = lastGlosses,
             translationMode = translationMode,
             translationModeNotice = translationModeNotice,
+            translationFeedbackSubmitState = translationFeedbackSubmitState,
         )
 
     ConversationScreen(
         uiState = uiState,
-        onStartSession = viewModel::startSession,
-        onStopSession = viewModel::stopSession,
-        onTranslationModeSelected = viewModel::updateTranslationMode,
-        onLandmarkFrame = viewModel::onLandmarkFrame,
-        onOpenSignDebug = onOpenSignDebug,
+        actions =
+            ConversationActions(
+                onStartSession = viewModel::startSession,
+                onStopSession = viewModel::stopSession,
+                onTranslationModeSelected = viewModel::updateTranslationMode,
+                onLandmarkFrame = viewModel::onLandmarkFrame,
+                onFeedbackReasonConfirmed = viewModel::submitTranslationFeedback,
+                onFeedbackDismissed = viewModel::clearTranslationFeedbackSubmitState,
+                onOpenSignDebug = onOpenSignDebug,
+            ),
         modifier = modifier,
     )
 }
 
+private data class ConversationActions(
+    val onStartSession: () -> Unit,
+    val onStopSession: () -> Unit,
+    val onTranslationModeSelected: (TranslationMode) -> Unit,
+    val onLandmarkFrame: (LandmarkFrameResult) -> Unit,
+    val onFeedbackReasonConfirmed: (ChatMessage, TranslationFeedbackReason) -> Unit,
+    val onFeedbackDismissed: () -> Unit,
+    val onOpenSignDebug: (() -> Unit)?,
+)
+
+private data class TranslationFeedbackSheetUiState(
+    val message: ChatMessage,
+    val selectedReason: TranslationFeedbackReason?,
+    val submitState: TranslationFeedbackSubmitState,
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ConversationScreen(
     uiState: ConversationUiState,
-    onStartSession: () -> Unit,
-    onStopSession: () -> Unit,
-    onTranslationModeSelected: (TranslationMode) -> Unit,
-    onLandmarkFrame: (LandmarkFrameResult) -> Unit,
-    onOpenSignDebug: (() -> Unit)?,
+    actions: ConversationActions,
     modifier: Modifier = Modifier,
 ) {
+    var feedbackTargetMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var selectedFeedbackReason by remember { mutableStateOf<TranslationFeedbackReason?>(null) }
+
+    fun closeFeedbackSheet() {
+        feedbackTargetMessage = null
+        selectedFeedbackReason = null
+        actions.onFeedbackDismissed()
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             Column {
                 SessionHeader(
                     sessionState = uiState.sessionState,
+                    signInputPhase = uiState.signInputPhase,
+                    speechInputPhase = uiState.speechInputPhase,
                     translationMode = uiState.translationMode,
-                    onTranslationModeSelected = onTranslationModeSelected,
-                    onOpenSignDebug = onOpenSignDebug,
+                    onTranslationModeSelected = actions.onTranslationModeSelected,
+                    onOpenSignDebug = actions.onOpenSignDebug,
                 )
                 AppNetworkStatusBanner(isOnline = uiState.isOnline)
                 TranslationModeNotice(text = uiState.translationModeNotice)
@@ -148,8 +200,8 @@ private fun ConversationScreen(
         bottomBar = {
             SessionControls(
                 sessionState = uiState.sessionState,
-                onStartSession = onStartSession,
-                onStopSession = onStopSession,
+                onStartSession = actions.onStartSession,
+                onStopSession = actions.onStopSession,
             )
         },
     ) { paddingValues ->
@@ -162,22 +214,79 @@ private fun ConversationScreen(
             // 카메라 인식 영역 및 자막 오버레이
             SignRecognitionArea(
                 sessionState = uiState.sessionState,
+                signInputPhase = uiState.signInputPhase,
+                speechInputPhase = uiState.speechInputPhase,
                 messages = uiState.messages,
-                onLandmarkFrame = onLandmarkFrame,
+                onLandmarkFrame = actions.onLandmarkFrame,
+                onFeedbackClick = { message ->
+                    feedbackTargetMessage = message
+                    selectedFeedbackReason = null
+                },
                 modifier = Modifier.weight(1.0f),
             )
 
             // 실시간 인식 결과 영역 (글로스 나열)
-            GlossRecognitionArea(lastGlosses = uiState.lastGlosses)
+            GlossRecognitionArea(
+                lastGlosses = uiState.lastGlosses,
+                signInputPhase = uiState.signInputPhase,
+            )
         }
+    }
+
+    TranslationFeedbackSheetHost(
+        uiState =
+            feedbackTargetMessage?.let { message ->
+                TranslationFeedbackSheetUiState(
+                    message = message,
+                    selectedReason = selectedFeedbackReason,
+                    submitState = uiState.translationFeedbackSubmitState,
+                )
+            },
+        actions = actions,
+        onReasonSelected = { selectedFeedbackReason = it },
+        onDismiss = { closeFeedbackSheet() },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TranslationFeedbackSheetHost(
+    uiState: TranslationFeedbackSheetUiState?,
+    actions: ConversationActions,
+    onReasonSelected: (TranslationFeedbackReason) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    if (uiState == null) return
+
+    val feedbackSheetState = rememberModalBottomSheetState()
+    val isFeedbackSubmitting =
+        uiState.submitState == TranslationFeedbackSubmitState.Submitting
+
+    ModalBottomSheet(
+        onDismissRequest = {
+            if (!isFeedbackSubmitting) {
+                onDismiss()
+            }
+        },
+        sheetState = feedbackSheetState,
+    ) {
+        TranslationFeedbackSheet(
+            uiState = uiState,
+            onReasonSelected = onReasonSelected,
+            onConfirmClick = actions.onFeedbackReasonConfirmed,
+            onCancelClick = onDismiss,
+        )
     }
 }
 
 @Composable
 private fun SignRecognitionArea(
     sessionState: SessionState,
+    signInputPhase: SignInputPhase,
+    speechInputPhase: SpeechInputPhase,
     messages: List<ChatMessage>,
     onLandmarkFrame: (LandmarkFrameResult) -> Unit,
+    onFeedbackClick: (ChatMessage) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -198,7 +307,22 @@ private fun SignRecognitionArea(
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 16.dp),
         ) {
-            SubtitleList(messages = messages)
+            SubtitleList(
+                messages = messages,
+                emptyText = subtitlePlaceholder(signInputPhase, speechInputPhase),
+                onFeedbackClick = onFeedbackClick,
+            )
+        }
+
+        if (sessionState == SessionState.Active) {
+            ParallelInputStatusCard(
+                signInputPhase = signInputPhase,
+                speechInputPhase = speechInputPhase,
+                modifier =
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 16.dp, start = 16.dp, end = 16.dp),
+            )
         }
 
         if (sessionState == SessionState.Idle) {
@@ -220,7 +344,172 @@ private fun SignRecognitionArea(
 }
 
 @Composable
-private fun GlossRecognitionArea(lastGlosses: List<String>) {
+private fun TranslationFeedbackSheet(
+    uiState: TranslationFeedbackSheetUiState,
+    onReasonSelected: (TranslationFeedbackReason) -> Unit,
+    onConfirmClick: (ChatMessage, TranslationFeedbackReason) -> Unit,
+    onCancelClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val isSubmitting = uiState.submitState == TranslationFeedbackSubmitState.Submitting
+    val isSuccess = uiState.submitState == TranslationFeedbackSubmitState.Success
+
+    Column(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = "번역 신고",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = uiState.message.text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+
+        TranslationFeedbackReason.entries.forEach { reason ->
+            TranslationFeedbackReasonRow(
+                reason = reason,
+                selected = reason == uiState.selectedReason,
+                enabled = !isSubmitting && !isSuccess,
+                onClick = { onReasonSelected(reason) },
+            )
+        }
+
+        TranslationFeedbackStatusText(submitState = uiState.submitState)
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(
+                onClick = onCancelClick,
+                enabled = !isSubmitting,
+            ) {
+                Text(text = "취소")
+            }
+            TextButton(
+                onClick = {
+                    when (uiState.submitState) {
+                        TranslationFeedbackSubmitState.Idle ->
+                            uiState.selectedReason?.let { reason ->
+                                onConfirmClick(uiState.message, reason)
+                            }
+                        is TranslationFeedbackSubmitState.Error ->
+                            uiState.selectedReason?.let { reason ->
+                                onConfirmClick(uiState.message, reason)
+                            }
+                        TranslationFeedbackSubmitState.Success -> onCancelClick()
+                        TranslationFeedbackSubmitState.Submitting -> Unit
+                    }
+                },
+                enabled = uiState.selectedReason != null && !isSubmitting,
+            ) {
+                Text(text = uiState.submitState.actionText())
+            }
+        }
+    }
+}
+
+@Composable
+private fun TranslationFeedbackStatusText(
+    submitState: TranslationFeedbackSubmitState,
+    modifier: Modifier = Modifier,
+) {
+    val text =
+        when (submitState) {
+            TranslationFeedbackSubmitState.Idle -> null
+            TranslationFeedbackSubmitState.Submitting -> "피드백을 제출하는 중입니다."
+            TranslationFeedbackSubmitState.Success -> "피드백이 접수되었습니다."
+            is TranslationFeedbackSubmitState.Error -> submitState.message
+        }
+
+    if (text != null) {
+        Text(
+            text = text,
+            modifier = modifier.fillMaxWidth(),
+            style = MaterialTheme.typography.bodySmall,
+            color =
+                when (submitState) {
+                    is TranslationFeedbackSubmitState.Error -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+        )
+    }
+}
+
+private fun TranslationFeedbackSubmitState.actionText(): String =
+    when (this) {
+        TranslationFeedbackSubmitState.Idle -> "제출"
+        TranslationFeedbackSubmitState.Submitting -> "제출 중"
+        TranslationFeedbackSubmitState.Success -> "확인"
+        is TranslationFeedbackSubmitState.Error -> "다시 제출"
+    }
+
+@Composable
+private fun TranslationFeedbackReasonRow(
+    reason: TranslationFeedbackReason,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .clickable(
+                    enabled = enabled,
+                    onClick = onClick,
+                ),
+        shape = RoundedCornerShape(12.dp),
+        color =
+            if (selected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            RadioButton(
+                selected = selected,
+                onClick = onClick,
+                enabled = enabled,
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = reason.label,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = reason.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GlossRecognitionArea(
+    lastGlosses: List<String>,
+    signInputPhase: SignInputPhase,
+) {
     val glossListState = rememberLazyListState()
 
     LaunchedEffect(lastGlosses.size) {
@@ -241,7 +530,7 @@ private fun GlossRecognitionArea(lastGlosses: List<String>) {
     ) {
         if (lastGlosses.isEmpty()) {
             Text(
-                text = "수어 인식 대기 중...",
+                text = signInputPhase.glossPlaceholder(),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -261,6 +550,8 @@ private fun GlossRecognitionArea(lastGlosses: List<String>) {
 @Composable
 private fun SessionHeader(
     sessionState: SessionState,
+    signInputPhase: SignInputPhase,
+    speechInputPhase: SpeechInputPhase,
     translationMode: TranslationMode,
     onTranslationModeSelected: (TranslationMode) -> Unit,
     onOpenSignDebug: (() -> Unit)?,
@@ -324,7 +615,12 @@ private fun SessionHeader(
                             ),
                 )
                 Text(
-                    text = if (sessionState == SessionState.Active) " LIVE" else " IDLE",
+                    text =
+                        headerLabel(
+                            sessionState = sessionState,
+                            signInputPhase = signInputPhase,
+                            speechInputPhase = speechInputPhase,
+                        ),
                     modifier = Modifier.padding(start = 4.dp),
                     style = MaterialTheme.typography.labelMedium,
                     color = if (sessionState == SessionState.Active) Color.Green else Color.Gray,
@@ -336,6 +632,86 @@ private fun SessionHeader(
             selectedMode = translationMode,
             onModeSelected = onTranslationModeSelected,
         )
+    }
+}
+
+@Composable
+private fun ParallelInputStatusCard(
+    signInputPhase: SignInputPhase,
+    speechInputPhase: SpeechInputPhase,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = PHASE_CARD_ALPHA),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            InputLaneStatusRow(
+                label = "수어",
+                title = signInputPhase.title(),
+                description = signInputPhase.description(),
+                isWarning = signInputPhase.isWarning(),
+            )
+            InputLaneStatusRow(
+                label = "음성",
+                title = speechInputPhase.title(),
+                description = speechInputPhase.description(),
+                isWarning = speechInputPhase.isWarning(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun InputLaneStatusRow(
+    label: String,
+    title: String,
+    description: String,
+    isWarning: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val statusColor =
+        if (isWarning) {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.primary
+        }
+
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(999.dp),
+            color = statusColor.copy(alpha = INPUT_LANE_LABEL_ALPHA),
+        ) {
+            Text(
+                text = label,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = statusColor,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -420,6 +796,94 @@ private fun TranslationMode.label(): String =
         TranslationMode.ON_DEVICE -> "기기"
     }
 
+private fun headerLabel(
+    sessionState: SessionState,
+    signInputPhase: SignInputPhase,
+    speechInputPhase: SpeechInputPhase,
+): String =
+    if (sessionState == SessionState.Active) {
+        if (signInputPhase.isWarning() || speechInputPhase.isWarning()) {
+            " 확인 필요"
+        } else {
+            " 병렬 소통 중"
+        }
+    } else {
+        " IDLE"
+    }
+
+private fun SignInputPhase.title(): String =
+    when (this) {
+        SignInputPhase.Idle -> "대기 중"
+        SignInputPhase.Preparing -> "준비 중"
+        SignInputPhase.Recognizing -> "수어 인식 중"
+        SignInputPhase.NoHandsDetected -> "손 인식 대기"
+        SignInputPhase.Collecting -> "문장 수집 중"
+        SignInputPhase.Translating -> "번역 중"
+        SignInputPhase.Fallback -> "기기 처리 전환"
+        SignInputPhase.Error -> "확인 필요"
+    }
+
+private fun SignInputPhase.description(): String =
+    when (this) {
+        SignInputPhase.Idle -> "대화를 시작하면 카메라 인식이 준비됩니다."
+        SignInputPhase.Preparing -> "카메라와 수어 인식 모델을 준비하고 있어요."
+        SignInputPhase.Recognizing -> "화면 안에서 수어를 보여 주세요."
+        SignInputPhase.NoHandsDetected -> "손이 화면에 잘 보이도록 위치를 맞춰 주세요."
+        SignInputPhase.Collecting -> "인식된 수어를 문장으로 묶고 있어요."
+        SignInputPhase.Translating -> "수어 문장을 자연스러운 말로 바꾸는 중입니다."
+        SignInputPhase.Fallback -> "서버 대신 기기 내 처리로 이어가고 있어요."
+        SignInputPhase.Error -> "수어 인식을 일시적으로 처리하지 못했습니다."
+    }
+
+private fun SpeechInputPhase.title(): String =
+    when (this) {
+        SpeechInputPhase.Idle -> "대기 중"
+        SpeechInputPhase.Listening -> "음성 듣는 중"
+        SpeechInputPhase.Analyzing -> "음성 분석 중"
+        SpeechInputPhase.Fallback -> "기기 인식 전환"
+        SpeechInputPhase.Error -> "확인 필요"
+    }
+
+private fun SpeechInputPhase.description(): String =
+    when (this) {
+        SpeechInputPhase.Idle -> "대화를 시작하면 마이크 인식이 준비됩니다."
+        SpeechInputPhase.Listening -> "상대방의 말을 듣고 자막으로 옮길 준비가 됐어요."
+        SpeechInputPhase.Analyzing -> "방금 들은 음성을 분석하고 있어요."
+        SpeechInputPhase.Fallback -> "서버 대신 기기 내 음성 인식으로 이어가고 있어요."
+        SpeechInputPhase.Error -> "음성 인식을 일시적으로 처리하지 못했습니다."
+    }
+
+private fun subtitlePlaceholder(
+    signInputPhase: SignInputPhase,
+    speechInputPhase: SpeechInputPhase,
+): String =
+    when {
+        signInputPhase == SignInputPhase.Translating -> "수어 번역 결과를 기다리는 중입니다."
+        speechInputPhase == SpeechInputPhase.Analyzing -> "음성을 분석하고 있어요."
+        signInputPhase.isWarning() || speechInputPhase.isWarning() ->
+            "상태 안내 또는 오류 메시지가 여기에 표시됩니다."
+        else -> "수어 또는 음성 자막이 여기에 표시됩니다."
+    }
+
+private fun SignInputPhase.glossPlaceholder(): String =
+    when (this) {
+        SignInputPhase.Idle -> "세션 시작 전입니다."
+        SignInputPhase.Preparing -> "수어 인식 준비 중..."
+        SignInputPhase.NoHandsDetected -> "손을 화면 안에 보여 주세요."
+        SignInputPhase.Translating -> "번역 중..."
+        SignInputPhase.Fallback -> "기기 내 처리로 전환됨"
+        SignInputPhase.Error -> "세션 상태를 확인해 주세요."
+        else -> "수어 인식 대기 중..."
+    }
+
+private fun SignInputPhase.isWarning(): Boolean =
+    this == SignInputPhase.NoHandsDetected ||
+        this == SignInputPhase.Fallback ||
+        this == SignInputPhase.Error
+
+private fun SpeechInputPhase.isWarning(): Boolean =
+    this == SpeechInputPhase.Fallback || this == SpeechInputPhase.Error
+
 @Composable
 private fun SessionControls(
     sessionState: SessionState,
@@ -470,7 +934,7 @@ private fun Context.findActivity(): Activity? {
     var currentContext = this
     while (currentContext is ContextWrapper) {
         if (currentContext is Activity) return currentContext
-        currentContext = (currentContext as ContextWrapper).baseContext
+        currentContext = currentContext.baseContext
     }
     return null
 }

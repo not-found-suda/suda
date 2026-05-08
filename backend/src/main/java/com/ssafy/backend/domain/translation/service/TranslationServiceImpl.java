@@ -1,7 +1,5 @@
 package com.ssafy.backend.domain.translation.service;
 
-import com.ssafy.backend.domain.comms.dto.ChildSpeechCorrectionResult;
-import com.ssafy.backend.domain.comms.service.ChildSpeechCorrectionClient;
 import com.ssafy.backend.domain.comms.service.ClovaSttClient;
 import com.ssafy.backend.domain.comms.service.ClovaTtsClient;
 import com.ssafy.backend.domain.comms.service.SignLanguageCorrectionClient;
@@ -34,17 +32,14 @@ public class TranslationServiceImpl implements TranslationService {
   private final SignLanguageCorrectionClient signLanguageCorrectionClient;
   private final ClovaTtsClient clovaTtsClient;
   private final ClovaSttClient clovaSttClient;
-  private final ChildSpeechCorrectionClient childSpeechCorrectionClient;
 
   public TranslationServiceImpl(
       SignLanguageCorrectionClient signLanguageCorrectionClient,
       ClovaTtsClient clovaTtsClient,
-      ClovaSttClient clovaSttClient,
-      ChildSpeechCorrectionClient childSpeechCorrectionClient) {
+      ClovaSttClient clovaSttClient) {
     this.signLanguageCorrectionClient = signLanguageCorrectionClient;
     this.clovaTtsClient = clovaTtsClient;
     this.clovaSttClient = clovaSttClient;
-    this.childSpeechCorrectionClient = childSpeechCorrectionClient;
   }
 
   @Override
@@ -111,38 +106,7 @@ public class TranslationServiceImpl implements TranslationService {
       throw new BusinessException(TranslationErrorCode.UNRECOGNIZABLE_AUDIO);
     }
 
-    ChildSpeechCorrectionResult correctionResult;
-    try {
-      correctionResult = childSpeechCorrectionClient.correct(recognizedText);
-    } catch (Exception e) {
-      log.warn(
-          "[STT] Child speech correction failed. fallback to recognizedText. traceId={}, recognizedText={}, exceptionClass={}, message={}",
-          getTraceId(),
-          recognizedText,
-          e.getClass().getName(),
-          e.getMessage(),
-          e);
-
-      return new SpeechToTextResponseDto(
-          recognizedText, recognizedText, false, null, resolvedLocale);
-    }
-
-    String correctedText = correctionResult.correctedText();
-
-    if (correctedText == null || correctedText.isBlank()) {
-      log.warn(
-          "[STT] Child speech correction returned empty text. fallback to recognizedText. traceId={}, recognizedText={}",
-          getTraceId(),
-          recognizedText);
-
-      return new SpeechToTextResponseDto(
-          recognizedText, recognizedText, false, null, resolvedLocale);
-    }
-
-    boolean corrected = !recognizedText.trim().equals(correctedText.trim());
-
-    return new SpeechToTextResponseDto(
-        recognizedText, correctedText, corrected, null, resolvedLocale);
+    return new SpeechToTextResponseDto(recognizedText, recognizedText, false, null, resolvedLocale);
   }
 
   private void validateAudioFile(MultipartFile audioFile) {

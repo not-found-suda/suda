@@ -13,6 +13,10 @@ sealed class Screen(
 
     data object ChildProfileCreate : Screen("child_profile_create_route")
 
+    data object ChildProfileEdit : Screen("child_profile_edit_route/{childId}") {
+        fun createRoute(childId: Long) = "child_profile_edit_route/$childId"
+    }
+
     data object Home : Screen("home_route")
 
     data object Quiz : Screen("quiz_question_route/{categoryId}?difficulty={difficulty}") {

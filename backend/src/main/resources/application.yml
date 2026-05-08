@@ -46,3 +46,8 @@ oauth:
   naver:
     client-id: "${NAVER_CLIENT_ID:}"
     client-secret: "${NAVER_CLIENT_SECRET:}"
+
+app:
+  asset:
+    cloud-front-domain: ${ASSET_CLOUDFRONT_DOMAIN:https://d14zyw67949hvk.cloudfront.net}
+

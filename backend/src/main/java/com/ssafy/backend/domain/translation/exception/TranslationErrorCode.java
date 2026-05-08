@@ -25,12 +25,6 @@ public enum TranslationErrorCode implements ErrorCode {
       "수어 문맥 보정 처리에 실패했습니다.",
       "Gemini 수어 문맥 보정 실패"),
 
-  CHILD_SPEECH_CORRECTION_FAILED(
-      "TRANSLATION_CHILD_SPEECH_CORRECTION_FAILED",
-      HttpStatus.BAD_GATEWAY,
-      "아이 발화 문맥 보정 처리에 실패했습니다.",
-      "Gemini 아이 발화 보정 실패"),
-
   SPEECH_RECOGNITION_FAILED(
       "TRANSLATION_SPEECH_RECOGNITION_FAILED",
       HttpStatus.BAD_GATEWAY,

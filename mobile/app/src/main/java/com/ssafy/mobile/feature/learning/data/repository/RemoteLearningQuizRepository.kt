@@ -10,6 +10,8 @@ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizQuestion
 import com.ssafy.mobile.feature.learning.domain.model.LearningQuizResult
 import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSession
 import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSessionStatus
+import com.ssafy.mobile.feature.learning.domain.model.PendingLearningQuizAnswerSubmission
+import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizAnswerSubmissionQueueRepository
 import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizRepository
 import java.io.IOException
 import javax.inject.Inject
@@ -30,6 +32,7 @@ class RemoteLearningQuizRepository
     @Inject
     constructor(
         private val apiService: LearningQuizApiService,
+        private val queueRepository: LearningQuizAnswerSubmissionQueueRepository,
     ) : LearningQuizRepository {
         override suspend fun createSession(
             categoryId: Long,
@@ -59,29 +62,73 @@ class RemoteLearningQuizRepository
             questionId: Long,
             wordId: Long,
             recognizedText: String,
-        ): Result<LearningQuizAnswerResult> =
-            runCatchingNetwork("Failed to submit quiz answer") {
-                apiService
-                    .submitAnswer(
+        ): Result<LearningQuizAnswerResult> {
+            val result =
+                runCatchingNetwork("Failed to submit quiz answer") {
+                    apiService
+                        .submitAnswer(
+                            sessionId = sessionId,
+                            request =
+                                LearningQuizAnswerRequestDto(
+                                    questionId = questionId,
+                                    wordId = wordId,
+                                    recognizedText = recognizedText,
+                                ),
+                        ).toResult { response ->
+                            response.toDomain()
+                        }
+                }
+
+            enqueuePendingAnswerSubmissionIfNeeded(
+                result = result,
+                sessionId = sessionId,
+                questionId = questionId,
+                wordId = wordId,
+                recognizedText = recognizedText,
+            )
+            return result
+        }
+
+        @Suppress("TooGenericExceptionCaught")
+        private suspend fun enqueuePendingAnswerSubmissionIfNeeded(
+            result: Result<LearningQuizAnswerResult>,
+            sessionId: Long,
+            questionId: Long,
+            wordId: Long,
+            recognizedText: String,
+        ) {
+            val failure = result.exceptionOrNull()
+            if (failure !is IOException) return
+
+            try {
+                val now = System.currentTimeMillis()
+                queueRepository.enqueueAnswerSubmission(
+                    PendingLearningQuizAnswerSubmission(
                         sessionId = sessionId,
-                        request =
-                            LearningQuizAnswerRequestDto(
-                                questionId = questionId,
-                                wordId = wordId,
-                                recognizedText = recognizedText,
-                            ),
-                    ).toResult { response ->
-                        response.toDomain()
-                    }
+                        questionId = questionId,
+                        wordId = wordId,
+                        recognizedText = recognizedText,
+                        retryCount = 0,
+                        createdAtMillis = now,
+                        updatedAtMillis = now,
+                        lastFailureMessage = failure.message,
+                    ),
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(QUIZ_TAG, "Failed to enqueue pending quiz answer", e)
             }
+        }
 
         override suspend fun completeSession(sessionId: Long): Result<LearningQuizSessionStatus> =
             runCatchingNetwork("Failed to complete quiz session") {
                 val response =
-                    apiService.updateSessionStatus(
-                        sessionId = sessionId,
-                        request = LearningQuizSessionStatusRequestDto(COMPLETED_STATUS),
-                    )
+                    apiService
+                        .updateSessionStatus(
+                            sessionId = sessionId,
+                            request = LearningQuizSessionStatusRequestDto(COMPLETED_STATUS),
+                        )
 
                 if (response.code() == HTTP_STATUS_CONFLICT) {
                     Result.success(

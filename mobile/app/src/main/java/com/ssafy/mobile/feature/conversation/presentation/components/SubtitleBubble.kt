@@ -9,11 +9,13 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
@@ -27,49 +29,85 @@ private const val MAX_BUBBLE_WIDTH = 280
 @Composable
 fun SubtitleBubble(
     message: ChatMessage,
+    onFeedbackClick: ((ChatMessage) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    val isParent = message.senderType == SenderType.PARENT
-    val alignment = if (isParent) Alignment.CenterStart else Alignment.CenterEnd
-    val backgroundColor =
-        if (isParent) {
-            Color(SUDA_BG_COLOR)
-        } else {
-            MaterialTheme.colorScheme.primary
-        }
-    val contentColor = if (isParent) Color.Black else Color.White
-    val shape =
-        if (isParent) {
-            RoundedCornerShape(4.dp, 20.dp, 20.dp, 20.dp)
-        } else {
-            RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp)
-        }
+    val style = subtitleBubbleStyle(message.senderType)
 
     Box(
         modifier =
             modifier
                 .fillMaxWidth()
                 .padding(vertical = 4.dp),
-        contentAlignment = alignment,
+        contentAlignment = style.boxAlignment,
     ) {
         Column(
-            horizontalAlignment = if (isParent) Alignment.Start else Alignment.End,
+            horizontalAlignment = style.columnAlignment,
         ) {
             Box(
                 modifier =
                     Modifier
                         .widthIn(max = MAX_BUBBLE_WIDTH.dp)
-                        .background(backgroundColor, shape)
+                        .background(style.backgroundColor, style.shape)
                         .padding(horizontal = 16.dp, vertical = 10.dp)
                         .alpha(if (message.status == MessageStatus.PENDING) PENDING_ALPHA else 1f),
             ) {
                 Text(
                     text = message.text,
-                    color = contentColor,
+                    color = style.contentColor,
                     fontSize = 16.sp,
                     lineHeight = 22.sp,
                 )
             }
+
+            if (message.canReportTranslation() && onFeedbackClick != null) {
+                TextButton(onClick = { onFeedbackClick(message) }) {
+                    Text(
+                        text = "신고",
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            }
         }
     }
 }
+
+private fun ChatMessage.canReportTranslation(): Boolean =
+    isFeedbackAvailable && status == MessageStatus.COMPLETED
+
+@Composable
+private fun subtitleBubbleStyle(senderType: SenderType): SubtitleBubbleStyle =
+    when (senderType) {
+        SenderType.SYSTEM ->
+            SubtitleBubbleStyle(
+                boxAlignment = Alignment.Center,
+                columnAlignment = Alignment.CenterHorizontally,
+                backgroundColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                shape = RoundedCornerShape(16.dp),
+            )
+        SenderType.PARENT ->
+            SubtitleBubbleStyle(
+                boxAlignment = Alignment.CenterStart,
+                columnAlignment = Alignment.Start,
+                backgroundColor = Color(SUDA_BG_COLOR),
+                contentColor = Color.Black,
+                shape = RoundedCornerShape(4.dp, 20.dp, 20.dp, 20.dp),
+            )
+        SenderType.CHILD ->
+            SubtitleBubbleStyle(
+                boxAlignment = Alignment.CenterEnd,
+                columnAlignment = Alignment.End,
+                backgroundColor = MaterialTheme.colorScheme.primary,
+                contentColor = Color.White,
+                shape = RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp),
+            )
+    }
+
+private data class SubtitleBubbleStyle(
+    val boxAlignment: Alignment,
+    val columnAlignment: Alignment.Horizontal,
+    val backgroundColor: Color,
+    val contentColor: Color,
+    val shape: Shape,
+)

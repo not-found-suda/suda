@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.ssafy.mobile.core.session.ActiveChildStorage
 import com.ssafy.mobile.feature.childprofile.domain.repository.ChildProfileRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import java.io.IOException
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -60,23 +59,23 @@ class ChildProfileSelectViewModel
                             activeChildStorage.getActiveChildId()
                         }
 
+                    val activeProfiles = profiles.filter { it.active }
+
                     _uiState.value =
-                        if (profiles.isEmpty()) {
+                        if (activeProfiles.isEmpty()) {
                             ChildProfileSelectUiState.Empty
                         } else {
                             ChildProfileSelectUiState.Success(
-                                profiles = profiles,
+                                profiles = activeProfiles,
                                 activeChildId = activeChildId,
                             )
                         }
                 } catch (e: CancellationException) {
                     throw e
-                } catch (e: IOException) {
-                    Log.e(TAG, "Failed to load child profiles", e)
-                    _uiState.value = ChildProfileSelectUiState.Error("네트워크 연결을 확인해 주세요.")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to load child profiles", e)
-                    _uiState.value = ChildProfileSelectUiState.Error("아이 프로필 목록을 불러오지 못했습니다.")
+                    val message = e.message ?: "아이 프로필 목록을 불러오지 못했습니다."
+                    _uiState.value = ChildProfileSelectUiState.Error(message)
                 }
             }
         }
