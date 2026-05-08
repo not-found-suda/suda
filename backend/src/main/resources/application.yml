@@ -41,3 +41,8 @@ external-api:
   timeout:
     connect: 3s
     read: 10s
+
+oauth:
+  naver:
+    client-id: "${NAVER_CLIENT_ID:}"
+    client-secret: "${NAVER_CLIENT_SECRET:}"

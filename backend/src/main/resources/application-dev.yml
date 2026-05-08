@@ -21,8 +21,3 @@ auth:
     issuer: "${AUTH_JWT_ISSUER}"
     access-token-ttl-seconds: "${AUTH_ACCESS_TOKEN_TTL_SECONDS}"
     refresh-token-ttl-seconds: "${AUTH_REFRESH_TOKEN_TTL_SECONDS}"
-
-oauth:
-  naver:
-    client-id: "${NAVER_CLIENT_ID:}"
-    client-secret: "${NAVER_CLIENT_SECRET:}"
