@@ -1,5 +1,6 @@
 package com.ssafy.mobile.feature.login.presentation
 
+import android.content.Context
 import android.util.Log
 import android.util.Patterns
 import androidx.lifecycle.ViewModel
@@ -7,6 +8,8 @@ import androidx.lifecycle.viewModelScope
 import com.ssafy.mobile.core.auth.TokenStorage
 import com.ssafy.mobile.core.session.ActiveChildStorage
 import com.ssafy.mobile.feature.learning.data.repository.LearningQuizAnswerSubmissionQueueSyncer
+import com.ssafy.mobile.feature.login.data.dto.LoginResponseDto
+import com.ssafy.mobile.feature.login.data.oauth.NaverOAuthManager
 import com.ssafy.mobile.feature.login.data.repository.LoginException
 import com.ssafy.mobile.feature.login.data.repository.LoginRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -28,6 +31,7 @@ class LoginViewModel
         private val loginRepository: LoginRepository,
         private val tokenStorage: TokenStorage,
         private val activeChildStorage: ActiveChildStorage,
+        private val naverOAuthManager: NaverOAuthManager,
         private val learningQuizAnswerSubmissionQueueSyncer:
             LearningQuizAnswerSubmissionQueueSyncer,
     ) : ViewModel() {
@@ -60,78 +64,103 @@ class LoginViewModel
             _passwordError.value = null
         }
 
+        fun initializeNaverSdk(context: Context) {
+            naverOAuthManager.initialize(context)
+        }
+
+        fun isNaverConfigValid(): Boolean = naverOAuthManager.isConfigValid
+
         fun login() {
             if (_uiState.value is LoginUiState.Loading) return
             if (!validateInputs()) return
 
-            _uiState.value = LoginUiState.Loading
-
             viewModelScope.launch {
+                _uiState.value = LoginUiState.Loading
                 try {
                     val response =
                         withContext(Dispatchers.IO) {
                             loginRepository.login(_email.value.trim(), _password.value)
                         }
 
-                    try {
-                        withContext(Dispatchers.IO) {
-                            tokenStorage.clearTokens()
-                            tokenStorage.saveTokens(
-                                accessToken = response.accessToken,
-                                refreshToken = response.refreshToken,
-                            )
-                        }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: GeneralSecurityException) {
-                        Log.e(TAG, "Token storage failed")
-                        _uiState.value =
-                            LoginUiState.Error(
-                                message = "로그인 정보를 저장하지 못했습니다. 다시 시도해 주세요.",
-                            )
-                        return@launch
-                    } catch (e: IllegalArgumentException) {
-                        Log.e(TAG, "Token storage failed")
-                        _uiState.value =
-                            LoginUiState.Error(
-                                message = "로그인 정보를 저장하지 못했습니다. 다시 시도해 주세요.",
-                            )
-                        return@launch
-                    }
-
-                    val hasActiveChild =
-                        withContext(Dispatchers.IO) {
-                            activeChildStorage.getActiveChildId() != null
-                        }
-
-                    learningQuizAnswerSubmissionQueueSyncer.requestSync()
-                    _uiState.value = LoginUiState.Success(hasActiveChild = hasActiveChild)
+                    handleLoginSuccess(response)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: LoginException) {
-                    _uiState.value =
-                        LoginUiState.Error(
-                            message = e.message ?: "로그인에 실패했습니다.",
-                        )
+                    showLoginError(e.message ?: "로그인에 실패했습니다.")
                 } catch (e: IOException) {
                     Log.e(TAG, "Login network error", e)
-                    _uiState.value =
-                        LoginUiState.Error(
-                            message = "네트워크 연결을 확인해 주세요.",
-                        )
+                    showLoginError("네트워크 연결을 확인해 주세요.")
                 } catch (e: IllegalStateException) {
-                    _uiState.value =
-                        LoginUiState.Error(
-                            message = e.message ?: "알 수 없는 오류가 발생했습니다.",
-                        )
+                    showLoginError(e.message ?: "알 수 없는 오류가 발생했습니다.")
                 }
             }
         }
 
-        fun clearError() {
-            if (_uiState.value is LoginUiState.Error) {
-                _uiState.value = LoginUiState.Idle
+        fun loginWithNaverToken(providerAccessToken: String) {
+            if (_uiState.value is LoginUiState.Loading) return
+            if (providerAccessToken.isBlank()) {
+                showLoginError("네이버 인증 토큰이 유효하지 않습니다.")
+                return
             }
+
+            viewModelScope.launch {
+                _uiState.value = LoginUiState.Loading
+                try {
+                    val response =
+                        withContext(Dispatchers.IO) {
+                            loginRepository.loginWithNaver(providerAccessToken)
+                        }
+
+                    handleLoginSuccess(response)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: LoginException) {
+                    showLoginError(e.message ?: "네이버 로그인에 실패했습니다.")
+                } catch (e: IOException) {
+                    Log.e(TAG, "Naver login network error", e)
+                    showLoginError("네트워크 연결을 확인해 주세요.")
+                } catch (e: IllegalStateException) {
+                    showLoginError(e.message ?: "네이버 로그인 중 오류가 발생했습니다.")
+                }
+            }
+        }
+
+        fun onNaverLoginError(message: String) {
+            showLoginError(message)
+        }
+
+        private suspend fun handleLoginSuccess(response: LoginResponseDto) {
+            try {
+                withContext(Dispatchers.IO) {
+                    tokenStorage.clearTokens()
+                    tokenStorage.saveTokens(
+                        accessToken = response.accessToken,
+                        refreshToken = response.refreshToken,
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: GeneralSecurityException) {
+                Log.e(TAG, "Token storage failed", e)
+                showLoginError("로그인 정보를 저장하지 못했습니다. 다시 시도해 주세요.")
+                return
+            } catch (e: IllegalArgumentException) {
+                Log.e(TAG, "Token storage failed", e)
+                showLoginError("로그인 정보를 저장하지 못했습니다. 다시 시도해 주세요.")
+                return
+            }
+
+            val hasActiveChild =
+                withContext(Dispatchers.IO) {
+                    activeChildStorage.getActiveChildId() != null
+                }
+
+            learningQuizAnswerSubmissionQueueSyncer.requestSync()
+            _uiState.value = LoginUiState.Success(hasActiveChild = hasActiveChild)
+        }
+
+        private fun showLoginError(message: String) {
+            _uiState.value = LoginUiState.Error(message = message)
         }
 
         private fun validateInputs(): Boolean {
