@@ -1,5 +1,7 @@
 package com.ssafy.mobile.feature.login.presentation
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -28,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -37,6 +40,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.navercorp.nid.NaverIdLoginSDK
 
 @Composable
 fun LoginRoute(
@@ -46,11 +50,33 @@ fun LoginRoute(
     modifier: Modifier = Modifier,
     viewModel: LoginViewModel = hiltViewModel(),
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val email by viewModel.email.collectAsStateWithLifecycle()
     val password by viewModel.password.collectAsStateWithLifecycle()
     val emailError by viewModel.emailError.collectAsStateWithLifecycle()
     val passwordError by viewModel.passwordError.collectAsStateWithLifecycle()
+    val naverLoginLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            val token = NaverIdLoginSDK.getAccessToken()
+            if (token.isNullOrBlank()) {
+                val errorCode = NaverIdLoginSDK.getLastErrorCode().code
+                if (errorCode != NAVER_USER_CANCEL_CODE) {
+                    val errorDescription = NaverIdLoginSDK.getLastErrorDescription().orEmpty()
+                    viewModel.onNaverLoginError(
+                        errorDescription.ifBlank {
+                            "네이버 로그인에 실패했습니다."
+                        },
+                    )
+                }
+            } else {
+                viewModel.loginWithNaverToken(token)
+            }
+        }
+
+    LaunchedEffect(Unit) {
+        viewModel.initializeNaverSdk(context)
+    }
 
     LaunchedEffect(uiState) {
         when (val state = uiState) {
@@ -71,10 +97,18 @@ fun LoginRoute(
         emailError = emailError,
         passwordError = passwordError,
         uiState = uiState,
+        isNaverLoginEnabled = viewModel.isNaverConfigValid(),
         onEmailChanged = viewModel::onEmailChanged,
         onPasswordChanged = viewModel::onPasswordChanged,
         onLoginClick = viewModel::login,
         onSignupClick = onNavigateToSignup,
+        onNaverLoginClick = {
+            if (viewModel.isNaverConfigValid()) {
+                NaverIdLoginSDK.authenticate(context, naverLoginLauncher)
+            } else {
+                viewModel.onNaverLoginError("네이버 로그인 설정을 확인해 주세요.")
+            }
+        },
         modifier = modifier,
     )
 }
@@ -87,10 +121,12 @@ private fun LoginScreen(
     emailError: String?,
     passwordError: String?,
     uiState: LoginUiState,
+    isNaverLoginEnabled: Boolean,
     onEmailChanged: (String) -> Unit,
     onPasswordChanged: (String) -> Unit,
     onLoginClick: () -> Unit,
     onSignupClick: () -> Unit,
+    onNaverLoginClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val isLoading = uiState is LoginUiState.Loading
@@ -135,8 +171,10 @@ private fun LoginScreen(
 
         LoginActionButtons(
             isLoading = isLoading,
+            isNaverLoginEnabled = isNaverLoginEnabled,
             onLoginClick = onLoginClick,
             onSignupClick = onSignupClick,
+            onNaverLoginClick = onNaverLoginClick,
         )
     }
 }
@@ -238,8 +276,10 @@ private fun LoginInputFields(
 @Composable
 private fun LoginActionButtons(
     isLoading: Boolean,
+    isNaverLoginEnabled: Boolean,
     onLoginClick: () -> Unit,
     onSignupClick: () -> Unit,
+    onNaverLoginClick: () -> Unit,
 ) {
     Button(
         onClick = onLoginClick,
@@ -269,12 +309,13 @@ private fun LoginActionButtons(
 
     Spacer(modifier = Modifier.height(24.dp))
 
-    // [S14P31A404-232] 네이버 로그인 SDK 연동은 후속 티켓에서 구현
     OutlinedButton(
-        onClick = { },
-        enabled = false,
+        onClick = onNaverLoginClick,
+        enabled = !isLoading && isNaverLoginEnabled,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Text(text = "네이버로 로그인 (준비 중)")
+        Text(text = "네이버로 로그인")
     }
 }
+
+private const val NAVER_USER_CANCEL_CODE = "user_cancel"

@@ -10,6 +10,9 @@ val envProps =
     }
 val mobileBaseUrl: String =
     envProps.getProperty("MOBILE_API_BASE_URL", "http://10.0.2.2:8080/api/")
+val naverClientId: String = envProps.getProperty("NAVER_CLIENT_ID", "")
+val naverClientSecret: String = envProps.getProperty("NAVER_CLIENT_SECRET", "")
+val naverClientName: String = envProps.getProperty("NAVER_CLIENT_NAME", "")
 
 plugins {
     alias(libs.plugins.android.application)
@@ -33,6 +36,9 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "BASE_URL", "\"$mobileBaseUrl\"")
+        buildConfigField("String", "NAVER_CLIENT_ID", "\"$naverClientId\"")
+        buildConfigField("String", "NAVER_CLIENT_SECRET", "\"$naverClientSecret\"")
+        buildConfigField("String", "NAVER_CLIENT_NAME", "\"$naverClientName\"")
     }
 
     buildTypes {
@@ -104,6 +110,7 @@ dependencies {
     implementation(libs.litert)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.hilt.navigation.compose)
+    implementation(libs.naver.oauth)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.retrofit.core)
