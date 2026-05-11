@@ -235,6 +235,11 @@ private val bottomNavigationItems =
             iconText = "학습",
         ),
         BottomNavigationItem(
+            screen = Screen.ReportHome,
+            label = "리포트",
+            iconText = "리포트",
+        ),
+        BottomNavigationItem(
             screen = Screen.Conversation,
             label = "소통",
             iconText = "소통",

@@ -19,6 +19,8 @@ import com.ssafy.mobile.feature.learning.presentation.wordlist.LearningWordListR
 import com.ssafy.mobile.feature.login.presentation.LoginRoute
 import com.ssafy.mobile.feature.mypage.presentation.MyPageRoute
 import com.ssafy.mobile.feature.quiz.presentation.quizQuestionRoute
+import com.ssafy.mobile.feature.report.presentation.ReportHomeRoute
+import com.ssafy.mobile.feature.report.presentation.ReportPlaceholderRoute
 import com.ssafy.mobile.feature.sign.presentation.SignDebugRoute
 import com.ssafy.mobile.feature.signup.presentation.SignupRoute
 
@@ -86,16 +88,29 @@ fun MobileNavHost(
             ChildProfileSelectRoute(
                 navController = navController,
                 onNavigateToHome = {
-                    val poppedToHome =
-                        navController.popBackStack(
-                            route = Screen.Home.route,
-                            inclusive = false,
-                        )
+                    val previousRoute = navController.previousBackStackEntry?.destination?.route
+                    val poppedToReport =
+                        if (previousRoute == Screen.ReportHome.route) {
+                            navController.popBackStack(
+                                route = Screen.ReportHome.route,
+                                inclusive = false,
+                            )
+                        } else {
+                            false
+                        }
 
-                    if (!poppedToHome) {
-                        navController.navigate(Screen.Home.route) {
-                            popUpTo(Screen.ChildSelect.route) { inclusive = true }
-                            launchSingleTop = true
+                    if (!poppedToReport) {
+                        val poppedToHome =
+                            navController.popBackStack(
+                                route = Screen.Home.route,
+                                inclusive = false,
+                            )
+
+                        if (!poppedToHome) {
+                            navController.navigate(Screen.Home.route) {
+                                popUpTo(Screen.ChildSelect.route) { inclusive = true }
+                                launchSingleTop = true
+                            }
                         }
                     }
                 },
@@ -241,6 +256,48 @@ fun MobileNavHost(
                 onStartQuiz = { categoryId ->
                     navController.navigate(Screen.Quiz.createRoute(categoryId))
                 },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        composable(Screen.ReportHome.route) {
+            ReportHomeRoute(
+                onNavigateToSummary = {
+                    navController.navigate(Screen.ReportSummary.route)
+                },
+                onNavigateToWeakWords = {
+                    navController.navigate(Screen.ReportWeakWords.route)
+                },
+                onNavigateToCategoryProgress = {
+                    navController.navigate(Screen.ReportCategoryProgress.route)
+                },
+                onSwitchChild = {
+                    navController.navigate(Screen.ChildSelect.route)
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        composable(Screen.ReportSummary.route) {
+            ReportPlaceholderRoute(
+                title = "학습 요약",
+                onNavigateBack = { navController.popBackStack() },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        composable(Screen.ReportWeakWords.route) {
+            ReportPlaceholderRoute(
+                title = "자주 틀리는 단어",
+                onNavigateBack = { navController.popBackStack() },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        composable(Screen.ReportCategoryProgress.route) {
+            ReportPlaceholderRoute(
+                title = "학습 진행도",
+                onNavigateBack = { navController.popBackStack() },
                 modifier = Modifier.fillMaxSize(),
             )
         }

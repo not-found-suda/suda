@@ -40,4 +40,12 @@ sealed class Screen(
             categoryName: String,
         ) = "learning_words/$categoryId?categoryName=${android.net.Uri.encode(categoryName)}"
     }
+
+    data object ReportHome : Screen("report_home_route")
+
+    data object ReportSummary : Screen("report_summary_route")
+
+    data object ReportWeakWords : Screen("report_weak_words_route")
+
+    data object ReportCategoryProgress : Screen("report_category_progress_route")
 }
