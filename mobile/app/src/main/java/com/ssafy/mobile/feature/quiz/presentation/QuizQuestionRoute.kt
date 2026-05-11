@@ -53,6 +53,7 @@ import kotlin.math.roundToInt
 
 @Composable
 fun quizQuestionRoute(
+    onNavigateToResult: (Long, Long, String) -> Unit,
     modifier: Modifier = Modifier,
     quizViewModel: QuizQuestionViewModel = hiltViewModel(),
     recordingViewModel: QuizRecordingViewModel = hiltViewModel(),
@@ -85,6 +86,19 @@ fun quizQuestionRoute(
         val sttText = recognizedText ?: return@LaunchedEffect
         quizViewModel.submitRecognizedText(sttText)
         recordingViewModel.consumeRecognizedText()
+    }
+
+    LaunchedEffect(quizState.isFinished) {
+        if (quizState.isFinished) {
+            val sessionId = quizState.sessionId
+            if (sessionId != null) {
+                onNavigateToResult(
+                    sessionId,
+                    quizViewModel.categoryId,
+                    quizViewModel.difficulty,
+                )
+            }
+        }
     }
 
     QuizQuestionScreen(

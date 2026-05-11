@@ -26,6 +26,16 @@ sealed class Screen(
         ) = "quiz_question_route/$categoryId?difficulty=${android.net.Uri.encode(difficulty)}"
     }
 
+    data object QuizResult :
+        Screen("quiz_result/{sessionId}?categoryId={categoryId}&difficulty={difficulty}") {
+        fun createRoute(
+            sessionId: Long,
+            categoryId: Long,
+            difficulty: String,
+        ) = "quiz_result/$sessionId?categoryId=$categoryId" +
+            "&difficulty=${android.net.Uri.encode(difficulty)}"
+    }
+
     data object Conversation : Screen("conversation_route")
 
     data object MyPage : Screen("my_page_route")

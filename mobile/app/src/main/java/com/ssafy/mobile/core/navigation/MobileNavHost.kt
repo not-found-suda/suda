@@ -18,6 +18,7 @@ import com.ssafy.mobile.feature.learning.presentation.category.LearningCategoryR
 import com.ssafy.mobile.feature.learning.presentation.wordlist.LearningWordListRoute
 import com.ssafy.mobile.feature.login.presentation.LoginRoute
 import com.ssafy.mobile.feature.mypage.presentation.MyPageRoute
+import com.ssafy.mobile.feature.quiz.presentation.QuizResultRoute
 import com.ssafy.mobile.feature.quiz.presentation.quizQuestionRoute
 import com.ssafy.mobile.feature.sign.presentation.SignDebugRoute
 import com.ssafy.mobile.feature.signup.presentation.SignupRoute
@@ -173,6 +174,39 @@ fun MobileNavHost(
                 ),
         ) {
             quizQuestionRoute(
+                onNavigateToResult = { sessionId, cid, diff ->
+                    navController.navigate(Screen.QuizResult.createRoute(sessionId, cid, diff)) {
+                        popUpTo(Screen.Quiz.route) { inclusive = true }
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        composable(
+            route = Screen.QuizResult.route,
+            arguments =
+                listOf(
+                    navArgument("sessionId") { type = NavType.LongType },
+                    navArgument("categoryId") { type = NavType.LongType },
+                    navArgument("difficulty") { type = NavType.StringType },
+                ),
+        ) { backStackEntry ->
+            val categoryId = backStackEntry.arguments?.getLong("categoryId") ?: 0L
+            val difficulty = backStackEntry.arguments?.getString("difficulty") ?: "EASY"
+
+            QuizResultRoute(
+                onRestartQuiz = {
+                    navController.navigate(Screen.Quiz.createRoute(categoryId, difficulty)) {
+                        popUpTo(Screen.QuizResult.route) { inclusive = true }
+                    }
+                },
+                onNavigateToHome = {
+                    navController.navigate(Screen.LearningCategory.route) {
+                        popUpTo(Screen.LearningCategory.route) { inclusive = false }
+                        launchSingleTop = true
+                    }
+                },
                 modifier = Modifier.fillMaxSize(),
             )
         }

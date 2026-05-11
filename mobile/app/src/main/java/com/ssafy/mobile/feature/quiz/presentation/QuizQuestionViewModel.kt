@@ -31,11 +31,11 @@ class QuizQuestionViewModel
         private val wordRepository: LearningWordRepository,
         private val queueSyncer: LearningQuizAnswerSubmissionQueueSyncer,
     ) : ViewModel() {
-        private val categoryId: Long =
+        val categoryId: Long =
             checkNotNull(savedStateHandle["categoryId"]) {
                 "Quiz route requires categoryId."
             }
-        private val difficulty: String = savedStateHandle["difficulty"] ?: DEFAULT_DIFFICULTY
+        val difficulty: String = savedStateHandle["difficulty"] ?: DEFAULT_DIFFICULTY
         private var wordById: Map<Long, String> = emptyMap()
         private var isCompletionPending = false
 
