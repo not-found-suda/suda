@@ -100,7 +100,7 @@ public class ReportQuizSessionQueryRepository {
     return rows.stream().findFirst();
   }
 
-  public List<ReportQuizAnswerQueryRow> findAnswers(Long sessionId) {
+  public List<ReportQuizAnswerQueryRow> findAnswers(Long childId, Long sessionId) {
     String jpql =
         """
         SELECT new com.ssafy.backend.domain.report.repository.ReportQuizAnswerQueryRow(
@@ -117,10 +117,12 @@ public class ReportQuizSessionQueryRepository {
         FROM QuizAnswer a
         JOIN a.question q
         WHERE a.session.id = :sessionId
+          AND a.session.childProfileId = :childId
         ORDER BY q.questionNumber ASC
         """;
     return entityManager
         .createQuery(jpql, ReportQuizAnswerQueryRow.class)
+        .setParameter("childId", childId)
         .setParameter("sessionId", sessionId)
         .getResultList();
   }

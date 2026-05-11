@@ -126,7 +126,7 @@ public class ReportService {
         row.status(),
         row.startedAt(),
         row.endedAt(),
-        reportQuizSessionQueryRepository.findAnswers(row.sessionId()).stream()
+        reportQuizSessionQueryRepository.findAnswers(row.childId(), row.sessionId()).stream()
             .map(this::toAnswerResponse)
             .toList());
   }
