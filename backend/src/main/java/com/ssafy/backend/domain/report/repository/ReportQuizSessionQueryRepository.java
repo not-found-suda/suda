@@ -104,12 +104,13 @@ public class ReportQuizSessionQueryRepository {
   public ReportSummaryAggregateRow summarize(Long childId, LocalDateTime from, LocalDateTime to) {
     StringBuilder where = new StringBuilder(" WHERE s.childProfileId = :childId");
     appendDateConditions(where, from, to);
+    where.append(" AND s.status = :completed");
 
     String jpql =
         """
         SELECT
           COUNT(s.id),
-          COALESCE(SUM(CASE WHEN s.status = :completed THEN 1 ELSE 0 END), 0),
+          COUNT(s.id),
           COALESCE(SUM(s.totalQuestionCount), 0),
           COALESCE(SUM(s.correctCount), 0),
           COALESCE(SUM(s.totalStar), 0)
@@ -130,6 +131,7 @@ public class ReportQuizSessionQueryRepository {
       Long childId, LocalDateTime from, LocalDateTime to) {
     StringBuilder where = new StringBuilder(" WHERE s.childProfileId = :childId");
     appendDateConditions(where, from, to);
+    where.append(" AND s.status = :completed");
 
     String jpql =
         """
@@ -162,13 +164,14 @@ public class ReportQuizSessionQueryRepository {
       Pageable pageable) {
     StringBuilder where = new StringBuilder(" WHERE s.childProfileId = :childId");
     appendDateConditions(where, from, to);
+    where.append(" AND s.status = :completed");
     if (categoryId != null) {
       where.append(" AND c.id = :categoryId");
     }
 
-    String jpql =
+    String selectJpql =
         """
-        SELECT
+        SELECT new com.ssafy.backend.domain.report.repository.ReportWeakWordQueryRow(
           w.id,
           w.word,
           w.displayText,
@@ -178,6 +181,7 @@ public class ReportQuizSessionQueryRepository {
           COALESCE(SUM(CASE WHEN a.isCorrect = false THEN 1 ELSE 0 END), 0),
           AVG(a.star),
           MAX(a.answeredAt)
+        )
         FROM QuizAnswer a
         JOIN a.session s
         JOIN a.word w
@@ -193,20 +197,40 @@ public class ReportQuizSessionQueryRepository {
           MAX(a.answeredAt) DESC
         """;
 
-    Query query = entityManager.createQuery(jpql);
-    query.setParameter("childId", childId);
-    query.setParameter("minAttemptCount", (long) minAttemptCount);
-    bindDateParameters(query, from, to);
-    if (categoryId != null) {
-      query.setParameter("categoryId", categoryId);
-    }
+    TypedQuery<ReportWeakWordQueryRow> query =
+        entityManager.createQuery(selectJpql, ReportWeakWordQueryRow.class);
+    bindWeakWordParameters(query, childId, from, to, categoryId, minAttemptCount);
+    query.setFirstResult((int) pageable.getOffset());
+    query.setMaxResults(pageable.getPageSize());
 
-    @SuppressWarnings("unchecked")
-    List<Object[]> resultRows = query.getResultList();
-    List<ReportWeakWordQueryRow> rows = resultRows.stream().map(this::toWeakWordRow).toList();
-    int fromIndex = Math.min((int) pageable.getOffset(), rows.size());
-    int toIndex = Math.min(fromIndex + pageable.getPageSize(), rows.size());
-    return new PageImpl<>(rows.subList(fromIndex, toIndex), pageable, rows.size());
+    String countJpql =
+        """
+        SELECT COUNT(DISTINCT w.id)
+        FROM QuizAnswer a
+        JOIN a.session s
+        JOIN a.word w
+        JOIN w.category c
+        """
+            + where
+            + """
+        AND (
+          SELECT COUNT(a2.id)
+          FROM QuizAnswer a2
+          JOIN a2.session s2
+          JOIN a2.word w2
+          JOIN w2.category c2
+          WHERE s2.childProfileId = :childId
+            AND s2.status = :completed
+            AND w2.id = w.id
+        """
+            + weakWordSubqueryFilters(from, to, categoryId)
+            + """
+        ) >= :minAttemptCount
+        """;
+    TypedQuery<Long> countQuery = entityManager.createQuery(countJpql, Long.class);
+    bindWeakWordParameters(countQuery, childId, from, to, categoryId, minAttemptCount);
+
+    return new PageImpl<>(query.getResultList(), pageable, countQuery.getSingleResult());
   }
 
   public List<ReportQuizAnswerQueryRow> findAnswers(Long childId, Long sessionId) {
@@ -304,17 +328,34 @@ public class ReportQuizSessionQueryRepository {
     }
   }
 
-  private ReportWeakWordQueryRow toWeakWordRow(Object[] row) {
-    return new ReportWeakWordQueryRow(
-        toLong(row[0]),
-        (String) row[1],
-        (String) row[2],
-        toLong(row[3]),
-        (String) row[4],
-        toLong(row[5]),
-        toLong(row[6]),
-        toDouble(row[7]),
-        (LocalDateTime) row[8]);
+  private void bindWeakWordParameters(
+      Query query,
+      Long childId,
+      LocalDateTime from,
+      LocalDateTime to,
+      Long categoryId,
+      int minAttemptCount) {
+    query.setParameter("childId", childId);
+    query.setParameter("completed", QuizSessionStatus.COMPLETED);
+    query.setParameter("minAttemptCount", (long) minAttemptCount);
+    bindDateParameters(query, from, to);
+    if (categoryId != null) {
+      query.setParameter("categoryId", categoryId);
+    }
+  }
+
+  private String weakWordSubqueryFilters(LocalDateTime from, LocalDateTime to, Long categoryId) {
+    StringBuilder filters = new StringBuilder();
+    if (from != null) {
+      filters.append(" AND s2.startedAt >= :from");
+    }
+    if (to != null) {
+      filters.append(" AND s2.startedAt < :to");
+    }
+    if (categoryId != null) {
+      filters.append(" AND c2.id = :categoryId");
+    }
+    return filters.toString();
   }
 
   private Long toLong(Object value) {
