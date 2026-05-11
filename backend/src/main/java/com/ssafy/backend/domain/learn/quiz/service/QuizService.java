@@ -195,6 +195,10 @@ public class QuizService {
   public QuizResultResponse getResult(Long userId, Long sessionId) {
     QuizSession session = getOwnedSession(sessionId, userId);
 
+    if (!session.isCompleted()) {
+      throw new BusinessException(QuizErrorCode.SESSION_NOT_COMPLETED);
+    }
+
     List<QuizResultResponse.AnswerItem> answers =
         quizAnswerRepository.findBySessionIdOrderByQuestionQuestionNumberAsc(sessionId).stream()
             .map(
@@ -211,6 +215,9 @@ public class QuizService {
 
     return new QuizResultResponse(
         session.getId(),
+        session.getCategoryId(),
+        session.getDifficulty(),
+        session.getChildProfileId(),
         session.getTotalQuestionCount(),
         session.getCorrectCount(),
         session.getTotalStar(),
