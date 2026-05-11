@@ -6,6 +6,9 @@ import com.ssafy.backend.domain.report.docs.ReportApiDocs;
 import com.ssafy.backend.domain.report.dto.ReportQuizSessionDetailResponse;
 import com.ssafy.backend.domain.report.dto.ReportQuizSessionListResponse;
 import com.ssafy.backend.domain.report.dto.ReportQuizSessionSearchCondition;
+import com.ssafy.backend.domain.report.dto.ReportSummaryResponse;
+import com.ssafy.backend.domain.report.dto.ReportWeakWordListResponse;
+import com.ssafy.backend.domain.report.dto.ReportWeakWordSearchCondition;
 import com.ssafy.backend.domain.report.service.ReportService;
 import com.ssafy.backend.global.exception.BusinessException;
 import com.ssafy.backend.global.exception.CommonErrorCode;
@@ -26,6 +29,34 @@ public class ReportController implements ReportApiDocs {
 
   public ReportController(ReportService reportService) {
     this.reportService = reportService;
+  }
+
+  @Override
+  @GetMapping("/summary")
+  public ResponseEntity<ReportSummaryResponse> getSummary(
+      Authentication authentication,
+      @PathVariable Long childId,
+      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) String from,
+      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) String to) {
+    return ResponseEntity.ok(
+        reportService.getSummary(resolveUserId(authentication), childId, from, to));
+  }
+
+  @Override
+  @GetMapping("/weak-words")
+  public ResponseEntity<ReportWeakWordListResponse> getWeakWords(
+      Authentication authentication,
+      @PathVariable Long childId,
+      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) String from,
+      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) String to,
+      @RequestParam(required = false) Long categoryId,
+      @RequestParam(required = false) Integer minAttemptCount,
+      @RequestParam(defaultValue = "1") int page,
+      @RequestParam(defaultValue = "20") int size) {
+    ReportWeakWordSearchCondition condition =
+        new ReportWeakWordSearchCondition(from, to, categoryId, minAttemptCount, page, size);
+    return ResponseEntity.ok(
+        reportService.getWeakWords(resolveUserId(authentication), childId, condition));
   }
 
   @Override

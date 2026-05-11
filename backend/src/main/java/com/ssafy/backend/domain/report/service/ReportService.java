@@ -2,20 +2,29 @@ package com.ssafy.backend.domain.report.service;
 
 import com.ssafy.backend.domain.child.exception.ChildProfileErrorCode;
 import com.ssafy.backend.domain.child.repository.ChildProfileRepository;
+import com.ssafy.backend.domain.report.dto.ReportLatestCategoryResponse;
 import com.ssafy.backend.domain.report.dto.ReportQuizAnswerResponse;
 import com.ssafy.backend.domain.report.dto.ReportQuizSessionDetailResponse;
 import com.ssafy.backend.domain.report.dto.ReportQuizSessionListResponse;
 import com.ssafy.backend.domain.report.dto.ReportQuizSessionSearchCondition;
 import com.ssafy.backend.domain.report.dto.ReportQuizSessionSummaryResponse;
+import com.ssafy.backend.domain.report.dto.ReportSummaryResponse;
+import com.ssafy.backend.domain.report.dto.ReportWeakWordListResponse;
+import com.ssafy.backend.domain.report.dto.ReportWeakWordResponse;
+import com.ssafy.backend.domain.report.dto.ReportWeakWordSearchCondition;
 import com.ssafy.backend.domain.report.exception.ReportErrorCode;
+import com.ssafy.backend.domain.report.repository.ReportLatestCategoryQueryRow;
 import com.ssafy.backend.domain.report.repository.ReportQuizAnswerQueryRow;
 import com.ssafy.backend.domain.report.repository.ReportQuizSessionQueryRepository;
 import com.ssafy.backend.domain.report.repository.ReportQuizSessionQueryRow;
+import com.ssafy.backend.domain.report.repository.ReportSummaryAggregateRow;
+import com.ssafy.backend.domain.report.repository.ReportWeakWordQueryRow;
 import com.ssafy.backend.global.exception.BusinessException;
 import com.ssafy.backend.global.exception.ValidationErrorCode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
+import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -26,6 +35,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class ReportService {
 
   private static final int DEFAULT_PAGE = 1;
+  private static final int DEFAULT_MIN_ATTEMPT_COUNT = 1;
+  private static final int SUMMARY_WEAK_WORD_LIMIT = 5;
   private static final int MAX_SIZE = 100;
 
   private final ChildProfileRepository childProfileRepository;
@@ -36,6 +47,73 @@ public class ReportService {
       ReportQuizSessionQueryRepository reportQuizSessionQueryRepository) {
     this.childProfileRepository = childProfileRepository;
     this.reportQuizSessionQueryRepository = reportQuizSessionQueryRepository;
+  }
+
+  public ReportSummaryResponse getSummary(Long userId, Long childId, String from, String to) {
+    validatePositiveId(childId, "childId");
+    validateChildProfileOwner(childId, userId);
+
+    LocalDateTime fromDateTime = parseFrom(from);
+    LocalDateTime toDateTime = parseToExclusive(to);
+    validateDateRange(fromDateTime, toDateTime);
+
+    ReportSummaryAggregateRow summary =
+        reportQuizSessionQueryRepository.summarize(childId, fromDateTime, toDateTime);
+    ReportLatestCategoryQueryRow latestCategory =
+        reportQuizSessionQueryRepository
+            .findLatestCategory(childId, fromDateTime, toDateTime)
+            .orElse(null);
+    PageRequest weakWordLimit = PageRequest.of(0, SUMMARY_WEAK_WORD_LIMIT);
+    List<ReportWeakWordResponse> weakWords =
+        reportQuizSessionQueryRepository
+            .findWeakWords(
+                childId, fromDateTime, toDateTime, null, DEFAULT_MIN_ATTEMPT_COUNT, weakWordLimit)
+            .getContent()
+            .stream()
+            .map(this::toWeakWordResponse)
+            .toList();
+
+    return new ReportSummaryResponse(
+        childId,
+        summary.totalSessionCount(),
+        summary.completedSessionCount(),
+        summary.totalQuestionCount(),
+        summary.totalCorrectCount(),
+        calculateAccuracyRate(summary.totalCorrectCount(), summary.totalQuestionCount()),
+        calculateAverageStar(summary.totalStar(), summary.totalQuestionCount()),
+        latestCategory != null ? latestCategory.latestSessionAt() : null,
+        latestCategory != null
+            ? new ReportLatestCategoryResponse(
+                latestCategory.categoryId(), latestCategory.categoryName())
+            : null,
+        weakWords);
+  }
+
+  public ReportWeakWordListResponse getWeakWords(
+      Long userId, Long childId, ReportWeakWordSearchCondition condition) {
+    validatePositiveId(childId, "childId");
+    validatePositiveId(condition.categoryId(), "categoryId");
+    validateChildProfileOwner(childId, userId);
+
+    LocalDateTime from = parseFrom(condition.from());
+    LocalDateTime to = parseToExclusive(condition.to());
+    validateDateRange(from, to);
+
+    int minAttemptCount = resolveMinAttemptCount(condition.minAttemptCount());
+    int page = resolvePage(condition.page());
+    int size = resolveSize(condition.size());
+    PageRequest pageRequest = PageRequest.of(page - 1, size);
+
+    Page<ReportWeakWordQueryRow> rows =
+        reportQuizSessionQueryRepository.findWeakWords(
+            childId, from, to, condition.categoryId(), minAttemptCount, pageRequest);
+
+    return new ReportWeakWordListResponse(
+        rows.getContent().stream().map(this::toWeakWordResponse).toList(),
+        page,
+        size,
+        rows.getTotalElements(),
+        rows.getTotalPages());
   }
 
   public ReportQuizSessionListResponse getQuizSessions(
@@ -144,6 +222,20 @@ public class ReportService {
         row.answeredAt());
   }
 
+  private ReportWeakWordResponse toWeakWordResponse(ReportWeakWordQueryRow row) {
+    return new ReportWeakWordResponse(
+        row.wordId(),
+        row.word(),
+        row.displayText(),
+        row.categoryId(),
+        row.categoryName(),
+        row.attemptCount(),
+        row.wrongCount(),
+        calculateAccuracyRate(row.attemptCount() - row.wrongCount(), row.attemptCount()),
+        roundOneDecimal(row.averageStar()),
+        row.lastAnsweredAt());
+  }
+
   private LocalDateTime parseFrom(String value) {
     if (value == null || value.isBlank()) {
       return null;
@@ -186,6 +278,17 @@ public class ReportService {
     return size;
   }
 
+  private int resolveMinAttemptCount(Integer minAttemptCount) {
+    if (minAttemptCount == null) {
+      return DEFAULT_MIN_ATTEMPT_COUNT;
+    }
+    if (minAttemptCount < 1) {
+      throw new BusinessException(
+          ValidationErrorCode.INVALID_INPUT, "minAttemptCount는 1 이상이어야 합니다.");
+    }
+    return minAttemptCount;
+  }
+
   private double calculateAccuracyRate(Integer correctCount, Integer totalQuestionCount) {
     if (correctCount == null || totalQuestionCount == null || totalQuestionCount == 0) {
       return 0.0;
@@ -194,6 +297,20 @@ public class ReportService {
   }
 
   private double calculateAverageStar(Integer totalStar, Integer totalQuestionCount) {
+    if (totalStar == null || totalQuestionCount == null || totalQuestionCount == 0) {
+      return 0.0;
+    }
+    return roundOneDecimal(totalStar * 1.0 / totalQuestionCount);
+  }
+
+  private double calculateAccuracyRate(Long correctCount, Long totalQuestionCount) {
+    if (correctCount == null || totalQuestionCount == null || totalQuestionCount == 0) {
+      return 0.0;
+    }
+    return roundOneDecimal(correctCount * 100.0 / totalQuestionCount);
+  }
+
+  private double calculateAverageStar(Long totalStar, Long totalQuestionCount) {
     if (totalStar == null || totalQuestionCount == null || totalQuestionCount == 0) {
       return 0.0;
     }
