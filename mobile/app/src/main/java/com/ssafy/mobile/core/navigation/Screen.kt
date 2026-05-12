@@ -63,4 +63,6 @@ sealed class Screen(
     data object ReportWeakWords : Screen("report_weak_words_route")
 
     data object ReportCategoryProgress : Screen("report_category_progress_route")
+
+    data object ReportQuizSessions : Screen("report_quiz_sessions_route")
 }

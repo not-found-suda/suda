@@ -4,6 +4,7 @@ import android.util.Log
 import com.ssafy.mobile.feature.report.data.api.ReportApiService
 import com.ssafy.mobile.feature.report.data.dto.toDomain
 import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgressPage
+import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionPage
 import com.ssafy.mobile.feature.report.domain.model.ReportSummary
 import com.ssafy.mobile.feature.report.domain.model.ReportWeakWordPage
 import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
@@ -134,6 +135,47 @@ class RemoteReportRepository
             ) {
                 Log.e(TAG, "Report category progress unknown error", e)
                 Result.failure(IllegalStateException("카테고리별 리포트를 불러오는 중 오류가 발생했습니다."))
+            }
+
+        override suspend fun getQuizSessions(
+            childId: Long,
+            page: Int,
+            size: Int,
+        ): Result<ReportQuizSessionPage> =
+            try {
+                val response =
+                    apiService.getQuizSessions(
+                        childId = childId,
+                        page = page,
+                        size = size,
+                    )
+
+                if (response.isSuccessful) {
+                    val body =
+                        response.body()
+                            ?: return Result.failure(IllegalStateException("퀴즈 기록 응답이 비어 있습니다."))
+                    Result.success(body.toDomain())
+                } else {
+                    Result.failure(
+                        IllegalStateException(
+                            errorMessage(
+                                statusCode = response.code(),
+                                defaultMessage = "퀴즈 기록을 불러오지 못했습니다.",
+                            ),
+                        ),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                Log.e(TAG, "Report quiz sessions network error", e)
+                Result.failure(IOException("네트워크 연결을 확인해 주세요."))
+            } catch (
+                @Suppress("TooGenericExceptionCaught")
+                e: Exception,
+            ) {
+                Log.e(TAG, "Report quiz sessions unknown error", e)
+                Result.failure(IllegalStateException("퀴즈 기록을 불러오는 중 오류가 발생했습니다."))
             }
 
         private fun errorMessage(

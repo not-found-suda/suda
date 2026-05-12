@@ -44,6 +44,7 @@ fun ReportHomeRoute(
     onNavigateToSummary: () -> Unit,
     onNavigateToWeakWords: () -> Unit,
     onNavigateToCategoryProgress: () -> Unit,
+    onNavigateToQuizSessions: () -> Unit,
     onSwitchChild: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ReportHomeViewModel = hiltViewModel(),
@@ -72,6 +73,7 @@ fun ReportHomeRoute(
                 onNavigateToSummary = onNavigateToSummary,
                 onNavigateToWeakWords = onNavigateToWeakWords,
                 onNavigateToCategoryProgress = onNavigateToCategoryProgress,
+                onNavigateToQuizSessions = onNavigateToQuizSessions,
                 onSwitchChild = onSwitchChild,
                 onRetryClick = viewModel::loadActiveChildProfile,
             ),
@@ -83,6 +85,7 @@ private data class ReportHomeActions(
     val onNavigateToSummary: () -> Unit,
     val onNavigateToWeakWords: () -> Unit,
     val onNavigateToCategoryProgress: () -> Unit,
+    val onNavigateToQuizSessions: () -> Unit,
     val onSwitchChild: () -> Unit,
     val onRetryClick: () -> Unit,
 )
@@ -161,6 +164,16 @@ private fun ReportHomeScreen(
                 description = "카테고리별 학습 흐름을 정리해드릴게요.",
                 iconEmoji = "📊",
                 onClick = actions.onNavigateToCategoryProgress,
+                enabled = isMenuEnabled,
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            ReportMenuCard(
+                title = "퀴즈 기록",
+                description = "아이가 풀어본 퀴즈 기록을 최신순으로 볼 수 있어요.",
+                iconEmoji = "🧩",
+                onClick = actions.onNavigateToQuizSessions,
                 enabled = isMenuEnabled,
             )
 
