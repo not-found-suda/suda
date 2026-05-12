@@ -3,6 +3,7 @@ package com.ssafy.mobile.feature.report.data.repository
 import android.util.Log
 import com.ssafy.mobile.feature.report.data.api.ReportApiService
 import com.ssafy.mobile.feature.report.data.dto.toDomain
+import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgressPage
 import com.ssafy.mobile.feature.report.domain.model.ReportSummary
 import com.ssafy.mobile.feature.report.domain.model.ReportWeakWordPage
 import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
@@ -92,6 +93,47 @@ class RemoteReportRepository
             ) {
                 Log.e(TAG, "Report weak words unknown error", e)
                 Result.failure(IllegalStateException("취약 단어를 불러오는 중 오류가 발생했습니다."))
+            }
+
+        override suspend fun getCategoryProgress(
+            childId: Long,
+            from: String?,
+            to: String?,
+        ): Result<ReportCategoryProgressPage> =
+            try {
+                val response =
+                    apiService.getCategoryProgress(
+                        childId = childId,
+                        from = from,
+                        to = to,
+                    )
+
+                if (response.isSuccessful) {
+                    val body =
+                        response.body()
+                            ?: return Result.failure(IllegalStateException("카테고리 리포트 응답이 비어 있습니다."))
+                    Result.success(body.toDomain())
+                } else {
+                    Result.failure(
+                        IllegalStateException(
+                            errorMessage(
+                                statusCode = response.code(),
+                                defaultMessage = "카테고리별 리포트를 불러오지 못했습니다.",
+                            ),
+                        ),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                Log.e(TAG, "Report category progress network error", e)
+                Result.failure(IOException("네트워크 연결을 확인해 주세요."))
+            } catch (
+                @Suppress("TooGenericExceptionCaught")
+                e: Exception,
+            ) {
+                Log.e(TAG, "Report category progress unknown error", e)
+                Result.failure(IllegalStateException("카테고리별 리포트를 불러오는 중 오류가 발생했습니다."))
             }
 
         private fun errorMessage(

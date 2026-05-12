@@ -1,5 +1,6 @@
 package com.ssafy.mobile.feature.report.data.api
 
+import com.ssafy.mobile.feature.report.data.dto.ReportCategoryProgressListResponseDto
 import com.ssafy.mobile.feature.report.data.dto.ReportSummaryResponseDto
 import com.ssafy.mobile.feature.report.data.dto.ReportWeakWordListResponseDto
 import retrofit2.Response
@@ -19,4 +20,11 @@ interface ReportApiService {
         @Query("page") page: Int,
         @Query("size") size: Int,
     ): Response<ReportWeakWordListResponseDto>
+
+    @GET("v1/children/{childId}/reports/categories")
+    suspend fun getCategoryProgress(
+        @Path("childId") childId: Long,
+        @Query("from") from: String? = null,
+        @Query("to") to: String? = null,
+    ): Response<ReportCategoryProgressListResponseDto>
 }

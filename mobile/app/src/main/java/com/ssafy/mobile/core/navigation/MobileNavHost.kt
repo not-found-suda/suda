@@ -21,6 +21,7 @@ import com.ssafy.mobile.feature.login.presentation.LoginRoute
 import com.ssafy.mobile.feature.mypage.presentation.MyPageRoute
 import com.ssafy.mobile.feature.quiz.presentation.QuizResultRoute
 import com.ssafy.mobile.feature.quiz.presentation.quizQuestionRoute
+import com.ssafy.mobile.feature.report.presentation.ReportCategoryProgressRoute
 import com.ssafy.mobile.feature.report.presentation.ReportHomeRoute
 import com.ssafy.mobile.feature.report.presentation.ReportPlaceholderRoute
 import com.ssafy.mobile.feature.report.presentation.ReportWeakWordsRoute
@@ -365,9 +366,11 @@ fun MobileNavHost(
         }
 
         composable(Screen.ReportCategoryProgress.route) {
-            ReportPlaceholderRoute(
-                title = "학습 진행도",
+            ReportCategoryProgressRoute(
                 onNavigateBack = { navController.popBackStack() },
+                onSwitchChild = {
+                    navController.navigate(Screen.ChildSelect.route)
+                },
                 modifier = Modifier.fillMaxSize(),
             )
         }
