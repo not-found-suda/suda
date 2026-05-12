@@ -11,7 +11,6 @@ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizAnswerResult
 import com.ssafy.mobile.feature.learning.domain.model.LearningQuizAnswerSubmissionSyncEvent
 import com.ssafy.mobile.feature.learning.domain.model.LearningQuizQuestion
 import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizRepository
-import com.ssafy.mobile.feature.learning.domain.repository.LearningWordRepository
 import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
 import com.ssafy.mobile.feature.quiz.domain.model.QuizQuestion
 import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionState
@@ -31,7 +30,6 @@ class QuizQuestionViewModel
     constructor(
         savedStateHandle: SavedStateHandle,
         private val quizRepository: LearningQuizRepository,
-        private val wordRepository: LearningWordRepository,
         private val queueSyncer: LearningQuizAnswerSubmissionQueueSyncer,
         private val activeChildStorage: ActiveChildStorage,
     ) : ViewModel() {
@@ -40,7 +38,6 @@ class QuizQuestionViewModel
                 "Quiz route requires categoryId."
             }
         val difficulty: String = savedStateHandle["difficulty"] ?: DEFAULT_LEARNING_DIFFICULTY
-        private var wordById: Map<Long, String> = emptyMap()
         private var isCompletionPending = false
 
         private val _quizState = MutableStateFlow(QuizSessionState(isLoading = true))
@@ -61,7 +58,6 @@ class QuizQuestionViewModel
 
         fun restart() {
             _answerSubmitState.value = QuizAnswerSubmitState.Idle
-            wordById = emptyMap()
             isCompletionPending = false
             startSession()
         }
@@ -178,50 +174,32 @@ class QuizQuestionViewModel
                     return@launch
                 }
 
-                val wordResult =
+                val sessionResult =
                     withContext(Dispatchers.IO) {
-                        wordRepository.getWords(
+                        quizRepository.createSession(
+                            childProfileId = activeChildId,
                             categoryId = categoryId,
                             difficulty = difficulty,
+                            totalQuestionCount = DEFAULT_QUIZ_QUESTION_COUNT,
                         )
                     }
 
-                wordResult
-                    .onSuccess { words ->
-                        wordById = words.associate { word -> word.id to word.word }
-                        val sessionResult =
-                            withContext(Dispatchers.IO) {
-                                quizRepository.createSession(
-                                    childProfileId = activeChildId,
-                                    categoryId = categoryId,
-                                    difficulty = difficulty,
-                                    totalQuestionCount = DEFAULT_QUIZ_QUESTION_COUNT,
-                                )
-                            }
-
-                        sessionResult
-                            .onSuccess { session ->
-                                _quizState.value =
-                                    QuizSessionState(
-                                        isLoading = true,
-                                        sessionId = session.sessionId,
-                                        totalQuestionCountOverride = session.totalQuestionCount,
-                                        currentQuestionNumberOverride =
-                                            session.currentQuestionNumber,
-                                    )
-                                loadCurrentQuestion(session.sessionId)
-                            }.onFailure { throwable ->
-                                _quizState.value =
-                                    QuizSessionState(
-                                        errorMessage =
-                                            throwable.message ?: "퀴즈를 시작하지 못했습니다.",
-                                    )
-                            }
+                sessionResult
+                    .onSuccess { session ->
+                        _quizState.value =
+                            QuizSessionState(
+                                isLoading = true,
+                                sessionId = session.sessionId,
+                                totalQuestionCountOverride = session.totalQuestionCount,
+                                currentQuestionNumberOverride =
+                                    session.currentQuestionNumber,
+                            )
+                        loadCurrentQuestion(session.sessionId)
                     }.onFailure { throwable ->
                         _quizState.value =
                             QuizSessionState(
                                 errorMessage =
-                                    throwable.message ?: "퀴즈 단어 정보를 불러오지 못했습니다.",
+                                    throwable.message ?: "퀴즈를 시작하지 못했습니다.",
                             )
                     }
             }
@@ -252,9 +230,7 @@ class QuizQuestionViewModel
         private fun applyCurrentQuestion(question: LearningQuizQuestion) {
             val targetWord =
                 question.targetText
-                    ?.takeIf {
-                        it.isNotBlank()
-                    } ?: wordById[question.wordId]
+                    ?.takeIf { it.isNotBlank() }
             if (targetWord.isNullOrBlank()) {
                 _quizState.value =
                     _quizState.value.copy(
