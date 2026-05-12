@@ -23,6 +23,7 @@ import com.ssafy.mobile.feature.quiz.presentation.QuizResultRoute
 import com.ssafy.mobile.feature.quiz.presentation.quizQuestionRoute
 import com.ssafy.mobile.feature.report.presentation.ReportHomeRoute
 import com.ssafy.mobile.feature.report.presentation.ReportPlaceholderRoute
+import com.ssafy.mobile.feature.report.presentation.ReportWeakWordsRoute
 import com.ssafy.mobile.feature.sign.presentation.SignDebugRoute
 import com.ssafy.mobile.feature.signup.presentation.SignupRoute
 
@@ -354,9 +355,11 @@ fun MobileNavHost(
         }
 
         composable(Screen.ReportWeakWords.route) {
-            ReportPlaceholderRoute(
-                title = "자주 틀리는 단어",
+            ReportWeakWordsRoute(
                 onNavigateBack = { navController.popBackStack() },
+                onSwitchChild = {
+                    navController.navigate(Screen.ChildSelect.route)
+                },
                 modifier = Modifier.fillMaxSize(),
             )
         }

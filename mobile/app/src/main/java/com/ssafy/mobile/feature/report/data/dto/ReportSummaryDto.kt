@@ -6,16 +6,17 @@ import com.ssafy.mobile.feature.report.domain.model.ReportParticipationSummary
 import com.ssafy.mobile.feature.report.domain.model.ReportPerformanceSummary
 import com.ssafy.mobile.feature.report.domain.model.ReportSummary
 import com.ssafy.mobile.feature.report.domain.model.ReportWeakWord
+import com.ssafy.mobile.feature.report.domain.model.ReportWeakWordPage
 
 data class ReportSummaryResponseDto(
     @SerializedName("childId")
     val childId: Long,
     @SerializedName("completedSessionCount")
-    val completedSessionCount: Int,
+    val completedSessionCount: Long,
     @SerializedName("totalQuestionCount")
-    val totalQuestionCount: Int,
+    val totalQuestionCount: Long,
     @SerializedName("totalCorrectCount")
-    val totalCorrectCount: Int,
+    val totalCorrectCount: Long,
     @SerializedName("accuracyRate")
     val accuracyRate: Double,
     @SerializedName("averageStar")
@@ -47,15 +48,28 @@ data class ReportWeakWordDto(
     @SerializedName("categoryName")
     val categoryName: String,
     @SerializedName("attemptCount")
-    val attemptCount: Int,
+    val attemptCount: Long,
     @SerializedName("wrongCount")
-    val wrongCount: Int,
+    val wrongCount: Long,
     @SerializedName("accuracyRate")
     val accuracyRate: Double,
     @SerializedName("averageStar")
     val averageStar: Double,
     @SerializedName("lastAnsweredAt")
     val lastAnsweredAt: String? = null,
+)
+
+data class ReportWeakWordListResponseDto(
+    @SerializedName("content")
+    val content: List<ReportWeakWordDto> = emptyList(),
+    @SerializedName("page")
+    val page: Int,
+    @SerializedName("size")
+    val size: Int,
+    @SerializedName("totalElements")
+    val totalElements: Long,
+    @SerializedName("totalPages")
+    val totalPages: Int,
 )
 
 fun ReportSummaryResponseDto.toDomain(): ReportSummary =
@@ -83,7 +97,16 @@ fun ReportSummaryResponseDto.toDomain(): ReportSummary =
         weakWords = weakWords.map { it.toDomain() },
     )
 
-private fun ReportWeakWordDto.toDomain(): ReportWeakWord =
+fun ReportWeakWordListResponseDto.toDomain(): ReportWeakWordPage =
+    ReportWeakWordPage(
+        words = content.map { it.toDomain() },
+        page = page,
+        size = size,
+        totalElements = totalElements,
+        totalPages = totalPages,
+    )
+
+fun ReportWeakWordDto.toDomain(): ReportWeakWord =
     ReportWeakWord(
         wordId = wordId,
         word = word,
