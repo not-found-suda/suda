@@ -190,6 +190,10 @@ public class ReportQuizSessionQueryRepository {
             + """
         GROUP BY w.id, w.word, w.displayText, c.id, c.name
         HAVING COUNT(a.id) >= :minAttemptCount
+          AND (
+            COALESCE(SUM(CASE WHEN a.isCorrect = false THEN 1 ELSE 0 END), 0) > 0
+            OR AVG(a.star) < :maxStar
+          )
         ORDER BY
           COALESCE(SUM(CASE WHEN a.isCorrect = false THEN 1 ELSE 0 END), 0) DESC,
           AVG(a.star) ASC,
@@ -225,6 +229,34 @@ public class ReportQuizSessionQueryRepository {
             + weakWordSubqueryFilters(from, to, categoryId)
             + """
         ) >= :minAttemptCount
+          AND (
+            (
+              SELECT COALESCE(SUM(CASE WHEN a3.isCorrect = false THEN 1 ELSE 0 END), 0)
+              FROM QuizAnswer a3
+              JOIN a3.session s3
+              JOIN a3.word w3
+              JOIN w3.category c3
+              WHERE s3.childProfileId = :childId
+                AND s3.status = :completed
+                AND w3.id = w.id
+        """
+            + weakWordSubqueryFilters("s3", "c3", from, to, categoryId)
+            + """
+            ) > 0
+            OR (
+              SELECT AVG(a4.star)
+              FROM QuizAnswer a4
+              JOIN a4.session s4
+              JOIN a4.word w4
+              JOIN w4.category c4
+              WHERE s4.childProfileId = :childId
+                AND s4.status = :completed
+                AND w4.id = w.id
+        """
+            + weakWordSubqueryFilters("s4", "c4", from, to, categoryId)
+            + """
+            ) < :maxStar
+          )
         """;
     TypedQuery<Long> countQuery = entityManager.createQuery(countJpql, Long.class);
     bindWeakWordParameters(countQuery, childId, from, to, categoryId, minAttemptCount);
@@ -337,6 +369,7 @@ public class ReportQuizSessionQueryRepository {
     query.setParameter("childId", childId);
     query.setParameter("completed", QuizSessionStatus.COMPLETED);
     query.setParameter("minAttemptCount", (long) minAttemptCount);
+    query.setParameter("maxStar", 3.0);
     bindDateParameters(query, from, to);
     if (categoryId != null) {
       query.setParameter("categoryId", categoryId);
@@ -344,15 +377,24 @@ public class ReportQuizSessionQueryRepository {
   }
 
   private String weakWordSubqueryFilters(LocalDateTime from, LocalDateTime to, Long categoryId) {
+    return weakWordSubqueryFilters("s2", "c2", from, to, categoryId);
+  }
+
+  private String weakWordSubqueryFilters(
+      String sessionAlias,
+      String categoryAlias,
+      LocalDateTime from,
+      LocalDateTime to,
+      Long categoryId) {
     StringBuilder filters = new StringBuilder();
     if (from != null) {
-      filters.append(" AND s2.startedAt >= :from");
+      filters.append(" AND ").append(sessionAlias).append(".startedAt >= :from");
     }
     if (to != null) {
-      filters.append(" AND s2.startedAt < :to");
+      filters.append(" AND ").append(sessionAlias).append(".startedAt < :to");
     }
     if (categoryId != null) {
-      filters.append(" AND c2.id = :categoryId");
+      filters.append(" AND ").append(categoryAlias).append(".id = :categoryId");
     }
     return filters.toString();
   }
