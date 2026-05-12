@@ -148,6 +148,7 @@ public class ReportQuizSessionQueryRepository {
     TypedQuery<ReportLatestCategoryQueryRow> query =
         entityManager.createQuery(jpql, ReportLatestCategoryQueryRow.class);
     query.setParameter("childId", childId);
+    query.setParameter("completed", QuizSessionStatus.COMPLETED);
     bindDateParameters(query, from, to);
     query.setMaxResults(1);
 
@@ -262,6 +263,71 @@ public class ReportQuizSessionQueryRepository {
     bindWeakWordParameters(countQuery, childId, from, to, categoryId, minAttemptCount);
 
     return new PageImpl<>(query.getResultList(), pageable, countQuery.getSingleResult());
+  }
+
+  public List<ReportCategoryQueryRow> findCategories(
+      Long childId, LocalDateTime from, LocalDateTime to) {
+    StringBuilder where =
+        new StringBuilder(" WHERE s.childProfileId = :childId AND c.active = true");
+    appendDateConditions(where, from, to);
+    where.append(" AND s.status = :completed");
+
+    String jpql =
+        """
+        SELECT
+          c.id,
+          c.name,
+          (
+            SELECT COUNT(w.id)
+            FROM Learn w
+            WHERE w.category.id = c.id
+              AND w.active = true
+          ),
+          (
+            SELECT COUNT(DISTINCT a2.word.id)
+            FROM QuizAnswer a2
+            JOIN a2.session s2
+            WHERE s2.childProfileId = :childId
+              AND s2.status = :completed
+              AND s2.categoryId = c.id
+        """
+            + categoryDateFilters("s2", from, to)
+            + """
+          ),
+          (
+            SELECT COUNT(DISTINCT a3.word.id)
+            FROM QuizAnswer a3
+            JOIN a3.session s3
+            WHERE s3.childProfileId = :childId
+              AND s3.status = :completed
+              AND s3.categoryId = c.id
+              AND a3.isCorrect = true
+        """
+            + categoryDateFilters("s3", from, to)
+            + """
+          ),
+          COUNT(s.id),
+          COALESCE(SUM(s.totalQuestionCount), 0),
+          COALESCE(SUM(s.correctCount), 0),
+          COALESCE(SUM(s.totalStar), 0),
+          MAX(s.startedAt)
+        FROM LearnCategory c
+        JOIN QuizSession s ON s.categoryId = c.id
+        """
+            + where
+            + """
+        GROUP BY c.id, c.name
+        ORDER BY MAX(s.startedAt) DESC, c.id ASC
+        """;
+
+    Query query = entityManager.createQuery(jpql);
+    query.setParameter("childId", childId);
+    query.setParameter("completed", QuizSessionStatus.COMPLETED);
+    bindDateParameters(query, from, to);
+
+    @SuppressWarnings("unchecked")
+    List<Object[]> rows = query.getResultList();
+    return rows.stream().map(this::toCategoryQueryRow).toList();
   }
 
   public List<ReportQuizAnswerQueryRow> findAnswers(Long childId, Long sessionId) {
@@ -397,6 +463,31 @@ public class ReportQuizSessionQueryRepository {
       filters.append(" AND ").append(categoryAlias).append(".id = :categoryId");
     }
     return filters.toString();
+  }
+
+  private String categoryDateFilters(String sessionAlias, LocalDateTime from, LocalDateTime to) {
+    StringBuilder filters = new StringBuilder();
+    if (from != null) {
+      filters.append(" AND ").append(sessionAlias).append(".startedAt >= :from");
+    }
+    if (to != null) {
+      filters.append(" AND ").append(sessionAlias).append(".startedAt < :to");
+    }
+    return filters.toString();
+  }
+
+  private ReportCategoryQueryRow toCategoryQueryRow(Object[] row) {
+    return new ReportCategoryQueryRow(
+        toLong(row[0]),
+        (String) row[1],
+        toLong(row[2]),
+        toLong(row[3]),
+        toLong(row[4]),
+        toLong(row[5]),
+        toLong(row[6]),
+        toLong(row[7]),
+        toLong(row[8]),
+        (LocalDateTime) row[9]);
   }
 
   private Long toLong(Object value) {

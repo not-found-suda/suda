@@ -2,6 +2,8 @@ package com.ssafy.backend.domain.report.service;
 
 import com.ssafy.backend.domain.child.exception.ChildProfileErrorCode;
 import com.ssafy.backend.domain.child.repository.ChildProfileRepository;
+import com.ssafy.backend.domain.report.dto.ReportCategoryListResponse;
+import com.ssafy.backend.domain.report.dto.ReportCategoryResponse;
 import com.ssafy.backend.domain.report.dto.ReportLatestCategoryResponse;
 import com.ssafy.backend.domain.report.dto.ReportQuizAnswerResponse;
 import com.ssafy.backend.domain.report.dto.ReportQuizSessionDetailResponse;
@@ -13,6 +15,7 @@ import com.ssafy.backend.domain.report.dto.ReportWeakWordListResponse;
 import com.ssafy.backend.domain.report.dto.ReportWeakWordResponse;
 import com.ssafy.backend.domain.report.dto.ReportWeakWordSearchCondition;
 import com.ssafy.backend.domain.report.exception.ReportErrorCode;
+import com.ssafy.backend.domain.report.repository.ReportCategoryQueryRow;
 import com.ssafy.backend.domain.report.repository.ReportLatestCategoryQueryRow;
 import com.ssafy.backend.domain.report.repository.ReportQuizAnswerQueryRow;
 import com.ssafy.backend.domain.report.repository.ReportQuizSessionQueryRepository;
@@ -113,6 +116,23 @@ public class ReportService {
         size,
         rows.getTotalElements(),
         rows.getTotalPages());
+  }
+
+  public ReportCategoryListResponse getCategories(
+      Long userId, Long childId, String from, String to) {
+    validatePositiveId(childId, "childId");
+    validateChildProfileOwner(childId, userId);
+
+    LocalDateTime fromDateTime = parseFrom(from);
+    LocalDateTime toDateTime = parseToExclusive(to);
+    validateDateRange(fromDateTime, toDateTime);
+
+    List<ReportCategoryResponse> categories =
+        reportQuizSessionQueryRepository.findCategories(childId, fromDateTime, toDateTime).stream()
+            .map(this::toCategoryResponse)
+            .toList();
+
+    return new ReportCategoryListResponse(categories);
   }
 
   public ReportQuizSessionListResponse getQuizSessions(
@@ -233,6 +253,23 @@ public class ReportService {
         calculateAccuracyRate(row.attemptCount() - row.wrongCount(), row.attemptCount()),
         roundOneDecimal(row.averageStar()),
         row.lastAnsweredAt());
+  }
+
+  private ReportCategoryResponse toCategoryResponse(ReportCategoryQueryRow row) {
+    return new ReportCategoryResponse(
+        row.categoryId(),
+        row.categoryName(),
+        row.totalWordCount(),
+        row.quizzedWordCount(),
+        row.correctWordCount(),
+        calculateAccuracyRate(row.quizzedWordCount(), row.totalWordCount()),
+        calculateAccuracyRate(row.correctWordCount(), row.totalWordCount()),
+        row.completedSessionCount(),
+        row.totalQuestionCount(),
+        row.correctCount(),
+        calculateAccuracyRate(row.correctCount(), row.totalQuestionCount()),
+        calculateAverageStar(row.totalStar(), row.totalQuestionCount()),
+        row.latestSessionAt());
   }
 
   private LocalDateTime parseFrom(String value) {

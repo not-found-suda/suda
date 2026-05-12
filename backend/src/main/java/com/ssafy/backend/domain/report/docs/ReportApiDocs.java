@@ -2,6 +2,7 @@ package com.ssafy.backend.domain.report.docs;
 
 import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
 import com.ssafy.backend.domain.learn.quiz.entity.QuizSessionStatus;
+import com.ssafy.backend.domain.report.dto.ReportCategoryListResponse;
 import com.ssafy.backend.domain.report.dto.ReportQuizSessionDetailResponse;
 import com.ssafy.backend.domain.report.dto.ReportQuizSessionListResponse;
 import com.ssafy.backend.domain.report.dto.ReportSummaryResponse;
@@ -30,6 +31,21 @@ public interface ReportApiDocs {
       description = "성공",
       content = @Content(schema = @Schema(implementation = ReportSummaryResponse.class)))
   ResponseEntity<ReportSummaryResponse> getSummary(
+      @Parameter(hidden = true) Authentication authentication,
+      @Parameter(description = "아이 프로필 ID", example = "1") Long childId,
+      @Parameter(description = "조회 시작일", example = "2026-05-01") String from,
+      @Parameter(description = "조회 종료일", example = "2026-05-31") String to);
+
+  @Operation(
+      summary = "카테고리별 리포트 요약 조회",
+      description = "특정 아이의 완료된 퀴즈 결과를 기준으로 카테고리별 진행도와 정답률을 조회합니다.",
+      security = {@SecurityRequirement(name = "bearerAuth")})
+  @ApiErrorCodes({"VALIDATION_INVALID_INPUT", "COMMON_UNAUTHORIZED", "CHILD_PROFILE_NOT_FOUND"})
+  @ApiResponse(
+      responseCode = "200",
+      description = "성공",
+      content = @Content(schema = @Schema(implementation = ReportCategoryListResponse.class)))
+  ResponseEntity<ReportCategoryListResponse> getCategories(
       @Parameter(hidden = true) Authentication authentication,
       @Parameter(description = "아이 프로필 ID", example = "1") Long childId,
       @Parameter(description = "조회 시작일", example = "2026-05-01") String from,

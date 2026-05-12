@@ -3,6 +3,7 @@ package com.ssafy.backend.domain.report.controller;
 import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
 import com.ssafy.backend.domain.learn.quiz.entity.QuizSessionStatus;
 import com.ssafy.backend.domain.report.docs.ReportApiDocs;
+import com.ssafy.backend.domain.report.dto.ReportCategoryListResponse;
 import com.ssafy.backend.domain.report.dto.ReportQuizSessionDetailResponse;
 import com.ssafy.backend.domain.report.dto.ReportQuizSessionListResponse;
 import com.ssafy.backend.domain.report.dto.ReportQuizSessionSearchCondition;
@@ -40,6 +41,17 @@ public class ReportController implements ReportApiDocs {
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) String to) {
     return ResponseEntity.ok(
         reportService.getSummary(resolveUserId(authentication), childId, from, to));
+  }
+
+  @Override
+  @GetMapping("/categories")
+  public ResponseEntity<ReportCategoryListResponse> getCategories(
+      Authentication authentication,
+      @PathVariable Long childId,
+      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) String from,
+      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) String to) {
+    return ResponseEntity.ok(
+        reportService.getCategories(resolveUserId(authentication), childId, from, to));
   }
 
   @Override
