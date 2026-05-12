@@ -66,23 +66,32 @@ fun ReportHomeRoute(
 
     ReportHomeScreen(
         activeChildState = uiState.activeChildState,
-        onNavigateToSummary = onNavigateToSummary,
-        onNavigateToWeakWords = onNavigateToWeakWords,
-        onNavigateToCategoryProgress = onNavigateToCategoryProgress,
-        onSwitchChild = onSwitchChild,
-        onRetryClick = viewModel::loadActiveChildProfile,
+        summaryState = uiState.summaryState,
+        actions =
+            ReportHomeActions(
+                onNavigateToSummary = onNavigateToSummary,
+                onNavigateToWeakWords = onNavigateToWeakWords,
+                onNavigateToCategoryProgress = onNavigateToCategoryProgress,
+                onSwitchChild = onSwitchChild,
+                onRetryClick = viewModel::loadActiveChildProfile,
+            ),
         modifier = modifier,
     )
 }
 
+private data class ReportHomeActions(
+    val onNavigateToSummary: () -> Unit,
+    val onNavigateToWeakWords: () -> Unit,
+    val onNavigateToCategoryProgress: () -> Unit,
+    val onSwitchChild: () -> Unit,
+    val onRetryClick: () -> Unit,
+)
+
 @Composable
 private fun ReportHomeScreen(
     activeChildState: ActiveChildProfileState,
-    onNavigateToSummary: () -> Unit,
-    onNavigateToWeakWords: () -> Unit,
-    onNavigateToCategoryProgress: () -> Unit,
-    onSwitchChild: () -> Unit,
-    onRetryClick: () -> Unit,
+    summaryState: ReportSummaryUiState,
+    actions: ReportHomeActions,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -101,13 +110,22 @@ private fun ReportHomeScreen(
         ) {
             ReportActiveChildSection(
                 state = activeChildState,
-                onSwitchClick = onSwitchChild,
-                onRetryClick = onRetryClick,
+                onSwitchClick = actions.onSwitchChild,
+                onRetryClick = actions.onRetryClick,
             )
 
             Spacer(modifier = Modifier.height(32.dp))
 
             val isMenuEnabled = activeChildState is ActiveChildProfileState.Selected
+
+            if (isMenuEnabled) {
+                ReportSummarySection(
+                    summaryState = summaryState,
+                    onRetryClick = actions.onRetryClick,
+                )
+
+                Spacer(modifier = Modifier.height(32.dp))
+            }
 
             Text(
                 text = "리포트 목록",
@@ -122,7 +140,7 @@ private fun ReportHomeScreen(
                 title = "학습 요약 리포트",
                 description = "최근 아이의 학습 성과를 한눈에 보여드려요.",
                 iconEmoji = "📝",
-                onClick = onNavigateToSummary,
+                onClick = actions.onNavigateToSummary,
                 enabled = isMenuEnabled,
             )
 
@@ -132,7 +150,7 @@ private fun ReportHomeScreen(
                 title = "자주 틀리는 단어",
                 description = "아이가 어려워하는 단어들을 모아봤어요.",
                 iconEmoji = "⚠️",
-                onClick = onNavigateToWeakWords,
+                onClick = actions.onNavigateToWeakWords,
                 enabled = isMenuEnabled,
             )
 
@@ -142,7 +160,7 @@ private fun ReportHomeScreen(
                 title = "카테고리별 학습 진행도",
                 description = "카테고리별 학습 흐름을 정리해드릴게요.",
                 iconEmoji = "📊",
-                onClick = onNavigateToCategoryProgress,
+                onClick = actions.onNavigateToCategoryProgress,
                 enabled = isMenuEnabled,
             )
 
