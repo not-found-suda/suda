@@ -5,6 +5,8 @@ data/
 models/*
 !models/transformer_mobile/
 !models/transformer_mobile/**
+!models/tcn_mobile
+!models/tcn_mobile/**
 models/BiLSTM/
 
 ### Python Cache ###
