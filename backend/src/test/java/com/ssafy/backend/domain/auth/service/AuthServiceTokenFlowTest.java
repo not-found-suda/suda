@@ -93,7 +93,7 @@ class AuthServiceTokenFlowTest {
     assertAuthError(
         () -> authService.login(new LoginRequestDto(EMAIL, RAW_PASSWORD)),
         AuthErrorCode.INVALID_CREDENTIALS);
-    verify(jwtTokenProvider, never()).generateAccessToken(USER_ID, Role.USER);
+    verifyTokenPairNotGenerated();
     verify(refreshTokenStore, never()).save(Mockito.any(), Mockito.any(), Mockito.any());
   }
 
@@ -145,6 +145,7 @@ class AuthServiceTokenFlowTest {
         () -> authService.refresh(oldRefreshToken), AuthErrorCode.INVALID_REFRESH_TOKEN);
     verify(refreshTokenStore, never()).delete(oldRefreshJti);
     verify(refreshTokenStore, never()).save(Mockito.any(), Mockito.any(), Mockito.any());
+    verifyTokenPairNotGenerated();
   }
 
   @Test
@@ -165,6 +166,19 @@ class AuthServiceTokenFlowTest {
   }
 
   @Test
+  @DisplayName("로그아웃 시 accessToken 남은 시간이 없으면 블랙리스트에 등록하지 않는다")
+  void logoutSkipsAccessTokenBlacklistWhenRemainingTtlIsZero() {
+    when(jwtTokenProvider.validateToken(ACCESS_TOKEN)).thenReturn(true);
+    when(jwtTokenProvider.isAccessToken(ACCESS_TOKEN)).thenReturn(true);
+    when(jwtTokenProvider.getJti(ACCESS_TOKEN)).thenReturn(ACCESS_JTI);
+    when(jwtTokenProvider.getRemainingValiditySeconds(ACCESS_TOKEN)).thenReturn(0L);
+
+    authService.logout(null, ACCESS_TOKEN);
+
+    verify(accessTokenBlacklistStore, never()).blacklist(Mockito.any(), Mockito.any());
+  }
+
+  @Test
   @DisplayName("비활성 계정은 refreshToken이 유효해도 재발급할 수 없다")
   void refreshRejectsInactiveUser() {
     String oldRefreshToken = "old-refresh-token";
@@ -180,6 +194,7 @@ class AuthServiceTokenFlowTest {
     assertAuthError(() -> authService.refresh(oldRefreshToken), AuthErrorCode.INACTIVE_ACCOUNT);
     verify(refreshTokenStore).delete(oldRefreshJti);
     verify(refreshTokenStore, never()).save(Mockito.any(), Mockito.any(), Mockito.any());
+    verifyTokenPairNotGenerated();
   }
 
   private void stubTokenCreation(String accessToken, String refreshToken, String refreshJti) {
@@ -195,6 +210,11 @@ class AuthServiceTokenFlowTest {
 
   private UserAuthResponseDto inactiveUser() {
     return new UserAuthResponseDto(USER_ID, EMAIL, ENCODED_PASSWORD, false, Role.USER);
+  }
+
+  private void verifyTokenPairNotGenerated() {
+    verify(jwtTokenProvider, never()).generateAccessToken(Mockito.any(), Mockito.any());
+    verify(jwtTokenProvider, never()).generateRefreshToken(Mockito.any());
   }
 
   private void assertAuthError(ThrowingCall call, AuthErrorCode expectedErrorCode) {

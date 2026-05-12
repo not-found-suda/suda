@@ -135,6 +135,9 @@ public class AuthService {
     }
 
     long ttlSeconds = jwtTokenProvider.getRemainingValiditySeconds(accessToken);
+    if (ttlSeconds <= 0) {
+      return;
+    }
     accessTokenBlacklistStore.blacklist(accessJti, Duration.ofSeconds(ttlSeconds));
   }
 
