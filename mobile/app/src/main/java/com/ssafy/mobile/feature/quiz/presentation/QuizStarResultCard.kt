@@ -79,7 +79,12 @@ private data class StarResultText(
 )
 
 private fun QuizAnswer.toStarResultText(remainingRetryCount: Int): StarResultText =
-    when (star.coerceIn(MIN_STAR, MAX_STAR)) {
+    when (star?.coerceIn(MIN_STAR, MAX_STAR)) {
+        null ->
+            StarResultText(
+                title = "답변을 확인하고 있어요",
+                description = "잠시만 기다려 주세요. 채점 결과가 곧 도착해요.",
+            )
         MAX_STAR ->
             StarResultText(
                 title = "정말 잘했어요!",
@@ -105,23 +110,25 @@ private fun retryDescription(remainingRetryCount: Int): String =
     }
 
 @Composable
-private fun Int.starResultContainerColor(): Color =
-    when (coerceIn(MIN_STAR, MAX_STAR)) {
+private fun Int?.starResultContainerColor(): Color =
+    when (this?.coerceIn(MIN_STAR, MAX_STAR)) {
+        null -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
         MAX_STAR -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
         TWO_STARS -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.72f)
         else -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.42f)
     }
 
 @Composable
-private fun Int.starResultColor(): Color =
-    when (coerceIn(MIN_STAR, MAX_STAR)) {
+private fun Int?.starResultColor(): Color =
+    when (this?.coerceIn(MIN_STAR, MAX_STAR)) {
+        null -> MaterialTheme.colorScheme.onSurfaceVariant
         MAX_STAR -> MaterialTheme.colorScheme.primary
         TWO_STARS -> MaterialTheme.colorScheme.tertiary
         else -> MaterialTheme.colorScheme.error
     }
 
-private fun Int.toStarDisplay(): String {
-    val filledCount = coerceIn(MIN_STAR, MAX_STAR)
+private fun Int?.toStarDisplay(): String {
+    val filledCount = this?.coerceIn(MIN_STAR, MAX_STAR) ?: 0
     return buildString {
         repeat(MAX_STAR) { index ->
             append(if (index < filledCount) FILLED_STAR else EMPTY_STAR)

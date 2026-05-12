@@ -37,6 +37,20 @@ class QuizRetryPolicyTest {
         assertTrue(QuizRetryPolicy.canMoveNext(answer = null, canSkipQuestion = true))
     }
 
+    @Test
+    fun pendingAnswerUsesAttemptCountButCannotMoveNextUntilScored() {
+        val answer =
+            QuizAnswer(
+                questionId = QUESTION_ID,
+                sttText = "테스트",
+                attemptCount = TWO_ATTEMPTS,
+            )
+
+        assertEquals(ONE_RETRY_LEFT, QuizRetryPolicy.remainingRetryCount(answer))
+        assertFalse(QuizRetryPolicy.isRetryLimitReached(answer))
+        assertFalse(QuizRetryPolicy.canMoveNext(answer, canSkipQuestion = false))
+    }
+
     private fun answer(
         star: Int,
         attemptCount: Int,
@@ -52,6 +66,8 @@ class QuizRetryPolicyTest {
         const val QUESTION_ID = 1L
         const val NO_RETRY_LEFT = 0
         const val ONE_ATTEMPT = 1
+        const val ONE_RETRY_LEFT = 1
+        const val TWO_ATTEMPTS = 2
         const val TWO_RETRIES_LEFT = 2
         const val MAX_ATTEMPTS = 3
         const val ONE_STAR = 1

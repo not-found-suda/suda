@@ -15,7 +15,6 @@ import com.ssafy.mobile.feature.learning.domain.repository.LearningWordRepositor
 import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
 import com.ssafy.mobile.feature.quiz.domain.model.QuizQuestion
 import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionState
-import com.ssafy.mobile.feature.quiz.domain.model.QuizStarScorer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @HiltViewModel
+@Suppress("TooManyFunctions")
 class QuizQuestionViewModel
     @Inject
     constructor(
@@ -78,30 +78,26 @@ class QuizQuestionViewModel
 
         fun submitRecognizedText(recognizedText: String) {
             val state = _quizState.value
+            val sessionId = state.sessionId
             val question = state.currentQuestion
             val trimmedText = recognizedText.trim()
-            val canSubmitLocalAnswer =
-                _answerSubmitState.value != QuizAnswerSubmitState.Submitting &&
-                    !isCompletionPending &&
-                    question != null &&
-                    trimmedText.isNotBlank()
-
-            if (canSubmitLocalAnswer) {
-                if (question.word.isBlank()) {
+            when {
+                _answerSubmitState.value == QuizAnswerSubmitState.Submitting -> Unit
+                isCompletionPending -> Unit
+                sessionId == null -> Unit
+                question == null -> Unit
+                trimmedText.isBlank() -> Unit
+                question.word.isBlank() -> {
                     _answerSubmitState.value =
                         QuizAnswerSubmitState.Error("문제 단어 정보를 확인할 수 없습니다.")
-                } else {
-                    val previousAnswer = state.answers.firstOrNull { it.questionId == question.id }
-                    val star =
-                        QuizStarScorer.score(
-                            targetWord = question.word,
-                            sttText = trimmedText,
-                        )
+                }
+                else -> {
+                    val previousAnswer =
+                        state.answers.firstOrNull { it.questionId == question.id }
                     val answer =
                         QuizAnswer(
                             questionId = question.id,
                             sttText = trimmedText,
-                            star = star,
                             attemptCount = (previousAnswer?.attemptCount ?: 0) + 1,
                         )
 
@@ -110,7 +106,11 @@ class QuizQuestionViewModel
                             answers = state.answers.replaceAnswer(answer),
                             retryCount = (answer.attemptCount - 1).coerceAtLeast(0),
                         )
-                    _answerSubmitState.value = QuizAnswerSubmitState.Idle
+                    submitAnswerToServer(
+                        sessionId = sessionId,
+                        question = question,
+                        answer = answer,
+                    )
                 }
             }
         }
@@ -138,36 +138,24 @@ class QuizQuestionViewModel
                         _answerSubmitState.value =
                             QuizAnswerSubmitState.Error("답변을 먼저 저장해주세요.")
                     }
+                    _answerSubmitState.value is QuizAnswerSubmitState.SaveFailed -> {
+                        submitAnswerToServer(
+                            sessionId = sessionId,
+                            question = question,
+                            answer = answer,
+                        )
+                    }
+                    answer.isScored.not() -> Unit
                     else -> {
-                        viewModelScope.launch {
-                            _answerSubmitState.value = QuizAnswerSubmitState.Submitting
-                            val result =
-                                withContext(Dispatchers.IO) {
-                                    quizRepository.submitAnswer(
-                                        sessionId = sessionId,
-                                        questionId = question.id,
-                                        wordId = question.wordId,
-                                        recognizedText = answer.sttText,
-                                    )
-                                }
-
-                            result
-                                .onSuccess { answerResult ->
-                                    applyAnswerResult(answerResult)
-                                    if (answerResult.hasNext) {
-                                        _answerSubmitState.value = QuizAnswerSubmitState.Success
-                                        loadCurrentQuestion(sessionId)
-                                    } else {
-                                        isCompletionPending = true
-                                        completeSession(sessionId)
-                                    }
-                                }.onFailure { throwable ->
-                                    _answerSubmitState.value =
-                                        QuizAnswerSubmitState.SaveFailed(
-                                            throwable.message
-                                                ?: "답변 저장에 실패했습니다. 다시 시도해주세요.",
-                                        )
-                                }
+                        if (state.isLastQuestion()) {
+                            viewModelScope.launch {
+                                _answerSubmitState.value = QuizAnswerSubmitState.Submitting
+                                isCompletionPending = true
+                                completeSession(sessionId)
+                            }
+                        } else {
+                            _answerSubmitState.value = QuizAnswerSubmitState.Success
+                            loadCurrentQuestion(sessionId)
                         }
                     }
                 }
@@ -342,6 +330,38 @@ class QuizQuestionViewModel
                     answers = state.answers.replaceAnswer(answer),
                     retryCount = (answer.attemptCount - 1).coerceAtLeast(0),
                 )
+        }
+
+        private fun submitAnswerToServer(
+            sessionId: Long,
+            question: QuizQuestion,
+            answer: QuizAnswer,
+        ) {
+            if (_answerSubmitState.value == QuizAnswerSubmitState.Submitting) return
+
+            _answerSubmitState.value = QuizAnswerSubmitState.Submitting
+            viewModelScope.launch {
+                val result =
+                    withContext(Dispatchers.IO) {
+                        quizRepository.submitAnswer(
+                            sessionId = sessionId,
+                            questionId = question.id,
+                            wordId = question.wordId,
+                            recognizedText = answer.sttText,
+                        )
+                    }
+
+                result
+                    .onSuccess { answerResult ->
+                        applyAnswerResult(answerResult)
+                        _answerSubmitState.value = QuizAnswerSubmitState.Success
+                    }.onFailure { throwable ->
+                        _answerSubmitState.value =
+                            QuizAnswerSubmitState.SaveFailed(
+                                throwable.message ?: "답변 저장에 실패했습니다. 다시 시도해주세요.",
+                            )
+                    }
+            }
         }
 
         private suspend fun completeSession(sessionId: Long) {

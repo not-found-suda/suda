@@ -3,6 +3,7 @@ package com.ssafy.mobile.feature.quiz.domain.model
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
+@Suppress("DEPRECATION")
 class QuizStarScorerTest {
     @Test
     fun scoreReturnsThreeStarsWhenTextMatchesTargetWord() {

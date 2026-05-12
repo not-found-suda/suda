@@ -1,5 +1,8 @@
 package com.ssafy.mobile.feature.quiz.domain.model
 
+@Deprecated(
+    message = "실제 퀴즈 제출 흐름은 서버 채점 응답을 사용합니다. 임시/테스트 참고용으로만 유지합니다.",
+)
 object QuizStarScorer {
     fun score(
         targetWord: String,
