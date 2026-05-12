@@ -12,12 +12,12 @@ data class ReportSummary(
 }
 
 data class ReportParticipationSummary(
-    val completedSessionCount: Int,
-    val totalQuestionCount: Int,
+    val completedSessionCount: Long,
+    val totalQuestionCount: Long,
 )
 
 data class ReportPerformanceSummary(
-    val totalCorrectCount: Int,
+    val totalCorrectCount: Long,
     val accuracyRate: Double,
     val averageStar: Double,
 )
@@ -34,9 +34,20 @@ data class ReportWeakWord(
     val displayText: String?,
     val categoryId: Long,
     val categoryName: String,
-    val attemptCount: Int,
-    val wrongCount: Int,
+    val attemptCount: Long,
+    val wrongCount: Long,
     val accuracyRate: Double,
     val averageStar: Double,
     val lastAnsweredAt: String?,
 )
+
+data class ReportWeakWordPage(
+    val words: List<ReportWeakWord>,
+    val page: Int,
+    val size: Int,
+    val totalElements: Long,
+    val totalPages: Int,
+) {
+    val hasWords: Boolean
+        get() = words.isNotEmpty()
+}
