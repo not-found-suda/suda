@@ -207,6 +207,38 @@ class ChildProfileServiceValidationTest {
   }
 
   @Test
+  @DisplayName("아이 프로필 수정 시 미래 생년월일이면 실패한다")
+  void updateChildRejectsFutureBirthDate() {
+    when(childProfileRepository.findByIdAndUserIdAndActiveTrue(CHILD_ID, USER_ID))
+        .thenReturn(Optional.of(activeChild()));
+
+    assertBusinessError(
+        () ->
+            childProfileService.updateChild(
+                USER_ID,
+                CHILD_ID,
+                new ChildProfileUpdateRequestDto(null, LocalDate.now().plusDays(1))),
+        ChildProfileErrorCode.INVALID_BIRTH_DATE);
+    verify(childProfileRepository, never()).flush();
+  }
+
+  @Test
+  @DisplayName("아이 프로필 수정 시 18세를 초과하면 실패한다")
+  void updateChildRejectsOlderThanEighteenBirthDate() {
+    when(childProfileRepository.findByIdAndUserIdAndActiveTrue(CHILD_ID, USER_ID))
+        .thenReturn(Optional.of(activeChild()));
+
+    assertBusinessError(
+        () ->
+            childProfileService.updateChild(
+                USER_ID,
+                CHILD_ID,
+                new ChildProfileUpdateRequestDto(null, LocalDate.now().minusYears(19))),
+        ChildProfileErrorCode.INVALID_BIRTH_DATE);
+    verify(childProfileRepository, never()).flush();
+  }
+
+  @Test
   @DisplayName("아이 프로필 수정 시 이름과 생년월일을 검증한 뒤 반영한다")
   void updateChildAppliesValidatedFields() {
     ChildProfile child = activeChild();
