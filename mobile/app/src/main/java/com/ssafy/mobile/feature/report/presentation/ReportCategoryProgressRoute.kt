@@ -87,8 +87,15 @@ fun ReportCategoryProgressRoute(
         ReportCategoryProgressContent(
             activeChildState = uiState.activeChildState,
             categoryProgressState = uiState.categoryProgressState,
+            filterUiState = uiState.filterUiState,
             onRetryClick = viewModel::loadActiveChildProfile,
             onSwitchChild = onSwitchChild,
+            filterActions =
+                ReportFilterActions(
+                    onInputChange = viewModel::updateFilterInput,
+                    onApplyClick = viewModel::applyFilter,
+                    onResetClick = viewModel::resetFilter,
+                ),
             modifier =
                 Modifier
                     .fillMaxSize()
@@ -101,8 +108,10 @@ fun ReportCategoryProgressRoute(
 private fun ReportCategoryProgressContent(
     activeChildState: ActiveChildProfileState,
     categoryProgressState: ReportCategoryProgressState,
+    filterUiState: ReportFilterUiState,
     onRetryClick: () -> Unit,
     onSwitchChild: () -> Unit,
+    filterActions: ReportFilterActions,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -123,6 +132,8 @@ private fun ReportCategoryProgressContent(
             is ActiveChildProfileState.Selected ->
                 categoryProgressItems(
                     state = categoryProgressState,
+                    filterUiState = filterUiState,
+                    filterActions = filterActions,
                     onRetryClick = onRetryClick,
                 )
 
@@ -157,8 +168,18 @@ private fun ReportCategoryProgressContent(
 
 private fun LazyListScope.categoryProgressItems(
     state: ReportCategoryProgressState,
+    filterUiState: ReportFilterUiState,
+    filterActions: ReportFilterActions,
     onRetryClick: () -> Unit,
 ) {
+    item {
+        ReportFilterPanel(
+            state = filterUiState,
+            config = ReportFilterPanelConfig(),
+            actions = filterActions,
+        )
+    }
+
     when (state) {
         ReportCategoryProgressState.Idle,
         ReportCategoryProgressState.Loading,
@@ -170,7 +191,12 @@ private fun LazyListScope.categoryProgressItems(
         ReportCategoryProgressState.Empty ->
             item {
                 ReportCategoryProgressStatusCard(
-                    message = "아직 완료된 퀴즈 기록이 있는 카테고리가 없어요.\n퀴즈를 마치면 진행도를 확인할 수 있어요.",
+                    message =
+                        if (filterUiState.hasAppliedFilter) {
+                            "조건에 맞는 카테고리 기록이 없어요."
+                        } else {
+                            "아직 완료된 퀴즈 기록이 있는 카테고리가 없어요.\n퀴즈를 마치면 진행도를 확인할 수 있어요."
+                        },
                 )
             }
 
