@@ -88,10 +88,21 @@ fun ReportQuizSessionsRoute(
         ReportQuizSessionsContent(
             activeChildState = uiState.activeChildState,
             quizSessionsState = uiState.quizSessionsState,
-            onRetryClick = viewModel::loadActiveChildProfile,
-            onLoadMoreClick = viewModel::loadMoreQuizSessions,
-            onSwitchChild = onSwitchChild,
-            onNavigateToDetail = onNavigateToDetail,
+            filterUiState = uiState.filterUiState,
+            actions =
+                ReportQuizSessionsActions(
+                    onRetryClick = viewModel::loadActiveChildProfile,
+                    onLoadMoreClick = viewModel::loadMoreQuizSessions,
+                    onSwitchChild = onSwitchChild,
+                    onNavigateToDetail = onNavigateToDetail,
+                    filterActions =
+                        ReportFilterActions(
+                            onInputChange = viewModel::updateFilterInput,
+                            onApplyClick = viewModel::applyFilter,
+                            onResetClick = viewModel::resetFilter,
+                            onRetryCategoriesClick = viewModel::loadFilterCategories,
+                        ),
+                ),
             modifier =
                 Modifier
                     .fillMaxSize()
@@ -104,10 +115,8 @@ fun ReportQuizSessionsRoute(
 private fun ReportQuizSessionsContent(
     activeChildState: ActiveChildProfileState,
     quizSessionsState: ReportQuizSessionsState,
-    onRetryClick: () -> Unit,
-    onLoadMoreClick: () -> Unit,
-    onSwitchChild: () -> Unit,
-    onNavigateToDetail: (Long) -> Unit,
+    filterUiState: ReportFilterUiState,
+    actions: ReportQuizSessionsActions,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -128,9 +137,8 @@ private fun ReportQuizSessionsContent(
             is ActiveChildProfileState.Selected ->
                 quizSessionsItems(
                     state = quizSessionsState,
-                    onRetryClick = onRetryClick,
-                    onLoadMoreClick = onLoadMoreClick,
-                    onNavigateToDetail = onNavigateToDetail,
+                    filterUiState = filterUiState,
+                    actions = actions,
                 )
 
             ActiveChildProfileState.Missing ->
@@ -138,7 +146,7 @@ private fun ReportQuizSessionsContent(
                     ReportQuizSessionsActionCard(
                         message = "리포트를 보려면 아이를 먼저 선택해 주세요.",
                         buttonText = "아이 선택하기",
-                        onClick = onSwitchChild,
+                        onClick = actions.onSwitchChild,
                     )
                 }
 
@@ -147,7 +155,7 @@ private fun ReportQuizSessionsContent(
                     ReportQuizSessionsActionCard(
                         message = "선택된 아이 정보를 찾을 수 없습니다.",
                         buttonText = "아이 다시 선택하기",
-                        onClick = onSwitchChild,
+                        onClick = actions.onSwitchChild,
                     )
                 }
 
@@ -155,7 +163,7 @@ private fun ReportQuizSessionsContent(
                 item {
                     ReportQuizSessionsErrorCard(
                         message = activeChildState.message,
-                        onRetryClick = onRetryClick,
+                        onRetryClick = actions.onRetryClick,
                     )
                 }
         }
@@ -164,10 +172,22 @@ private fun ReportQuizSessionsContent(
 
 private fun LazyListScope.quizSessionsItems(
     state: ReportQuizSessionsState,
-    onRetryClick: () -> Unit,
-    onLoadMoreClick: () -> Unit,
-    onNavigateToDetail: (Long) -> Unit,
+    filterUiState: ReportFilterUiState,
+    actions: ReportQuizSessionsActions,
 ) {
+    item {
+        ReportFilterPanel(
+            state = filterUiState,
+            config =
+                ReportFilterPanelConfig(
+                    showCategory = true,
+                    showDifficulty = true,
+                    showStatus = true,
+                ),
+            actions = actions.filterActions,
+        )
+    }
+
     when (state) {
         ReportQuizSessionsState.Idle,
         ReportQuizSessionsState.Loading,
@@ -179,7 +199,12 @@ private fun LazyListScope.quizSessionsItems(
         ReportQuizSessionsState.Empty ->
             item {
                 ReportQuizSessionsStatusCard(
-                    message = "아직 퀴즈 기록이 없어요.\n퀴즈를 완료하면 기록을 모아볼 수 있어요.",
+                    message =
+                        if (filterUiState.hasAppliedFilter) {
+                            "조건에 맞는 퀴즈 기록이 없어요."
+                        } else {
+                            "아직 퀴즈 기록이 없어요.\n퀴즈를 완료하면 기록을 모아볼 수 있어요."
+                        },
                 )
             }
 
@@ -187,7 +212,7 @@ private fun LazyListScope.quizSessionsItems(
             item {
                 ReportQuizSessionsErrorCard(
                     message = state.message,
-                    onRetryClick = onRetryClick,
+                    onRetryClick = actions.onRetryClick,
                 )
             }
 
@@ -201,18 +226,26 @@ private fun LazyListScope.quizSessionsItems(
             ) { session ->
                 ReportQuizSessionCard(
                     session = session,
-                    onClick = { onNavigateToDetail(session.sessionId) },
+                    onClick = { actions.onNavigateToDetail(session.sessionId) },
                 )
             }
             item {
                 ReportQuizSessionsMoreSection(
                     state = state,
-                    onLoadMoreClick = onLoadMoreClick,
+                    onLoadMoreClick = actions.onLoadMoreClick,
                 )
             }
         }
     }
 }
+
+private data class ReportQuizSessionsActions(
+    val onRetryClick: () -> Unit,
+    val onLoadMoreClick: () -> Unit,
+    val onSwitchChild: () -> Unit,
+    val onNavigateToDetail: (Long) -> Unit,
+    val filterActions: ReportFilterActions,
+)
 
 @Composable
 private fun ReportQuizSessionsIntro(activeChildState: ActiveChildProfileState) {

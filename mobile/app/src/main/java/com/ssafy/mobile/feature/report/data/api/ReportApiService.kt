@@ -9,11 +9,13 @@ import retrofit2.Response
 import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.QueryMap
 
 interface ReportApiService {
     @GET("v1/children/{childId}/reports/summary")
     suspend fun getSummary(
         @Path("childId") childId: Long,
+        @QueryMap filters: Map<String, String> = emptyMap(),
     ): Response<ReportSummaryResponseDto>
 
     @GET("v1/children/{childId}/reports/weak-words")
@@ -21,13 +23,13 @@ interface ReportApiService {
         @Path("childId") childId: Long,
         @Query("page") page: Int,
         @Query("size") size: Int,
+        @QueryMap filters: Map<String, String> = emptyMap(),
     ): Response<ReportWeakWordListResponseDto>
 
     @GET("v1/children/{childId}/reports/categories")
     suspend fun getCategoryProgress(
         @Path("childId") childId: Long,
-        @Query("from") from: String? = null,
-        @Query("to") to: String? = null,
+        @QueryMap filters: Map<String, String> = emptyMap(),
     ): Response<ReportCategoryProgressListResponseDto>
 
     @GET("v1/children/{childId}/reports/sessions")
@@ -35,6 +37,7 @@ interface ReportApiService {
         @Path("childId") childId: Long,
         @Query("page") page: Int,
         @Query("size") size: Int,
+        @QueryMap filters: Map<String, String> = emptyMap(),
     ): Response<ReportQuizSessionListResponseDto>
 
     @GET("v1/children/{childId}/reports/sessions/{sessionId}")

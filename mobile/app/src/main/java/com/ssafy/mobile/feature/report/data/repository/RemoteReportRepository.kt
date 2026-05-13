@@ -4,6 +4,7 @@ import android.util.Log
 import com.ssafy.mobile.feature.report.data.api.ReportApiService
 import com.ssafy.mobile.feature.report.data.dto.toDomain
 import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgressPage
+import com.ssafy.mobile.feature.report.domain.model.ReportFilterState
 import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionDetail
 import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionPage
 import com.ssafy.mobile.feature.report.domain.model.ReportSummary
@@ -24,9 +25,16 @@ class RemoteReportRepository
     constructor(
         private val apiService: ReportApiService,
     ) : ReportRepository {
-        override suspend fun getSummary(childId: Long): Result<ReportSummary> =
+        override suspend fun getSummary(
+            childId: Long,
+            filter: ReportFilterState,
+        ): Result<ReportSummary> =
             try {
-                val response = apiService.getSummary(childId)
+                val response =
+                    apiService.getSummary(
+                        childId = childId,
+                        filters = filter.toDateQueryMap(),
+                    )
 
                 if (response.isSuccessful) {
                     val body =
@@ -60,6 +68,7 @@ class RemoteReportRepository
             childId: Long,
             page: Int,
             size: Int,
+            filter: ReportFilterState,
         ): Result<ReportWeakWordPage> =
             try {
                 val response =
@@ -67,6 +76,7 @@ class RemoteReportRepository
                         childId = childId,
                         page = page,
                         size = size,
+                        filters = filter.toWeakWordsQueryMap(),
                     )
 
                 if (response.isSuccessful) {
@@ -99,15 +109,13 @@ class RemoteReportRepository
 
         override suspend fun getCategoryProgress(
             childId: Long,
-            from: String?,
-            to: String?,
+            filter: ReportFilterState,
         ): Result<ReportCategoryProgressPage> =
             try {
                 val response =
                     apiService.getCategoryProgress(
                         childId = childId,
-                        from = from,
-                        to = to,
+                        filters = filter.toDateQueryMap(),
                     )
 
                 if (response.isSuccessful) {
@@ -142,6 +150,7 @@ class RemoteReportRepository
             childId: Long,
             page: Int,
             size: Int,
+            filter: ReportFilterState,
         ): Result<ReportQuizSessionPage> =
             try {
                 val response =
@@ -149,6 +158,7 @@ class RemoteReportRepository
                         childId = childId,
                         page = page,
                         size = size,
+                        filters = filter.toQuizSessionsQueryMap(),
                     )
 
                 if (response.isSuccessful) {
@@ -232,3 +242,33 @@ class RemoteReportRepository
                 else -> defaultMessage
             }
     }
+
+private fun ReportFilterState.toDateQueryMap(): Map<String, String> =
+    buildMap {
+        putIfNotBlank(key = "from", value = from)
+        putIfNotBlank(key = "to", value = to)
+    }
+
+private fun ReportFilterState.toWeakWordsQueryMap(): Map<String, String> =
+    buildMap {
+        putAll(toDateQueryMap())
+        categoryId?.let { put("categoryId", it.toString()) }
+        minAttemptCount?.let { put("minAttemptCount", it.toString()) }
+    }
+
+private fun ReportFilterState.toQuizSessionsQueryMap(): Map<String, String> =
+    buildMap {
+        putAll(toDateQueryMap())
+        categoryId?.let { put("categoryId", it.toString()) }
+        putIfNotBlank(key = "difficulty", value = difficulty)
+        putIfNotBlank(key = "status", value = status)
+    }
+
+private fun MutableMap<String, String>.putIfNotBlank(
+    key: String,
+    value: String?,
+) {
+    if (!value.isNullOrBlank()) {
+        put(key, value)
+    }
+}

@@ -87,9 +87,20 @@ fun ReportWeakWordsRoute(
         ReportWeakWordsContent(
             activeChildState = uiState.activeChildState,
             weakWordsState = uiState.weakWordsState,
-            onRetryClick = viewModel::loadActiveChildProfile,
-            onLoadMoreClick = viewModel::loadMoreWeakWords,
-            onSwitchChild = onSwitchChild,
+            filterUiState = uiState.filterUiState,
+            actions =
+                ReportWeakWordsActions(
+                    onRetryClick = viewModel::loadActiveChildProfile,
+                    onLoadMoreClick = viewModel::loadMoreWeakWords,
+                    onSwitchChild = onSwitchChild,
+                    filterActions =
+                        ReportFilterActions(
+                            onInputChange = viewModel::updateFilterInput,
+                            onApplyClick = viewModel::applyFilter,
+                            onResetClick = viewModel::resetFilter,
+                            onRetryCategoriesClick = viewModel::loadFilterCategories,
+                        ),
+                ),
             modifier =
                 Modifier
                     .fillMaxSize()
@@ -102,9 +113,8 @@ fun ReportWeakWordsRoute(
 private fun ReportWeakWordsContent(
     activeChildState: ActiveChildProfileState,
     weakWordsState: ReportWeakWordsState,
-    onRetryClick: () -> Unit,
-    onLoadMoreClick: () -> Unit,
-    onSwitchChild: () -> Unit,
+    filterUiState: ReportFilterUiState,
+    actions: ReportWeakWordsActions,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -125,8 +135,8 @@ private fun ReportWeakWordsContent(
             is ActiveChildProfileState.Selected ->
                 weakWordsItems(
                     state = weakWordsState,
-                    onRetryClick = onRetryClick,
-                    onLoadMoreClick = onLoadMoreClick,
+                    filterUiState = filterUiState,
+                    actions = actions,
                 )
 
             ActiveChildProfileState.Missing ->
@@ -134,7 +144,7 @@ private fun ReportWeakWordsContent(
                     ReportWeakWordsActionCard(
                         message = "리포트를 보려면 아이를 먼저 선택해 주세요.",
                         buttonText = "아이 선택하기",
-                        onClick = onSwitchChild,
+                        onClick = actions.onSwitchChild,
                     )
                 }
 
@@ -143,7 +153,7 @@ private fun ReportWeakWordsContent(
                     ReportWeakWordsActionCard(
                         message = "선택된 아이 정보를 찾을 수 없습니다.",
                         buttonText = "아이 다시 선택하기",
-                        onClick = onSwitchChild,
+                        onClick = actions.onSwitchChild,
                     )
                 }
 
@@ -151,7 +161,7 @@ private fun ReportWeakWordsContent(
                 item {
                     ReportWeakWordsErrorCard(
                         message = activeChildState.message,
-                        onRetryClick = onRetryClick,
+                        onRetryClick = actions.onRetryClick,
                     )
                 }
         }
@@ -160,9 +170,21 @@ private fun ReportWeakWordsContent(
 
 private fun LazyListScope.weakWordsItems(
     state: ReportWeakWordsState,
-    onRetryClick: () -> Unit,
-    onLoadMoreClick: () -> Unit,
+    filterUiState: ReportFilterUiState,
+    actions: ReportWeakWordsActions,
 ) {
+    item {
+        ReportFilterPanel(
+            state = filterUiState,
+            config =
+                ReportFilterPanelConfig(
+                    showCategory = true,
+                    showMinAttemptCount = true,
+                ),
+            actions = actions.filterActions,
+        )
+    }
+
     when (state) {
         ReportWeakWordsState.Idle ->
             item {
@@ -177,7 +199,12 @@ private fun LazyListScope.weakWordsItems(
         ReportWeakWordsState.Empty ->
             item {
                 ReportWeakWordsStatusCard(
-                    message = "아직 자주 틀리는 단어가 없어요.\n퀴즈를 더 풀면 어려워하는 단어를 모아볼 수 있어요.",
+                    message =
+                        if (filterUiState.hasAppliedFilter) {
+                            "조건에 맞는 취약 단어가 없어요."
+                        } else {
+                            "아직 자주 틀리는 단어가 없어요.\n퀴즈를 더 풀면 어려워하는 단어를 모아볼 수 있어요."
+                        },
                 )
             }
 
@@ -185,7 +212,7 @@ private fun LazyListScope.weakWordsItems(
             item {
                 ReportWeakWordsErrorCard(
                     message = state.message,
-                    onRetryClick = onRetryClick,
+                    onRetryClick = actions.onRetryClick,
                 )
             }
 
@@ -202,12 +229,19 @@ private fun LazyListScope.weakWordsItems(
             item {
                 ReportWeakWordsMoreSection(
                     state = state,
-                    onLoadMoreClick = onLoadMoreClick,
+                    onLoadMoreClick = actions.onLoadMoreClick,
                 )
             }
         }
     }
 }
+
+private data class ReportWeakWordsActions(
+    val onRetryClick: () -> Unit,
+    val onLoadMoreClick: () -> Unit,
+    val onSwitchChild: () -> Unit,
+    val filterActions: ReportFilterActions,
+)
 
 @Composable
 private fun ReportWeakWordsIntro(activeChildState: ActiveChildProfileState) {

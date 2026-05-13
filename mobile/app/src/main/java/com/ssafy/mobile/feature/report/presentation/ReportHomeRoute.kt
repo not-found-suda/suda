@@ -68,6 +68,7 @@ fun ReportHomeRoute(
     ReportHomeScreen(
         activeChildState = uiState.activeChildState,
         summaryState = uiState.summaryState,
+        filterUiState = uiState.filterUiState,
         actions =
             ReportHomeActions(
                 onNavigateToSummary = onNavigateToSummary,
@@ -76,6 +77,12 @@ fun ReportHomeRoute(
                 onNavigateToQuizSessions = onNavigateToQuizSessions,
                 onSwitchChild = onSwitchChild,
                 onRetryClick = viewModel::loadActiveChildProfile,
+                filterActions =
+                    ReportFilterActions(
+                        onInputChange = viewModel::updateFilterInput,
+                        onApplyClick = viewModel::applyFilter,
+                        onResetClick = viewModel::resetFilter,
+                    ),
             ),
         modifier = modifier,
     )
@@ -88,12 +95,14 @@ private data class ReportHomeActions(
     val onNavigateToQuizSessions: () -> Unit,
     val onSwitchChild: () -> Unit,
     val onRetryClick: () -> Unit,
+    val filterActions: ReportFilterActions,
 )
 
 @Composable
 private fun ReportHomeScreen(
     activeChildState: ActiveChildProfileState,
     summaryState: ReportSummaryUiState,
+    filterUiState: ReportFilterUiState,
     actions: ReportHomeActions,
     modifier: Modifier = Modifier,
 ) {
@@ -122,6 +131,14 @@ private fun ReportHomeScreen(
             val isMenuEnabled = activeChildState is ActiveChildProfileState.Selected
 
             if (isMenuEnabled) {
+                ReportFilterPanel(
+                    state = filterUiState,
+                    config = ReportFilterPanelConfig(),
+                    actions = actions.filterActions,
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 ReportSummarySection(
                     summaryState = summaryState,
                     onRetryClick = actions.onRetryClick,
