@@ -4,28 +4,31 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.ssafy.mobile.core.ui.components.AppBadge
+import com.ssafy.mobile.core.ui.components.AppBadgeTone
+import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 
 @Composable
 internal fun ReportQuizSessionDetailStatusCard(message: String) {
-    Surface(
+    AppCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = DETAIL_STATUS_ALPHA),
     ) {
+        AppBadge(
+            text = "상태",
+            tone = AppBadgeTone.Neutral,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = message,
-            modifier = Modifier.padding(20.dp),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -38,15 +41,17 @@ internal fun ReportQuizSessionDetailErrorCard(
     message: String,
     onRetryClick: () -> Unit,
 ) {
-    Surface(
+    AppCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = DETAIL_ERROR_ALPHA),
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            AppBadge(
+                text = "불러오기 실패",
+                tone = AppBadgeTone.Error,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
@@ -69,19 +74,21 @@ internal fun ReportQuizSessionDetailActionCard(
     buttonText: String,
     onClick: () -> Unit,
 ) {
-    Surface(
+    AppCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = DETAIL_ACTION_ALPHA),
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            AppBadge(
+                text = "아이 선택",
+                tone = AppBadgeTone.Warning,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
             Spacer(modifier = Modifier.height(12.dp))
@@ -93,7 +100,3 @@ internal fun ReportQuizSessionDetailActionCard(
         }
     }
 }
-
-private const val DETAIL_STATUS_ALPHA = 0.5f
-private const val DETAIL_ERROR_ALPHA = 0.4f
-private const val DETAIL_ACTION_ALPHA = 0.35f

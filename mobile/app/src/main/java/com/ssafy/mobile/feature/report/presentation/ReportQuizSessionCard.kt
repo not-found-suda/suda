@@ -1,6 +1,5 @@
 package com.ssafy.mobile.feature.report.presentation
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,6 +16,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.ssafy.mobile.core.ui.components.AppBadge
+import com.ssafy.mobile.core.ui.components.AppBadgeTone
+import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.feature.report.domain.model.ReportQuizSession
 import java.util.Locale
 
@@ -25,15 +27,11 @@ fun ReportQuizSessionCard(
     session: ReportQuizSession,
     onClick: () -> Unit,
 ) {
-    Surface(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onClick),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = QUIZ_SESSION_CARD_ALPHA),
+    AppCard(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick,
     ) {
-        Column(modifier = Modifier.padding(18.dp)) {
+        Column {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -46,20 +44,21 @@ fun ReportQuizSessionCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(
-                        text =
-                            "${session.difficulty.toReportDifficultyLabel()} · " +
-                                session.status.toReportSessionStatusLabel(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        AppBadge(
+                            text = session.difficulty.toReportDifficultyLabel(),
+                            tone = AppBadgeTone.Primary,
+                        )
+                        AppBadge(
+                            text = session.status.toReportSessionStatusLabel(),
+                            tone = session.status.toReportSessionStatusBadgeTone(),
+                        )
+                    }
                 }
-                Text(
+                AppBadge(
                     text = "${session.correctCount}/${session.totalQuestionCount}",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
+                    tone = AppBadgeTone.Neutral,
                 )
             }
 
@@ -136,5 +135,3 @@ private fun ReportQuizSession.toDateLabel(): String =
         !startedAt.isNullOrBlank() -> "시작 ${startedAt.toReportQuizSessionDateLabel()}"
         else -> "날짜 정보 없음"
     }
-
-private const val QUIZ_SESSION_CARD_ALPHA = 0.45f

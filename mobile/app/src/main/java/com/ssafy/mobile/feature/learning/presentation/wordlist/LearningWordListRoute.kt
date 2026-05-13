@@ -1,24 +1,18 @@
 package com.ssafy.mobile.feature.learning.presentation.wordlist
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -37,10 +31,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ssafy.mobile.core.ui.components.AppBadge
+import com.ssafy.mobile.core.ui.components.AppBadgeTone
+import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.core.ui.components.AppErrorText
 import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
 import com.ssafy.mobile.core.ui.components.AppNetworkImage
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+import com.ssafy.mobile.core.ui.feedback.AppEmptyState
 import com.ssafy.mobile.feature.learning.domain.model.LearningWord
 
 @Composable
@@ -110,7 +109,7 @@ internal fun LearningWordListScreen(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center,
                         ) {
-                            AppLoadingIndicator()
+                            AppLoadingIndicator(message = "단어 카드를 준비하고 있어요.")
                         }
                     }
 
@@ -123,16 +122,7 @@ internal fun LearningWordListScreen(
                     }
 
                     is LearningWordListUiState.Empty -> {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = "준비된 단어가 없습니다.",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                        AppEmptyState(message = "준비된 단어가 없습니다.")
                     }
 
                     is LearningWordListUiState.Error -> {
@@ -165,25 +155,35 @@ private fun WordListHeader(
         modifier =
             modifier
                 .fillMaxWidth()
-                .padding(top = 12.dp, bottom = 12.dp, start = 8.dp, end = 24.dp),
+                .animateContentSize()
+                .padding(horizontal = 24.dp, vertical = 20.dp),
     ) {
-        IconButton(onClick = onBackClick) {
-            Text(
-                text = "뒤로",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = onBackClick) {
+                Text(
+                    text = "← 뒤로",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            AppBadge(
+                text = "단어장",
+                tone = AppBadgeTone.Primary,
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         Text(
             text = categoryName,
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(start = 16.dp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -192,7 +192,7 @@ private fun WordListHeader(
             text = "단어 카드를 넘기며 소리를 들어보세요.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 16.dp, top = 4.dp),
+            modifier = Modifier.padding(top = 4.dp),
         )
     }
 }
@@ -206,18 +206,15 @@ private fun WordLearningCard(
     val word = state.currentWord ?: return
 
     Column(
-        modifier = modifier,
+        modifier = modifier.animateContentSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Card(
+        AppCard(
             modifier =
                 Modifier
                     .weight(1f)
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(32.dp)),
-            shape = RoundedCornerShape(32.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                    .fillMaxWidth(),
+            contentPadding = PaddingValues(16.dp),
         ) {
             WordCardContent(
                 word = word,
@@ -227,7 +224,7 @@ private fun WordLearningCard(
             )
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         WordNavigationControls(
             state = state,
@@ -246,7 +243,7 @@ private fun WordCardContent(
     onStopAudio: () -> Unit,
 ) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(20.dp),
+        modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -258,7 +255,7 @@ private fun WordCardContent(
                 Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(24.dp)),
+                    .clip(RoundedCornerShape(8.dp)),
             placeholder = { WordFallback(word = word.word) },
         )
 
@@ -304,130 +301,33 @@ private fun WordNavigationControls(
     onNextClick: () -> Unit,
     onStartQuiz: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        TextButton(
-            onClick = onPreviousClick,
-            enabled = state.hasPrevious,
-        ) {
-            Text("◀", fontSize = 18.sp)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("이전 단어")
-        }
-
-        Text(
-            text = "${state.currentIndex + 1} / ${state.words.size}",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        if (state.hasNext) {
-            Button(
-                onClick = onNextClick,
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Text("다음")
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("▶", fontSize = 18.sp)
-            }
-        } else {
-            AppPrimaryButton(
-                text = "퀴즈 풀기",
-                onClick = onStartQuiz,
-                modifier = Modifier.width(140.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun AudioControlButton(
-    audioState: AudioPlaybackState,
-    onPlayClick: () -> Unit,
-    onStopClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val containerColor =
-        when (audioState) {
-            AudioPlaybackState.Playing -> MaterialTheme.colorScheme.primary
-            AudioPlaybackState.Error -> MaterialTheme.colorScheme.errorContainer
-            else -> MaterialTheme.colorScheme.primaryContainer
-        }
-
-    val contentColor =
-        when (audioState) {
-            AudioPlaybackState.Playing -> MaterialTheme.colorScheme.onPrimary
-            AudioPlaybackState.Error -> MaterialTheme.colorScheme.onErrorContainer
-            else -> MaterialTheme.colorScheme.onPrimaryContainer
-        }
-
     Column(
-        modifier = modifier,
+        modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        IconButton(
-            onClick = {
-                if (audioState == AudioPlaybackState.Playing) {
-                    onStopClick()
-                } else {
-                    onPlayClick()
-                }
-            },
-            enabled = audioState != AudioPlaybackState.Loading,
-            modifier =
-                Modifier
-                    .size(72.dp)
-                    .clip(CircleShape)
-                    .background(containerColor),
+        AppBadge(
+            text = "${state.currentIndex + 1} / ${state.words.size}",
+            tone = AppBadgeTone.Neutral,
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            AudioControlIcon(audioState = audioState, contentColor = contentColor)
+            AppSecondaryButton(
+                text = "이전 단어",
+                onClick = onPreviousClick,
+                enabled = state.hasPrevious,
+                modifier = Modifier.weight(1f),
+            )
+            AppPrimaryButton(
+                text = if (state.hasNext) "다음 단어" else "퀴즈 풀기",
+                onClick = if (state.hasNext) onNextClick else onStartQuiz,
+                modifier = Modifier.weight(1f),
+            )
         }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        val labelColor =
-            if (audioState == AudioPlaybackState.Error) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.primary
-            }
-
-        Text(
-            text =
-                when (audioState) {
-                    AudioPlaybackState.Loading -> "준비 중..."
-                    AudioPlaybackState.Playing -> "재생 중"
-                    AudioPlaybackState.Error -> "재생 실패"
-                    else -> "소리 듣기"
-                },
-            style = MaterialTheme.typography.labelLarge,
-            color = labelColor,
-            fontWeight = FontWeight.Bold,
-        )
-    }
-}
-
-@Composable
-private fun AudioControlIcon(
-    audioState: AudioPlaybackState,
-    contentColor: androidx.compose.ui.graphics.Color,
-) {
-    if (audioState == AudioPlaybackState.Loading) {
-        CircularProgressIndicator(
-            modifier = Modifier.size(32.dp),
-            color = contentColor,
-            strokeWidth = 3.dp,
-        )
-    } else {
-        Text(
-            text = if (audioState == AudioPlaybackState.Playing) "■" else "▶",
-            fontSize = 32.sp,
-            color = contentColor,
-        )
     }
 }
 

@@ -5,10 +5,6 @@ package com.ssafy.mobile.feature.quiz.presentation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,6 +14,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.ssafy.mobile.core.ui.components.AppBadge
+import com.ssafy.mobile.core.ui.components.AppBadgeTone
+import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
 
 @Composable
@@ -27,22 +26,18 @@ internal fun QuizStarResultCard(
     modifier: Modifier = Modifier,
 ) {
     val resultText = answer.toStarResultText(remainingRetryCount)
-    Card(
+    AppCard(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors =
-            CardDefaults.cardColors(
-                containerColor = answer.star.starResultContainerColor(),
-            ),
     ) {
         Column(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(18.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            AppBadge(
+                text = answer.star.toResultBadgeText(),
+                tone = answer.star.toResultBadgeTone(),
+            )
             Text(
                 text = answer.star.toStarDisplay(),
                 style = MaterialTheme.typography.headlineMedium,
@@ -63,11 +58,9 @@ internal fun QuizStarResultCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
-            Text(
+            AppBadge(
                 text = "인식 결과: ${answer.recognizedTextLabel()}",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                textAlign = TextAlign.Center,
+                tone = AppBadgeTone.Neutral,
             )
         }
     }
@@ -119,21 +112,28 @@ private fun QuizAnswer.recognizedTextLabel(): String =
         }
 
 @Composable
-private fun Int?.starResultContainerColor(): Color =
-    when (this?.coerceIn(MIN_STAR, MAX_STAR)) {
-        null -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
-        MAX_STAR -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
-        TWO_STARS -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.72f)
-        else -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.42f)
-    }
-
-@Composable
 private fun Int?.starResultColor(): Color =
     when (this?.coerceIn(MIN_STAR, MAX_STAR)) {
         null -> MaterialTheme.colorScheme.onSurfaceVariant
         MAX_STAR -> MaterialTheme.colorScheme.primary
         TWO_STARS -> MaterialTheme.colorScheme.tertiary
         else -> MaterialTheme.colorScheme.error
+    }
+
+private fun Int?.toResultBadgeText(): String =
+    when (this?.coerceIn(MIN_STAR, MAX_STAR)) {
+        null -> "채점 중"
+        MAX_STAR -> "훌륭해요"
+        TWO_STARS -> "거의 다 왔어요"
+        else -> "다시 도전"
+    }
+
+private fun Int?.toResultBadgeTone(): AppBadgeTone =
+    when (this?.coerceIn(MIN_STAR, MAX_STAR)) {
+        null -> AppBadgeTone.Neutral
+        MAX_STAR -> AppBadgeTone.Success
+        TWO_STARS -> AppBadgeTone.Primary
+        else -> AppBadgeTone.Error
     }
 
 private fun Int?.toStarDisplay(): String {

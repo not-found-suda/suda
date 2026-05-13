@@ -1,5 +1,8 @@
 package com.ssafy.mobile.feature.report.presentation
 
+import com.ssafy.mobile.core.ui.components.AppBadgeTone
+import com.ssafy.mobile.feature.report.domain.model.ReportQuizAnswer
+
 internal fun String.toReportDifficultyLabel(): String =
     when (this) {
         "EASY" -> "쉬움"
@@ -14,6 +17,21 @@ internal fun String.toReportSessionStatusLabel(): String =
         "STARTED" -> "진행 중"
         "ABANDONED" -> "중단"
         else -> this
+    }
+
+internal fun String.toReportSessionStatusBadgeTone(): AppBadgeTone =
+    when (this) {
+        "COMPLETED" -> AppBadgeTone.Success
+        "STARTED" -> AppBadgeTone.Primary
+        "ABANDONED" -> AppBadgeTone.Warning
+        else -> AppBadgeTone.Neutral
+    }
+
+internal fun ReportQuizAnswer.toReportCorrectnessBadgeTone(): AppBadgeTone =
+    when (isCorrect) {
+        true -> AppBadgeTone.Success
+        false -> AppBadgeTone.Error
+        null -> AppBadgeTone.Neutral
     }
 
 internal fun String?.toReportQuizSessionDateLabel(): String =

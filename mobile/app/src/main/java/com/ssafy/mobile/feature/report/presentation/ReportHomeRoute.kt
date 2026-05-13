@@ -1,8 +1,8 @@
 package com.ssafy.mobile.feature.report.presentation
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,9 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -28,12 +26,15 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ssafy.mobile.core.ui.components.AppBadge
+import com.ssafy.mobile.core.ui.components.AppBadgeTone
+import com.ssafy.mobile.core.ui.components.AppCard
+import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
@@ -147,55 +148,58 @@ private fun ReportHomeScreen(
                 Spacer(modifier = Modifier.height(32.dp))
             }
 
-            Text(
-                text = "리포트 목록",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // NOTE: 아래 아이콘(이모지)들은 기획 확정 전까지 사용되는 임시 시각 요소(placeholder)입니다.
-            ReportMenuCard(
-                title = "학습 요약 리포트",
-                description = "최근 아이의 학습 성과를 한눈에 보여드려요.",
-                iconEmoji = "📝",
-                onClick = actions.onNavigateToSummary,
+            ReportMenuSection(
+                actions = actions,
                 enabled = isMenuEnabled,
             )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            ReportMenuCard(
-                title = "자주 틀리는 단어",
-                description = "아이가 어려워하는 단어들을 모아봤어요.",
-                iconEmoji = "⚠️",
-                onClick = actions.onNavigateToWeakWords,
-                enabled = isMenuEnabled,
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            ReportMenuCard(
-                title = "카테고리별 학습 진행도",
-                description = "카테고리별 학습 흐름을 정리해드릴게요.",
-                iconEmoji = "📊",
-                onClick = actions.onNavigateToCategoryProgress,
-                enabled = isMenuEnabled,
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            ReportMenuCard(
-                title = "퀴즈 기록",
-                description = "아이가 풀어본 퀴즈 기록을 최신순으로 볼 수 있어요.",
-                iconEmoji = "🧩",
-                onClick = actions.onNavigateToQuizSessions,
-                enabled = isMenuEnabled,
-            )
-
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+}
+
+@Composable
+private fun ReportMenuSection(
+    actions: ReportHomeActions,
+    enabled: Boolean,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            text = "리포트 목록",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+        )
+        ReportMenuCard(
+            title = "학습 요약 리포트",
+            description = "최근 아이의 학습 성과를 한눈에 보여드려요.",
+            badgeText = "요약",
+            badgeTone = AppBadgeTone.Primary,
+            onClick = actions.onNavigateToSummary,
+            enabled = enabled,
+        )
+        ReportMenuCard(
+            title = "자주 틀리는 단어",
+            description = "아이가 어려워하는 단어들을 모아봤어요.",
+            badgeText = "단어",
+            badgeTone = AppBadgeTone.Error,
+            onClick = actions.onNavigateToWeakWords,
+            enabled = enabled,
+        )
+        ReportMenuCard(
+            title = "카테고리별 학습 진행도",
+            description = "카테고리별 학습 흐름을 정리해드릴게요.",
+            badgeText = "진행",
+            badgeTone = AppBadgeTone.Secondary,
+            onClick = actions.onNavigateToCategoryProgress,
+            enabled = enabled,
+        )
+        ReportMenuCard(
+            title = "퀴즈 기록",
+            description = "아이가 풀어본 퀴즈 기록을 최신순으로 볼 수 있어요.",
+            badgeText = "퀴즈",
+            badgeTone = AppBadgeTone.Tertiary,
+            onClick = actions.onNavigateToQuizSessions,
+            enabled = enabled,
+        )
     }
 }
 
@@ -227,18 +231,16 @@ private fun ReportActiveChildSection(
     onSwitchClick: () -> Unit,
     onRetryClick: () -> Unit,
 ) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f),
-    ) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             when (state) {
                 is ActiveChildProfileState.Loading -> {
-                    Text(text = "아이 정보를 불러오는 중...")
+                    AppLoadingIndicator(
+                        message = "아이 정보를 불러오는 중...",
+                        modifier = Modifier.height(112.dp),
+                    )
                 }
 
                 is ActiveChildProfileState.Selected -> {
@@ -258,6 +260,11 @@ private fun ReportActiveChildSection(
 
                 is ActiveChildProfileState.Error -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        AppBadge(
+                            text = "확인 필요",
+                            tone = AppBadgeTone.Error,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = state.message,
                             style = MaterialTheme.typography.bodyMedium,
@@ -318,22 +325,25 @@ private fun ActiveChildSelectedContent(
             }
         }
 
-        OutlinedButton(
+        AppSecondaryButton(
+            text = "아이 변경",
             onClick = onSwitchClick,
-            modifier = Modifier.height(36.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-        ) {
-            Text(
-                text = "아이 변경",
-                style = MaterialTheme.typography.labelMedium,
-            )
-        }
+            modifier =
+                Modifier
+                    .width(96.dp)
+                    .height(40.dp),
+        )
     }
 }
 
 @Composable
 private fun ActiveChildMissingContent(onSwitchClick: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        AppBadge(
+            text = "아이 선택 필요",
+            tone = AppBadgeTone.Warning,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = "선택된 아이가 없습니다.",
             style = MaterialTheme.typography.bodyMedium,
@@ -351,6 +361,11 @@ private fun ActiveChildMissingContent(onSwitchClick: () -> Unit) {
 @Composable
 private fun ActiveChildNotFoundContent(onSwitchClick: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        AppBadge(
+            text = "정보 없음",
+            tone = AppBadgeTone.Error,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = "선택된 아이 정보를 찾을 수 없습니다.",
             style = MaterialTheme.typography.bodyMedium,
@@ -371,37 +386,28 @@ private const val DISABLED_CARD_ALPHA = 0.5f
 private fun ReportMenuCard(
     title: String,
     description: String,
-    iconEmoji: String,
+    badgeText: String,
+    badgeTone: AppBadgeTone,
     onClick: () -> Unit,
     enabled: Boolean = true,
 ) {
-    ElevatedCard(
-        onClick = onClick,
+    AppCard(
+        onClick = onClick.takeIf { enabled },
         modifier = Modifier.fillMaxWidth(),
-        enabled = enabled,
     ) {
         val contentAlpha = if (enabled) 1f else DISABLED_CARD_ALPHA
 
         Row(
             modifier =
                 Modifier
-                    .padding(20.dp)
                     .fillMaxWidth()
                     .alpha(contentAlpha),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Surface(
-                modifier = Modifier.size(48.dp),
-                shape = MaterialTheme.shapes.small,
-                color = MaterialTheme.colorScheme.surfaceVariant,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = iconEmoji,
-                        fontSize = 24.sp,
-                    )
-                }
-            }
+            AppBadge(
+                text = badgeText,
+                tone = badgeTone,
+            )
 
             Spacer(modifier = Modifier.width(16.dp))
 
@@ -420,10 +426,9 @@ private fun ReportMenuCard(
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            Text(
-                text = "▶",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+            AppBadge(
+                text = "보기",
+                tone = AppBadgeTone.Neutral,
             )
         }
     }

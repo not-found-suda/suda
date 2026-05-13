@@ -7,10 +7,12 @@
 
 package com.ssafy.mobile.feature.quiz.presentation
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -23,8 +25,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -42,9 +42,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ssafy.mobile.core.ui.components.AppBadge
+import com.ssafy.mobile.core.ui.components.AppBadgeTone
+import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.core.ui.components.AppNetworkImage
-import com.ssafy.mobile.core.ui.components.AppPrimaryButton
-import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
 import com.ssafy.mobile.feature.quiz.domain.model.QuizQuestion
 import com.ssafy.mobile.feature.quiz.domain.model.QuizRetryPolicy
@@ -248,16 +249,13 @@ private fun QuizProgressHeader(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
+            AppBadge(
                 text = "문제 $currentQuestionNumber / $totalQuestionCount",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
+                tone = AppBadgeTone.Primary,
             )
-            Text(
+            AppBadge(
                 text = "${(progress.coerceIn(0f, 1f) * PERCENT_MAX).roundToInt()}%",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold,
+                tone = AppBadgeTone.Neutral,
             )
         }
 
@@ -278,22 +276,16 @@ private fun QuizQuestionCard(
     question: QuizQuestion,
     modifier: Modifier = Modifier,
 ) {
-    Card(
+    AppCard(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(32.dp),
-        colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-            ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        contentPadding = PaddingValues(14.dp),
     ) {
         Box(
             modifier =
                 Modifier
                     .fillMaxWidth()
                     .aspectRatio(1.05f)
-                    .padding(18.dp)
-                    .clip(RoundedCornerShape(28.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .background(
                         Brush.linearGradient(
                             colors =
@@ -427,9 +419,31 @@ private fun QuizActionArea(
             !isRecording &&
             !isProcessing &&
             !isSubmitting
+    val actionState =
+        quizActionUiState(
+            answer = answer,
+            recordingStatus = recordingStatus,
+            answerSubmitState = answerSubmitState,
+            isRecording = isRecording,
+            isProcessing = isProcessing,
+            isSubmitting = isSubmitting,
+            isCompletionPending = isCompletionPending,
+            isSaveFailed = isSaveFailed,
+            canSkipQuestion = canSkipQuestion,
+            hasAnswered = hasAnswered,
+            hasSuccessfulAnswer = hasSuccessfulAnswer,
+            retryLimitReached = retryLimitReached,
+            remainingRetryCount = remainingRetryCount,
+            canRecordAnswer = canRecordAnswer,
+            canMoveNext = canMoveNext,
+            isLastQuestion = isLastQuestion,
+        )
 
     Column(
-        modifier = modifier.fillMaxWidth(),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .animateContentSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (answer != null) {
@@ -439,79 +453,10 @@ private fun QuizActionArea(
             )
         }
 
-        AppPrimaryButton(
-            text =
-                when {
-                    isRecording -> "말하기 완료"
-                    isProcessing -> "답변 준비 중..."
-                    isSubmitting -> "답변 저장 중..."
-                    isCompletionPending -> "답변 저장 완료"
-                    isSaveFailed -> quizRetryButtonText(remainingRetryCount)
-                    hasAnswered -> quizRetryButtonText(remainingRetryCount)
-                    else -> "말하기"
-                },
-            onClick = onAnswerClick,
-            enabled = canRecordAnswer,
-        )
-
-        AppSecondaryButton(
-            text =
-                when {
-                    isCompletionPending -> "결과 보기 다시 시도"
-                    isSaveFailed -> "답변 저장 다시 시도"
-                    else ->
-                        quizNextButtonText(
-                            canSkipQuestion = canSkipQuestion,
-                            hasAnswered = hasAnswered,
-                            hasSuccessfulAnswer = hasSuccessfulAnswer,
-                            retryLimitReached = retryLimitReached,
-                            isLastQuestion = isLastQuestion,
-                        )
-                },
-            onClick = onNextClick,
-            enabled = canMoveNext,
-        )
-
-        QuizRecordingStatusText(
-            recordingStatus = recordingStatus,
-            answerAttemptCount = answer?.attemptCount,
-            recognizedText = answer?.sttText,
-        )
-
-        AnswerSubmitStatusText(answerSubmitState)
-    }
-}
-
-@Composable
-private fun AnswerSubmitStatusText(
-    state: QuizAnswerSubmitState,
-    modifier: Modifier = Modifier,
-) {
-    val message =
-        when (state) {
-            QuizAnswerSubmitState.Idle -> null
-            QuizAnswerSubmitState.Submitting -> "답변을 저장하고 있어요..."
-            QuizAnswerSubmitState.Success -> "답변을 저장했어요."
-            is QuizAnswerSubmitState.CompletionPending -> state.message
-            is QuizAnswerSubmitState.SaveFailed -> state.message
-            is QuizAnswerSubmitState.Error -> state.message
-        }
-
-    if (message != null) {
-        Text(
-            text = message,
-            modifier = modifier.fillMaxWidth(),
-            style = MaterialTheme.typography.bodySmall,
-            color =
-                if (state is QuizAnswerSubmitState.Error ||
-                    state is QuizAnswerSubmitState.CompletionPending ||
-                    state is QuizAnswerSubmitState.SaveFailed
-                ) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.primary
-                },
-            textAlign = TextAlign.Center,
+        QuizActionCard(
+            actionState = actionState,
+            onAnswerClick = onAnswerClick,
+            onNextClick = onNextClick,
         )
     }
 }

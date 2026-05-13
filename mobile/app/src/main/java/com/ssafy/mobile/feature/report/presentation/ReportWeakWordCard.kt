@@ -16,17 +16,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.ssafy.mobile.core.ui.components.AppBadge
+import com.ssafy.mobile.core.ui.components.AppBadgeTone
+import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.feature.report.domain.model.ReportWeakWord
 import java.util.Locale
 
 @Composable
 fun ReportWeakWordCard(word: ReportWeakWord) {
-    Surface(
+    AppCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = WEAK_WORD_CARD_ALPHA),
     ) {
-        Column(modifier = Modifier.padding(18.dp)) {
+        Column {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -48,10 +49,9 @@ fun ReportWeakWordCard(word: ReportWeakWord) {
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Text(
+                AppBadge(
                     text = "${word.wrongCount}회 틀림",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.error,
+                    tone = AppBadgeTone.Error,
                 )
             }
 
@@ -129,5 +129,4 @@ private fun String?.toReportDateLabel(): String =
         take(ISO_DATE_LENGTH).replace("-", ".")
     }
 
-private const val WEAK_WORD_CARD_ALPHA = 0.45f
 private const val ISO_DATE_LENGTH = 10

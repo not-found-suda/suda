@@ -1,8 +1,11 @@
 package com.ssafy.mobile.feature.conversation.presentation.components
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -16,13 +19,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.ssafy.mobile.core.ui.components.AppBadge
+import com.ssafy.mobile.core.ui.components.AppBadgeTone
 import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
 import com.ssafy.mobile.feature.conversation.domain.model.MessageStatus
 import com.ssafy.mobile.feature.conversation.domain.model.SenderType
 
-private const val SUDA_BG_COLOR = 0xFFF0F0F0
 private const val PENDING_ALPHA = 0.6f
 private const val MAX_BUBBLE_WIDTH = 280
 
@@ -45,21 +49,38 @@ fun SubtitleBubble(
         contentAlignment = style.boxAlignment,
     ) {
         Column(
+            modifier = Modifier.animateContentSize(),
             horizontalAlignment = style.columnAlignment,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AppBadge(
+                    text = message.senderType.senderLabel(),
+                    tone = message.senderType.senderBadgeTone(),
+                )
+                if (message.status == MessageStatus.PENDING) {
+                    AppBadge(
+                        text = "처리 중",
+                        tone = AppBadgeTone.Warning,
+                    )
+                }
+            }
             Box(
                 modifier =
                     Modifier
                         .widthIn(max = MAX_BUBBLE_WIDTH.dp)
                         .background(style.backgroundColor, style.shape)
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
                         .alpha(if (message.status == MessageStatus.PENDING) PENDING_ALPHA else 1f),
             ) {
                 Text(
                     text = message.text,
+                    style = MaterialTheme.typography.bodyLarge,
                     color = style.contentColor,
-                    fontSize = 16.sp,
-                    lineHeight = 22.sp,
+                    fontWeight = FontWeight.Medium,
                 )
             }
 
@@ -81,6 +102,20 @@ fun SubtitleBubble(
 private fun ChatMessage.canReportTranslation(): Boolean =
     isFeedbackAvailable && status == MessageStatus.COMPLETED
 
+private fun SenderType.senderLabel(): String =
+    when (this) {
+        SenderType.SYSTEM -> "안내"
+        SenderType.PARENT -> "부모"
+        SenderType.CHILD -> "아이"
+    }
+
+private fun SenderType.senderBadgeTone(): AppBadgeTone =
+    when (this) {
+        SenderType.SYSTEM -> AppBadgeTone.Neutral
+        SenderType.PARENT -> AppBadgeTone.Primary
+        SenderType.CHILD -> AppBadgeTone.Secondary
+    }
+
 @Composable
 private fun subtitleBubbleStyle(senderType: SenderType): SubtitleBubbleStyle =
     when (senderType) {
@@ -88,25 +123,25 @@ private fun subtitleBubbleStyle(senderType: SenderType): SubtitleBubbleStyle =
             SubtitleBubbleStyle(
                 boxAlignment = Alignment.Center,
                 columnAlignment = Alignment.CenterHorizontally,
-                backgroundColor = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                shape = RoundedCornerShape(16.dp),
+                backgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                shape = RoundedCornerShape(8.dp),
             )
         SenderType.PARENT ->
             SubtitleBubbleStyle(
                 boxAlignment = Alignment.CenterStart,
                 columnAlignment = Alignment.Start,
-                backgroundColor = Color(SUDA_BG_COLOR),
-                contentColor = Color.Black,
-                shape = RoundedCornerShape(4.dp, 20.dp, 20.dp, 20.dp),
+                backgroundColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                shape = RoundedCornerShape(2.dp, 8.dp, 8.dp, 8.dp),
             )
         SenderType.CHILD ->
             SubtitleBubbleStyle(
                 boxAlignment = Alignment.CenterEnd,
                 columnAlignment = Alignment.End,
-                backgroundColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White,
-                shape = RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp),
+                backgroundColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                shape = RoundedCornerShape(8.dp, 2.dp, 8.dp, 8.dp),
             )
     }
 

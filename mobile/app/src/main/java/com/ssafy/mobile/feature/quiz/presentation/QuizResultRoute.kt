@@ -11,14 +11,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -34,9 +30,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ssafy.mobile.core.ui.components.AppBadge
+import com.ssafy.mobile.core.ui.components.AppBadgeTone
+import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.feature.learning.domain.model.LearningQuizResult
@@ -193,23 +191,19 @@ private fun QuizResultHeaderCard(
     totalCount: Int,
     totalStar: Int,
 ) {
-    Card(
+    AppCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-            ),
     ) {
         Row(
-            modifier = Modifier.padding(24.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
             ResultStatItem(
                 label = "맞힌 문제",
                 value = "$correctCount / $totalCount",
-                iconEmoji = "✅",
+                badgeText = "정답",
+                tone = AppBadgeTone.Success,
             )
             Box(
                 modifier =
@@ -223,7 +217,8 @@ private fun QuizResultHeaderCard(
             ResultStatItem(
                 label = "획득한 별",
                 value = "$totalStar",
-                iconEmoji = "⭐",
+                badgeText = "별점",
+                tone = AppBadgeTone.Primary,
             )
         }
     }
@@ -233,12 +228,13 @@ private fun QuizResultHeaderCard(
 private fun ResultStatItem(
     label: String,
     value: String,
-    iconEmoji: String,
+    badgeText: String,
+    tone: AppBadgeTone,
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = iconEmoji,
-            fontSize = 24.sp,
+        AppBadge(
+            text = badgeText,
+            tone = tone,
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
@@ -257,24 +253,20 @@ private fun ResultStatItem(
 
 @Composable
 private fun QuizAnswerResultItem(answer: LearningQuizResultAnswer) {
-    Card(
+    AppCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-            ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Column(
-            modifier = Modifier.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                QuizAnswerStatusIcon(isCorrect = answer.isCorrect)
+                AppBadge(
+                    text = if (answer.isCorrect) "정답" else "오답",
+                    tone = if (answer.isCorrect) AppBadgeTone.Success else AppBadgeTone.Error,
+                )
 
                 Spacer(modifier = Modifier.width(12.dp))
 
@@ -294,7 +286,7 @@ private fun QuizAnswerResultItem(answer: LearningQuizResultAnswer) {
 
             if (!answer.feedback.isNullOrBlank()) {
                 Text(
-                    text = "💡 ${answer.feedback}",
+                    text = "피드백: ${answer.feedback}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(horizontal = 4.dp),
@@ -305,39 +297,18 @@ private fun QuizAnswerResultItem(answer: LearningQuizResultAnswer) {
 }
 
 @Composable
-private fun QuizAnswerStatusIcon(isCorrect: Boolean) {
-    Box(
-        modifier =
-            Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(
-                    if (isCorrect) {
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                    } else {
-                        MaterialTheme.colorScheme.error.copy(alpha = 0.1f)
-                    },
-                ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = if (isCorrect) "⭕" else "❌",
-            fontSize = 16.sp,
-        )
-    }
-}
-
-@Composable
 private fun QuizAnswerStarRating(star: Int) {
     val normalizedStar = star.coerceIn(0, MAX_STAR_COUNT)
     Row(verticalAlignment = Alignment.CenterVertically) {
         repeat(normalizedStar) {
-            Text(text = "⭐", fontSize = 14.sp)
+            Text(
+                text = "★",
+                color = MaterialTheme.colorScheme.primary,
+            )
         }
         repeat(MAX_STAR_COUNT - normalizedStar) {
             Text(
-                text = "⭐",
-                fontSize = 14.sp,
+                text = "☆",
                 color = Color.Gray.copy(alpha = 0.3f),
             )
         }
@@ -347,7 +318,7 @@ private fun QuizAnswerStarRating(star: Int) {
 @Composable
 private fun QuizAnswerRecognizedText(recognizedText: String?) {
     val hasRecognizedText = !recognizedText.isNullOrBlank()
-    val displayText = if (hasRecognizedText) recognizedText!! else "음성 인식 결과가 없어요"
+    val displayText = if (hasRecognizedText) recognizedText.orEmpty() else "음성 인식 결과가 없어요"
 
     Column(
         modifier =

@@ -16,18 +16,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.ssafy.mobile.core.ui.components.AppBadge
+import com.ssafy.mobile.core.ui.components.AppBadgeTone
+import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.feature.report.domain.model.ReportQuizAnswer
 import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionDetail
 import java.util.Locale
 
 @Composable
 internal fun ReportQuizSessionSummaryCard(detail: ReportQuizSessionDetail) {
-    Surface(
+    AppCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = DETAIL_SUMMARY_ALPHA),
     ) {
-        Column(modifier = Modifier.padding(18.dp)) {
+        Column {
             Text(
                 text = "${detail.categoryName} 퀴즈",
                 style = MaterialTheme.typography.titleLarge,
@@ -36,13 +37,16 @@ internal fun ReportQuizSessionSummaryCard(detail: ReportQuizSessionDetail) {
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text =
-                    "${detail.difficulty.toReportDifficultyLabel()} · " +
-                        detail.status.toReportSessionStatusLabel(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                AppBadge(
+                    text = detail.difficulty.toReportDifficultyLabel(),
+                    tone = AppBadgeTone.Primary,
+                )
+                AppBadge(
+                    text = detail.status.toReportSessionStatusLabel(),
+                    tone = detail.status.toReportSessionStatusBadgeTone(),
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
             ReportQuizSessionSummaryMetricGrid(detail = detail)
@@ -106,22 +110,20 @@ private fun ReportQuizSessionDateSection(detail: ReportQuizSessionDetail) {
 
 @Composable
 internal fun ReportQuizAnswerCard(answer: ReportQuizAnswer) {
-    Surface(
+    AppCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = ANSWER_CARD_ALPHA),
     ) {
-        Column(modifier = Modifier.padding(18.dp)) {
+        Column {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
+                    AppBadge(
                         text = "${answer.questionNumber}번 문제",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
+                        tone = AppBadgeTone.Neutral,
                     )
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = answer.targetText,
                         style = MaterialTheme.typography.titleMedium,
@@ -130,15 +132,9 @@ internal fun ReportQuizAnswerCard(answer: ReportQuizAnswer) {
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Text(
+                AppBadge(
                     text = answer.correctnessLabel(),
-                    style = MaterialTheme.typography.labelLarge,
-                    color =
-                        if (answer.isCorrect == false) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.primary
-                        },
+                    tone = answer.toReportCorrectnessBadgeTone(),
                 )
             }
 
@@ -233,6 +229,3 @@ private fun ReportQuizAnswer.correctnessLabel(): String =
 
 private fun String?.toDisplayText(fallback: String): String =
     if (isNullOrBlank()) fallback else this
-
-private const val DETAIL_SUMMARY_ALPHA = 0.45f
-private const val ANSWER_CARD_ALPHA = 0.45f

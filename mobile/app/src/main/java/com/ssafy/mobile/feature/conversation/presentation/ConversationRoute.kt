@@ -8,6 +8,10 @@ import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.util.Log
 import android.view.WindowManager
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
@@ -58,6 +63,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ssafy.mobile.core.ui.components.AppBadge
+import com.ssafy.mobile.core.ui.components.AppBadgeTone
+import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.core.ui.feedback.AppNetworkStatusBanner
@@ -74,6 +82,7 @@ private const val SUBTITLE_HEIGHT_FRACTION = 0.4f
 private const val PHASE_CARD_ALPHA = 0.88f
 private const val INPUT_LANE_LABEL_ALPHA = 0.14f
 private const val CAMERA_PREVIEW_ASPECT_RATIO = 16f / 9f
+private const val NOTICE_ENTER_SLIDE_DIVISOR = 5
 
 data class ConversationUiState(
     val sessionState: SessionState,
@@ -281,6 +290,23 @@ private fun ConversationScreen(
                 GlossRecognitionArea(
                     lastGlosses = uiState.lastGlosses,
                     signInputPhase = uiState.signInputPhase,
+                )
+                ConversationTranscriptPanel(
+                    messages = uiState.messages,
+                    emptyText =
+                        subtitlePlaceholder(
+                            signInputPhase = uiState.signInputPhase,
+                            speechInputPhase = uiState.speechInputPhase,
+                        ),
+                    onFeedbackClick = { message ->
+                        feedbackTargetMessage = message
+                        selectedFeedbackReason = null
+                    },
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
                 )
             }
         }
@@ -731,6 +757,55 @@ private fun TranslationFeedbackSubmitState.actionText(): String =
     }
 
 @Composable
+private fun ConversationTranscriptPanel(
+    messages: List<ChatMessage>,
+    emptyText: String,
+    onFeedbackClick: (ChatMessage) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AppCard(
+        modifier =
+            modifier
+                .heightIn(min = 180.dp)
+                .animateContentSize(),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "대화 자막",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = "부모와 아이의 말을 실시간으로 구분해 보여줘요.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            AppBadge(
+                text = if (messages.isEmpty()) "대기" else "${messages.size}개",
+                tone = if (messages.isEmpty()) AppBadgeTone.Neutral else AppBadgeTone.Primary,
+            )
+        }
+
+        SubtitleList(
+            messages = messages,
+            emptyText = emptyText,
+            onFeedbackClick = onFeedbackClick,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+        )
+    }
+}
+
+@Composable
 private fun TranslationFeedbackReasonRow(
     reason: TranslationFeedbackReason,
     selected: Boolean,
@@ -1045,23 +1120,26 @@ private fun TranslationModeSelector(
 
 @Composable
 private fun TranslationModeNotice(text: String?) {
-    if (text.isNullOrBlank()) return
-
-    Surface(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.secondaryContainer,
+    AnimatedVisibility(
+        visible = !text.isNullOrBlank(),
+        enter = fadeIn() + slideInVertically { it / NOTICE_ENTER_SLIDE_DIVISOR },
     ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
-            fontWeight = FontWeight.Bold,
-        )
+        Surface(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.secondaryContainer,
+        ) {
+            Text(
+                text = text.orEmpty(),
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                fontWeight = FontWeight.Bold,
+            )
+        }
     }
 }
 

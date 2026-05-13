@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -16,6 +15,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.ssafy.mobile.core.ui.components.AppBadge
+import com.ssafy.mobile.core.ui.components.AppBadgeTone
+import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.feature.report.domain.model.ReportSummary
 import com.ssafy.mobile.feature.report.domain.model.ReportWeakWord
@@ -58,14 +60,16 @@ fun ReportSummarySection(
 
 @Composable
 private fun ReportSummaryStatusCard(message: String) {
-    Surface(
+    AppCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = SUMMARY_STATUS_ALPHA),
     ) {
+        AppBadge(
+            text = "요약",
+            tone = AppBadgeTone.Neutral,
+        )
+        Spacer(modifier = Modifier.height(10.dp))
         Text(
             text = message,
-            modifier = Modifier.padding(20.dp),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -77,15 +81,17 @@ private fun ReportSummaryErrorCard(
     message: String,
     onRetryClick: () -> Unit,
 ) {
-    Surface(
+    AppCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = SUMMARY_ERROR_ALPHA),
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            AppBadge(
+                text = "불러오기 실패",
+                tone = AppBadgeTone.Error,
+            )
+            Spacer(modifier = Modifier.height(10.dp))
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
@@ -162,18 +168,15 @@ private fun SummaryMetricCard(
     value: String,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
+    AppCard(
         modifier = modifier,
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = SUMMARY_METRIC_ALPHA),
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
+        Column {
+            AppBadge(
                 text = title,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                tone = AppBadgeTone.Primary,
             )
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = value,
                 style = MaterialTheme.typography.titleMedium,
@@ -186,16 +189,13 @@ private fun SummaryMetricCard(
 
 @Composable
 private fun LatestActivityCard(summary: ReportSummary) {
-    Surface(
+    AppCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = SUMMARY_LATEST_ALPHA),
     ) {
-        Column(modifier = Modifier.padding(18.dp)) {
-            Text(
+        Column {
+            AppBadge(
                 text = "최근 학습",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
+                tone = AppBadgeTone.Secondary,
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
@@ -203,7 +203,8 @@ private fun LatestActivityCard(summary: ReportSummary) {
                     summary.latestActivity?.let { activity ->
                         "${activity.categoryName} · ${activity.latestSessionAt.toDateLabel()}"
                     } ?: "최근 완료한 퀴즈 기록이 없어요.",
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -214,14 +215,17 @@ private fun LatestActivityCard(summary: ReportSummary) {
 
 @Composable
 private fun WeakWordsPreviewCard(weakWords: List<ReportWeakWord>) {
-    Surface(
+    AppCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = SUMMARY_PREVIEW_ALPHA),
     ) {
-        Column(modifier = Modifier.padding(18.dp)) {
-            Text(
+        Column {
+            AppBadge(
                 text = "자주 틀리는 단어",
+                tone = AppBadgeTone.Error,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = if (weakWords.isEmpty()) "아직 자주 틀린 단어가 없어요." else "상위 단어",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
             )
@@ -229,7 +233,7 @@ private fun WeakWordsPreviewCard(weakWords: List<ReportWeakWord>) {
 
             if (weakWords.isEmpty()) {
                 Text(
-                    text = "아직 자주 틀린 단어가 없어요.",
+                    text = "퀴즈를 더 풀면 이곳에 어려워하는 단어가 쌓여요.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -275,11 +279,6 @@ private fun WeakWordRow(word: ReportWeakWord) {
     }
 }
 
-private const val SUMMARY_STATUS_ALPHA = 0.5f
-private const val SUMMARY_ERROR_ALPHA = 0.4f
-private const val SUMMARY_METRIC_ALPHA = 0.35f
-private const val SUMMARY_LATEST_ALPHA = 0.25f
-private const val SUMMARY_PREVIEW_ALPHA = 0.35f
 private const val WEAK_WORD_PREVIEW_COUNT = 3
 private const val ISO_DATE_LENGTH = 10
 private const val PERCENT_MIN = 0.0
