@@ -4,6 +4,7 @@ import android.os.SystemClock
 import android.util.Log
 import com.ssafy.mobile.core.vision.feature.LandmarkFeatureProbe
 import com.ssafy.mobile.core.vision.feature.SignSequenceBuffer
+import com.ssafy.mobile.core.vision.inference.SignInferenceCandidate
 import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
 import com.ssafy.mobile.core.vision.landmark.LandmarkPoint
 import java.util.Locale
@@ -19,6 +20,16 @@ class SignPipelineLogger(
 
     fun logEngineStarted() {
         log("Sign recognition engine started.")
+    }
+
+    fun logInferenceAdapter(
+        adapterName: String,
+        supportsFullSegmentInference: Boolean,
+    ) {
+        log(
+            "Inference adapter. name=$adapterName, " +
+                "supportsFullSegmentInference=$supportsFullSegmentInference",
+        )
     }
 
     fun logHandForwardFillMode(isEnabled: Boolean) {
@@ -83,10 +94,18 @@ class SignPipelineLogger(
         )
     }
 
+    @Suppress("LongParameterList")
     fun logInferenceResult(
         sequenceSize: Int,
         gloss: String,
         confidence: Float,
+        margin: Float? = null,
+        secondGloss: String? = null,
+        secondConfidence: Float? = null,
+        rawGloss: String? = null,
+        accepted: Boolean? = null,
+        rejectionReason: String? = null,
+        topCandidates: List<SignInferenceCandidate> = emptyList(),
     ) {
         val now = elapsedRealtime()
         if (now - lastInferenceLogAtMillis < DEBUG_LOG_INTERVAL_MILLIS) {
@@ -95,7 +114,30 @@ class SignPipelineLogger(
         lastInferenceLogAtMillis = now
 
         log(
-            "Inference result. sequenceSize=$sequenceSize, gloss=$gloss, confidence=$confidence",
+            "Inference result. sequenceSize=$sequenceSize, gloss=$gloss, " +
+                "confidence=$confidence, margin=$margin, " +
+                "secondGloss=$secondGloss, secondConfidence=$secondConfidence, " +
+                "rawGloss=$rawGloss, accepted=$accepted, reason=$rejectionReason, " +
+                "top=${topCandidates.toLogString()}",
+        )
+    }
+
+    fun logModelInputStats(
+        frameCount: Int,
+        handFrameCount: Int,
+        sequence: FloatArray,
+    ) {
+        val now = elapsedRealtime()
+        if (now - lastInferenceLogAtMillis < DEBUG_LOG_INTERVAL_MILLIS) {
+            return
+        }
+
+        val stats = sequence.toStats()
+        log(
+            "Model input. segmentFrames=$frameCount, handFrames=$handFrameCount, " +
+                "flatSize=${sequence.size}, mean=${stats.mean.format()}, " +
+                "std=${stats.std.format()}, zeroRatio=${stats.zeroRatio.format()}, " +
+                "min=${stats.min.format()}, max=${stats.max.format()}",
         )
     }
 
@@ -115,6 +157,62 @@ class SignPipelineLogger(
         const val DEBUG_LOG_INTERVAL_MILLIS = 1_000L
     }
 }
+
+private fun List<SignInferenceCandidate>.toLogString(): String =
+    joinToString(separator = " | ") { candidate ->
+        "#${candidate.rank}:${candidate.gloss}[${candidate.classIndex}]=" +
+            candidate.confidence.format()
+    }
+
+private fun FloatArray.toStats(): SequenceStats {
+    if (isEmpty()) {
+        return SequenceStats(
+            mean = 0f,
+            std = 0f,
+            zeroRatio = 0f,
+            min = 0f,
+            max = 0f,
+        )
+    }
+
+    var sum = 0.0
+    var squareSum = 0.0
+    var zeroCount = 0
+    var min = Float.POSITIVE_INFINITY
+    var max = Float.NEGATIVE_INFINITY
+    forEach { value ->
+        sum += value
+        squareSum += value * value
+        if (value == 0f) {
+            zeroCount += 1
+        }
+        if (value < min) {
+            min = value
+        }
+        if (value > max) {
+            max = value
+        }
+    }
+    val mean = (sum / size).toFloat()
+    val variance = (squareSum / size - mean * mean).coerceAtLeast(0.0)
+    return SequenceStats(
+        mean = mean,
+        std = kotlin.math.sqrt(variance).toFloat(),
+        zeroRatio = zeroCount.toFloat() / size,
+        min = min,
+        max = max,
+    )
+}
+
+private fun Float.format(): String = String.format(Locale.US, "%.4f", this)
+
+private data class SequenceStats(
+    val mean: Float,
+    val std: Float,
+    val zeroRatio: Float,
+    val min: Float,
+    val max: Float,
+)
 
 private fun LandmarkPoint.toLogString(): String =
     String.format(Locale.US, "(%.4f,%.4f,%.4f)", x, y, z)

@@ -1,10 +1,11 @@
-@file:Suppress("MagicNumber", "TooManyFunctions")
+@file:Suppress("LongMethod", "LongParameterList", "MagicNumber", "TooManyFunctions")
 
 package com.ssafy.mobile.feature.conversation.presentation
 
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
 import android.util.Log
 import android.view.WindowManager
 import androidx.compose.foundation.BorderStroke
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -42,6 +45,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +54,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
@@ -67,6 +73,7 @@ private const val SUBTITLE_WIDTH_FRACTION = 0.95f
 private const val SUBTITLE_HEIGHT_FRACTION = 0.4f
 private const val PHASE_CARD_ALPHA = 0.88f
 private const val INPUT_LANE_LABEL_ALPHA = 0.14f
+private const val CAMERA_PREVIEW_ASPECT_RATIO = 16f / 9f
 
 data class ConversationUiState(
     val sessionState: SessionState,
@@ -117,7 +124,12 @@ fun conversationRoute(
     }
 
     DisposableEffect(Unit) {
-        onDispose { viewModel.stopSession() }
+        onDispose {
+            val activity = context.findActivity()
+            if (activity?.isChangingConfigurations != true) {
+                viewModel.stopSession()
+            }
+        }
     }
 
     val uiState =
@@ -174,6 +186,7 @@ private fun ConversationScreen(
 ) {
     var feedbackTargetMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var selectedFeedbackReason by remember { mutableStateOf<TranslationFeedbackReason?>(null) }
+    var isCameraFullscreen by rememberSaveable { mutableStateOf(false) }
 
     fun closeFeedbackSheet() {
         feedbackTargetMessage = null
@@ -209,27 +222,62 @@ private fun ConversationScreen(
             modifier =
                 Modifier
                     .padding(paddingValues)
-                    .fillMaxSize(),
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background),
         ) {
             // 카메라 인식 영역 및 자막 오버레이
-            SignRecognitionArea(
-                sessionState = uiState.sessionState,
-                signInputPhase = uiState.signInputPhase,
-                speechInputPhase = uiState.speechInputPhase,
-                messages = uiState.messages,
-                onLandmarkFrame = actions.onLandmarkFrame,
-                onFeedbackClick = { message ->
-                    feedbackTargetMessage = message
-                    selectedFeedbackReason = null
-                },
-                modifier = Modifier.weight(1.0f),
-            )
+            if (isCameraFullscreen) {
+                CameraFullscreenPlaceholder(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(CAMERA_PREVIEW_ASPECT_RATIO),
+                )
+            } else {
+                SignRecognitionArea(
+                    sessionState = uiState.sessionState,
+                    signInputPhase = uiState.signInputPhase,
+                    speechInputPhase = uiState.speechInputPhase,
+                    messages = uiState.messages,
+                    onLandmarkFrame = actions.onLandmarkFrame,
+                    onFeedbackClick = { message ->
+                        feedbackTargetMessage = message
+                        selectedFeedbackReason = null
+                    },
+                    onFullscreenClick =
+                        {
+                            isCameraFullscreen = true
+                        }.takeIf { uiState.sessionState == SessionState.Active },
+                    showStatusOverlay = false,
+                    showSubtitles = false,
+                    showDebugOverlay = false,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(CAMERA_PREVIEW_ASPECT_RATIO),
+                )
+            }
 
-            // 실시간 인식 결과 영역 (글로스 나열)
-            GlossRecognitionArea(
-                lastGlosses = uiState.lastGlosses,
-                signInputPhase = uiState.signInputPhase,
-            )
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .background(MaterialTheme.colorScheme.background),
+            ) {
+                ParallelInputStatusCard(
+                    signInputPhase = uiState.signInputPhase,
+                    speechInputPhase = uiState.speechInputPhase,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                )
+                GlossRecognitionArea(
+                    lastGlosses = uiState.lastGlosses,
+                    signInputPhase = uiState.signInputPhase,
+                )
+            }
         }
     }
 
@@ -246,6 +294,16 @@ private fun ConversationScreen(
         onReasonSelected = { selectedFeedbackReason = it },
         onDismiss = { closeFeedbackSheet() },
     )
+
+    if (isCameraFullscreen) {
+        CameraFullscreenDialog(
+            uiState = uiState,
+            actions = actions,
+            onDismiss = {
+                isCameraFullscreen = false
+            },
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -280,6 +338,23 @@ private fun TranslationFeedbackSheetHost(
 }
 
 @Composable
+private fun CameraFullscreenPlaceholder(modifier: Modifier = Modifier) {
+    Box(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .background(Color.Black),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "전체 화면으로 표시 중",
+            color = Color.White,
+            style = MaterialTheme.typography.titleMedium,
+        )
+    }
+}
+
+@Composable
 private fun SignRecognitionArea(
     sessionState: SessionState,
     signInputPhase: SignInputPhase,
@@ -287,6 +362,10 @@ private fun SignRecognitionArea(
     messages: List<ChatMessage>,
     onLandmarkFrame: (LandmarkFrameResult) -> Unit,
     onFeedbackClick: (ChatMessage) -> Unit,
+    showStatusOverlay: Boolean = true,
+    showSubtitles: Boolean = true,
+    showDebugOverlay: Boolean = true,
+    onFullscreenClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -294,27 +373,29 @@ private fun SignRecognitionArea(
     ) {
         SignRecognitionScreen(
             isSessionActive = sessionState == SessionState.Active,
+            showDebugOverlay = showDebugOverlay,
             onLandmarkFrameAvailable = onLandmarkFrame,
             modifier = Modifier.fillMaxSize(),
         )
 
-        // 자막 리스트 오버레이 (하단 40% 영역)
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxWidth(SUBTITLE_WIDTH_FRACTION)
-                    .fillMaxHeight(SUBTITLE_HEIGHT_FRACTION)
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 16.dp),
-        ) {
-            SubtitleList(
-                messages = messages,
-                emptyText = subtitlePlaceholder(signInputPhase, speechInputPhase),
-                onFeedbackClick = onFeedbackClick,
-            )
+        if (showSubtitles) {
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth(SUBTITLE_WIDTH_FRACTION)
+                        .fillMaxHeight(SUBTITLE_HEIGHT_FRACTION)
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 16.dp),
+            ) {
+                SubtitleList(
+                    messages = messages,
+                    emptyText = subtitlePlaceholder(signInputPhase, speechInputPhase),
+                    onFeedbackClick = onFeedbackClick,
+                )
+            }
         }
 
-        if (sessionState == SessionState.Active) {
+        if (showStatusOverlay && sessionState == SessionState.Active) {
             ParallelInputStatusCard(
                 signInputPhase = signInputPhase,
                 speechInputPhase = speechInputPhase,
@@ -322,6 +403,17 @@ private fun SignRecognitionArea(
                     Modifier
                         .align(Alignment.TopCenter)
                         .padding(top = 16.dp, start = 16.dp, end = 16.dp),
+            )
+        }
+
+        if (onFullscreenClick != null) {
+            CameraOverlayButton(
+                text = "전체",
+                onClick = onFullscreenClick,
+                modifier =
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(12.dp),
             )
         }
 
@@ -340,6 +432,186 @@ private fun SignRecognitionArea(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun CameraFullscreenDialog(
+    uiState: ConversationUiState,
+    actions: ConversationActions,
+    onDismiss: () -> Unit,
+) {
+    ForceLandscapeOrientationEffect()
+
+    LaunchedEffect(uiState.sessionState) {
+        if (uiState.sessionState != SessionState.Active) {
+            onDismiss()
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties =
+            DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false,
+            ),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color.Black,
+        ) {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .background(Color.Black),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    SignRecognitionArea(
+                        sessionState = uiState.sessionState,
+                        signInputPhase = uiState.signInputPhase,
+                        speechInputPhase = uiState.speechInputPhase,
+                        messages = uiState.messages,
+                        onLandmarkFrame = actions.onLandmarkFrame,
+                        onFeedbackClick = {},
+                        showStatusOverlay = false,
+                        showSubtitles = false,
+                        showDebugOverlay = false,
+                        modifier =
+                            Modifier
+                                .fillMaxHeight()
+                                .aspectRatio(CAMERA_PREVIEW_ASPECT_RATIO),
+                    )
+                }
+                FullscreenStatusPanel(
+                    uiState = uiState,
+                    onStopSession = {
+                        actions.onStopSession()
+                        onDismiss()
+                    },
+                    modifier =
+                        Modifier
+                            .fillMaxHeight()
+                            .width(320.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ForceLandscapeOrientationEffect() {
+    val activity = LocalContext.current.findActivity()
+
+    DisposableEffect(activity) {
+        if (activity == null) {
+            onDispose { }
+        } else {
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            onDispose {
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            }
+        }
+    }
+}
+
+@Composable
+private fun FullscreenStatusPanel(
+    uiState: ConversationUiState,
+    onStopSession: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text(
+                text = "실시간 수어",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Bold,
+            )
+            InputLaneStatusRow(
+                label = "수어",
+                title = uiState.signInputPhase.title(),
+                description = uiState.signInputPhase.description(),
+                isWarning = uiState.signInputPhase.isWarning(),
+            )
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(MaterialTheme.colorScheme.outlineVariant),
+            )
+            Text(
+                text = "인식 결과",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Bold,
+            )
+            if (uiState.lastGlosses.isEmpty()) {
+                Text(
+                    text = uiState.signInputPhase.glossPlaceholder(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(uiState.lastGlosses) { gloss ->
+                        GlossChip(gloss = gloss)
+                    }
+                }
+            }
+            Box(modifier = Modifier.weight(1f))
+            AppSecondaryButton(
+                text = "종료",
+                onClick = onStopSession,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun CameraOverlayButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(999.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 

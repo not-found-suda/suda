@@ -27,7 +27,7 @@ class LandmarkFeatureEncoderTest {
     }
 
     @Test
-    fun normalizesZeroPaddedRawHandLandmarks() {
+    fun encodesZeroPaddedRawHandLandmarks() {
         val encoder = LandmarkFeatureEncoder(isHandForwardFillEnabled = false)
         encoder.encode(createFrame())
 
@@ -177,9 +177,9 @@ class LandmarkFeatureEncoderTest {
         const val TIMESTAMP_MS = 1_000L
         const val FLOAT_DELTA = 0.0001f
         const val FULL_POSE_LANDMARK_COUNT = 33
-        const val POSE_X_NORMALIZED = 0f
-        const val LEFT_HAND_X_NORMALIZED = 0.25f
-        const val RIGHT_HAND_X_NORMALIZED = -0.25f
-        const val NORMALIZED_ZERO_PADDED_HAND_VALUE = -0.5f
+        const val POSE_X_NORMALIZED = 0.5f
+        const val LEFT_HAND_X_NORMALIZED = 0.75f
+        const val RIGHT_HAND_X_NORMALIZED = 0.25f
+        const val NORMALIZED_ZERO_PADDED_HAND_VALUE = 0f
     }
 }

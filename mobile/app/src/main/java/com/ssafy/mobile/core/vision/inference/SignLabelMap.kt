@@ -3,6 +3,9 @@ package com.ssafy.mobile.core.vision.inference
 class SignLabelMap private constructor(
     private val labelsByIndex: Map<Int, String>,
 ) {
+    val size: Int
+        get() = labelsByIndex.size
+
     fun glossFor(classIndex: Int): String =
         labelsByIndex[classIndex] ?: SignModelContract.UNKNOWN_GLOSS
 
@@ -43,12 +46,28 @@ class SignLabelMap private constructor(
                 }
 
         private fun extractLabelsArray(jsonObject: String): String {
-            val startIndex = jsonObject.indexOf('[')
-            val endIndex = jsonObject.lastIndexOf(']')
-            require(startIndex >= 0 && endIndex > startIndex) {
+            val labelsPropertyIndex = jsonObject.indexOf(LABELS_PROPERTY)
+            require(labelsPropertyIndex >= 0) {
+                "Could not find labels property."
+            }
+            val startIndex = jsonObject.indexOf('[', startIndex = labelsPropertyIndex)
+            require(startIndex >= 0) {
                 "Could not find labels array."
             }
-            return jsonObject.substring(startIndex, endIndex + 1)
+
+            var depth = 0
+            for (index in startIndex until jsonObject.length) {
+                when (jsonObject[index]) {
+                    '[' -> depth += 1
+                    ']' -> {
+                        depth -= 1
+                        if (depth == 0) {
+                            return jsonObject.substring(startIndex, index + 1)
+                        }
+                    }
+                }
+            }
+            error("Could not find labels array end.")
         }
 
         private fun String.unescapeJsonString(): String =

@@ -2,9 +2,11 @@
 
 package com.ssafy.mobile.feature.sign.presentation
 
+import android.graphics.Bitmap
 import android.os.SystemClock
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -21,7 +23,10 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -94,6 +99,7 @@ private fun CameraPreviewContent(
     val previewView =
         remember {
             PreviewView(context).apply {
+                implementationMode = PreviewView.ImplementationMode.COMPATIBLE
                 scaleType = PreviewView.ScaleType.FILL_CENTER
             }
         }
@@ -104,6 +110,7 @@ private fun CameraPreviewContent(
     var fps by remember { mutableStateOf(0.0) }
     var latestLandmarkFrame by remember { mutableStateOf<LandmarkFrameResult?>(null) }
     var latestAnalysisImageSize by remember { mutableStateOf(IntSize.Zero) }
+    var latestAnalysisBitmap by remember { mutableStateOf<Bitmap?>(null) }
     val lastDebugOverlayUpdateAtMs = remember { AtomicLong(0L) }
 
     DisposableEffect(landmarkExtractor) {
@@ -114,6 +121,7 @@ private fun CameraPreviewContent(
         if (!isSessionActive) {
             latestLandmarkFrame = null
             latestAnalysisImageSize = IntSize.Zero
+            latestAnalysisBitmap = null
         }
     }
 
@@ -161,6 +169,7 @@ private fun CameraPreviewContent(
                         lastDebugOverlayUpdateAtMs.set(nowMs)
                         previewView.post {
                             latestLandmarkFrame = landmarkFrame
+                            latestAnalysisBitmap = frame.bitmap
                             latestAnalysisImageSize =
                                 IntSize(frame.bitmap.width, frame.bitmap.height)
                         }
@@ -188,6 +197,7 @@ private fun CameraPreviewContent(
         fps = fps,
         landmarkFrame = latestLandmarkFrame,
         analysisImageSize = latestAnalysisImageSize,
+        analysisBitmap = latestAnalysisBitmap,
         showDebugOverlay = showDebugOverlay,
         modifier = modifier,
     )
@@ -343,20 +353,35 @@ private fun CameraPreviewBox(
     fps: Double,
     landmarkFrame: LandmarkFrameResult?,
     analysisImageSize: IntSize,
+    analysisBitmap: Bitmap?,
     showDebugOverlay: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val showAnalysisBitmap = showDebugOverlay && analysisBitmap != null
+
     Box(modifier = modifier.fillMaxSize()) {
         AndroidView(
             factory = { previewView },
-            modifier = Modifier.fillMaxSize(),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .alpha(if (showAnalysisBitmap) 0.0f else 1.0f),
         )
+
+        if (showAnalysisBitmap) {
+            Image(
+                bitmap = analysisBitmap.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
 
         if (showDebugOverlay) {
             LandmarkDebugOverlay(
                 frame = landmarkFrame,
                 analysisImageSize = analysisImageSize,
-                mirrorHorizontally = FRONT_CAMERA_PREVIEW_IS_MIRRORED,
+                mirrorHorizontally = analysisBitmap == null && FRONT_CAMERA_PREVIEW_IS_MIRRORED,
                 modifier = Modifier.fillMaxSize(),
             )
         }

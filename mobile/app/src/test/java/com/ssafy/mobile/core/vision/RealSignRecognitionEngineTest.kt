@@ -64,7 +64,7 @@ class RealSignRecognitionEngineTest {
         }
 
     @Test
-    fun emitsPredictionWhenSequenceIsReady() =
+    fun emitsPredictionWhenLiveWindowIsStable() =
         runBlocking {
             val engine = createEngine()
             val predictionDeferred =
@@ -76,15 +76,76 @@ class RealSignRecognitionEngineTest {
 
             yield()
             engine.start()
-            engine.submitFrame(createFrame(timestampMs = 1L))
-            engine.submitFrame(createFrame(timestampMs = 2L))
-            engine.submitFrame(createFrame(timestampMs = 3L))
-            engine.submitFrame(createFrame(timestampMs = 4L))
+            repeatStablePredictionFrames(startTimestampMs = 1L, engine = engine)
+            engine.submitFrame(createNoHandsFrame(timestampMs = 1_000L))
+            engine.submitFrame(createNoHandsFrame(timestampMs = 1_000L + NO_HANDS_DELAY_MS))
 
             val prediction = predictionDeferred.await()
             assertEquals(TEST_GLOSS, prediction.gloss)
             assertEquals(TEST_CONFIDENCE, prediction.confidence, FLOAT_DELTA)
-            assertEquals(4L, prediction.timestampMs)
+            assertEquals(151L, prediction.timestampMs)
+        }
+
+    @Test
+    fun emitsPredictionWithResampledPartialSegment() =
+        runBlocking {
+            val inferenceAdapter = RecordingInferenceAdapter()
+            val engine =
+                createEngine(
+                    inferenceAdapter = inferenceAdapter,
+                    sequenceBuffer =
+                        SignSequenceBuffer(
+                            sequenceLength = TEST_PARTIAL_SEQUENCE_LENGTH,
+                            minimumPredictionFrames = TEST_MINIMUM_PREDICTION_FRAMES,
+                        ),
+                    predictionStabilizer =
+                        SignPredictionStabilizer(
+                            confidenceThreshold = TEST_CONFIDENCE_THRESHOLD,
+                            windowSize = 1,
+                            requiredVotes = 1,
+                        ),
+                )
+            val predictionDeferred =
+                async {
+                    withTimeout(TIMEOUT_MS) {
+                        engine.events.filterIsInstance<SignRecognitionEvent.Prediction>().first()
+                    }
+                }
+
+            yield()
+            engine.start()
+            repeatStablePredictionFrames(startTimestampMs = 1L, engine = engine)
+            engine.submitFrame(createNoHandsFrame(timestampMs = 1_000L))
+            engine.submitFrame(createNoHandsFrame(timestampMs = 1_000L + NO_HANDS_DELAY_MS))
+
+            assertTrue(inferenceAdapter.predictCallCount > 0)
+            assertEquals(TEST_GLOSS, predictionDeferred.await().gloss)
+        }
+
+    @Test
+    fun waitsForMinimumLiveWindowBeforeRunningInference() =
+        runBlocking {
+            val inferenceAdapter = RecordingInferenceAdapter()
+            val engine =
+                createEngine(
+                    inferenceAdapter = inferenceAdapter,
+                    predictionStabilizer =
+                        SignPredictionStabilizer(
+                            confidenceThreshold = TEST_CONFIDENCE_THRESHOLD,
+                            windowSize = 1,
+                            requiredVotes = 1,
+                        ),
+                )
+
+            engine.start()
+            engine.submitFrame(createFrame(timestampMs = 1L))
+            assertEquals(0, inferenceAdapter.predictCallCount)
+
+            engine.submitFrame(createFrame(timestampMs = 2L))
+            assertEquals(1, inferenceAdapter.predictCallCount)
+
+            engine.submitFrame(createFrame(timestampMs = 3L))
+            assertEquals(2, inferenceAdapter.predictCallCount)
         }
 
     @Test
@@ -140,15 +201,16 @@ class RealSignRecognitionEngineTest {
 
             yield()
             engine.start()
-            engine.submitFrame(createFrame(timestampMs = 1L))
-            engine.submitFrame(createFrame(timestampMs = 2L))
+            repeatStablePredictionFrames(startTimestampMs = 1L, engine = engine)
+            engine.submitFrame(createNoHandsFrame(timestampMs = 1_000L))
+            engine.submitFrame(createNoHandsFrame(timestampMs = 1_000L + NO_HANDS_DELAY_MS))
 
             val error = errorDeferred.await()
             assertTrue(error.cause is IllegalStateException)
         }
 
     @Test
-    fun emitsNoHandsDetectedAfterContinuousNoHandsFrames() =
+    fun emitsNoHandsDetectedWhenHandsDisappear() =
         runBlocking {
             val engine = createEngine()
             val noHandsDeferred =
@@ -163,28 +225,28 @@ class RealSignRecognitionEngineTest {
             yield()
             engine.start()
             engine.submitFrame(createFrame(timestampMs = 0L))
-            engine.submitFrame(createNoHandsFrame(timestampMs = 0L))
-            engine.submitFrame(createNoHandsFrame(timestampMs = NO_HANDS_DELAY_MS))
+            submitMissingHandFrames(engine = engine, startTimestampMs = 10L)
 
             assertEquals(SignRecognitionEvent.NoHandsDetected, noHandsDeferred.await())
         }
 
     @Test
-    fun keepsNoHandsFramesInSequenceUntilResetDelay() =
+    fun startsNewSegmentAfterHandsDisappear() =
         runBlocking {
             val inferenceAdapter = RecordingInferenceAdapter()
             val engine = createEngine(inferenceAdapter = inferenceAdapter)
 
             engine.start()
             engine.submitFrame(createFrame(timestampMs = 1L))
-            engine.submitFrame(createNoHandsFrame(timestampMs = 2L))
+            submitMissingHandFrames(engine = engine, startTimestampMs = 2L)
+            val predictCountAfterReset = inferenceAdapter.predictCallCount
 
-            assertEquals(1, inferenceAdapter.predictCallCount)
-
-            engine.submitFrame(createNoHandsFrame(timestampMs = 2L + NO_HANDS_DELAY_MS))
             engine.submitFrame(createFrame(timestampMs = 3L + NO_HANDS_DELAY_MS))
+            assertEquals(predictCountAfterReset, inferenceAdapter.predictCallCount)
 
-            assertEquals(1, inferenceAdapter.predictCallCount)
+            repeatStablePredictionFrames(startTimestampMs = 4L + NO_HANDS_DELAY_MS, engine = engine)
+
+            assertTrue(inferenceAdapter.predictCallCount > predictCountAfterReset)
         }
 
     @Test
@@ -204,9 +266,9 @@ class RealSignRecognitionEngineTest {
             yield()
             engine.start()
             repeatStablePredictionFrames(startTimestampMs = 1L, engine = engine)
-            engine.submitFrame(createNoHandsFrame(timestampMs = 10L))
-            engine.submitFrame(createNoHandsFrame(timestampMs = 10L + NO_HANDS_DELAY_MS))
-            repeatStablePredictionFrames(startTimestampMs = 20L, engine = engine)
+            submitMissingHandFrames(engine = engine, startTimestampMs = 1_000L)
+            repeatStablePredictionFrames(startTimestampMs = 2_000L, engine = engine)
+            submitMissingHandFrames(engine = engine, startTimestampMs = 3_000L)
 
             val predictions = predictionsDeferred.await()
             assertEquals(TEST_GLOSS, predictions[0].gloss)
@@ -215,10 +277,20 @@ class RealSignRecognitionEngineTest {
 
     private fun createEngine(
         inferenceAdapter: SignInferenceAdapter = RecordingInferenceAdapter(),
+        sequenceBuffer: SignSequenceBuffer =
+            SignSequenceBuffer(
+                sequenceLength = TEST_SEQUENCE_LENGTH,
+            ),
+        predictionStabilizer: SignPredictionStabilizer =
+            SignPredictionStabilizer(
+                confidenceThreshold = TEST_CONFIDENCE_THRESHOLD,
+                windowSize = TEST_PREDICTION_WINDOW_SIZE,
+                requiredVotes = TEST_REQUIRED_VOTES,
+            ),
     ): RealSignRecognitionEngine =
         RealSignRecognitionEngine(
             featureEncoder = LandmarkFeatureEncoder(),
-            sequenceBuffer = SignSequenceBuffer(sequenceLength = TEST_SEQUENCE_LENGTH),
+            sequenceBuffer = sequenceBuffer,
             inferenceAdapter = inferenceAdapter,
             noHandsDetectionTracker =
                 NoHandsDetectionTracker(
@@ -229,12 +301,7 @@ class RealSignRecognitionEngineTest {
                     log = {},
                     elapsedRealtime = { 0L },
                 ),
-            predictionStabilizer =
-                SignPredictionStabilizer(
-                    confidenceThreshold = TEST_CONFIDENCE_THRESHOLD,
-                    windowSize = TEST_PREDICTION_WINDOW_SIZE,
-                    requiredVotes = TEST_REQUIRED_VOTES,
-                ),
+            predictionStabilizer = predictionStabilizer,
         )
 
     private class RecordingInferenceAdapter(
@@ -284,8 +351,21 @@ class RealSignRecognitionEngineTest {
         startTimestampMs: Long,
         engine: RealSignRecognitionEngine,
     ) {
-        repeat(TEST_SEQUENCE_LENGTH + TEST_REQUIRED_VOTES - 1) { index ->
-            engine.submitFrame(createFrame(timestampMs = startTimestampMs + index))
+        repeat(TEST_STABLE_SEGMENT_FRAMES) { index ->
+            engine.submitFrame(
+                createFrame(timestampMs = startTimestampMs + index * TEST_FRAME_INTERVAL_MS),
+            )
+        }
+    }
+
+    private fun submitMissingHandFrames(
+        engine: RealSignRecognitionEngine,
+        startTimestampMs: Long,
+    ) {
+        repeat(MISSING_HAND_RESET_FRAMES) { index ->
+            engine.submitFrame(
+                createNoHandsFrame(timestampMs = startTimestampMs + index * TEST_FRAME_INTERVAL_MS),
+            )
         }
     }
 
@@ -323,12 +403,17 @@ class RealSignRecognitionEngineTest {
 
     private companion object {
         const val TEST_SEQUENCE_LENGTH = 2
+        const val TEST_PARTIAL_SEQUENCE_LENGTH = 4
+        const val TEST_MINIMUM_PREDICTION_FRAMES = 2
         const val TEST_GLOSS = "엄마"
         const val TEST_CONFIDENCE = 0.91f
         const val TEST_CONFIDENCE_THRESHOLD = 0.85f
         const val TEST_PREDICTION_WINDOW_SIZE = 5
         const val TEST_REQUIRED_VOTES = 3
+        const val TEST_STABLE_SEGMENT_FRAMES = 8
+        const val TEST_FRAME_INTERVAL_MS = 50L
         const val NO_HANDS_DELAY_MS = 1_000L
+        const val MISSING_HAND_RESET_FRAMES = 16
         const val FULL_POSE_LANDMARK_COUNT = 33
         const val FLOAT_DELTA = 0.0001f
         const val TIMEOUT_MS = 1_000L

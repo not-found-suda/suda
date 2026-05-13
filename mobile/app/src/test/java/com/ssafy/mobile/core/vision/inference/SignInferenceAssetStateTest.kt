@@ -11,7 +11,7 @@ class SignInferenceAssetStateTest {
             SignInferenceAssetState(
                 hasModel = false,
                 hasLabelMap = false,
-            ).resolvePolicy()
+            ).resolvePolicy(SignInferenceRuntimeMode.TFLITE)
 
         assertEquals(SignInferenceAdapterPolicy.FAKE, policy)
     }
@@ -22,7 +22,7 @@ class SignInferenceAssetStateTest {
             SignInferenceAssetState(
                 hasModel = true,
                 hasLabelMap = true,
-            ).resolvePolicy()
+            ).resolvePolicy(SignInferenceRuntimeMode.TFLITE)
 
         assertEquals(SignInferenceAdapterPolicy.TFLITE, policy)
     }
@@ -33,7 +33,7 @@ class SignInferenceAssetStateTest {
             SignInferenceAssetState(
                 hasModel = true,
                 hasLabelMap = false,
-            ).resolvePolicy()
+            ).resolvePolicy(SignInferenceRuntimeMode.TFLITE)
         }
     }
 
@@ -43,7 +43,7 @@ class SignInferenceAssetStateTest {
             SignInferenceAssetState(
                 hasModel = false,
                 hasLabelMap = true,
-            ).resolvePolicy()
+            ).resolvePolicy(SignInferenceRuntimeMode.TFLITE)
         }
     }
 }

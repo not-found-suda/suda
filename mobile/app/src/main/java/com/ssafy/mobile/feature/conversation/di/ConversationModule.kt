@@ -5,6 +5,8 @@ import com.ssafy.mobile.core.vision.RealSignRecognitionEngine
 import com.ssafy.mobile.core.vision.SignRecognitionEngine
 import com.ssafy.mobile.core.vision.inference.SignInferenceAdapter
 import com.ssafy.mobile.core.vision.inference.TfliteSignInferenceAdapter
+import com.ssafy.mobile.core.vision.wordspotting.NoOpWordSpottingScanner
+import com.ssafy.mobile.core.vision.wordspotting.WordSpottingScanner
 import com.ssafy.mobile.feature.conversation.data.remote.TranslateApiService
 import com.ssafy.mobile.feature.conversation.data.repository.DataStoreTranslationModeRepository
 import com.ssafy.mobile.feature.conversation.data.repository.DefaultTranslateRepository
@@ -53,5 +55,9 @@ abstract class ConversationModule {
         fun provideSignInferenceAdapter(
             @ApplicationContext context: Context,
         ): SignInferenceAdapter = TfliteSignInferenceAdapter.createOrFallback(context)
+
+        @Provides
+        @Singleton
+        fun provideWordSpottingScanner(): WordSpottingScanner = NoOpWordSpottingScanner
     }
 }

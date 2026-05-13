@@ -34,15 +34,52 @@ class TfliteSignInferenceAdapter private constructor(
                 FloatArray(SignModelContract.CLASS_COUNT)
             }
         model.interpreter.run(sequence.toInputBuffer(), output)
-        val prediction = SignModelOutput(output.first().toList()).topPrediction()
+        val modelOutput = SignModelOutput(output.first().toList())
+        val prediction = modelOutput.topPrediction()
+        val topGloss =
+            prediction?.let { result ->
+                model.labelMap.glossFor(result.classIndex)
+            } ?: SignModelContract.UNKNOWN_GLOSS
+        val accepted = prediction?.isConfident == true && !topGloss.isIgnoredGloss()
+        val rejectionReason =
+            when {
+                prediction == null -> "no_prediction"
+                topGloss.isIgnoredGloss() -> "ignored_gloss"
+                prediction.confidence < SignModelContract.CONFIDENCE_THRESHOLD ->
+                    "low_confidence"
+                prediction.margin < SignModelContract.MARGIN_THRESHOLD ->
+                    "low_margin"
+                else -> null
+            }
+        val topCandidates =
+            modelOutput
+                .rankedPredictions(limit = TOP_CANDIDATE_COUNT)
+                .mapIndexed { index, candidate ->
+                    SignInferenceCandidate(
+                        rank = index + 1,
+                        classIndex = candidate.classIndex,
+                        gloss = model.labelMap.glossFor(candidate.classIndex),
+                        confidence = candidate.confidence,
+                    )
+                }
 
         return SignInferenceResult(
             gloss =
-                prediction?.let { result ->
-                    model.labelMap.glossFor(result.classIndex)
+                topGloss.takeIf {
+                    accepted
                 } ?: SignModelContract.UNKNOWN_GLOSS,
             confidence = prediction?.confidence ?: MIN_CONFIDENCE,
             margin = prediction?.margin ?: MIN_CONFIDENCE,
+            classIndex = prediction?.classIndex,
+            rawGloss = topGloss,
+            accepted = accepted,
+            rejectionReason = rejectionReason,
+            topCandidates = topCandidates,
+            secondGloss =
+                prediction
+                    ?.secondClassIndex
+                    ?.let { classIndex -> model.labelMap.glossFor(classIndex) },
+            secondConfidence = prediction?.secondConfidence,
         )
     }
 
@@ -75,8 +112,13 @@ class TfliteSignInferenceAdapter private constructor(
 
         private const val TAG = "SignPipeline"
         private const val MIN_CONFIDENCE = 0f
+        private const val TOP_CANDIDATE_COUNT = 3
     }
 }
+
+private fun String.isIgnoredGloss(): Boolean = trim().lowercase() in IGNORED_GLOSSES
+
+private val IGNORED_GLOSSES = setOf("none", "unknown", "<none>", "<unknown>")
 
 private fun FloatArray.toInputBuffer(): ByteBuffer {
     val inputBuffer =

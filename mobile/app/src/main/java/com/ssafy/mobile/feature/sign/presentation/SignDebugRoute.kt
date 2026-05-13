@@ -1,19 +1,37 @@
-@file:Suppress("LongParameterList", "MagicNumber", "MaxLineLength", "TooManyFunctions")
+@file:Suppress(
+    "LongMethod",
+    "LongParameterList",
+    "MagicNumber",
+    "MaxLineLength",
+    "TooManyFunctions",
+    "UnusedPrivateMember",
+)
 
 package com.ssafy.mobile.feature.sign.presentation
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -26,11 +44,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -46,6 +66,10 @@ fun SignDebugRoute(
     viewModel: SignDebugViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val videoPickerLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            uri?.let(viewModel::startVideoReplay)
+        }
     val stopAndBack = {
         viewModel.stop()
         onBackToMain()
@@ -58,13 +82,21 @@ fun SignDebugRoute(
         onStart = viewModel::start,
         onStop = viewModel::stop,
         onBackToMain = stopAndBack,
+        onAnalysisFrame = viewModel::onAnalysisFrame,
         onLandmarkFrame = viewModel::onLandmarkFrame,
         onCameraMetrics = viewModel::onCameraMetrics,
+        onSaveAnalysisFrame = viewModel::saveCurrentAnalysisFrame,
+        onStartAnalysisRecording = viewModel::startAnalysisRecording,
+        onStopAnalysisRecording = viewModel::stopAnalysisRecording,
+        onCancelAnalysisRecording = viewModel::cancelAnalysisRecording,
         onCycleResolution = viewModel::cycleResolution,
         onCycleTargetFps = viewModel::cycleTargetFps,
         onCycleAnalysisFrameInterval = viewModel::cycleAnalysisFrameInterval,
+        onToggleMirrorAnalysisInput = viewModel::toggleMirrorAnalysisInput,
         onCycleThreshold = viewModel::cycleThreshold,
         onCycleSmoothing = viewModel::cycleSmoothing,
+        onPickReplayVideo = { videoPickerLauncher.launch("video/*") },
+        onStopVideoReplay = viewModel::stopVideoReplay,
         modifier = modifier,
     )
 }
@@ -75,26 +107,29 @@ private fun SignDebugScreen(
     onStart: () -> Unit,
     onStop: () -> Unit,
     onBackToMain: () -> Unit,
+    onAnalysisFrame: (YuvAnalysisFrame) -> Unit,
     onLandmarkFrame: (LandmarkFrameResult) -> Unit,
     onCameraMetrics: (CameraPerformanceMetrics) -> Unit,
+    onSaveAnalysisFrame: () -> Unit,
+    onStartAnalysisRecording: () -> Unit,
+    onStopAnalysisRecording: () -> Unit,
+    onCancelAnalysisRecording: () -> Unit,
     onCycleResolution: () -> Unit,
     onCycleTargetFps: () -> Unit,
     onCycleAnalysisFrameInterval: () -> Unit,
+    onToggleMirrorAnalysisInput: () -> Unit,
     onCycleThreshold: () -> Unit,
     onCycleSmoothing: () -> Unit,
+    onPickReplayVideo: () -> Unit,
+    onStopVideoReplay: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    ForceLandscapeOrientationEffect()
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        topBar = {
-            DebugHeader(
-                isRunning = uiState.isRunning,
-                isModelReady = uiState.isModelReady,
-                onBackToMain = onBackToMain,
-            )
-        },
     ) { paddingValues ->
-        Column(
+        Row(
             modifier =
                 Modifier
                     .padding(paddingValues)
@@ -103,36 +138,69 @@ private fun SignDebugScreen(
                         Brush.verticalGradient(
                             colors = listOf(Color(0xFF111827), Color(0xFF020617)),
                         ),
-                    ),
+                    ).padding(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
+            BoxWithConstraints(
                 modifier =
                     Modifier
-                        .fillMaxWidth()
-                        .height(320.dp),
+                        .weight(1f)
+                        .fillMaxHeight(),
+                contentAlignment = Alignment.Center,
             ) {
+                val cameraModifier =
+                    if (maxWidth.value / maxHeight.value > DEBUG_CAMERA_ASPECT_RATIO) {
+                        Modifier
+                            .fillMaxHeight()
+                            .aspectRatio(DEBUG_CAMERA_ASPECT_RATIO)
+                    } else {
+                        Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(DEBUG_CAMERA_ASPECT_RATIO)
+                    }
+
                 SignRecognitionScreen(
                     isSessionActive = uiState.isRunning,
                     cameraAnalysisSettings = uiState.cameraSettings,
                     showDebugOverlay = true,
+                    onFrameAvailable = onAnalysisFrame,
                     onLandmarkFrameAvailable = onLandmarkFrame,
                     onCameraMetricsChanged = onCameraMetrics,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = cameraModifier,
                 )
             }
 
             Column(
                 modifier =
                     Modifier
-                        .fillMaxSize()
+                        .width(220.dp)
+                        .fillMaxHeight()
                         .verticalScroll(rememberScrollState())
-                        .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                        .padding(vertical = 1.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                CompactDebugHeader(
+                    isRunning = uiState.isRunning,
+                    isModelReady = uiState.isModelReady,
+                    onBackToMain = onBackToMain,
+                )
                 RunControls(
                     isRunning = uiState.isRunning,
                     onStart = onStart,
                     onStop = onStop,
+                )
+                AnalysisRecordingFrameCard(
+                    uiState = uiState,
+                    onSaveAnalysisFrame = onSaveAnalysisFrame,
+                    onStartAnalysisRecording = onStartAnalysisRecording,
+                    onStopAnalysisRecording = onStopAnalysisRecording,
+                    onCancelAnalysisRecording = onCancelAnalysisRecording,
+                )
+                VideoReplayCard(
+                    uiState = uiState,
+                    onPickReplayVideo = onPickReplayVideo,
+                    onStopVideoReplay = onStopVideoReplay,
                 )
                 RecognitionStatusCard(uiState)
                 PerformanceCard(uiState)
@@ -141,12 +209,78 @@ private fun SignDebugScreen(
                     onCycleResolution = onCycleResolution,
                     onCycleTargetFps = onCycleTargetFps,
                     onCycleAnalysisFrameInterval = onCycleAnalysisFrameInterval,
+                    onToggleMirrorAnalysisInput = onToggleMirrorAnalysisInput,
                     onCycleThreshold = onCycleThreshold,
                     onCycleSmoothing = onCycleSmoothing,
                 )
                 uiState.errorMessage?.let { errorMessage ->
                     ErrorCard(message = errorMessage)
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ForceLandscapeOrientationEffect() {
+    val activity = LocalContext.current.findActivity()
+
+    DisposableEffect(activity) {
+        if (activity == null) {
+            onDispose { }
+        } else {
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            onDispose {
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactDebugHeader(
+    isRunning: Boolean,
+    isModelReady: Boolean,
+    onBackToMain: () -> Unit,
+) {
+    Surface(
+        color = Color(0xFF0F172A),
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "수어 디버그",
+                color = Color.White,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedButton(onClick = onBackToMain) {
+                    Text("뒤로", style = MaterialTheme.typography.labelSmall)
+                }
+                StatusPill(
+                    label =
+                        when {
+                            !isModelReady -> "로딩"
+                            isRunning -> "실행"
+                            else -> "대기"
+                        },
+                    color =
+                        when {
+                            !isModelReady -> Color(0xFFF59E0B)
+                            isRunning -> Color(0xFF22C55E)
+                            else -> Color(0xFF64748B)
+                        },
+                )
             }
         }
     }
@@ -214,21 +348,238 @@ private fun RunControls(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Button(
+        CompactDebugButton(
+            text = "시작",
             onClick = onStart,
             enabled = !isRunning,
             modifier = Modifier.weight(1f),
-        ) {
-            Text("시작")
-        }
-        OutlinedButton(
+        )
+        CompactDebugButton(
+            text = "정지",
             onClick = onStop,
             enabled = isRunning,
             modifier = Modifier.weight(1f),
+            outlined = true,
+        )
+    }
+}
+
+@Composable
+private fun AnalysisFrameCard(
+    uiState: SignDebugUiState,
+    onSaveAnalysisFrame: () -> Unit,
+) {
+    DebugCard(title = "분석 화면") {
+        Button(
+            onClick = onSaveAnalysisFrame,
+            enabled = uiState.isRunning,
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("정지")
+            Text("PNG 저장", style = MaterialTheme.typography.labelSmall)
+        }
+        MetricRow(
+            "크기",
+            if (uiState.analysisImageSize.width == 0) {
+                "-"
+            } else {
+                "${uiState.analysisImageSize.width}x${uiState.analysisImageSize.height}"
+            },
+        )
+        uiState.debugFrameSaveMessage?.let { message ->
+            Text(
+                text = message,
+                color = Color(0xFFBAE6FD),
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CompactDebugButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    outlined: Boolean = false,
+) {
+    val contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+    val buttonModifier = modifier.height(30.dp)
+    if (outlined) {
+        OutlinedButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = buttonModifier,
+            contentPadding = contentPadding,
+        ) {
+            Text(text, style = MaterialTheme.typography.labelSmall)
+        }
+    } else {
+        Button(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = buttonModifier,
+            contentPadding = contentPadding,
+        ) {
+            Text(text, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+@Composable
+private fun AnalysisRecordingFrameCard(
+    uiState: SignDebugUiState,
+    onSaveAnalysisFrame: () -> Unit,
+    onStartAnalysisRecording: () -> Unit,
+    onStopAnalysisRecording: () -> Unit,
+    onCancelAnalysisRecording: () -> Unit,
+) {
+    DebugCard(title = "분석 화면") {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            CompactDebugButton(
+                text = "PNG",
+                onClick = onSaveAnalysisFrame,
+                enabled = uiState.isRunning,
+                modifier = Modifier.weight(1f),
+            )
+            CompactDebugButton(
+                text = if (uiState.isAnalysisRecording) "저장" else "녹화",
+                onClick =
+                    if (uiState.isAnalysisRecording) {
+                        onStopAnalysisRecording
+                    } else {
+                        onStartAnalysisRecording
+                    },
+                enabled = uiState.isRunning || uiState.isAnalysisRecording,
+                modifier = Modifier.weight(1f),
+                outlined = uiState.isAnalysisRecording,
+            )
+            if (uiState.isAnalysisRecording) {
+                CompactDebugButton(
+                    text = "취소",
+                    onClick = onCancelAnalysisRecording,
+                    enabled = true,
+                    modifier = Modifier.weight(1f),
+                    outlined = true,
+                )
+            }
+        }
+        MetricRow(
+            "크기",
+            if (uiState.analysisImageSize.width == 0) {
+                "-"
+            } else {
+                "${uiState.analysisImageSize.width}x${uiState.analysisImageSize.height}"
+            },
+        )
+        uiState.debugFrameSaveMessage?.let { message ->
+            Text(
+                text = message,
+                color = Color(0xFFBAE6FD),
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+        uiState.analysisRecordingMessage?.let { message ->
+            Text(
+                text = message,
+                color = Color(0xFFBAE6FD),
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun VideoReplayCard(
+    uiState: SignDebugUiState,
+    onPickReplayVideo: () -> Unit,
+    onStopVideoReplay: () -> Unit,
+) {
+    DebugCard(title = "영상 리플레이") {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            CompactDebugButton(
+                text = "영상 선택",
+                onClick = onPickReplayVideo,
+                enabled = !uiState.isRunning && !uiState.isReplayRunning,
+                modifier = Modifier.weight(1f),
+            )
+            CompactDebugButton(
+                text = "중지",
+                onClick = onStopVideoReplay,
+                enabled = uiState.isReplayRunning,
+                modifier = Modifier.weight(1f),
+                outlined = true,
+            )
+        }
+        MetricRow("파일", uiState.replayVideoName)
+        MetricRow(
+            "시도",
+            "${uiState.replayAttemptedFrameCount}/${uiState.replayTotalFrameCount} 프레임",
+        )
+        MetricRow(
+            "디코딩",
+            "${uiState.replayProcessedFrameCount} 프레임",
+        )
+        MetricRow("길이", "${uiState.replayDurationMs / MILLIS_PER_SECOND}초")
+        MetricRow("샘플링", "33ms 간격")
+        uiState.replayStatusMessage?.let { message ->
+            Text(
+                text = message,
+                color = Color(0xFFCBD5E1),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        uiState.replayWholeVideoPrediction?.let { prediction ->
+            Text(
+                text = "전체 영상 Word Spotting",
+                modifier = Modifier.padding(top = 6.dp),
+                color = Color.White,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = prediction,
+                color = Color(0xFFBAE6FD),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        if (uiState.replayRawPredictions.isNotEmpty()) {
+            MetricRow("raw 추론 수", "${uiState.replayRawPredictions.size}개")
+            Text(
+                text = "전체 raw 추론",
+                modifier = Modifier.padding(top = 6.dp),
+                color = Color.White,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = uiState.replayRawPredictions.joinToString(separator = "\n"),
+                color = Color(0xFFCBD5E1),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        if (uiState.replayPredictions.isNotEmpty()) {
+            Text(
+                text = "최근 확정 인식",
+                modifier = Modifier.padding(top = 6.dp),
+                color = Color.White,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = uiState.replayPredictions.joinToString(separator = "\n"),
+                color = Color(0xFFCBD5E1),
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }
@@ -280,13 +631,14 @@ private fun TuningCard(
     onCycleResolution: () -> Unit,
     onCycleTargetFps: () -> Unit,
     onCycleAnalysisFrameInterval: () -> Unit,
+    onToggleMirrorAnalysisInput: () -> Unit,
     onCycleThreshold: () -> Unit,
     onCycleSmoothing: () -> Unit,
 ) {
     DebugCard(title = "튜닝 설정") {
         FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             TuningButton(
                 label =
@@ -301,6 +653,15 @@ private fun TuningCard(
             TuningButton(
                 label = "분석 간격 ${uiState.cameraSettings.analysisFrameInterval}",
                 onClick = onCycleAnalysisFrameInterval,
+            )
+            TuningButton(
+                label =
+                    if (uiState.cameraSettings.mirrorAnalysisInput) {
+                        "분석 좌우반전 켬"
+                    } else {
+                        "분석 좌우반전 끔"
+                    },
+                onClick = onToggleMirrorAnalysisInput,
             )
             TuningButton(
                 label = "임계값 ${formatPercent(uiState.recognitionConfig.confidenceThreshold)}",
@@ -322,7 +683,7 @@ private fun TuningCard(
             text =
                 "기본값: 640x480, 15 FPS, " +
                     "분석 간격 1, 시퀀스 30, 임계값 0.80",
-            modifier = Modifier.padding(top = 10.dp),
+            modifier = Modifier.padding(top = 6.dp),
             color = Color(0xFFCBD5E1),
             style = MaterialTheme.typography.bodySmall,
         )
@@ -338,8 +699,10 @@ private fun TuningButton(
     OutlinedButton(
         onClick = onClick,
         enabled = enabled,
+        modifier = Modifier.height(30.dp),
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
     ) {
-        Text(label)
+        Text(label, style = MaterialTheme.typography.labelSmall)
     }
 }
 
@@ -366,13 +729,13 @@ private fun DebugCard(
         shape = RoundedCornerShape(18.dp),
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             Text(
                 text = title,
                 color = Color.White,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Bold,
             )
             content()
@@ -393,12 +756,12 @@ private fun MetricRow(
         Text(
             text = label,
             color = Color(0xFF94A3B8),
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.labelSmall,
         )
         Text(
             text = value,
             color = Color.White,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold,
         )
     }
@@ -413,12 +776,12 @@ private fun StatusPill(
         modifier =
             Modifier
                 .background(color = color.copy(alpha = 0.18f), shape = RoundedCornerShape(100.dp))
-                .padding(horizontal = 12.dp, vertical = 7.dp),
+                .padding(horizontal = 8.dp, vertical = 5.dp),
     ) {
         Text(
             text = label,
             color = color,
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
         )
     }
@@ -427,3 +790,15 @@ private fun StatusPill(
 private fun formatDecimal(value: Double): String = String.format(Locale.US, "%.1f", value)
 
 private fun formatPercent(value: Float): String = String.format(Locale.US, "%.1f%%", value * 100f)
+
+private fun Context.findActivity(): Activity? {
+    var currentContext = this
+    while (currentContext is ContextWrapper) {
+        if (currentContext is Activity) return currentContext
+        currentContext = currentContext.baseContext
+    }
+    return null
+}
+
+private const val MILLIS_PER_SECOND = 1_000L
+private const val DEBUG_CAMERA_ASPECT_RATIO = 16f / 9f

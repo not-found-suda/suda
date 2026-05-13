@@ -1,3 +1,5 @@
+@file:Suppress("TooManyFunctions")
+
 package com.ssafy.mobile.feature.sign.presentation
 
 import android.graphics.Bitmap
@@ -14,8 +16,12 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.core.UseCase
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.ui.unit.IntSize
 import androidx.lifecycle.LifecycleOwner
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
@@ -50,8 +56,8 @@ internal fun bindCameraUseCases(
     settings: CameraAnalysisSettings = CameraAnalysisSettings(),
     onFrameAvailable: (YuvAnalysisFrame) -> Unit,
 ): CameraBinding {
-    val targetRotation = previewView.display?.rotation ?: Surface.ROTATION_0
-    val previewUseCase = createPreviewUseCase(previewView, targetRotation)
+    val targetRotation = previewView.display?.rotation ?: Surface.ROTATION_90
+    val previewUseCase = createPreviewUseCase(previewView, targetRotation, settings)
     val cameraConfig = selectCamera(cameraProvider)
     val analysisUseCase =
         createImageAnalysisUseCase(
@@ -83,9 +89,11 @@ internal data class CameraBinding(
 private fun createPreviewUseCase(
     previewView: PreviewView,
     targetRotation: Int,
+    settings: CameraAnalysisSettings,
 ): Preview =
     Preview
         .Builder()
+        .setResolutionSelector(createLandscapeResolutionSelector(settings.targetResolution))
         .setTargetRotation(targetRotation)
         .build()
         .also { preview ->
@@ -103,19 +111,16 @@ private fun createImageAnalysisUseCase(
             .Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+            .setResolutionSelector(createLandscapeResolutionSelector(settings.targetResolution))
             .setTargetRotation(targetRotation)
-            .setTargetResolution(
-                Size(
-                    settings.targetResolution.width,
-                    settings.targetResolution.height,
-                ),
-            ).build()
+            .build()
 
     analysis.setAnalyzer(
         analyzerExecutor,
         SignFrameAnalyzer(
             targetFps = settings.targetFps,
             analysisFrameInterval = settings.analysisFrameInterval,
+            mirrorAnalysisInput = settings.mirrorAnalysisInput,
             onFrameAvailable = onFrameAvailable,
         ),
     )
@@ -139,9 +144,21 @@ private data class CameraAnalysisConfig(
     val selector: CameraSelector,
 )
 
+private fun createLandscapeResolutionSelector(targetResolution: IntSize): ResolutionSelector =
+    ResolutionSelector
+        .Builder()
+        .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
+        .setResolutionStrategy(
+            ResolutionStrategy(
+                Size(targetResolution.width, targetResolution.height),
+                ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
+            ),
+        ).build()
+
 private class SignFrameAnalyzer(
     private val targetFps: Int,
     private val analysisFrameInterval: Int,
+    private val mirrorAnalysisInput: Boolean,
     private val onFrameAvailable: (YuvAnalysisFrame) -> Unit,
 ) : ImageAnalysis.Analyzer {
     private var frameIndex = 0L
@@ -160,14 +177,14 @@ private class SignFrameAnalyzer(
             }
 
             lastAnalyzedAtMs = nowMs
-            onFrameAvailable(image.toYuvAnalysisFrame())
+            onFrameAvailable(image.toYuvAnalysisFrame(mirrorAnalysisInput))
         } finally {
             image.close()
         }
     }
 }
 
-private fun ImageProxy.toYuvAnalysisFrame(): YuvAnalysisFrame =
+private fun ImageProxy.toYuvAnalysisFrame(mirrorAnalysisInput: Boolean): YuvAnalysisFrame =
     YuvAnalysisFrame(
         timestampNanos = imageInfo.timestamp,
         timestampMs = imageInfo.timestamp / NANOS_PER_MILLIS,
@@ -175,7 +192,7 @@ private fun ImageProxy.toYuvAnalysisFrame(): YuvAnalysisFrame =
         width = width,
         height = height,
         rotationDegrees = imageInfo.rotationDegrees,
-        bitmap = toUprightBitmap(),
+        bitmap = toUprightBitmap(mirrorAnalysisInput),
         planes =
             planes.map { plane ->
                 YuvPlane(
@@ -186,7 +203,7 @@ private fun ImageProxy.toYuvAnalysisFrame(): YuvAnalysisFrame =
             },
     )
 
-private fun ImageProxy.toUprightBitmap(): Bitmap {
+private fun ImageProxy.toUprightBitmap(mirrorAnalysisInput: Boolean): Bitmap {
     val nv21 = toNv21()
     val jpegBytes =
         ByteArrayOutputStream().use { outputStream ->
@@ -204,7 +221,14 @@ private fun ImageProxy.toUprightBitmap(): Bitmap {
             outputStream.toByteArray()
         }
     val bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
-    return bitmap.rotate(imageInfo.rotationDegrees)
+    val rotated = bitmap.rotate(imageInfo.rotationDegrees)
+    val mirrored =
+        if (mirrorAnalysisInput) {
+            rotated.mirrorHorizontally()
+        } else {
+            rotated
+        }
+    return mirrored.centerCropToAspectRatio(LANDSCAPE_ASPECT_RATIO)
 }
 
 private fun ImageProxy.toNv21(): ByteArray {
@@ -276,9 +300,51 @@ private fun Bitmap.rotate(rotationDegrees: Int): Bitmap {
     return rotated
 }
 
+private fun Bitmap.mirrorHorizontally(): Bitmap {
+    val mirrored =
+        Bitmap.createBitmap(
+            this,
+            0,
+            0,
+            width,
+            height,
+            Matrix().apply { postScale(-1f, 1f, width / 2f, height / 2f) },
+            true,
+        )
+    if (mirrored != this) {
+        recycle()
+    }
+    return mirrored
+}
+
+private fun Bitmap.centerCropToAspectRatio(targetAspectRatio: Float): Bitmap {
+    val currentAspectRatio = width.toFloat() / height.toFloat()
+    val cropWidth: Int
+    val cropHeight: Int
+
+    if (currentAspectRatio > targetAspectRatio) {
+        cropHeight = height
+        cropWidth = (height * targetAspectRatio).toInt().coerceAtMost(width)
+    } else {
+        cropWidth = width
+        cropHeight = (width / targetAspectRatio).toInt().coerceAtMost(height)
+    }
+
+    if (cropWidth == width && cropHeight == height) return this
+
+    val left = (width - cropWidth) / 2
+    val top = (height - cropHeight) / 2
+    val cropped = Bitmap.createBitmap(this, left, top, cropWidth, cropHeight)
+    if (cropped != this) {
+        recycle()
+    }
+    return cropped
+}
+
 private const val NANOS_PER_MILLIS = 1_000_000L
 private const val MILLIS_PER_SECOND = 1_000L
 private const val JPEG_QUALITY = 90
+private const val LANDSCAPE_ASPECT_RATIO = 16f / 9f
 private const val CHROMA_DIVISOR = 2
 private const val Y_PLANE_INDEX = 0
 private const val U_PLANE_INDEX = 1

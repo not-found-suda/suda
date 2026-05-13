@@ -9,6 +9,7 @@ import kotlin.math.sqrt
 
 class LandmarkFeatureEncoder(
     val isHandForwardFillEnabled: Boolean = false,
+    private val normalizeMode: LandmarkFeatureNormalizeMode = LandmarkFeatureNormalizeMode.RAW,
 ) {
     private var previousPose: List<LandmarkPoint>? = null
     private var previousLeftHand: List<LandmarkPoint>? = null
@@ -33,14 +34,12 @@ class LandmarkFeatureEncoder(
                 leftHand = frame.leftHand.landmarks,
                 rightHand = frame.rightHand.landmarks,
             )
-        val normalizer = createNormalizer(rawLandmarks)
         val values =
             FloatArray(SignModelContract.FEATURE_DIMENSION).also { output ->
-                writeNormalizedFeatures(
+                writeFeatures(
                     output = output,
                     rawLandmarks = rawLandmarks,
                     distances = distances,
-                    normalizer = normalizer,
                 )
             }
 
@@ -216,21 +215,29 @@ class LandmarkFeatureEncoder(
         return currentOffset
     }
 
-    private fun writeNormalizedFeatures(
+    private fun writeFeatures(
         output: FloatArray,
         rawLandmarks: List<LandmarkPoint>,
         distances: FloatArray,
-        normalizer: LandmarkNormalizer,
     ) {
+        val normalizer =
+            when (normalizeMode) {
+                LandmarkFeatureNormalizeMode.RAW -> null
+                LandmarkFeatureNormalizeMode.SHOULDER -> createNormalizer(rawLandmarks)
+            }
         var offset = 0
         rawLandmarks.forEach { landmark ->
-            val normalized = normalizer.normalize(landmark)
-            output[offset++] = normalized.x
-            output[offset++] = normalized.y
-            output[offset++] = normalized.z
+            val encoded = normalizer?.normalize(landmark) ?: landmark
+            output[offset++] = encoded.x
+            output[offset++] = encoded.y
+            output[offset++] = encoded.z
         }
         distances.forEach { distance ->
-            output[offset++] = distance / normalizer.scale
+            output[offset++] =
+                when (normalizer) {
+                    null -> distance
+                    else -> distance / normalizer.scale
+                }
         }
     }
 
@@ -268,6 +275,11 @@ class LandmarkFeatureEncoder(
         const val DEFAULT_SCALE = 1f
         val ZERO_POINT = LandmarkPoint(0f, 0f, 0f)
     }
+}
+
+enum class LandmarkFeatureNormalizeMode {
+    RAW,
+    SHOULDER,
 }
 
 class LandmarkFeatureFrame(

@@ -6,6 +6,7 @@ data class CameraAnalysisSettings(
     val targetResolution: IntSize = IntSize(DEFAULT_TARGET_WIDTH, DEFAULT_TARGET_HEIGHT),
     val targetFps: Int = DEFAULT_TARGET_FPS,
     val analysisFrameInterval: Int = DEFAULT_ANALYSIS_FRAME_INTERVAL,
+    val mirrorAnalysisInput: Boolean = DEFAULT_MIRROR_ANALYSIS_INPUT,
 ) {
     init {
         require(targetResolution.width > 0 && targetResolution.height > 0) {
@@ -20,10 +21,11 @@ data class CameraAnalysisSettings(
     }
 
     companion object {
-        const val DEFAULT_TARGET_WIDTH = 640
-        const val DEFAULT_TARGET_HEIGHT = 480
+        const val DEFAULT_TARGET_WIDTH = 960
+        const val DEFAULT_TARGET_HEIGHT = 540
         const val DEFAULT_TARGET_FPS = 15
         const val DEFAULT_ANALYSIS_FRAME_INTERVAL = 1
+        const val DEFAULT_MIRROR_ANALYSIS_INPUT = false
     }
 }
 

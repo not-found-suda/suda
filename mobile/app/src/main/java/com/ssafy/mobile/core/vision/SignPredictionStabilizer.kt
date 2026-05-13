@@ -54,6 +54,7 @@ class SignPredictionStabilizer(
             }
         } else {
             recentPredictions.clear()
+            lastEmittedGloss = null
         }
 
         return stablePrediction
@@ -123,9 +124,9 @@ class SignPredictionStabilizer(
     )
 
     companion object {
-        const val DEFAULT_WINDOW_SIZE = 6
+        const val DEFAULT_WINDOW_SIZE = 5
         const val DEFAULT_REQUIRED_VOTES = 4
-        const val DEFAULT_EMIT_COOLDOWN_MS = 1_000L
+        const val DEFAULT_EMIT_COOLDOWN_MS = 0L
         const val MIN_CONFIDENCE = 0f
         const val MAX_CONFIDENCE = 1f
         const val NONE_GLOSS = "none"
