@@ -18,30 +18,64 @@ import androidx.core.view.WindowCompat
 private val DarkColorScheme =
     darkColorScheme(
         primary = SudaPrimaryDark,
-        secondary = SudaSecondaryDark,
-        tertiary = SudaTertiaryDark,
-        background = SudaBackgroundDark,
-        surface = SudaSurfaceDark,
         onPrimary = SudaOnPrimaryDark,
+        primaryContainer = SudaPrimaryContainerDark,
+        onPrimaryContainer = SudaOnPrimaryContainerDark,
+        secondary = SudaSecondaryDark,
         onSecondary = SudaOnSecondaryDark,
+        secondaryContainer = SudaSecondaryContainerDark,
+        onSecondaryContainer = SudaOnSecondaryContainerDark,
+        tertiary = SudaTertiaryDark,
+        onTertiary = SudaOnTertiaryDark,
+        tertiaryContainer = SudaTertiaryContainerDark,
+        onTertiaryContainer = SudaOnTertiaryContainerDark,
+        background = SudaBackgroundDark,
+        onBackground = SudaOnBackgroundDark,
+        surface = SudaSurfaceDark,
+        onSurface = SudaOnSurfaceDark,
+        surfaceVariant = SudaSurfaceVariantDark,
+        onSurfaceVariant = SudaOnSurfaceVariantDark,
+        outline = SudaOutlineDark,
+        outlineVariant = SudaOutlineVariantDark,
+        error = SudaErrorDark,
+        onError = SudaOnErrorDark,
+        errorContainer = SudaErrorContainerDark,
+        onErrorContainer = SudaOnErrorContainerDark,
     )
 
 private val LightColorScheme =
     lightColorScheme(
         primary = SudaPrimaryLight,
-        secondary = SudaSecondaryLight,
-        tertiary = SudaTertiaryLight,
-        background = SudaBackgroundLight,
-        surface = SudaSurfaceLight,
         onPrimary = SudaOnPrimaryLight,
+        primaryContainer = SudaPrimaryContainerLight,
+        onPrimaryContainer = SudaOnPrimaryContainerLight,
+        secondary = SudaSecondaryLight,
         onSecondary = SudaOnSecondaryLight,
+        secondaryContainer = SudaSecondaryContainerLight,
+        onSecondaryContainer = SudaOnSecondaryContainerLight,
+        tertiary = SudaTertiaryLight,
+        onTertiary = SudaOnTertiaryLight,
+        tertiaryContainer = SudaTertiaryContainerLight,
+        onTertiaryContainer = SudaOnTertiaryContainerLight,
+        background = SudaBackgroundLight,
+        onBackground = SudaOnBackgroundLight,
+        surface = SudaSurfaceLight,
+        onSurface = SudaOnSurfaceLight,
+        surfaceVariant = SudaSurfaceVariantLight,
+        onSurfaceVariant = SudaOnSurfaceVariantLight,
+        outline = SudaOutlineLight,
+        outlineVariant = SudaOutlineVariantLight,
+        error = SudaErrorLight,
+        onError = SudaOnErrorLight,
+        errorContainer = SudaErrorContainerLight,
+        onErrorContainer = SudaOnErrorContainerLight,
     )
 
 @Composable
 fun MobileTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val colorScheme =
@@ -57,8 +91,8 @@ fun MobileTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.primary.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = darkTheme
+            window.statusBarColor = colorScheme.background.toArgb()
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
         }
     }
 

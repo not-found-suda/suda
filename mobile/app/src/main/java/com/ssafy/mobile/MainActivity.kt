@@ -12,10 +12,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Assessment
+import androidx.compose.material.icons.rounded.Chat
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.School
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,7 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -174,7 +182,11 @@ private fun AppBottomNavigationBar(
     currentRoute: String?,
     authState: AuthState,
 ) {
-    NavigationBar {
+    NavigationBar(
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 3.dp,
+    ) {
         bottomNavigationItems.forEach { item ->
             val selected = currentRoute == item.screen.route
             NavigationBarItem(
@@ -199,15 +211,25 @@ private fun AppBottomNavigationBar(
                         }
                     }
                 },
+                colors =
+                    NavigationBarItemDefaults.colors(
+                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
                 icon = {
-                    Text(
-                        text = item.iconText,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
+                    Icon(
+                        imageVector = item.icon,
+                        contentDescription = item.label,
                     )
                 },
                 label = {
-                    Text(text = item.label)
+                    Text(
+                        text = item.label,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
                 },
             )
         }
@@ -236,7 +258,7 @@ private fun PermissionCheckingContent(modifier: Modifier = Modifier) {
 private data class BottomNavigationItem(
     val screen: Screen,
     val label: String,
-    val iconText: String,
+    val icon: ImageVector,
 )
 
 private val bottomNavigationItems =
@@ -244,26 +266,26 @@ private val bottomNavigationItems =
         BottomNavigationItem(
             screen = Screen.Home,
             label = "홈",
-            iconText = "홈",
+            icon = Icons.Rounded.Home,
         ),
         BottomNavigationItem(
             screen = Screen.LearningCategory,
             label = "학습",
-            iconText = "학습",
+            icon = Icons.Rounded.School,
         ),
         BottomNavigationItem(
             screen = Screen.ReportHome,
             label = "리포트",
-            iconText = "리포트",
+            icon = Icons.Rounded.Assessment,
         ),
         BottomNavigationItem(
             screen = Screen.Conversation,
             label = "소통",
-            iconText = "소통",
+            icon = Icons.Rounded.Chat,
         ),
         BottomNavigationItem(
             screen = Screen.MyPage,
             label = "마이",
-            iconText = "마이",
+            icon = Icons.Rounded.Person,
         ),
     )
