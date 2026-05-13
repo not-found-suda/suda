@@ -14,7 +14,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -32,6 +31,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ssafy.mobile.core.ui.components.AppBadge
+import com.ssafy.mobile.core.ui.components.AppBadgeTone
+import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
@@ -265,16 +267,18 @@ private fun ReportWeakWordsIntro(activeChildState: ActiveChildProfileState) {
 
 @Composable
 private fun ReportWeakWordsSummary(page: ReportWeakWordPage) {
-    Surface(
+    AppCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = WEAK_WORD_SUMMARY_ALPHA),
     ) {
+        AppBadge(
+            text = "취약 단어",
+            tone = AppBadgeTone.Error,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = "총 ${page.totalElements}개의 취약 단어가 있어요.",
-            modifier = Modifier.padding(18.dp),
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -313,14 +317,16 @@ private fun ReportWeakWordsMoreSection(
 
 @Composable
 private fun ReportWeakWordsStatusCard(message: String) {
-    Surface(
+    AppCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = WEAK_WORD_STATUS_ALPHA),
     ) {
+        AppBadge(
+            text = "상태",
+            tone = AppBadgeTone.Neutral,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = message,
-            modifier = Modifier.padding(20.dp),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -333,15 +339,17 @@ private fun ReportWeakWordsErrorCard(
     message: String,
     onRetryClick: () -> Unit,
 ) {
-    Surface(
+    AppCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = WEAK_WORD_ERROR_ALPHA),
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            AppBadge(
+                text = "불러오기 실패",
+                tone = AppBadgeTone.Error,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
@@ -364,19 +372,21 @@ private fun ReportWeakWordsActionCard(
     buttonText: String,
     onClick: () -> Unit,
 ) {
-    Surface(
+    AppCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = WEAK_WORD_ACTION_ALPHA),
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            AppBadge(
+                text = "아이 선택",
+                tone = AppBadgeTone.Warning,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
             Spacer(modifier = Modifier.height(12.dp))
@@ -388,8 +398,3 @@ private fun ReportWeakWordsActionCard(
         }
     }
 }
-
-private const val WEAK_WORD_SUMMARY_ALPHA = 0.35f
-private const val WEAK_WORD_STATUS_ALPHA = 0.5f
-private const val WEAK_WORD_ERROR_ALPHA = 0.4f
-private const val WEAK_WORD_ACTION_ALPHA = 0.35f

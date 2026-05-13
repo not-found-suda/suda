@@ -1,5 +1,6 @@
 package com.ssafy.mobile.feature.learning.presentation.category
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,8 +16,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
@@ -36,10 +35,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ssafy.mobile.core.ui.components.AppBadge
+import com.ssafy.mobile.core.ui.components.AppBadgeTone
+import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.core.ui.components.AppErrorText
 import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
 import com.ssafy.mobile.core.ui.components.AppNetworkImage
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+import com.ssafy.mobile.core.ui.feedback.AppEmptyState
 import com.ssafy.mobile.feature.learning.domain.model.DEFAULT_LEARNING_DIFFICULTY
 import com.ssafy.mobile.feature.learning.domain.model.LearningCategory
 
@@ -49,9 +53,7 @@ private val GRID_VERTICAL_PADDING = 8.dp
 private val GRID_SPACING = 16.dp
 private val HEADER_HORIZONTAL_PADDING = 24.dp
 private val HEADER_VERTICAL_PADDING = 32.dp
-private val CARD_CORNER_RADIUS = 16.dp
-private val CARD_PADDING = 12.dp
-private val CARD_ELEVATION = 2.dp
+private val CARD_PADDING = 14.dp
 private const val ASPECT_RATIO_SQUARE = 1f
 
 @Composable
@@ -100,7 +102,7 @@ internal fun LearningCategoryScreen(
                 modifier = Modifier.padding(horizontal = HEADER_HORIZONTAL_PADDING),
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             Box(
                 modifier = Modifier.weight(1f),
             ) {
@@ -110,7 +112,7 @@ internal fun LearningCategoryScreen(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center,
                         ) {
-                            AppLoadingIndicator()
+                            AppLoadingIndicator(message = "학습 주제를 불러오고 있어요.")
                         }
                     }
 
@@ -124,16 +126,7 @@ internal fun LearningCategoryScreen(
                     }
 
                     is LearningCategoryUiState.Empty -> {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = "준비된 학습 주제가 없습니다.",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                        AppEmptyState(message = "준비된 학습 주제가 없습니다.")
                     }
 
                     is LearningCategoryUiState.Error -> {
@@ -165,11 +158,17 @@ private fun HeaderSection() {
         modifier =
             Modifier
                 .fillMaxWidth()
+                .animateContentSize()
                 .padding(
                     horizontal = HEADER_HORIZONTAL_PADDING,
                     vertical = HEADER_VERTICAL_PADDING,
                 ),
     ) {
+        AppBadge(
+            text = "학습",
+            tone = AppBadgeTone.Primary,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
         Text(
             text = "어떤 주제로 배워볼까요?",
             style = MaterialTheme.typography.headlineMedium,
@@ -219,20 +218,15 @@ private fun CategoryCard(
     onWordListClick: () -> Unit,
     onQuizClick: () -> Unit,
 ) {
-    Card(
+    AppCard(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(CARD_CORNER_RADIUS)),
-        shape = RoundedCornerShape(CARD_CORNER_RADIUS),
-        colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-            ),
-        elevation = CardDefaults.cardElevation(defaultElevation = CARD_ELEVATION),
+                .animateContentSize(),
+        contentPadding = PaddingValues(CARD_PADDING),
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(CARD_PADDING),
+            modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             AppNetworkImage(
@@ -243,7 +237,7 @@ private fun CategoryCard(
                     Modifier
                         .fillMaxWidth()
                         .aspectRatio(ASPECT_RATIO_SQUARE)
-                        .clip(RoundedCornerShape(12.dp)),
+                        .clip(RoundedCornerShape(8.dp)),
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -273,7 +267,7 @@ private fun CategoryCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                AppPrimaryButton(
+                AppSecondaryButton(
                     text = "단어장",
                     onClick = onWordListClick,
                     modifier = Modifier.weight(1f),
@@ -296,27 +290,46 @@ private fun DifficultySelectionSection(
 ) {
     val difficulties =
         listOf(
-            "EASY" to "쉬움",
-            "NORMAL" to "보통",
-            "HARD" to "어려움",
+            DifficultyOption("EASY", "쉬움", AppBadgeTone.Success),
+            DifficultyOption("NORMAL", "보통", AppBadgeTone.Primary),
+            DifficultyOption("HARD", "어려움", AppBadgeTone.Warning),
         )
 
-    Column(modifier = modifier) {
-        Text(
-            text = "난이도 선택",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    Column(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .animateContentSize(),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "난이도 선택",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            difficulties
+                .firstOrNull { it.value == selectedDifficulty }
+                ?.let { selected ->
+                    AppBadge(
+                        text = selected.label,
+                        tone = selected.tone,
+                    )
+                }
+        }
         Spacer(modifier = Modifier.height(8.dp))
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            difficulties.forEach { (value, label) ->
+            difficulties.forEach { option ->
                 FilterChip(
-                    selected = selectedDifficulty == value,
-                    onClick = { onDifficultyChange(value) },
-                    label = { Text(label) },
+                    selected = selectedDifficulty == option.value,
+                    onClick = { onDifficultyChange(option.value) },
+                    label = { Text(option.label) },
                     colors =
                         FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -327,3 +340,9 @@ private fun DifficultySelectionSection(
         }
     }
 }
+
+private data class DifficultyOption(
+    val value: String,
+    val label: String,
+    val tone: AppBadgeTone,
+)

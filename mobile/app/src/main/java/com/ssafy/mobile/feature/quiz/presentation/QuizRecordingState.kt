@@ -1,11 +1,12 @@
 package com.ssafy.mobile.feature.quiz.presentation
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
+import com.ssafy.mobile.core.ui.components.AppBadge
+import com.ssafy.mobile.core.ui.components.AppBadgeTone
 
 enum class QuizRecordingStatus {
     Idle,
@@ -38,24 +39,29 @@ internal fun QuizRecordingStatusText(
     recognizedText: String?,
     modifier: Modifier = Modifier,
 ) {
-    Text(
-        text = recordingStatus.message(answerAttemptCount, recognizedText),
+    Box(
         modifier = modifier.fillMaxWidth(),
-        style = MaterialTheme.typography.bodySmall,
-        color = recordingStatus.textColor(),
-        textAlign = TextAlign.Center,
-    )
+        contentAlignment = Alignment.Center,
+    ) {
+        AppBadge(
+            text = recordingStatus.message(answerAttemptCount, recognizedText),
+            tone = recordingStatus.badgeTone(),
+        )
+    }
 }
 
-@Composable
-private fun QuizRecordingStatus.textColor() =
+private fun QuizRecordingStatus.badgeTone(): AppBadgeTone =
     when (this) {
-        QuizRecordingStatus.Completed -> MaterialTheme.colorScheme.primary
+        QuizRecordingStatus.Recording,
+        QuizRecordingStatus.FallbackRecording,
+        -> AppBadgeTone.Error
+        QuizRecordingStatus.Completed -> AppBadgeTone.Success
         QuizRecordingStatus.NoSpeech,
         QuizRecordingStatus.Timeout,
         QuizRecordingStatus.PermissionError,
-        -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
+        -> AppBadgeTone.Error
+        QuizRecordingStatus.Processing -> AppBadgeTone.Primary
+        QuizRecordingStatus.Idle -> AppBadgeTone.Neutral
     }
 
 private fun QuizRecordingStatus.message(

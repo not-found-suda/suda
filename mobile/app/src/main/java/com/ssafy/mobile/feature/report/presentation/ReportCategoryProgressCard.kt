@@ -19,17 +19,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.ssafy.mobile.core.ui.components.AppBadge
+import com.ssafy.mobile.core.ui.components.AppBadgeTone
+import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgress
 import java.util.Locale
 
 @Composable
 fun ReportCategoryProgressCard(category: ReportCategoryProgress) {
-    Surface(
+    AppCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = CATEGORY_CARD_ALPHA),
     ) {
-        Column(modifier = Modifier.padding(18.dp)) {
+        Column {
             ReportCategoryProgressHeader(category = category)
             Spacer(modifier = Modifier.height(14.dp))
             ReportCategoryMetricRow(category = category)
@@ -66,12 +67,9 @@ private fun ReportCategoryProgressHeader(category: ReportCategoryProgress) {
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(modifier = Modifier.height(4.dp))
-        Text(
+        AppBadge(
             text = "최근 퀴즈 ${category.latestSessionAt.toReportDateLabel()}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            tone = AppBadgeTone.Neutral,
         )
     }
 }
@@ -179,7 +177,6 @@ private fun String?.toReportDateLabel(): String =
         take(ISO_DATE_LENGTH).replace("-", ".")
     }
 
-private const val CATEGORY_CARD_ALPHA = 0.45f
 private const val ISO_DATE_LENGTH = 10
 private const val PERCENT_MIN = 0.0
 private const val PERCENT_MAX = 100.0

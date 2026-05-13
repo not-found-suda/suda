@@ -1,5 +1,9 @@
 package com.ssafy.mobile.feature.report.presentation
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -7,13 +11,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,9 +26,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.ssafy.mobile.core.ui.components.AppBadge
+import com.ssafy.mobile.core.ui.components.AppBadgeTone
+import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.core.ui.components.AppTextField
+
+private const val FILTER_ENTER_SLIDE_DIVISOR = 5
 
 @Composable
 internal fun ReportFilterPanel(
@@ -35,22 +42,19 @@ internal fun ReportFilterPanel(
     actions: ReportFilterActions,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = REPORT_FILTER_ALPHA),
+    AppCard(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .animateContentSize(),
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                text = "필터",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
+            ReportFilterHeader(hasAppliedFilter = state.hasAppliedFilter)
             ReportDateRangeFields(
                 input = state.input,
+                isError = state.errorMessage != null,
                 onInputChange = actions.onInputChange,
             )
             if (config.showCategory) {
@@ -91,15 +95,20 @@ internal fun ReportFilterPanel(
                         actions.onInputChange(state.input.copy(minAttemptCount = value))
                     },
                     label = "최소 풀이 횟수",
+                    isError = state.errorMessage != null,
                     supportingText = "1 이상",
                 )
             }
-            state.errorMessage?.let { message ->
-                Text(
-                    text = message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
+            AnimatedVisibility(
+                visible = state.errorMessage != null,
+                enter = fadeIn() + slideInVertically { it / FILTER_ENTER_SLIDE_DIVISOR },
+            ) {
+                state.errorMessage?.let { message ->
+                    AppBadge(
+                        text = message,
+                        tone = AppBadgeTone.Error,
+                    )
+                }
             }
             ReportFilterActionRow(
                 onApplyClick = actions.onApplyClick,
@@ -110,8 +119,27 @@ internal fun ReportFilterPanel(
 }
 
 @Composable
+private fun ReportFilterHeader(hasAppliedFilter: Boolean) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = "필터",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+        )
+        AppBadge(
+            text = if (hasAppliedFilter) "적용 중" else "전체",
+            tone = if (hasAppliedFilter) AppBadgeTone.Primary else AppBadgeTone.Neutral,
+        )
+    }
+}
+
+@Composable
 private fun ReportDateRangeFields(
     input: ReportFilterInputState,
+    isError: Boolean,
     onInputChange: (ReportFilterInputState) -> Unit,
 ) {
     Row(
@@ -122,6 +150,7 @@ private fun ReportDateRangeFields(
             value = input.from,
             onValueChange = { value -> onInputChange(input.copy(from = value)) },
             label = "시작일",
+            isError = isError,
             modifier = Modifier.weight(1f),
             supportingText = "YYYY-MM-DD",
         )
@@ -129,6 +158,7 @@ private fun ReportDateRangeFields(
             value = input.to,
             onValueChange = { value -> onInputChange(input.copy(to = value)) },
             label = "종료일",
+            isError = isError,
             modifier = Modifier.weight(1f),
             supportingText = "YYYY-MM-DD",
         )
@@ -152,19 +182,16 @@ private fun ReportCategoryFilter(
             onInputChange(state.input.copy(categoryId = categoryId))
         },
     )
-
     if (state.isCategoryLoading) {
-        Text(
+        AppBadge(
             text = "카테고리를 불러오는 중...",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            tone = AppBadgeTone.Neutral,
         )
     }
     state.categoryErrorMessage?.let { message ->
-        Text(
+        AppBadge(
             text = message,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.error,
+            tone = AppBadgeTone.Error,
         )
         AppSecondaryButton(
             text = "카테고리 다시 불러오기",
@@ -294,5 +321,3 @@ private val statusOptions =
         ReportFilterSelectionOption(value = "STARTED", label = "진행 중"),
         ReportFilterSelectionOption(value = "ABANDONED", label = "중단"),
     )
-
-private const val REPORT_FILTER_ALPHA = 0.42f
