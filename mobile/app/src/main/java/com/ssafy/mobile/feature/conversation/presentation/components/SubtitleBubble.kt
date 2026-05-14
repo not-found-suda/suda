@@ -21,14 +21,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.ssafy.mobile.core.ui.components.AppBadge
-import com.ssafy.mobile.core.ui.components.AppBadgeTone
 import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
 import com.ssafy.mobile.feature.conversation.domain.model.MessageStatus
 import com.ssafy.mobile.feature.conversation.domain.model.SenderType
 
 private const val PENDING_ALPHA = 0.6f
-private const val MAX_BUBBLE_WIDTH = 280
+private const val MAX_BUBBLE_WIDTH = 300
 
 // 후속 작업: 번역 신고/피드백 백엔드 미구현 상태라 임시 숨김 처리 (백엔드 연동 시 true로 변경)
 private const val IS_TRANSLATION_FEEDBACK_ENABLED = false
@@ -53,19 +51,25 @@ fun SubtitleBubble(
             horizontalAlignment = style.columnAlignment,
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                AppBadge(
-                    text = message.senderType.senderLabel(),
-                    tone = message.senderType.senderBadgeTone(),
-                )
-                if (message.status == MessageStatus.PENDING) {
-                    AppBadge(
-                        text = "처리 중",
-                        tone = AppBadgeTone.Warning,
+            if (message.senderType != SenderType.SYSTEM) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = message.senderType.senderLabel(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Bold,
                     )
+                    if (message.status == MessageStatus.PENDING) {
+                        Text(
+                            text = "처리 중",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
             }
             Box(
@@ -105,15 +109,8 @@ private fun ChatMessage.canReportTranslation(): Boolean =
 private fun SenderType.senderLabel(): String =
     when (this) {
         SenderType.SYSTEM -> "안내"
-        SenderType.PARENT -> "부모"
-        SenderType.CHILD -> "아이"
-    }
-
-private fun SenderType.senderBadgeTone(): AppBadgeTone =
-    when (this) {
-        SenderType.SYSTEM -> AppBadgeTone.Neutral
-        SenderType.PARENT -> AppBadgeTone.Primary
-        SenderType.CHILD -> AppBadgeTone.Secondary
+        SenderType.PARENT -> "나"
+        SenderType.CHILD -> "자녀"
     }
 
 @Composable
@@ -129,19 +126,19 @@ private fun subtitleBubbleStyle(senderType: SenderType): SubtitleBubbleStyle =
             )
         SenderType.PARENT ->
             SubtitleBubbleStyle(
-                boxAlignment = Alignment.CenterStart,
-                columnAlignment = Alignment.Start,
+                boxAlignment = Alignment.CenterEnd,
+                columnAlignment = Alignment.End,
                 backgroundColor = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                shape = RoundedCornerShape(2.dp, 8.dp, 8.dp, 8.dp),
+                shape = RoundedCornerShape(18.dp, 4.dp, 18.dp, 18.dp),
             )
         SenderType.CHILD ->
             SubtitleBubbleStyle(
-                boxAlignment = Alignment.CenterEnd,
-                columnAlignment = Alignment.End,
-                backgroundColor = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                shape = RoundedCornerShape(8.dp, 2.dp, 8.dp, 8.dp),
+                boxAlignment = Alignment.CenterStart,
+                columnAlignment = Alignment.Start,
+                backgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                shape = RoundedCornerShape(4.dp, 18.dp, 18.dp, 18.dp),
             )
     }
 

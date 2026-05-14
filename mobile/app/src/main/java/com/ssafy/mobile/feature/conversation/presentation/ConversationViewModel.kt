@@ -9,6 +9,7 @@ import com.ssafy.mobile.core.audio.TtsPlayer
 import com.ssafy.mobile.core.model.SignRecognitionEvent
 import com.ssafy.mobile.core.network.NetworkMonitor
 import com.ssafy.mobile.core.stt.SttEngine
+import com.ssafy.mobile.core.stt.SttErrorType
 import com.ssafy.mobile.core.stt.SttEvent
 import com.ssafy.mobile.core.vision.SignRecognitionEngine
 import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
@@ -54,6 +55,7 @@ enum class SpeechInputPhase {
     Idle,
     Listening,
     Analyzing,
+    Unrecognized,
     Fallback,
     Error,
 }
@@ -124,9 +126,7 @@ class ConversationViewModel
         private var currentSttSessionId = 0
         private var isResultsReceived = false
         private var isStoppedReceived = false
-        private var isCloudSttFallbackActive = false
         private var cloudSttFailureCount = 0
-        private var cloudSttDiscardCount = 0
         private var pendingFeedbackRequest: TranslationFeedbackRequest? = null
         private val onDeviceSpeechStyle = LocalSignSentenceGenerator.SpeechStyle.Polite
 
@@ -139,7 +139,7 @@ class ConversationViewModel
                         preloadOnDeviceTranslationEngine()
                     }
                     if (previousMode != mode) {
-                        resetCloudSttFallback()
+                        resetCloudSttFailures()
                         _translationModeNotice.value = null
                         if (_sessionState.value == SessionState.Active) {
                             stopRecordingForStt()
@@ -159,7 +159,7 @@ class ConversationViewModel
                         _sessionState.value == SessionState.Active
                     ) {
                         if (online) {
-                            resetCloudSttFallback()
+                            resetCloudSttFailures()
                         }
                         updateNetworkFallbackNotice(online)
                         stopRecordingForStt()
@@ -499,17 +499,16 @@ class ConversationViewModel
                 viewModelScope.launch {
                     while (isActive && canUseCloudStt()) {
                         val fileName = "stt_audio_$currentSttSessionId"
+                        _speechInputPhase.value = SpeechInputPhase.Listening
                         val started = androidAudioRecorder.start(fileName)
                         val nextDelayMs =
                             if (!started) {
                                 Log.w(TAG, "Cloud STT recorder start failed")
-                                handleCloudSttRecordingUnavailable()
                                 CLOUD_STT_RETRY_DELAY_MS
                             } else {
                                 Log.d(TAG, "Cloud STT recording started: $fileName")
                                 val audioFile = waitForCloudSpeechFile()
                                 if (audioFile != null && canUseCloudStt()) {
-                                    cloudSttDiscardCount = 0
                                     _speechInputPhase.value = SpeechInputPhase.Analyzing
                                     updateOrAddChildMessage(
                                         text = CLOUD_STT_ANALYZING_MESSAGE,
@@ -517,7 +516,7 @@ class ConversationViewModel
                                     )
                                     performCloudStt(audioFile)
                                 } else {
-                                    handleCloudSttRecordingUnavailable()
+                                    Log.d(TAG, "Cloud STT recording skipped. Waiting for speech.")
                                     CLOUD_STT_RETRY_DELAY_MS
                                 }
                             }
@@ -610,14 +609,14 @@ class ConversationViewModel
 
         private fun shouldUseCloudStt(): Boolean =
             when (_translationMode.value) {
-                TranslationMode.AUTO -> _isOnline.value && !isCloudSttFallbackActive
+                TranslationMode.AUTO -> _isOnline.value
                 TranslationMode.SERVER -> _isOnline.value
                 TranslationMode.ON_DEVICE -> false
             }
 
         private fun shouldUseLocalStt(): Boolean =
             when (_translationMode.value) {
-                TranslationMode.AUTO -> !_isOnline.value || isCloudSttFallbackActive
+                TranslationMode.AUTO -> !_isOnline.value
                 TranslationMode.SERVER -> false
                 TranslationMode.ON_DEVICE -> true
             }
@@ -675,10 +674,17 @@ class ConversationViewModel
         private suspend fun checkAndRestartStt() {
             if (isResultsReceived && isStoppedReceived) {
                 // 잦은 재시작으로 인한 BUSY 에러 방지
-                kotlinx.coroutines.delay(STT_RESTART_DELAY_MS)
+                kotlinx.coroutines.delay(getSttRestartDelay())
                 startRecordingForStt()
             }
         }
+
+        private fun getSttRestartDelay(): Long =
+            if (_speechInputPhase.value == SpeechInputPhase.Unrecognized) {
+                STT_UNRECOGNIZED_NOTICE_MS
+            } else {
+                STT_RESTART_DELAY_MS
+            }
 
         private fun stopRecordingForStt(): File? {
             cloudSttJob?.cancel()
@@ -694,7 +700,7 @@ class ConversationViewModel
             _signInputPhase.value = SignInputPhase.Preparing
             _speechInputPhase.value = SpeechInputPhase.Listening
             clearAppSpeechEchoFilter()
-            resetCloudSttFallback()
+            resetCloudSttFailures()
             signRecognitionEngine.start()
 
             // 1. 기존 STT 수집이 있다면 취소
@@ -709,13 +715,7 @@ class ConversationViewModel
                         }
 
                         when (event) {
-                            is SttEvent.Error -> {
-                                Log.w(TAG, "Local STT error: ${event.message}")
-                                _speechInputPhase.value = SpeechInputPhase.Error
-                                isResultsReceived = true
-                                isStoppedReceived = false
-                                addSystemMessage("음성 인식에 실패했습니다. 다시 말해 주세요.")
-                            }
+                            is SttEvent.Error -> handleLocalSttError(event)
                             is SttEvent.PartialResults -> {
                                 if (shouldIgnoreOwnSpeech(event.text)) {
                                     return@collect
@@ -762,6 +762,22 @@ class ConversationViewModel
             startRecordingForStt()
         }
 
+        private fun handleLocalSttError(event: SttEvent.Error) {
+            Log.w(TAG, "Local STT error: ${event.message}")
+            isResultsReceived = true
+            isStoppedReceived = false
+            if (event.shouldKeepListening()) {
+                if (completePendingChildMessage()) {
+                    _speechInputPhase.value = SpeechInputPhase.Listening
+                } else {
+                    _speechInputPhase.value = SpeechInputPhase.Unrecognized
+                }
+            } else {
+                _speechInputPhase.value = SpeechInputPhase.Error
+                addSystemMessage("음성 인식에 실패했습니다. 다시 말해 주세요.")
+            }
+        }
+
         private suspend fun performCloudStt(audioFile: File): Long {
             var restartDelayMs = STT_RESTART_DELAY_MS
             try {
@@ -774,19 +790,25 @@ class ConversationViewModel
                     .translateSpeechToText(audioFile, CLOUD_STT_AUDIO_MIME_TYPE)
                     .onSuccess { response ->
                         cloudSttFailureCount = 0
-                        cloudSttDiscardCount = 0
                         _speechInputPhase.value = SpeechInputPhase.Listening
                         val displayText =
                             buildCloudSttDisplayText(
                                 recognizedText = response.recognizedText,
                                 correctedText = response.correctedText,
-                                corrected = response.corrected,
                             )
                         if (
                             shouldIgnoreOwnSpeech(response.recognizedText) ||
                             shouldIgnoreOwnSpeech(response.correctedText)
                         ) {
+                            removePendingChildMessage()
                             Log.d(TAG, "Cloud STT result ignored as app speech echo")
+                            return@onSuccess
+                        }
+                        if (displayText.isBlank()) {
+                            removePendingChildMessage()
+                            restartDelayMs = STT_UNRECOGNIZED_NOTICE_MS
+                            _speechInputPhase.value = SpeechInputPhase.Unrecognized
+                            Log.d(TAG, "Cloud STT result ignored because display text is blank")
                             return@onSuccess
                         }
                         if (canUseCloudStt()) {
@@ -801,24 +823,14 @@ class ConversationViewModel
                     }.onFailure {
                         cloudSttFailureCount++
                         restartDelayMs = getCloudSttFailureRetryDelay()
-                        if (shouldFallbackToLocalStt()) {
-                            activateCloudSttFallback()
-                            restartDelayMs = STT_RESTART_DELAY_MS
-                        } else {
-                            _speechInputPhase.value = SpeechInputPhase.Error
-                        }
+                        removePendingChildMessage()
+                        _speechInputPhase.value = SpeechInputPhase.Unrecognized
                         Log.w(
                             TAG,
                             "Cloud STT upload failed: failureCount=$cloudSttFailureCount, " +
                                 "retryDelayMs=$restartDelayMs",
                             it,
                         )
-                        if (canUseCloudStt()) {
-                            updateOrAddChildMessage(
-                                text = CLOUD_STT_FAILURE_MESSAGE,
-                                isFinal = true,
-                            )
-                        }
                     }
             } finally {
                 deleteCloudSttAudioFile(audioFile)
@@ -841,20 +853,14 @@ class ConversationViewModel
         private fun buildCloudSttDisplayText(
             recognizedText: String,
             correctedText: String,
-            corrected: Boolean,
         ): String {
             val normalizedRecognized = recognizedText.trim()
             val normalizedCorrected = correctedText.trim()
-            return if (
-                corrected &&
-                normalizedCorrected.isNotBlank() &&
-                normalizedRecognized != normalizedCorrected
-            ) {
-                "원문: $normalizedRecognized\n수정: $normalizedCorrected"
-            } else {
-                normalizedRecognized.ifBlank { normalizedCorrected }
-            }
+            return normalizedRecognized.ifBlank { normalizedCorrected }
         }
+
+        private fun SttEvent.Error.shouldKeepListening(): Boolean =
+            type == SttErrorType.SpeechTimeout || type == SttErrorType.NoMatch
 
         private fun markAppSpeech(text: String) {
             lastAppSpeechText = text
@@ -934,7 +940,7 @@ class ConversationViewModel
             _micVolume.value = 0f
             _messages.value = emptyList()
             clearAppSpeechEchoFilter()
-            resetCloudSttFallback()
+            resetCloudSttFailures()
             translationJob?.cancel()
             completionTimerJob?.cancel()
             sttJob?.cancel()
@@ -992,6 +998,39 @@ class ConversationViewModel
             addOrUpdateMessage(text, isFinal, SenderType.CHILD)
         }
 
+        private fun removePendingChildMessage() {
+            _sttText.value = ""
+            _messages.update { currentList ->
+                val lastMessage = currentList.lastOrNull()
+                if (lastMessage?.isPendingChildMessage() == true) {
+                    currentList.dropLast(1)
+                } else {
+                    currentList
+                }
+            }
+        }
+
+        private fun completePendingChildMessage(): Boolean {
+            var completed = false
+            _sttText.value = ""
+            _messages.update { currentList ->
+                val lastMessage = currentList.lastOrNull()
+                if (lastMessage?.isCompletablePendingChildMessage() == true) {
+                    completed = true
+                    currentList.dropLast(1) + lastMessage.copy(status = MessageStatus.COMPLETED)
+                } else {
+                    currentList
+                }
+            }
+            return completed
+        }
+
+        private fun ChatMessage.isPendingChildMessage(): Boolean =
+            senderType == SenderType.CHILD && status == MessageStatus.PENDING
+
+        private fun ChatMessage.isCompletablePendingChildMessage(): Boolean =
+            isPendingChildMessage() && text.isNotBlank()
+
         private fun addSystemMessage(text: String) {
             if (isSameAsLastSystemMessage(text)) return
 
@@ -1018,31 +1057,8 @@ class ConversationViewModel
                 }
         }
 
-        private fun shouldFallbackToLocalStt(): Boolean =
-            _translationMode.value == TranslationMode.AUTO &&
-                cloudSttFailureCount >= AUTO_CLOUD_STT_FALLBACK_FAILURE_COUNT
-
-        private fun shouldFallbackToLocalSttFromRecordingIssue(): Boolean =
-            _translationMode.value == TranslationMode.AUTO &&
-                cloudSttDiscardCount >= AUTO_CLOUD_STT_RECORDING_FALLBACK_COUNT
-
-        private fun handleCloudSttRecordingUnavailable() {
-            cloudSttDiscardCount++
-            if (shouldFallbackToLocalSttFromRecordingIssue()) {
-                activateCloudSttFallback()
-            }
-        }
-
-        private fun activateCloudSttFallback() {
-            isCloudSttFallbackActive = true
-            _speechInputPhase.value = SpeechInputPhase.Fallback
-            _translationModeNotice.value = NOTICE_AUTO_STT_FALLBACK
-        }
-
-        private fun resetCloudSttFallback() {
-            isCloudSttFallbackActive = false
+        private fun resetCloudSttFailures() {
             cloudSttFailureCount = 0
-            cloudSttDiscardCount = 0
         }
 
         private fun showServerOnlyUnavailableMessage(
@@ -1119,6 +1135,7 @@ class ConversationViewModel
             private const val TAG = "ConversationViewModel"
             private const val COMPLETION_THRESHOLD_MS = 2000L
             private const val STT_RESTART_DELAY_MS = 500L
+            private const val STT_UNRECOGNIZED_NOTICE_MS = 1200L
             private const val CLOUD_STT_POLL_INTERVAL_MS = 150L
             private const val CLOUD_STT_MIN_RECORDING_MS = 500L
             private const val CLOUD_STT_MIN_UPLOAD_RECORDING_MS = 800L
@@ -1137,17 +1154,12 @@ class ConversationViewModel
             private const val CLOUD_STT_STOP_REASON_NO_SPEECH = "no_speech"
             private const val CLOUD_STT_STOP_REASON_CANCELLED = "cancelled"
             private const val CLOUD_STT_ANALYZING_MESSAGE = "대화 내용을 분석 중입니다..."
-            private const val CLOUD_STT_FAILURE_MESSAGE = "인식에 실패했습니다."
             private const val CLOUD_STT_AUDIO_MIME_TYPE = "audio/wav"
-            private const val AUTO_CLOUD_STT_FALLBACK_FAILURE_COUNT = 1
-            private const val AUTO_CLOUD_STT_RECORDING_FALLBACK_COUNT = 2
             private const val APP_SPEECH_ECHO_FILTER_MS = 5000L
             private const val NOTICE_AUTO_OFFLINE_FALLBACK =
                 "자동 모드: 네트워크가 없어 기기 내 처리로 전환했어요."
             private const val NOTICE_AUTO_SERVER_FALLBACK =
                 "자동 모드: 서버 처리 실패로 기기 내 처리로 전환했어요."
-            private const val NOTICE_AUTO_STT_FALLBACK =
-                "자동 모드: 서버 음성 인식 실패로 기기 내 인식으로 전환했어요."
             private const val NOTICE_SERVER_OFFLINE =
                 "서버 모드: 네트워크 연결 후 다시 사용할 수 있어요."
         }

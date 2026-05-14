@@ -264,6 +264,11 @@ private val bottomNavigationItems =
             icon = SudaBottomNavIcons.Home,
         ),
         BottomNavigationItem(
+            screen = Screen.Conversation,
+            label = "소통",
+            icon = SudaBottomNavIcons.Conversation,
+        ),
+        BottomNavigationItem(
             screen = Screen.LearningCategory,
             label = "학습",
             icon = SudaBottomNavIcons.Learning,
@@ -272,11 +277,6 @@ private val bottomNavigationItems =
             screen = Screen.ReportHome,
             label = "리포트",
             icon = SudaBottomNavIcons.Report,
-        ),
-        BottomNavigationItem(
-            screen = Screen.Conversation,
-            label = "소통",
-            icon = SudaBottomNavIcons.Conversation,
         ),
         BottomNavigationItem(
             screen = Screen.MyPage,

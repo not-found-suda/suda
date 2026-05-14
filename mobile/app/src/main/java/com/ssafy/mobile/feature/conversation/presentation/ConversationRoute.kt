@@ -5,11 +5,11 @@ package com.ssafy.mobile.feature.conversation.presentation
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.pm.ActivityInfo
 import android.util.Log
 import android.view.WindowManager
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.BorderStroke
@@ -20,19 +20,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -46,28 +41,23 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
-import com.ssafy.mobile.core.ui.components.AppCard
-import com.ssafy.mobile.core.ui.components.AppPrimaryButton
-import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.core.ui.feedback.AppNetworkStatusBanner
 import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
 import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
@@ -79,10 +69,9 @@ import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
 private const val TAG = "ConversationRoute"
 private const val SUBTITLE_WIDTH_FRACTION = 0.95f
 private const val SUBTITLE_HEIGHT_FRACTION = 0.4f
-private const val PHASE_CARD_ALPHA = 0.88f
 private const val INPUT_LANE_LABEL_ALPHA = 0.14f
-private const val CAMERA_PREVIEW_ASPECT_RATIO = 16f / 9f
 private const val NOTICE_ENTER_SLIDE_DIVISOR = 5
+private const val CAMERA_SCRIM_ALPHA = 0.54f
 
 data class ConversationUiState(
     val sessionState: SessionState,
@@ -195,7 +184,6 @@ private fun ConversationScreen(
 ) {
     var feedbackTargetMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var selectedFeedbackReason by remember { mutableStateOf<TranslationFeedbackReason?>(null) }
-    var isCameraFullscreen by rememberSaveable { mutableStateOf(false) }
 
     fun closeFeedbackSheet() {
         feedbackTargetMessage = null
@@ -240,75 +228,35 @@ private fun ConversationScreen(
                     .background(MaterialTheme.colorScheme.background),
         ) {
             // 카메라 인식 영역 및 자막 오버레이
-            if (isCameraFullscreen) {
-                CameraFullscreenPlaceholder(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(CAMERA_PREVIEW_ASPECT_RATIO),
-                )
-            } else {
-                SignRecognitionArea(
-                    sessionState = uiState.sessionState,
-                    signInputPhase = uiState.signInputPhase,
-                    speechInputPhase = uiState.speechInputPhase,
-                    messages = uiState.messages,
-                    onLandmarkFrame = actions.onLandmarkFrame,
-                    onFeedbackClick = { message ->
-                        feedbackTargetMessage = message
-                        selectedFeedbackReason = null
-                    },
-                    onFullscreenClick =
-                        {
-                            isCameraFullscreen = true
-                        }.takeIf { uiState.sessionState == SessionState.Active },
-                    showStatusOverlay = false,
-                    showSubtitles = false,
-                    showDebugOverlay = false,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(CAMERA_PREVIEW_ASPECT_RATIO),
-                )
-            }
-
-            Column(
+            SignRecognitionArea(
+                sessionState = uiState.sessionState,
+                signInputPhase = uiState.signInputPhase,
+                speechInputPhase = uiState.speechInputPhase,
+                messages = uiState.messages,
+                onLandmarkFrame = actions.onLandmarkFrame,
+                onFeedbackClick = { message ->
+                    feedbackTargetMessage = message
+                    selectedFeedbackReason = null
+                },
+                showStatusOverlay = false,
+                showSubtitles =
+                    uiState.sessionState == SessionState.Active ||
+                        uiState.messages.isNotEmpty(),
+                showDebugOverlay = false,
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .weight(1f)
-                        .background(MaterialTheme.colorScheme.background),
-            ) {
-                ParallelInputStatusCard(
-                    signInputPhase = uiState.signInputPhase,
-                    speechInputPhase = uiState.speechInputPhase,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                )
-                GlossRecognitionArea(
-                    lastGlosses = uiState.lastGlosses,
-                    signInputPhase = uiState.signInputPhase,
-                )
-                ConversationTranscriptPanel(
-                    messages = uiState.messages,
-                    emptyText =
-                        subtitlePlaceholder(
-                            signInputPhase = uiState.signInputPhase,
-                            speechInputPhase = uiState.speechInputPhase,
-                        ),
-                    onFeedbackClick = { message ->
-                        feedbackTargetMessage = message
-                        selectedFeedbackReason = null
-                    },
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                )
-            }
+                        .weight(1f),
+            )
+
+            ParallelInputStatusCard(
+                signInputPhase = uiState.signInputPhase,
+                speechInputPhase = uiState.speechInputPhase,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+            )
         }
     }
 
@@ -325,16 +273,6 @@ private fun ConversationScreen(
         onReasonSelected = { selectedFeedbackReason = it },
         onDismiss = { closeFeedbackSheet() },
     )
-
-    if (isCameraFullscreen) {
-        CameraFullscreenDialog(
-            uiState = uiState,
-            actions = actions,
-            onDismiss = {
-                isCameraFullscreen = false
-            },
-        )
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -369,22 +307,6 @@ private fun TranslationFeedbackSheetHost(
 }
 
 @Composable
-private fun CameraFullscreenPlaceholder(modifier: Modifier = Modifier) {
-    Box(
-        modifier =
-            modifier
-                .background(Color.Black),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = "전체 화면으로 표시 중",
-            color = Color.White,
-            style = MaterialTheme.typography.titleMedium,
-        )
-    }
-}
-
-@Composable
 private fun SignRecognitionArea(
     sessionState: SessionState,
     signInputPhase: SignInputPhase,
@@ -395,7 +317,6 @@ private fun SignRecognitionArea(
     showStatusOverlay: Boolean = true,
     showSubtitles: Boolean = true,
     showDebugOverlay: Boolean = true,
-    onFullscreenClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -409,6 +330,14 @@ private fun SignRecognitionArea(
         )
 
         if (showSubtitles) {
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight(SUBTITLE_HEIGHT_FRACTION)
+                        .align(Alignment.BottomCenter)
+                        .background(Color.Black.copy(alpha = CAMERA_SCRIM_ALPHA)),
+            )
             Box(
                 modifier =
                     Modifier
@@ -436,17 +365,6 @@ private fun SignRecognitionArea(
             )
         }
 
-        if (onFullscreenClick != null) {
-            CameraOverlayButton(
-                text = "전체",
-                onClick = onFullscreenClick,
-                modifier =
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(12.dp),
-            )
-        }
-
         if (sessionState == SessionState.Idle) {
             Box(
                 modifier =
@@ -455,193 +373,20 @@ private fun SignRecognitionArea(
                         .background(Color.Black.copy(alpha = 0.4f)),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = "세션을 시작하려면 버튼을 누르세요",
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleMedium,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun CameraFullscreenDialog(
-    uiState: ConversationUiState,
-    actions: ConversationActions,
-    onDismiss: () -> Unit,
-) {
-    ForceLandscapeOrientationEffect()
-
-    LaunchedEffect(uiState.sessionState) {
-        if (uiState.sessionState != SessionState.Active) {
-            onDismiss()
-        }
-    }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties =
-            DialogProperties(
-                usePlatformDefaultWidth = false,
-                decorFitsSystemWindows = false,
-            ),
-    ) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = Color.Black,
-        ) {
-            Row(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .padding(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Box(
-                    modifier =
-                        Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .background(Color.Black),
-                    contentAlignment = Alignment.Center,
+                Surface(
+                    color = Color.Black.copy(alpha = CAMERA_SCRIM_ALPHA),
+                    shape = RoundedCornerShape(12.dp),
                 ) {
-                    SignRecognitionArea(
-                        sessionState = uiState.sessionState,
-                        signInputPhase = uiState.signInputPhase,
-                        speechInputPhase = uiState.speechInputPhase,
-                        messages = uiState.messages,
-                        onLandmarkFrame = actions.onLandmarkFrame,
-                        onFeedbackClick = {},
-                        showStatusOverlay = false,
-                        showSubtitles = false,
-                        showDebugOverlay = false,
-                        modifier =
-                            Modifier
-                                .fillMaxHeight()
-                                .aspectRatio(CAMERA_PREVIEW_ASPECT_RATIO),
+                    Text(
+                        text = "대화 시작을 누르면 자막이 여기에 표시됩니다.",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
                     )
                 }
-                FullscreenStatusPanel(
-                    uiState = uiState,
-                    onStopSession = {
-                        actions.onStopSession()
-                        onDismiss()
-                    },
-                    modifier =
-                        Modifier
-                            .fillMaxHeight()
-                            .width(320.dp),
-                )
             }
         }
-    }
-}
-
-@Composable
-private fun ForceLandscapeOrientationEffect() {
-    val activity = LocalContext.current.findActivity()
-
-    DisposableEffect(activity) {
-        if (activity == null) {
-            onDispose { }
-        } else {
-            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            onDispose {
-                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            }
-        }
-    }
-}
-
-@Composable
-private fun FullscreenStatusPanel(
-    uiState: ConversationUiState,
-    onStopSession: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Text(
-                text = "실시간 수어",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.Bold,
-            )
-            InputLaneStatusRow(
-                label = "수어",
-                title = uiState.signInputPhase.title(),
-                description = uiState.signInputPhase.description(),
-                isWarning = uiState.signInputPhase.isWarning(),
-            )
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .height(1.dp)
-                        .background(MaterialTheme.colorScheme.outlineVariant),
-            )
-            Text(
-                text = "인식 결과",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.Bold,
-            )
-            if (uiState.lastGlosses.isEmpty()) {
-                Text(
-                    text = uiState.signInputPhase.glossPlaceholder(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(uiState.lastGlosses) { gloss ->
-                        GlossChip(gloss = gloss)
-                    }
-                }
-            }
-            Box(modifier = Modifier.weight(1f))
-            AppSecondaryButton(
-                text = "종료",
-                onClick = onStopSession,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-    }
-}
-
-@Composable
-private fun CameraOverlayButton(
-    text: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(999.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            fontWeight = FontWeight.Bold,
-        )
     }
 }
 
@@ -757,55 +502,6 @@ private fun TranslationFeedbackSubmitState.actionText(): String =
     }
 
 @Composable
-private fun ConversationTranscriptPanel(
-    messages: List<ChatMessage>,
-    emptyText: String,
-    onFeedbackClick: (ChatMessage) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    AppCard(
-        modifier =
-            modifier
-                .heightIn(min = 180.dp)
-                .animateContentSize(),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    text = "대화 자막",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = "부모와 아이의 말을 실시간으로 구분해 보여줘요.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            AppBadge(
-                text = if (messages.isEmpty()) "대기" else "${messages.size}개",
-                tone = if (messages.isEmpty()) AppBadgeTone.Neutral else AppBadgeTone.Primary,
-            )
-        }
-
-        SubtitleList(
-            messages = messages,
-            emptyText = emptyText,
-            onFeedbackClick = onFeedbackClick,
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-        )
-    }
-}
-
-@Composable
 private fun TranslationFeedbackReasonRow(
     reason: TranslationFeedbackReason,
     selected: Boolean,
@@ -857,48 +553,6 @@ private fun TranslationFeedbackReasonRow(
 }
 
 @Composable
-private fun GlossRecognitionArea(
-    lastGlosses: List<String>,
-    signInputPhase: SignInputPhase,
-) {
-    val glossListState = rememberLazyListState()
-
-    LaunchedEffect(lastGlosses.size) {
-        if (lastGlosses.isNotEmpty()) {
-            glossListState.animateScrollToItem(lastGlosses.lastIndex)
-        }
-    }
-
-    Box(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-                .background(
-                    MaterialTheme.colorScheme.surfaceVariant,
-                    shape = MaterialTheme.shapes.medium,
-                ).padding(12.dp),
-    ) {
-        if (lastGlosses.isEmpty()) {
-            Text(
-                text = signInputPhase.glossPlaceholder(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } else {
-            LazyRow(
-                state = glossListState,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(lastGlosses) { gloss ->
-                    GlossChip(gloss = gloss)
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun SessionHeader(
     sessionState: SessionState,
     signInputPhase: SignInputPhase,
@@ -911,78 +565,81 @@ private fun SessionHeader(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                text = "SUDA 소통 세션",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-            )
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
-                if (onOpenSignDebug != null) {
-                    Box(
-                        modifier =
-                            Modifier
-                                .sizeIn(minWidth = 72.dp, minHeight = 40.dp)
-                                .background(
-                                    color = MaterialTheme.colorScheme.secondaryContainer,
-                                    shape = CircleShape,
-                                ).clickable(onClick = onOpenSignDebug)
-                                .padding(horizontal = 14.dp, vertical = 8.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "디버그",
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
-                Box(
-                    modifier =
-                        Modifier
-                            .size(8.dp)
-                            .background(
-                                color =
-                                    if (sessionState ==
-                                        SessionState.Active
-                                    ) {
-                                        Color.Green
-                                    } else {
-                                        Color.Gray
-                                    },
-                                shape = CircleShape,
-                            ),
+                Text(
+                    text = "소통",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
                 )
                 Text(
-                    text =
-                        headerLabel(
-                            sessionState = sessionState,
-                            signInputPhase = signInputPhase,
-                            speechInputPhase = speechInputPhase,
-                        ),
-                    modifier = Modifier.padding(start = 4.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (sessionState == SessionState.Active) Color.Green else Color.Gray,
+                    text = translationMode.summaryLabel(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    if (onOpenSignDebug != null) {
+                        Surface(
+                            modifier =
+                                Modifier
+                                    .sizeIn(minWidth = 56.dp, minHeight = 30.dp)
+                                    .clickable(onClick = onOpenSignDebug),
+                            shape = RoundedCornerShape(999.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                        ) {
+                            Text(
+                                text = "디버그",
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                    AppBadge(
+                        text =
+                            headerLabel(
+                                sessionState = sessionState,
+                                signInputPhase = signInputPhase,
+                                speechInputPhase = speechInputPhase,
+                            ),
+                        tone =
+                            if (signInputPhase.isWarning() || speechInputPhase.isWarning()) {
+                                AppBadgeTone.Error
+                            } else if (sessionState == SessionState.Active) {
+                                AppBadgeTone.Primary
+                            } else {
+                                AppBadgeTone.Neutral
+                            },
+                    )
+                }
+
+                TranslationModeToggleButton(
+                    selectedMode = translationMode,
+                    onModeSelected = onTranslationModeSelected,
                 )
             }
         }
-
-        TranslationModeSelector(
-            selectedMode = translationMode,
-            onModeSelected = onTranslationModeSelected,
-        )
     }
 }
 
@@ -992,125 +649,130 @@ private fun ParallelInputStatusCard(
     speechInputPhase: SpeechInputPhase,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
+    Row(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = PHASE_CARD_ALPHA),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            InputLaneStatusRow(
-                label = "수어",
-                title = signInputPhase.title(),
-                description = signInputPhase.description(),
-                isWarning = signInputPhase.isWarning(),
-            )
-            InputLaneStatusRow(
-                label = "음성",
-                title = speechInputPhase.title(),
-                description = speechInputPhase.description(),
-                isWarning = speechInputPhase.isWarning(),
-            )
-        }
+        InputStatusPill(
+            label = "수어",
+            title = signInputPhase.title(),
+            isActive = signInputPhase.isWorking(),
+            isWarning = signInputPhase.isWarning(),
+            modifier = Modifier.weight(1f),
+        )
+        InputStatusPill(
+            label = "음성",
+            title = speechInputPhase.title(),
+            isActive = speechInputPhase.isWorking(),
+            isWarning = speechInputPhase.isWarning(),
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
 @Composable
-private fun InputLaneStatusRow(
+private fun InputStatusPill(
     label: String,
     title: String,
-    description: String,
+    isActive: Boolean,
     isWarning: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val statusColor =
-        if (isWarning) {
-            MaterialTheme.colorScheme.error
-        } else {
-            MaterialTheme.colorScheme.primary
+    val targetColor =
+        when {
+            isWarning -> MaterialTheme.colorScheme.error
+            isActive -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.outline
         }
+    val statusColor by animateColorAsState(
+        targetValue = targetColor,
+        label = "InputStatusColor",
+    )
 
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(18.dp),
+        color =
+            if (isActive || isWarning) {
+                statusColor.copy(alpha = INPUT_LANE_LABEL_ALPHA)
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+            },
+        border =
+            BorderStroke(
+                width = 1.dp,
+                color = statusColor.copy(alpha = if (isActive || isWarning) 0.32f else 0.16f),
+            ),
     ) {
-        Surface(
-            shape = RoundedCornerShape(999.dp),
-            color = statusColor.copy(alpha = INPUT_LANE_LABEL_ALPHA),
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                text = label,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                style = MaterialTheme.typography.labelMedium,
+            Surface(
+                modifier = Modifier.size(8.dp),
+                shape = CircleShape,
                 color = statusColor,
-                fontWeight = FontWeight.Bold,
+                content = {},
             )
-        }
-
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    fontWeight = FontWeight.Bold,
+                )
+                AnimatedContent(
+                    targetState = title,
+                    label = "InputStatusText",
+                ) { animatedTitle ->
+                    Text(
+                        text = animatedTitle,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun TranslationModeSelector(
+private fun TranslationModeToggleButton(
     selectedMode: TranslationMode,
     onModeSelected: (TranslationMode) -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    Surface(
+        modifier =
+            Modifier
+                .clickable { onModeSelected(selectedMode.nextMode()) },
+        shape = RoundedCornerShape(999.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
-        TranslationMode.entries.forEach { mode ->
-            val selected = mode == selectedMode
-            Surface(
-                modifier =
-                    Modifier
-                        .weight(1f)
-                        .clickable { onModeSelected(mode) },
-                shape = RoundedCornerShape(999.dp),
-                color =
-                    if (selected) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surface
-                    },
-                border =
-                    BorderStroke(
-                        width = 1.dp,
-                        color =
-                            if (selected) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.outlineVariant
-                            },
-                    ),
-            ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Text(
+                text = "인식",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold,
+            )
+            AnimatedContent(
+                targetState = selectedMode.label(),
+                label = "TranslationModeToggleText",
+            ) { modeLabel ->
                 Text(
-                    text = mode.label(),
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                    color =
-                        if (selected) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    textAlign = TextAlign.Center,
+                    text = modeLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold,
                 )
             }
@@ -1150,6 +812,20 @@ private fun TranslationMode.label(): String =
         TranslationMode.ON_DEVICE -> "기기"
     }
 
+private fun TranslationMode.nextMode(): TranslationMode =
+    when (this) {
+        TranslationMode.AUTO -> TranslationMode.SERVER
+        TranslationMode.SERVER -> TranslationMode.ON_DEVICE
+        TranslationMode.ON_DEVICE -> TranslationMode.AUTO
+    }
+
+private fun TranslationMode.summaryLabel(): String =
+    when (this) {
+        TranslationMode.AUTO -> "온라인은 서버, 오프라인은 기기 인식"
+        TranslationMode.SERVER -> "서버 음성 인식 사용"
+        TranslationMode.ON_DEVICE -> "기기 내 음성 인식 사용"
+    }
+
 private fun headerLabel(
     sessionState: SessionState,
     signInputPhase: SignInputPhase,
@@ -1157,54 +833,34 @@ private fun headerLabel(
 ): String =
     if (sessionState == SessionState.Active) {
         if (signInputPhase.isWarning() || speechInputPhase.isWarning()) {
-            " 확인 필요"
+            "확인 필요"
         } else {
-            " 병렬 소통 중"
+            "소통 중"
         }
     } else {
-        " IDLE"
+        "대기"
     }
 
 private fun SignInputPhase.title(): String =
     when (this) {
-        SignInputPhase.Idle -> "대기 중"
-        SignInputPhase.Preparing -> "준비 중"
-        SignInputPhase.Recognizing -> "수어 인식 중"
-        SignInputPhase.NoHandsDetected -> "손 인식 대기"
-        SignInputPhase.Collecting -> "문장 수집 중"
+        SignInputPhase.Idle -> "대기"
+        SignInputPhase.Preparing -> "준비"
+        SignInputPhase.Recognizing -> "인식 중"
+        SignInputPhase.NoHandsDetected -> "손 확인"
+        SignInputPhase.Collecting -> "수집 중"
         SignInputPhase.Translating -> "번역 중"
-        SignInputPhase.Fallback -> "기기 처리 전환"
+        SignInputPhase.Fallback -> "기기 처리"
         SignInputPhase.Error -> "확인 필요"
-    }
-
-private fun SignInputPhase.description(): String =
-    when (this) {
-        SignInputPhase.Idle -> "대화를 시작하면 카메라 인식이 준비됩니다."
-        SignInputPhase.Preparing -> "카메라와 수어 인식 모델을 준비하고 있어요."
-        SignInputPhase.Recognizing -> "화면 안에서 수어를 보여 주세요."
-        SignInputPhase.NoHandsDetected -> "손이 화면에 잘 보이도록 위치를 맞춰 주세요."
-        SignInputPhase.Collecting -> "인식된 수어를 문장으로 묶고 있어요."
-        SignInputPhase.Translating -> "수어 문장을 자연스러운 말로 바꾸는 중입니다."
-        SignInputPhase.Fallback -> "서버 대신 기기 내 처리로 이어가고 있어요."
-        SignInputPhase.Error -> "수어 인식을 일시적으로 처리하지 못했습니다."
     }
 
 private fun SpeechInputPhase.title(): String =
     when (this) {
-        SpeechInputPhase.Idle -> "대기 중"
-        SpeechInputPhase.Listening -> "음성 듣는 중"
-        SpeechInputPhase.Analyzing -> "음성 분석 중"
-        SpeechInputPhase.Fallback -> "기기 인식 전환"
+        SpeechInputPhase.Idle -> "대기"
+        SpeechInputPhase.Listening -> "듣는 중"
+        SpeechInputPhase.Analyzing -> "분석 중"
+        SpeechInputPhase.Unrecognized -> "소리 감지"
+        SpeechInputPhase.Fallback -> "기기 인식"
         SpeechInputPhase.Error -> "확인 필요"
-    }
-
-private fun SpeechInputPhase.description(): String =
-    when (this) {
-        SpeechInputPhase.Idle -> "대화를 시작하면 마이크 인식이 준비됩니다."
-        SpeechInputPhase.Listening -> "상대방의 말을 듣고 자막으로 옮길 준비가 됐어요."
-        SpeechInputPhase.Analyzing -> "방금 들은 음성을 분석하고 있어요."
-        SpeechInputPhase.Fallback -> "서버 대신 기기 내 음성 인식으로 이어가고 있어요."
-        SpeechInputPhase.Error -> "음성 인식을 일시적으로 처리하지 못했습니다."
     }
 
 private fun subtitlePlaceholder(
@@ -1219,17 +875,6 @@ private fun subtitlePlaceholder(
         else -> "수어 또는 음성 자막이 여기에 표시됩니다."
     }
 
-private fun SignInputPhase.glossPlaceholder(): String =
-    when (this) {
-        SignInputPhase.Idle -> "세션 시작 전입니다."
-        SignInputPhase.Preparing -> "수어 인식 준비 중..."
-        SignInputPhase.NoHandsDetected -> "손을 화면 안에 보여 주세요."
-        SignInputPhase.Translating -> "번역 중..."
-        SignInputPhase.Fallback -> "기기 내 처리로 전환됨"
-        SignInputPhase.Error -> "세션 상태를 확인해 주세요."
-        else -> "수어 인식 대기 중..."
-    }
-
 private fun SignInputPhase.isWarning(): Boolean =
     this == SignInputPhase.NoHandsDetected ||
         this == SignInputPhase.Fallback ||
@@ -1238,48 +883,80 @@ private fun SignInputPhase.isWarning(): Boolean =
 private fun SpeechInputPhase.isWarning(): Boolean =
     this == SpeechInputPhase.Fallback || this == SpeechInputPhase.Error
 
+private fun SignInputPhase.isWorking(): Boolean = this != SignInputPhase.Idle
+
+private fun SpeechInputPhase.isWorking(): Boolean = this != SpeechInputPhase.Idle
+
 @Composable
 private fun SessionControls(
     sessionState: SessionState,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
 ) {
-    Box(
+    val hapticFeedback = LocalHapticFeedback.current
+
+    Surface(
         modifier =
             Modifier
-                .fillMaxWidth()
-                .padding(24.dp),
+                .fillMaxWidth(),
+        color = MaterialTheme.colorScheme.background,
+        tonalElevation = 2.dp,
     ) {
-        if (sessionState == SessionState.Idle) {
-            AppPrimaryButton(
-                text = "대화 시작하기",
-                onClick = { onStartSession() },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        } else {
-            AppSecondaryButton(
-                text = "종료",
-                onClick = { onStopSession() },
-                modifier = Modifier.fillMaxWidth(),
-            )
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (sessionState == SessionState.Idle) {
+                SessionActionButton(
+                    text = "시작",
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    onClick = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onStartSession()
+                    },
+                )
+            } else {
+                SessionActionButton(
+                    text = "끝내기",
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    onClick = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onStopSession()
+                    },
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun GlossChip(gloss: String) {
-    Box(
+private fun SessionActionButton(
+    text: String,
+    containerColor: Color,
+    contentColor: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
         modifier =
-            Modifier
-                .background(
-                    color = MaterialTheme.colorScheme.primary,
-                    shape = CircleShape,
-                ).padding(horizontal = 12.dp, vertical = 4.dp),
+            modifier
+                .widthIn(min = 96.dp, max = 140.dp)
+                .clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        color = containerColor,
+        contentColor = contentColor,
     ) {
         Text(
-            text = gloss,
-            color = MaterialTheme.colorScheme.onPrimary,
+            text = text,
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 9.dp),
             style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
         )
     }
 }
