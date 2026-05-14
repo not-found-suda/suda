@@ -6,9 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -18,14 +16,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
-import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.feature.report.domain.model.ReportQuizAnswer
 import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionDetail
-import java.util.Locale
 
 @Composable
 internal fun ReportQuizSessionSummaryCard(detail: ReportQuizSessionDetail) {
-    AppCard(
+    ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column {
@@ -49,6 +45,13 @@ internal fun ReportQuizSessionSummaryCard(detail: ReportQuizSessionDetail) {
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+            ReportPercentMeter(
+                title = "정답률",
+                value = detail.accuracyRate,
+                detail = "${detail.correctCount}/${detail.totalQuestionCount}문제",
+                tone = ReportVisualTone.Success,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
             ReportQuizSessionSummaryMetricGrid(detail = detail)
             Spacer(modifier = Modifier.height(14.dp))
             ReportQuizSessionDateSection(detail = detail)
@@ -66,11 +69,13 @@ private fun ReportQuizSessionSummaryMetricGrid(detail: ReportQuizSessionDetail) 
             ReportQuizSessionDetailMetric(
                 title = "정답",
                 value = "${detail.correctCount}/${detail.totalQuestionCount}",
+                tone = ReportVisualTone.Success,
                 modifier = Modifier.weight(1f),
             )
             ReportQuizSessionDetailMetric(
-                title = "정답률",
-                value = String.format(Locale.KOREA, "%.1f%%", detail.accuracyRate),
+                title = "문제 수",
+                value = "${detail.totalQuestionCount}문제",
+                tone = ReportVisualTone.Tertiary,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -78,14 +83,15 @@ private fun ReportQuizSessionSummaryMetricGrid(detail: ReportQuizSessionDetail) 
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            ReportQuizSessionDetailMetric(
+            ReportStarMetricTile(
                 title = "평균 별점",
-                value = String.format(Locale.KOREA, "%.1f/3", detail.averageStar),
+                rating = detail.averageStar,
                 modifier = Modifier.weight(1f),
             )
             ReportQuizSessionDetailMetric(
                 title = "총 별점",
                 value = detail.totalStar?.let { "${it}점" } ?: "정보 없음",
+                tone = ReportVisualTone.Warning,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -110,7 +116,7 @@ private fun ReportQuizSessionDateSection(detail: ReportQuizSessionDetail) {
 
 @Composable
 internal fun ReportQuizAnswerCard(answer: ReportQuizAnswer) {
-    AppCard(
+    ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column {
@@ -167,11 +173,12 @@ private fun ReportQuizAnswerMetricRow(answer: ReportQuizAnswer) {
         ReportQuizSessionDetailMetric(
             title = "정답 여부",
             value = answer.correctnessLabel(),
+            tone = answer.toReportCorrectnessVisualTone(),
             modifier = Modifier.weight(1f),
         )
-        ReportQuizSessionDetailMetric(
+        ReportStarMetricTile(
             title = "별점",
-            value = answer.star?.let { "$it/3" } ?: "정보 없음",
+            rating = answer.star?.toDouble(),
             modifier = Modifier.weight(1f),
         )
     }
@@ -194,30 +201,14 @@ private fun ReportQuizSessionDetailMetric(
     title: String,
     value: String,
     modifier: Modifier = Modifier,
+    tone: ReportVisualTone = ReportVisualTone.Primary,
 ) {
-    Surface(
+    ReportMetricTile(
+        title = title,
+        value = value,
         modifier = modifier,
-        shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.surface,
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
-            Text(
-                text = value,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-            )
-        }
-    }
+        tone = tone,
+    )
 }
 
 private fun ReportQuizAnswer.correctnessLabel(): String =
@@ -225,6 +216,13 @@ private fun ReportQuizAnswer.correctnessLabel(): String =
         true -> "정답"
         false -> "오답"
         null -> "미채점"
+    }
+
+private fun ReportQuizAnswer.toReportCorrectnessVisualTone(): ReportVisualTone =
+    when (isCorrect) {
+        true -> ReportVisualTone.Success
+        false -> ReportVisualTone.Error
+        null -> ReportVisualTone.Neutral
     }
 
 private fun String?.toDisplayText(fallback: String): String =

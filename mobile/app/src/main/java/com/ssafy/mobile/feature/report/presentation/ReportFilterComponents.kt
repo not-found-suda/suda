@@ -4,14 +4,19 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -21,14 +26,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
-import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.core.ui.components.AppTextField
@@ -42,7 +48,9 @@ internal fun ReportFilterPanel(
     actions: ReportFilterActions,
     modifier: Modifier = Modifier,
 ) {
-    AppCard(
+    var expanded by rememberSaveable { mutableStateOf(false) }
+
+    ReportGlassCard(
         modifier =
             modifier
                 .fillMaxWidth()
@@ -51,116 +59,254 @@ internal fun ReportFilterPanel(
         Column(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            ReportFilterHeader(hasAppliedFilter = state.hasAppliedFilter)
-            ReportDateRangeFields(
-                input = state.input,
-                isError = state.errorMessage != null,
-                onInputChange = actions.onInputChange,
+            ReportFilterHeader(
+                hasAppliedFilter = state.hasAppliedFilter,
+                expanded = expanded,
+                onToggleClick = { expanded = !expanded },
             )
-            if (config.showCategory) {
-                ReportCategoryFilter(
-                    state = state,
-                    onInputChange = actions.onInputChange,
-                    onRetryClick = actions.onRetryCategoriesClick,
-                )
-            }
-            if (config.showDifficulty) {
-                ReportOptionDropdown(
-                    label = "난이도",
-                    selectedLabel =
-                        difficultyOptions.firstOrNull { it.value == state.input.difficulty }?.label
-                            ?: "전체 난이도",
-                    options = difficultyOptions,
-                    onSelected = { value ->
-                        actions.onInputChange(state.input.copy(difficulty = value))
-                    },
-                )
-            }
-            if (config.showStatus) {
-                ReportOptionDropdown(
-                    label = "상태",
-                    selectedLabel =
-                        statusOptions.firstOrNull { it.value == state.input.status }?.label
-                            ?: "전체 상태",
-                    options = statusOptions,
-                    onSelected = { value ->
-                        actions.onInputChange(state.input.copy(status = value))
-                    },
-                )
-            }
-            if (config.showMinAttemptCount) {
-                AppTextField(
-                    value = state.input.minAttemptCount,
-                    onValueChange = { value ->
-                        actions.onInputChange(state.input.copy(minAttemptCount = value))
-                    },
-                    label = "최소 풀이 횟수",
-                    isError = state.errorMessage != null,
-                    supportingText = "1 이상",
-                )
-            }
             AnimatedVisibility(
-                visible = state.errorMessage != null,
+                visible = expanded || state.errorMessage != null,
                 enter = fadeIn() + slideInVertically { it / FILTER_ENTER_SLIDE_DIVISOR },
             ) {
-                state.errorMessage?.let { message ->
-                    AppBadge(
-                        text = message,
-                        tone = AppBadgeTone.Error,
-                    )
-                }
+                ReportFilterExpandedContent(
+                    state = state,
+                    config = config,
+                    actions = actions,
+                )
             }
-            ReportFilterActionRow(
-                onApplyClick = actions.onApplyClick,
-                onResetClick = actions.onResetClick,
+        }
+    }
+}
+
+@Composable
+private fun ReportFilterExpandedContent(
+    state: ReportFilterUiState,
+    config: ReportFilterPanelConfig,
+    actions: ReportFilterActions,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        ReportYearRangePicker(
+            input = state.input,
+            isError = state.errorMessage != null,
+            onInputChange = actions.onInputChange,
+        )
+        if (config.showCategory) {
+            ReportCategoryFilter(
+                state = state,
+                onInputChange = actions.onInputChange,
+                onRetryClick = actions.onRetryCategoriesClick,
+            )
+        }
+        if (config.showDifficulty) {
+            ReportOptionDropdown(
+                label = "난이도",
+                selectedLabel =
+                    difficultyOptions
+                        .firstOrNull {
+                            it.value == state.input.difficulty
+                        }?.label ?: "전체 난이도",
+                options = difficultyOptions,
+                onSelected = { value ->
+                    actions.onInputChange(state.input.copy(difficulty = value))
+                },
+            )
+        }
+        if (config.showStatus) {
+            ReportOptionDropdown(
+                label = "상태",
+                selectedLabel =
+                    statusOptions
+                        .firstOrNull {
+                            it.value == state.input.status
+                        }?.label ?: "전체 상태",
+                options = statusOptions,
+                onSelected = { value ->
+                    actions.onInputChange(state.input.copy(status = value))
+                },
+            )
+        }
+        if (config.showMinAttemptCount) {
+            AppTextField(
+                value = state.input.minAttemptCount,
+                onValueChange = { value ->
+                    actions.onInputChange(state.input.copy(minAttemptCount = value))
+                },
+                label = "최소 풀이 횟수",
+                isError = state.errorMessage != null,
+                supportingText = "1 이상",
+            )
+        }
+        state.errorMessage?.let { message ->
+            AppBadge(
+                text = message,
+                tone = AppBadgeTone.Error,
+            )
+        }
+        ReportFilterActionRow(
+            onApplyClick = actions.onApplyClick,
+            onResetClick = actions.onResetClick,
+        )
+    }
+}
+
+@Composable
+private fun ReportFilterHeader(
+    hasAppliedFilter: Boolean,
+    expanded: Boolean,
+    onToggleClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "기간/조건",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = if (hasAppliedFilter) "지정한 조건으로 보고 있어요." else "기본은 전체 기간이에요.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        ReportFilterToggleButton(
+            expanded = expanded,
+            onClick = onToggleClick,
+        )
+    }
+}
+
+@Composable
+private fun ReportFilterToggleButton(
+    expanded: Boolean,
+    onClick: () -> Unit,
+) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier =
+            Modifier
+                .width(80.dp)
+                .height(34.dp),
+        shape = RoundedCornerShape(8.dp),
+        contentPadding = PaddingValues(horizontal = 4.dp),
+    ) {
+        Text(
+            text = if (expanded) "접기" else "더 보기",
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun ReportYearRangePicker(
+    input: ReportFilterInputState,
+    isError: Boolean,
+    onInputChange: (ReportFilterInputState) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = "조회 연도",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ReportYearStepButton(
+                text = "이전",
+                onClick = { onInputChange(input.shiftYear(offset = -1)) },
+            )
+            Column(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .heightIn(min = 40.dp),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = input.yearLabel(),
+                    modifier = Modifier.fillMaxWidth(),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color =
+                        if (isError) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    text = input.yearRangeLabel(),
+                    modifier = Modifier.fillMaxWidth(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color =
+                        if (isError) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    textAlign = TextAlign.Center,
+                )
+            }
+            ReportYearStepButton(
+                text = "다음",
+                onClick = { onInputChange(input.shiftYear(offset = 1)) },
+            )
+        }
+        OutlinedButton(
+            onClick = { onInputChange(input.selectCurrentYear()) },
+            modifier =
+                Modifier
+                    .width(88.dp)
+                    .height(34.dp),
+            shape = RoundedCornerShape(8.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp),
+        ) {
+            Text(
+                text = "올해 보기",
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
 }
 
 @Composable
-private fun ReportFilterHeader(hasAppliedFilter: Boolean) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+private fun ReportYearStepButton(
+    text: String,
+    onClick: () -> Unit,
+) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier =
+            Modifier
+                .width(56.dp)
+                .height(36.dp),
+        shape = RoundedCornerShape(8.dp),
+        colors =
+            ButtonDefaults.outlinedButtonColors(
+                contentColor = MaterialTheme.colorScheme.primary,
+            ),
+        border =
+            BorderStroke(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant,
+            ),
+        contentPadding = PaddingValues(horizontal = 4.dp),
     ) {
         Text(
-            text = "필터",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-        )
-        AppBadge(
-            text = if (hasAppliedFilter) "적용 중" else "전체",
-            tone = if (hasAppliedFilter) AppBadgeTone.Primary else AppBadgeTone.Neutral,
-        )
-    }
-}
-
-@Composable
-private fun ReportDateRangeFields(
-    input: ReportFilterInputState,
-    isError: Boolean,
-    onInputChange: (ReportFilterInputState) -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        AppTextField(
-            value = input.from,
-            onValueChange = { value -> onInputChange(input.copy(from = value)) },
-            label = "시작일",
-            isError = isError,
-            modifier = Modifier.weight(1f),
-            supportingText = "YYYY-MM-DD",
-        )
-        AppTextField(
-            value = input.to,
-            onValueChange = { value -> onInputChange(input.copy(to = value)) },
-            label = "종료일",
-            isError = isError,
-            modifier = Modifier.weight(1f),
-            supportingText = "YYYY-MM-DD",
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

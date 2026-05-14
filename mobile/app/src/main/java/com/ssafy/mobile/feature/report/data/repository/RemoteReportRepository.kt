@@ -13,8 +13,10 @@ import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
 import java.io.IOException
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
+import retrofit2.Response
 
 private const val TAG = "RemoteReportRepository"
+private const val ERROR_BODY_PREVIEW_LENGTH = 1_000
 private const val HTTP_STATUS_BAD_REQUEST = 400
 private const val HTTP_STATUS_UNAUTHORIZED = 401
 private const val HTTP_STATUS_NOT_FOUND = 404
@@ -44,8 +46,8 @@ class RemoteReportRepository
                 } else {
                     Result.failure(
                         IllegalStateException(
-                            errorMessage(
-                                statusCode = response.code(),
+                            response.toReportFailureMessage(
+                                endpoint = "reports/summary",
                                 defaultMessage = "리포트 요약을 불러오지 못했습니다.",
                             ),
                         ),
@@ -87,8 +89,8 @@ class RemoteReportRepository
                 } else {
                     Result.failure(
                         IllegalStateException(
-                            errorMessage(
-                                statusCode = response.code(),
+                            response.toReportFailureMessage(
+                                endpoint = "reports/weak-words",
                                 defaultMessage = "취약 단어를 불러오지 못했습니다.",
                             ),
                         ),
@@ -126,8 +128,8 @@ class RemoteReportRepository
                 } else {
                     Result.failure(
                         IllegalStateException(
-                            errorMessage(
-                                statusCode = response.code(),
+                            response.toReportFailureMessage(
+                                endpoint = "reports/categories",
                                 defaultMessage = "카테고리별 리포트를 불러오지 못했습니다.",
                             ),
                         ),
@@ -169,8 +171,8 @@ class RemoteReportRepository
                 } else {
                     Result.failure(
                         IllegalStateException(
-                            errorMessage(
-                                statusCode = response.code(),
+                            response.toReportFailureMessage(
+                                endpoint = "reports/sessions",
                                 defaultMessage = "퀴즈 기록을 불러오지 못했습니다.",
                             ),
                         ),
@@ -208,8 +210,8 @@ class RemoteReportRepository
                 } else {
                     Result.failure(
                         IllegalStateException(
-                            errorMessage(
-                                statusCode = response.code(),
+                            response.toReportFailureMessage(
+                                endpoint = "reports/sessions/{sessionId}",
                                 defaultMessage = "퀴즈 기록 상세를 불러오지 못했습니다.",
                                 notFoundMessage = "퀴즈 기록을 찾을 수 없습니다.",
                             ),
@@ -241,6 +243,50 @@ class RemoteReportRepository
                 HTTP_STATUS_INTERNAL_SERVER_ERROR -> "서버에서 리포트 정보를 불러오지 못했습니다."
                 else -> defaultMessage
             }
+
+        private fun Response<*>.toReportFailureMessage(
+            endpoint: String,
+            defaultMessage: String,
+            notFoundMessage: String = "아이 정보를 찾을 수 없습니다. 아이를 다시 선택해 주세요.",
+        ): String {
+            val errorBody = errorBody()?.string().orEmpty()
+            logApiError(
+                endpoint = endpoint,
+                statusCode = code(),
+                responseMessage = message(),
+                errorBody = errorBody,
+            )
+            return errorMessage(
+                statusCode = code(),
+                defaultMessage = defaultMessage,
+                notFoundMessage = notFoundMessage,
+            )
+        }
+
+        private fun logApiError(
+            endpoint: String,
+            statusCode: Int,
+            responseMessage: String,
+            errorBody: String,
+        ) {
+            Log.w(
+                TAG,
+                buildString {
+                    append("Report API error. endpoint=")
+                    append(endpoint)
+                    append(", status=")
+                    append(statusCode)
+                    if (responseMessage.isNotBlank()) {
+                        append(", message=")
+                        append(responseMessage)
+                    }
+                    if (errorBody.isNotBlank()) {
+                        append(", body=")
+                        append(errorBody.take(ERROR_BODY_PREVIEW_LENGTH))
+                    }
+                },
+            )
+        }
     }
 
 private fun ReportFilterState.toDateQueryMap(): Map<String, String> =

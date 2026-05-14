@@ -17,11 +17,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
-import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.feature.report.domain.model.ReportSummary
 import com.ssafy.mobile.feature.report.domain.model.ReportWeakWord
-import java.util.Locale
 
 @Composable
 fun ReportSummarySection(
@@ -29,10 +27,9 @@ fun ReportSummarySection(
     onRetryClick: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = "요약",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
+        ReportSectionTitle(
+            title = "요약",
+            subtitle = "완료한 퀴즈 기준으로 핵심 지표를 모았어요.",
         )
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -60,7 +57,7 @@ fun ReportSummarySection(
 
 @Composable
 private fun ReportSummaryStatusCard(message: String) {
-    AppCard(
+    ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         AppBadge(
@@ -81,7 +78,7 @@ private fun ReportSummaryErrorCard(
     message: String,
     onRetryClick: () -> Unit,
 ) {
-    AppCard(
+    ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
@@ -136,11 +133,14 @@ private fun SummaryMetricGrid(summary: ReportSummary) {
             SummaryMetricCard(
                 title = "완료 퀴즈",
                 value = "${summary.participation.completedSessionCount}회",
+                tone = ReportVisualTone.Primary,
                 modifier = Modifier.weight(1f),
             )
             SummaryMetricCard(
                 title = "정답률",
                 value = "$accuracyRateLabel%",
+                detail = "전체 문제 기준",
+                tone = ReportVisualTone.Success,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -151,11 +151,12 @@ private fun SummaryMetricGrid(summary: ReportSummary) {
             SummaryMetricCard(
                 title = "푼 문제",
                 value = "${summary.participation.totalQuestionCount}문제",
+                tone = ReportVisualTone.Tertiary,
                 modifier = Modifier.weight(1f),
             )
-            SummaryMetricCard(
+            ReportStarMetricTile(
                 title = "평균 별점",
-                value = String.format(Locale.KOREA, "%.1f/3", summary.performance.averageStar),
+                rating = summary.performance.averageStar,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -167,29 +168,21 @@ private fun SummaryMetricCard(
     title: String,
     value: String,
     modifier: Modifier = Modifier,
+    detail: String? = null,
+    tone: ReportVisualTone = ReportVisualTone.Primary,
 ) {
-    AppCard(
+    ReportMetricTile(
+        title = title,
+        value = value,
         modifier = modifier,
-    ) {
-        Column {
-            AppBadge(
-                text = title,
-                tone = AppBadgeTone.Primary,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = value,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
-    }
+        detail = detail,
+        tone = tone,
+    )
 }
 
 @Composable
 private fun LatestActivityCard(summary: ReportSummary) {
-    AppCard(
+    ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column {
@@ -215,7 +208,7 @@ private fun LatestActivityCard(summary: ReportSummary) {
 
 @Composable
 private fun WeakWordsPreviewCard(weakWords: List<ReportWeakWord>) {
-    AppCard(
+    ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column {

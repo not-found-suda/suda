@@ -13,13 +13,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
-import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 
 @Composable
 internal fun ReportQuizSessionDetailStatusCard(message: String) {
-    AppCard(
+    ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         AppBadge(
@@ -41,7 +40,7 @@ internal fun ReportQuizSessionDetailErrorCard(
     message: String,
     onRetryClick: () -> Unit,
 ) {
-    AppCard(
+    ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
@@ -74,7 +73,7 @@ internal fun ReportQuizSessionDetailActionCard(
     buttonText: String,
     onClick: () -> Unit,
 ) {
-    AppCard(
+    ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(

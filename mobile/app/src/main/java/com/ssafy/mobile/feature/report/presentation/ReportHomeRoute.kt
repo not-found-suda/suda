@@ -33,7 +33,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
-import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
@@ -163,10 +162,9 @@ private fun ReportMenuSection(
     enabled: Boolean,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(
-            text = "리포트 목록",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
+        ReportSectionTitle(
+            title = "리포트 목록",
+            subtitle = "필요한 리포트를 골라 자세히 확인해 보세요.",
         )
         ReportMenuCard(
             title = "학습 요약 리포트",
@@ -231,7 +229,7 @@ private fun ReportActiveChildSection(
     onSwitchClick: () -> Unit,
     onRetryClick: () -> Unit,
 ) {
-    AppCard(modifier = Modifier.fillMaxWidth()) {
+    ReportGlassCard(modifier = Modifier.fillMaxWidth()) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -391,7 +389,7 @@ private fun ReportMenuCard(
     onClick: () -> Unit,
     enabled: Boolean = true,
 ) {
-    AppCard(
+    ReportGlassCard(
         onClick = onClick.takeIf { enabled },
         modifier = Modifier.fillMaxWidth(),
     ) {

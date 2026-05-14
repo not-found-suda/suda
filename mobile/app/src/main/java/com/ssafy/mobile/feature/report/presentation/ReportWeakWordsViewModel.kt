@@ -62,7 +62,7 @@ class ReportWeakWordsViewModel
         private var loadJob: Job? = null
         private var loadMoreJob: Job? = null
         private var loadCategoriesJob: Job? = null
-        private var appliedFilter = ReportFilterState()
+        private var appliedFilter = defaultReportFilterState()
 
         init {
             loadFilterCategories()
@@ -257,7 +257,7 @@ class ReportWeakWordsViewModel
         }
 
         fun resetFilter() {
-            appliedFilter = ReportFilterState()
+            appliedFilter = defaultReportFilterState()
             _uiState.value =
                 _uiState.value.copy(
                     filterUiState =

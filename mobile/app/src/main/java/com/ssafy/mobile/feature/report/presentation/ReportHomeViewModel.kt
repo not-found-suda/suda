@@ -49,7 +49,7 @@ class ReportHomeViewModel
         private val _uiState = MutableStateFlow(ReportHomeUiState())
         val uiState: StateFlow<ReportHomeUiState> = _uiState.asStateFlow()
         private var loadJob: Job? = null
-        private var appliedFilter = ReportFilterState()
+        private var appliedFilter = defaultReportFilterState()
 
         init {
             loadActiveChildProfile()
@@ -128,7 +128,7 @@ class ReportHomeViewModel
         }
 
         fun resetFilter() {
-            appliedFilter = ReportFilterState()
+            appliedFilter = defaultReportFilterState()
             _uiState.value =
                 _uiState.value.copy(
                     filterUiState = ReportFilterUiState(),

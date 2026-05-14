@@ -33,7 +33,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
-import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
@@ -246,7 +245,7 @@ private fun ReportCategoryProgressIntro(activeChildState: ActiveChildProfileStat
 
 @Composable
 private fun ReportCategoryProgressSummary(page: ReportCategoryProgressPage) {
-    AppCard(
+    ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         AppBadge(
@@ -264,7 +263,7 @@ private fun ReportCategoryProgressSummary(page: ReportCategoryProgressPage) {
 
 @Composable
 private fun ReportCategoryProgressStatusCard(message: String) {
-    AppCard(
+    ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         AppBadge(
@@ -286,7 +285,7 @@ private fun ReportCategoryProgressErrorCard(
     message: String,
     onRetryClick: () -> Unit,
 ) {
-    AppCard(
+    ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
@@ -319,7 +318,7 @@ private fun ReportCategoryProgressActionCard(
     buttonText: String,
     onClick: () -> Unit,
 ) {
-    AppCard(
+    ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(

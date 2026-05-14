@@ -33,7 +33,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
-import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
@@ -267,7 +266,7 @@ private fun ReportWeakWordsIntro(activeChildState: ActiveChildProfileState) {
 
 @Composable
 private fun ReportWeakWordsSummary(page: ReportWeakWordPage) {
-    AppCard(
+    ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         AppBadge(
@@ -317,7 +316,7 @@ private fun ReportWeakWordsMoreSection(
 
 @Composable
 private fun ReportWeakWordsStatusCard(message: String) {
-    AppCard(
+    ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         AppBadge(
@@ -339,7 +338,7 @@ private fun ReportWeakWordsErrorCard(
     message: String,
     onRetryClick: () -> Unit,
 ) {
-    AppCard(
+    ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
@@ -372,7 +371,7 @@ private fun ReportWeakWordsActionCard(
     buttonText: String,
     onClick: () -> Unit,
 ) {
-    AppCard(
+    ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
