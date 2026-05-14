@@ -188,6 +188,7 @@ public class ReportQuizSessionQueryRepository {
         JOIN w.category c
         """
             + where
+            + " "
             + """
         GROUP BY w.id, w.word, w.displayText, c.id, c.name
         HAVING COUNT(a.id) >= :minAttemptCount
@@ -216,6 +217,7 @@ public class ReportQuizSessionQueryRepository {
         JOIN w.category c
         """
             + where
+            + " "
             + """
         AND (
           SELECT COUNT(a2.id)
@@ -315,6 +317,7 @@ public class ReportQuizSessionQueryRepository {
         JOIN QuizSession s ON s.categoryId = c.id
         """
             + where
+            + " "
             + """
         GROUP BY c.id, c.name
         ORDER BY MAX(s.startedAt) DESC, c.id ASC
