@@ -4,7 +4,9 @@ import com.ssafy.backend.global.exception.ErrorCode;
 import org.springframework.http.HttpStatus;
 
 public enum UserErrorCode implements ErrorCode {
-  USER_NOT_FOUND("USER_NOT_FOUND", HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다.");
+  USER_NOT_FOUND("USER_NOT_FOUND", HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."),
+  UNSUPPORTED_TTS_SPEAKER(
+      "USER_UNSUPPORTED_TTS_SPEAKER", HttpStatus.BAD_REQUEST, "지원하지 않는 TTS 목소리입니다.");
 
   private final String code;
   private final HttpStatus httpStatus;

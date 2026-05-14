@@ -151,16 +151,13 @@ class AndroidAudioRecorder
                 isSuccess = false
             }
 
-            joinRecordingThread()
-
-            try {
-                outputStream?.close()
-            } catch (e: IOException) {
-                Log.w(TAG, "Failed to close WAV output stream", e)
+            if (!joinRecordingThread()) {
                 isSuccess = false
-            } finally {
-                activeRecorder.release()
             }
+            if (!flushAndCloseOutputStream()) {
+                isSuccess = false
+            }
+            releaseRecorder(activeRecorder)
 
             return handleOutputFile(isSuccess)
         }
@@ -219,13 +216,46 @@ class AndroidAudioRecorder
             }
         }
 
-        private fun joinRecordingThread() {
+        private fun joinRecordingThread(): Boolean {
             try {
                 recordingThread?.join(RECORDING_THREAD_JOIN_TIMEOUT_MS)
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
                 Log.w(TAG, "Interrupted while waiting for WAV recording thread", e)
+                return false
             }
+
+            val isStopped = recordingThread?.isAlive != true
+            if (!isStopped) {
+                Log.w(TAG, "WAV recording thread did not stop before output finalization")
+                isRecording = false
+            }
+            return isStopped
+        }
+
+        private fun flushAndCloseOutputStream(): Boolean {
+            val stream = outputStream ?: return true
+            var isSuccess = true
+
+            try {
+                stream.flush()
+            } catch (e: IOException) {
+                Log.w(TAG, "Failed to flush WAV output stream", e)
+                isSuccess = false
+            }
+
+            try {
+                stream.close()
+            } catch (e: IOException) {
+                Log.w(TAG, "Failed to close WAV output stream", e)
+                isSuccess = false
+            }
+
+            return isSuccess
+        }
+
+        private fun releaseRecorder(recorder: AudioRecord) {
+            recorder.release()
         }
 
         private fun handleOutputFile(isSuccess: Boolean): File? {

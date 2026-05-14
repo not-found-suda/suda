@@ -46,11 +46,11 @@ data class TranslationFeedbackRequest(
  * RFC 9457 표준 에러 응답 DTO
  */
 data class ApiErrorResponse(
-    @SerializedName("type") val type: String,
-    @SerializedName("title") val title: String,
-    @SerializedName("status") val status: Int,
-    @SerializedName("detail") val detail: String,
-    @SerializedName("instance") val instance: String,
-    @SerializedName("code") val code: String,
-    @SerializedName("traceId") val traceId: String?,
+    @SerializedName("type") val type: String? = null,
+    @SerializedName("title") val title: String? = null,
+    @SerializedName("status") val status: Int? = null,
+    @SerializedName("detail") val detail: String? = null,
+    @SerializedName("instance") val instance: String? = null,
+    @SerializedName("code") val code: String? = null,
+    @SerializedName("traceId") val traceId: String? = null,
 )

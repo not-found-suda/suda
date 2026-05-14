@@ -1,5 +1,8 @@
 package com.ssafy.backend.domain.user.docs;
 
+import com.ssafy.backend.domain.user.dto.TtsSpeakerListResponseDto;
+import com.ssafy.backend.domain.user.dto.TtsSpeakerUpdateRequestDto;
+import com.ssafy.backend.domain.user.dto.TtsSpeakerUpdateResponseDto;
 import com.ssafy.backend.domain.user.dto.UserResponseDto;
 import com.ssafy.backend.domain.user.dto.UserUpdateRequestDto;
 import com.ssafy.backend.domain.user.dto.UserUpdateResponseDto;
@@ -11,8 +14,10 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.RequestBody;
 
 @Tag(name = "사용자 API", description = "사용자 관련 API")
 public interface UserApiDocs {
@@ -38,5 +43,36 @@ public interface UserApiDocs {
       description = "성공",
       content = @Content(schema = @Schema(implementation = UserUpdateResponseDto.class)))
   ResponseEntity<UserUpdateResponseDto> updateMe(
-      @Parameter(hidden = true) Authentication authentication, UserUpdateRequestDto request);
+      @Parameter(hidden = true) Authentication authentication,
+      @Valid @RequestBody UserUpdateRequestDto request);
+
+  @Operation(
+      summary = "TTS 목소리 후보 목록 조회",
+      description = "부모가 선택할 수 있는 TTS 목소리 후보 목록을 조회합니다.",
+      security = {@SecurityRequirement(name = "bearerAuth")})
+  @ApiErrorCodes({"COMMON_UNAUTHORIZED"})
+  @ApiResponse(
+      responseCode = "200",
+      description = "성공",
+      content = @Content(schema = @Schema(implementation = TtsSpeakerListResponseDto.class)))
+  ResponseEntity<TtsSpeakerListResponseDto> getTtsSpeakers(
+      @Parameter(hidden = true) Authentication authentication);
+
+  @Operation(
+      summary = "내 TTS 목소리 설정 변경",
+      description = "인증된 사용자의 TTS 목소리 설정을 변경합니다.",
+      security = {@SecurityRequirement(name = "bearerAuth")})
+  @ApiErrorCodes({
+    "VALIDATION_INVALID_INPUT",
+    "COMMON_UNAUTHORIZED",
+    "USER_NOT_FOUND",
+    "USER_UNSUPPORTED_TTS_SPEAKER"
+  })
+  @ApiResponse(
+      responseCode = "200",
+      description = "성공",
+      content = @Content(schema = @Schema(implementation = TtsSpeakerUpdateResponseDto.class)))
+  ResponseEntity<TtsSpeakerUpdateResponseDto> updateTtsSpeaker(
+      @Parameter(hidden = true) Authentication authentication,
+      @Valid @RequestBody TtsSpeakerUpdateRequestDto request);
 }

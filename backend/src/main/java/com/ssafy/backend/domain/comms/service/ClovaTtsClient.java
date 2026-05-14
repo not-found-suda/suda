@@ -29,16 +29,22 @@ public class ClovaTtsClient {
   }
 
   public byte[] synthesize(String text) {
+    return synthesize(text, aiProperties.clova().speaker());
+  }
+
+  public byte[] synthesize(String text, String speaker) {
     String normalizedText = validateAndNormalizeText(text);
 
     AiProperties.Clova clova = aiProperties.clova();
     String format = normalizeFormat(clova.format());
+    String resolvedSpeaker = resolveSpeaker(speaker, clova.speaker());
 
     MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-    form.add("speaker", clova.speaker());
+    form.add("speaker", resolvedSpeaker);
     form.add("format", format);
     form.add("text", normalizedText);
-    form.add("speed", "0");
+    form.add("speed", "-1");
+    form.add("pitch", "0");
 
     byte[] audio =
         restClient
@@ -84,5 +90,13 @@ public class ClovaTtsClient {
     }
 
     return format.trim().toLowerCase(Locale.ROOT);
+  }
+
+  private String resolveSpeaker(String speaker, String defaultSpeaker) {
+    if (speaker == null || speaker.isBlank()) {
+      return defaultSpeaker;
+    }
+
+    return speaker.trim().toLowerCase(Locale.ROOT);
   }
 }

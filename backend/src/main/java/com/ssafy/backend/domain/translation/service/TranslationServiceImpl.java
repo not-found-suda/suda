@@ -7,6 +7,10 @@ import com.ssafy.backend.domain.translation.dto.SignToSpeechRequestDto;
 import com.ssafy.backend.domain.translation.dto.SignToSpeechResponseDto;
 import com.ssafy.backend.domain.translation.dto.SpeechToTextResponseDto;
 import com.ssafy.backend.domain.translation.exception.TranslationErrorCode;
+import com.ssafy.backend.domain.user.entity.TtsSpeaker;
+import com.ssafy.backend.domain.user.entity.User;
+import com.ssafy.backend.domain.user.exception.UserErrorCode;
+import com.ssafy.backend.domain.user.repository.UserRepository;
 import com.ssafy.backend.global.exception.BusinessException;
 import java.io.IOException;
 import java.util.Base64;
@@ -32,18 +36,22 @@ public class TranslationServiceImpl implements TranslationService {
   private final SignLanguageCorrectionClient signLanguageCorrectionClient;
   private final ClovaTtsClient clovaTtsClient;
   private final ClovaSttClient clovaSttClient;
+  private final UserRepository userRepository;
 
   public TranslationServiceImpl(
       SignLanguageCorrectionClient signLanguageCorrectionClient,
       ClovaTtsClient clovaTtsClient,
-      ClovaSttClient clovaSttClient) {
+      ClovaSttClient clovaSttClient,
+      UserRepository userRepository) {
     this.signLanguageCorrectionClient = signLanguageCorrectionClient;
     this.clovaTtsClient = clovaTtsClient;
     this.clovaSttClient = clovaSttClient;
+    this.userRepository = userRepository;
   }
 
   @Override
-  public SignToSpeechResponseDto translateSignToSpeech(SignToSpeechRequestDto requestDto) {
+  public SignToSpeechResponseDto translateSignToSpeech(
+      Long userId, SignToSpeechRequestDto requestDto) {
     List<String> words = requestDto.words();
 
     String signText = words.toString();
@@ -52,6 +60,14 @@ public class TranslationServiceImpl implements TranslationService {
     try {
       correctedText = signLanguageCorrectionClient.correct(signText);
     } catch (Exception e) {
+      log.warn(
+          "[SignCorrection] Failed. traceId={}, userId={}, wordCount={}, exceptionClass={}, message={}",
+          getTraceId(),
+          userId,
+          words.size(),
+          e.getClass().getName(),
+          e.getMessage(),
+          e);
       throw new BusinessException(TranslationErrorCode.SIGN_CORRECTION_FAILED);
     }
 
@@ -61,11 +77,38 @@ public class TranslationServiceImpl implements TranslationService {
     String audioMimeType = null;
 
     if (requestTts) {
+      String speaker = resolveTtsSpeaker(userId);
+
       try {
-        byte[] audioBytes = clovaTtsClient.synthesize(correctedText);
+        log.info(
+            "[TTS] Request. traceId={}, userId={}, speaker={}, textLength={}",
+            getTraceId(),
+            userId,
+            speaker,
+            getTextLength(correctedText));
+
+        byte[] audioBytes = clovaTtsClient.synthesize(correctedText, speaker);
         audioBase64 = Base64.getEncoder().encodeToString(audioBytes);
         audioMimeType = clovaTtsClient.getAudioMimeType();
+
+        log.info(
+            "[TTS] Success. traceId={}, userId={}, speaker={}, audioMimeType={}, audioBytes={}",
+            getTraceId(),
+            userId,
+            speaker,
+            audioMimeType,
+            audioBytes.length);
+
       } catch (Exception e) {
+        log.warn(
+            "[TTS] Clova text to speech failed. traceId={}, userId={}, speaker={}, textLength={}, exceptionClass={}, message={}",
+            getTraceId(),
+            userId,
+            speaker,
+            getTextLength(correctedText),
+            e.getClass().getName(),
+            e.getMessage(),
+            e);
         throw new BusinessException(TranslationErrorCode.TEXT_TO_SPEECH_FAILED);
       }
     }
@@ -73,6 +116,19 @@ public class TranslationServiceImpl implements TranslationService {
     boolean corrected = !String.join(" ", words).equals(correctedText);
 
     return new SignToSpeechResponseDto(words, correctedText, audioBase64, audioMimeType, corrected);
+  }
+
+  private String resolveTtsSpeaker(Long userId) {
+    if (userId == null) {
+      return TtsSpeaker.MOM_WARM.getCode();
+    }
+
+    User user =
+        userRepository
+            .findById(userId)
+            .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+    return user.getTtsSpeaker();
   }
 
   @Override
@@ -220,6 +276,10 @@ public class TranslationServiceImpl implements TranslationService {
         audioFile.getSize(),
         audioMimeType,
         locale);
+  }
+
+  private int getTextLength(String text) {
+    return text == null ? 0 : text.length();
   }
 
   private String getTraceId() {
