@@ -9,16 +9,10 @@ import retrofit2.Retrofit
 import retrofit2.http.Body
 import retrofit2.http.POST
 
-/**
- * 토큰 갱신을 담당하는 클라이언트 인터페이스입니다.
- */
 interface RefreshTokenClient {
     suspend fun refresh(refreshToken: String): RefreshResponseDto?
 }
 
-/**
- * 실제 백엔드 API와 통신하여 토큰을 갱신하는 Retrofit 기반 구현체입니다.
- */
 class RetrofitRefreshTokenClient(
     private val noAuthRetrofit: Retrofit,
 ) : RefreshTokenClient {
@@ -56,14 +50,11 @@ class RetrofitRefreshTokenClient(
             )
             null
         } catch (e: com.google.gson.JsonSyntaxException) {
-            android.util.Log.e("RefreshTokenClient", "Response parsing failed: ${e.message}", e)
+            android.util.Log.e(
+                "RefreshTokenClient",
+                "Response parsing failed: ${e.message}",
+                e,
+            )
             null
         }
-}
-
-/**
- * 테스트용 Mock 구현체입니다.
- */
-class MockRefreshTokenClient : RefreshTokenClient {
-    override suspend fun refresh(refreshToken: String): RefreshResponseDto? = null
 }
