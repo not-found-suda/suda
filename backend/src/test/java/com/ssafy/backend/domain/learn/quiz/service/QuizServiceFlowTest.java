@@ -253,11 +253,15 @@ class QuizServiceFlowTest {
     assertThat(session.getStatus()).isEqualTo(QuizSessionStatus.IN_PROGRESS);
 
     verify(quizGradingService).grade("사과", "사과");
-    ArgumentCaptor<QuizAnswer> answerCaptor = ArgumentCaptor.forClass(QuizAnswer.class);
-    verify(quizAnswerRepository).save(answerCaptor.capture());
-    assertThat(answerCaptor.getValue().getTargetText()).isEqualTo("사과");
-    assertThat(answerCaptor.getValue().getRecognizedText()).isEqualTo("사과");
-    assertThat(answerCaptor.getValue().isCorrect()).isTrue();
+    QuizAnswer savedAnswer = captureSavedAnswer();
+    assertThat(savedAnswer.getWord()).isEqualTo(question.getWord());
+    assertThat(savedAnswer.getTargetText()).isEqualTo("사과");
+    assertThat(savedAnswer.getRecognizedText()).isEqualTo("사과");
+    assertThat(savedAnswer.isCorrect()).isTrue();
+    assertThat(savedAnswer.getStar()).isEqualTo(3);
+    assertThat(savedAnswer.getFeedback()).isEqualTo("정확하게 말했어요!");
+    assertThat(savedAnswer.getGradingReason()).isEqualTo("완전 일치");
+    assertThat(savedAnswer.getConfidence()).isEqualTo(1.0);
   }
 
   @Test
@@ -283,9 +287,18 @@ class QuizServiceFlowTest {
 
     assertThat(response.hasNext()).isFalse();
     assertThat(response.nextQuestionNumber()).isNull();
+    assertThat(question.isAnswered()).isTrue();
+    assertThat(session.getCorrectCount()).isEqualTo(1);
+    assertThat(session.getTotalStar()).isEqualTo(3);
     assertThat(session.getStatus()).isEqualTo(QuizSessionStatus.COMPLETED);
     assertThat(session.getEndedAt()).isNotNull();
     verify(quizGradingService).grade("사과", "사과");
+    QuizAnswer savedAnswer = captureSavedAnswer();
+    assertThat(savedAnswer.getWord()).isEqualTo(question.getWord());
+    assertThat(savedAnswer.getStar()).isEqualTo(3);
+    assertThat(savedAnswer.getFeedback()).isEqualTo("정확하게 말했어요!");
+    assertThat(savedAnswer.getGradingReason()).isEqualTo("완전 일치");
+    assertThat(savedAnswer.getConfidence()).isEqualTo(1.0);
   }
 
   @Test
@@ -420,6 +433,12 @@ class QuizServiceFlowTest {
 
   private MockMultipartFile audioFile() {
     return new MockMultipartFile("audioFile", "answer.wav", "audio/wav", "fake-audio".getBytes());
+  }
+
+  private QuizAnswer captureSavedAnswer() {
+    ArgumentCaptor<QuizAnswer> answerCaptor = ArgumentCaptor.forClass(QuizAnswer.class);
+    verify(quizAnswerRepository).save(answerCaptor.capture());
+    return answerCaptor.getValue();
   }
 
   private void setId(Object target, Long id) {
