@@ -1,6 +1,7 @@
 package com.ssafy.mobile.feature.learning.presentation.category
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -42,7 +44,6 @@ import com.ssafy.mobile.core.ui.components.AppErrorText
 import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
 import com.ssafy.mobile.core.ui.components.AppNetworkImage
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
-import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.core.ui.feedback.AppEmptyState
 import com.ssafy.mobile.feature.learning.domain.model.DEFAULT_LEARNING_DIFFICULTY
 import com.ssafy.mobile.feature.learning.domain.model.LearningCategory
@@ -55,6 +56,7 @@ private val HEADER_HORIZONTAL_PADDING = 24.dp
 private val HEADER_VERTICAL_PADDING = 32.dp
 private val CARD_PADDING = 14.dp
 private const val ASPECT_RATIO_SQUARE = 1f
+private val ACTION_BUTTON_MIN_HEIGHT = 44.dp
 
 @Composable
 fun LearningCategoryRoute(
@@ -263,21 +265,80 @@ private fun CategoryCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                AppSecondaryButton(
+                LearningCategoryActionButton(
                     text = "단어장",
+                    tone = LearningCategoryActionTone.Soft,
                     onClick = onWordListClick,
-                    modifier = Modifier.weight(1f),
                 )
-                AppPrimaryButton(
+                LearningCategoryActionButton(
                     text = "퀴즈",
+                    tone = LearningCategoryActionTone.Filled,
                     onClick = onQuizClick,
-                    modifier = Modifier.weight(1f),
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun LearningCategoryActionButton(
+    text: String,
+    tone: LearningCategoryActionTone,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    val isFilled = tone == LearningCategoryActionTone.Filled
+    val containerColor =
+        if (isFilled) {
+            colors.primary
+        } else {
+            colors.primaryContainer.copy(alpha = 0.42f)
+        }
+    val contentColor =
+        if (isFilled) {
+            colors.onPrimary
+        } else {
+            colors.primary
+        }
+
+    Surface(
+        onClick = onClick,
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .heightIn(min = ACTION_BUTTON_MIN_HEIGHT)
+                .animateContentSize(),
+        shape = RoundedCornerShape(8.dp),
+        color = containerColor,
+        contentColor = contentColor,
+        tonalElevation = if (isFilled) 2.dp else 0.dp,
+        shadowElevation = if (isFilled) 3.dp else 0.dp,
+        border =
+            if (isFilled) {
+                null
+            } else {
+                BorderStroke(1.dp, colors.primary.copy(alpha = 0.18f))
+            },
+    ) {
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Clip,
+            )
         }
     }
 }
@@ -346,3 +407,8 @@ private data class DifficultyOption(
     val label: String,
     val tone: AppBadgeTone,
 )
+
+private enum class LearningCategoryActionTone {
+    Soft,
+    Filled,
+}

@@ -2,12 +2,18 @@
 
 package com.ssafy.mobile.feature.quiz.presentation
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -18,6 +24,7 @@ import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
 import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
+import kotlinx.coroutines.delay
 
 @Composable
 internal fun QuizStarResultCard(
@@ -26,6 +33,22 @@ internal fun QuizStarResultCard(
     modifier: Modifier = Modifier,
 ) {
     val resultText = answer.toStarResultText(remainingRetryCount)
+    val targetStar = answer.star?.coerceIn(0, MAX_STAR) ?: 0
+    var visibleStar by remember(answer.questionId, answer.attemptCount) { mutableIntStateOf(0) }
+
+    QuizFeedbackEffects(
+        eventKey = answer.feedbackEventKey(),
+        cue = answer.toFeedbackCue(),
+    )
+
+    LaunchedEffect(answer.questionId, answer.attemptCount, targetStar) {
+        visibleStar = 0
+        repeat(targetStar) { index ->
+            delay(STAR_REVEAL_DELAY_MILLIS)
+            visibleStar = index + 1
+        }
+    }
+
     AppCard(
         modifier = modifier.fillMaxWidth(),
     ) {
@@ -38,13 +61,18 @@ internal fun QuizStarResultCard(
                 text = answer.star.toResultBadgeText(),
                 tone = answer.star.toResultBadgeTone(),
             )
-            Text(
-                text = answer.star.toStarDisplay(),
-                style = MaterialTheme.typography.headlineMedium,
-                color = answer.star.starResultColor(),
-                fontWeight = FontWeight.Black,
-                textAlign = TextAlign.Center,
-            )
+            Crossfade(
+                targetState = visibleStar,
+                label = "quizStarReveal",
+            ) { animatedStar ->
+                Text(
+                    text = animatedStar.toStarDisplay(),
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = answer.star.starResultColor(),
+                    fontWeight = FontWeight.Black,
+                    textAlign = TextAlign.Center,
+                )
+            }
             Text(
                 text = resultText.title,
                 style = MaterialTheme.typography.titleMedium,
@@ -137,7 +165,7 @@ private fun Int?.toResultBadgeTone(): AppBadgeTone =
     }
 
 private fun Int?.toStarDisplay(): String {
-    val filledCount = this?.coerceIn(MIN_STAR, MAX_STAR) ?: 0
+    val filledCount = this?.coerceIn(0, MAX_STAR) ?: 0
     return buildString {
         repeat(MAX_STAR) { index ->
             append(if (index < filledCount) FILLED_STAR else EMPTY_STAR)
@@ -146,6 +174,17 @@ private fun Int?.toStarDisplay(): String {
     }
 }
 
+private fun QuizAnswer.feedbackEventKey(): String? =
+    star?.let { "${questionId}_${attemptCount}_$it" }
+
+private fun QuizAnswer.toFeedbackCue(): QuizFeedbackCue? =
+    when {
+        star == null -> null
+        isCorrect == true -> QuizFeedbackCue.Correct
+        else -> QuizFeedbackCue.Retry
+    }
+
+private const val STAR_REVEAL_DELAY_MILLIS = 130L
 private const val MIN_STAR = 1
 private const val TWO_STARS = 2
 private const val MAX_STAR = 3
