@@ -4,15 +4,22 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
 import com.ssafy.mobile.core.ui.components.AppCard
-import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
 
@@ -98,6 +105,10 @@ internal fun QuizActionCard(
     onNextClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val isRecording =
+        actionState.recording.status == QuizRecordingStatus.Recording ||
+            actionState.recording.status == QuizRecordingStatus.FallbackRecording
+
     AppCard(modifier = modifier.fillMaxWidth()) {
         QuizRecordingStatusText(
             recordingStatus = actionState.recording.status,
@@ -107,10 +118,11 @@ internal fun QuizActionCard(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        AppPrimaryButton(
+        QuizRecordButton(
             text = actionState.recordButton.text,
             onClick = onAnswerClick,
             enabled = actionState.recordButton.enabled,
+            isRecording = isRecording,
         )
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -124,6 +136,50 @@ internal fun QuizActionCard(
         AnswerSubmitStatusBadge(
             state = actionState.answerSubmitState,
             modifier = Modifier.padding(top = 10.dp),
+        )
+    }
+}
+
+@Composable
+private fun QuizRecordButton(
+    text: String,
+    onClick: () -> Unit,
+    enabled: Boolean,
+    isRecording: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled || isRecording,
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .heightIn(min = 58.dp),
+        shape = RoundedCornerShape(8.dp),
+        colors =
+            ButtonDefaults.buttonColors(
+                containerColor =
+                    if (isRecording) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                contentColor =
+                    if (isRecording) {
+                        MaterialTheme.colorScheme.onError
+                    } else {
+                        MaterialTheme.colorScheme.onPrimary
+                    },
+                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            ),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -177,14 +233,14 @@ private fun quizRecordButtonText(
     remainingRetryCount: Int,
 ): String =
     when {
-        isRecording -> "말하기 완료"
-        isProcessing -> "답변 준비 중..."
-        isSubmitting -> "답변 저장 중..."
-        isCompletionPending -> "답변 저장 완료"
+        isRecording -> "다 말했어요"
+        isProcessing -> "확인하고 있어요"
+        isSubmitting -> "저장하고 있어요"
+        isCompletionPending -> "저장 완료"
         isSaveFailed -> quizRetryButtonText(remainingRetryCount)
-        hasAnswered && remainingRetryCount == 0 -> "답변 저장 완료"
+        hasAnswered && remainingRetryCount == 0 -> "저장 완료"
         hasAnswered -> quizRetryButtonText(remainingRetryCount)
-        else -> "말하기"
+        else -> "말하기 시작"
     }
 
 private fun quizNextActionText(

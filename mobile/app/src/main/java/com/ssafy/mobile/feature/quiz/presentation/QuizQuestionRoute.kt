@@ -7,12 +7,14 @@
 
 package com.ssafy.mobile.feature.quiz.presentation
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -39,12 +41,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
-import com.ssafy.mobile.core.ui.components.AppCard
 import com.ssafy.mobile.core.ui.components.AppNetworkImage
 import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
 import com.ssafy.mobile.feature.quiz.domain.model.QuizQuestion
@@ -146,6 +148,7 @@ private fun QuizQuestionScreen(
                 QuizMessageState(
                     title = "퀴즈를 불러오는 중이에요",
                     description = "잠시만 기다려 주세요.",
+                    visual = QuizMessageVisual.Loading,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -156,6 +159,7 @@ private fun QuizQuestionScreen(
                     description = state.errorMessage,
                     actionText = "다시 시도",
                     onActionClick = onRetryClick,
+                    visual = QuizMessageVisual.Error,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -164,6 +168,7 @@ private fun QuizQuestionScreen(
                 QuizMessageState(
                     title = "준비된 문제가 없어요",
                     description = "이 카테고리에 준비된 퀴즈 문제가 아직 없어요.",
+                    visual = QuizMessageVisual.Empty,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -215,9 +220,12 @@ private fun QuizQuestionContent(
             progress = state.progress,
         )
 
-        QuizQuestionCard(question = question)
-
-        QuizPrompt(question = question)
+        AnimatedContent(
+            targetState = question,
+            label = "quizQuestionContent",
+        ) { currentQuestion ->
+            QuizQuestionCard(question = currentQuestion)
+        }
 
         QuizActionArea(
             isLastQuestion = state.isLastQuestion,
@@ -240,6 +248,11 @@ private fun QuizProgressHeader(
     progress: Float,
     modifier: Modifier = Modifier,
 ) {
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress.coerceIn(0f, 1f),
+        label = "quizProgress",
+    )
+
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -254,13 +267,13 @@ private fun QuizProgressHeader(
                 tone = AppBadgeTone.Primary,
             )
             AppBadge(
-                text = "${(progress.coerceIn(0f, 1f) * PERCENT_MAX).roundToInt()}%",
+                text = "${(animatedProgress * PERCENT_MAX).roundToInt()}%",
                 tone = AppBadgeTone.Neutral,
             )
         }
 
         LinearProgressIndicator(
-            progress = { progress.coerceIn(0f, 1f) },
+            progress = { animatedProgress },
             modifier =
                 Modifier
                     .fillMaxWidth()
@@ -276,41 +289,60 @@ private fun QuizQuestionCard(
     question: QuizQuestion,
     modifier: Modifier = Modifier,
 ) {
-    AppCard(
+    Surface(
         modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(14.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 1.dp,
+        border =
+            BorderStroke(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+            ),
     ) {
-        Box(
+        Column(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1.05f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(
-                        Brush.linearGradient(
-                            colors =
-                                listOf(
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-                                    MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f),
-                                    MaterialTheme.colorScheme.secondary.copy(alpha = 0.08f),
-                                ),
-                        ),
-                    ),
-            contentAlignment = Alignment.Center,
+                    .padding(14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            AppNetworkImage(
-                imageUrl = question.imageUrl,
-                contentDescription = question.word,
-                fallbackText = question.word,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Fit,
-                placeholder = {
-                    QuizImagePlaceholder(
-                        word = question.word,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                },
-            )
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1.12f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors =
+                                    listOf(
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                                        MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f),
+                                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.08f),
+                                    ),
+                            ),
+                        ),
+                contentAlignment = Alignment.Center,
+            ) {
+                AppNetworkImage(
+                    imageUrl = question.imageUrl,
+                    contentDescription = question.word,
+                    fallbackText = question.word,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit,
+                    placeholder = {
+                        QuizImagePlaceholder(
+                            word = question.word,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    },
+                )
+            }
+
+            QuizTargetWord(question = question)
         }
     }
 }
@@ -354,7 +386,7 @@ private fun QuizImagePlaceholder(
 }
 
 @Composable
-private fun QuizPrompt(
+private fun QuizTargetWord(
     question: QuizQuestion,
     modifier: Modifier = Modifier,
 ) {
@@ -364,18 +396,24 @@ private fun QuizPrompt(
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(
-            text = targetText,
-            style = MaterialTheme.typography.displaySmall,
-            fontWeight = FontWeight.Black,
-            color = MaterialTheme.colorScheme.onBackground,
-            textAlign = TextAlign.Center,
+        AppBadge(
+            text = "그림을 보고 말해요",
+            tone = AppBadgeTone.Primary,
         )
         Text(
-            text = "녹음한 답변을 확인하고 채점할게요",
-            style = MaterialTheme.typography.titleMedium,
+            text = targetText,
+            style = MaterialTheme.typography.headlineLarge,
+            fontWeight = FontWeight.Black,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = "준비되면 아래 버튼을 눌러 말해 주세요",
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
