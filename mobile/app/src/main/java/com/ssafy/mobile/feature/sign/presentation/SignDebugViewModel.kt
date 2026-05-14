@@ -31,7 +31,7 @@ import com.ssafy.mobile.core.vision.feature.LandmarkFeatureSequenceResampler
 import com.ssafy.mobile.core.vision.inference.SignInferenceResult
 import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
 import com.ssafy.mobile.core.vision.landmark.MediaPipeHolisticLandmarkExtractor
-import com.ssafy.mobile.translation.GemmaOnDeviceTranslationEngine
+import com.ssafy.mobile.translation.OnDeviceTranslationEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -105,7 +105,7 @@ class SignDebugViewModel
     constructor(
         @param:ApplicationContext private val appContext: Context,
         private val signRecognitionEngine: SignRecognitionEngine,
-        private val gemmaOnDeviceTranslationEngine: GemmaOnDeviceTranslationEngine,
+        private val onDeviceTranslationEngine: OnDeviceTranslationEngine,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow(SignDebugUiState())
         val uiState: StateFlow<SignDebugUiState> = _uiState.asStateFlow()
@@ -149,8 +149,10 @@ class SignDebugViewModel
                     it.copy(
                         llmIsRunning = true,
                         llmStatus = SignDebugLlmStatus.Running,
-                        llmStage = "응답 생성 준비",
-                        llmSummary = "규칙 기반 또는 Gemma로 문장을 생성하고 있습니다.",
+                        llmStage = "응답 생성 중",
+                        llmSummary =
+                            "규칙 기반 또는 Qwen2.5 LiteRT-LM으로 문장을 생성하고 있습니다. " +
+                                "GPU 초기화 및 첫 응답은 시간이 더 걸릴 수 있습니다.",
                         llmDetail = buildLlmDebugSummary(),
                         llmOutput = null,
                     )
@@ -158,7 +160,7 @@ class SignDebugViewModel
 
                 runCatching {
                     withContext(Dispatchers.Default) {
-                        gemmaOnDeviceTranslationEngine.translate(gloss)
+                        onDeviceTranslationEngine.translate(gloss)
                     }
                 }.onSuccess { translationResult ->
                     val totalElapsed = System.currentTimeMillis() - startedAt
@@ -166,21 +168,29 @@ class SignDebugViewModel
                         if (translationResult.usedRuleBased) {
                             "규칙 기반"
                         } else {
-                            "Gemma"
+                            "Qwen2.5 LiteRT-LM"
                         }
                     _uiState.update {
                         it.copy(
                             llmIsRunning = false,
                             llmStatus = SignDebugLlmStatus.Success,
                             llmStage = "응답 생성 성공",
-                            llmSummary = "모델 호출이 정상 완료되었습니다.",
+                            llmSummary =
+                                if (translationResult.koreanText.isBlank()) {
+                                    "모델 호출은 완료됐지만 표시할 문장이 비어 있습니다."
+                                } else {
+                                    "모델 호출이 정상 완료되었습니다."
+                                },
                             llmDetail =
                                 buildLlmDebugSummary() +
                                     "\n처리 방식: $sourceLabel" +
                                     "\n총 소요 시간: ${totalElapsed}ms" +
                                     "\n생성 시간: ${translationResult.elapsedMs}ms" +
                                     "\n원본 응답: ${translationResult.rawText.toSingleLinePreview()}",
-                            llmOutput = translationResult.koreanText,
+                            llmOutput =
+                                translationResult.koreanText.ifBlank {
+                                    EMPTY_LLM_OUTPUT_MESSAGE
+                                },
                         )
                     }
                 }.onFailure { throwable ->
@@ -1156,28 +1166,28 @@ class SignDebugViewModel
         private fun preloadLlm() {
             viewModelScope.launch {
                 runCatching {
-                    gemmaOnDeviceTranslationEngine.load()
+                    onDeviceTranslationEngine.load()
                 }.onFailure { throwable ->
-                    Log.w(TAG_LLM, "Gemma preload failed in sign debug screen.", throwable)
+                    Log.w(TAG_LLM, "on-device preload failed in sign debug screen.", throwable)
                 }
             }
         }
 
         private fun buildLlmDebugSummary(): String =
             buildString {
-                appendLine("모델: ${gemmaOnDeviceTranslationEngine.debugModelAssetPath}")
+                appendLine("모델: ${onDeviceTranslationEngine.debugModelAssetPath}")
                 appendLine(
-                    "maxTokens: ${gemmaOnDeviceTranslationEngine.debugMaxTokens}, " +
-                        "topK: ${gemmaOnDeviceTranslationEngine.debugTopK}",
+                    "maxTokens: ${onDeviceTranslationEngine.debugMaxTokens}, " +
+                        "topK: ${onDeviceTranslationEngine.debugTopK}",
                 )
-                appendLine("backend: ${gemmaOnDeviceTranslationEngine.debugBackendSummary}")
-                gemmaOnDeviceTranslationEngine.debugPreparedModelPath?.let { preparedPath ->
+                appendLine("backend: ${onDeviceTranslationEngine.debugBackendSummary}")
+                onDeviceTranslationEngine.debugPreparedModelPath?.let { preparedPath ->
                     appendLine("준비된 파일: $preparedPath")
                 }
-                if (gemmaOnDeviceTranslationEngine.debugPreparedEntryNames.isNotEmpty()) {
+                if (onDeviceTranslationEngine.debugPreparedEntryNames.isNotEmpty()) {
                     append(
                         "번들 엔트리: " +
-                            gemmaOnDeviceTranslationEngine.debugPreparedEntryNames.joinToString(),
+                            onDeviceTranslationEngine.debugPreparedEntryNames.joinToString(),
                     )
                 }
             }.trim()
@@ -1229,6 +1239,7 @@ class SignDebugViewModel
             const val PERCENT_MULTIPLIER = 100f
             const val SHOW_REPLAY_RAW_PREDICTIONS = false
             const val LOG_REPLAY_RAW_PREDICTIONS = false
+            const val EMPTY_LLM_OUTPUT_MESSAGE = "빈 응답입니다. 원본 응답과 로그를 확인하세요."
             const val TAG_LLM = "SignDebugLLM"
             const val TAG_REPLAY = "SignReplay"
             const val TAG_REPLAY_FRAME = "SignReplayFrame"

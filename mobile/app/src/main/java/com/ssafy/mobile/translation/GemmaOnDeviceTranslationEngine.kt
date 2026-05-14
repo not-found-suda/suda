@@ -3,6 +3,7 @@ package com.ssafy.mobile.translation
 import android.content.Context
 import android.util.Log
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
+import com.ssafy.mobile.BuildConfig
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -25,7 +26,7 @@ data class TranslationResult(
 @Suppress("TooManyFunctions", "MagicNumber", "ReturnCount", "MaxLineLength", "LargeClass")
 class GemmaOnDeviceTranslationEngine(
     private val context: Context,
-) {
+) : OnDeviceTranslationEngine {
     private var llmInference: LlmInference? = null
     private var loaded = false
     private var lastPreparedModelPath: String? = null
@@ -33,33 +34,45 @@ class GemmaOnDeviceTranslationEngine(
     private var lastBackendSummary: String = "Not loaded"
     private val loadMutex = Mutex()
 
-    val debugModelAssetPath: String
+    override val debugModelAssetPath: String
         get() = GEMMA_MODEL_ASSET_PATH
 
-    val debugPreparedModelPath: String?
+    override val debugPreparedModelPath: String?
         get() = lastPreparedModelPath
 
-    val debugPreparedEntryNames: List<String>
+    override val debugPreparedEntryNames: List<String>
         get() = lastPreparedEntryNames
 
-    val debugMaxTokens: Int
+    override val debugMaxTokens: Int
         get() = MAX_TOKENS
 
-    val debugTopK: Int
+    override val debugTopK: Int
         get() = TOP_K
 
-    val debugBackendSummary: String
+    override val debugBackendSummary: String
         get() = lastBackendSummary
 
     @Suppress("TooGenericExceptionCaught")
-    suspend fun load() =
+    override suspend fun load() =
         withContext(Dispatchers.Default) {
             loadMutex.withLock {
-                if (loaded) return@withLock
+                if (loaded) {
+                    logDebug { "Gemma load skipped. backend=$lastBackendSummary" }
+                    return@withLock
+                }
 
+                val loadStart = System.currentTimeMillis()
+                logDebug {
+                    "Gemma load start. asset=$GEMMA_MODEL_ASSET_PATH, " +
+                        "maxTokens=$MAX_TOKENS, topK=$TOP_K"
+                }
                 val preparedModel = copyAssetToFile(assetName = GEMMA_MODEL_ASSET_PATH)
                 lastPreparedModelPath = preparedModel.modelPath
                 lastPreparedEntryNames = preparedModel.entryNames
+                logDebug {
+                    "Gemma model prepared. path=${preparedModel.modelPath}, " +
+                        "entries=${preparedModel.entryNames.joinToString().toLogPreview()}"
+                }
                 val backendCandidates =
                     listOf(
                         LlmInference.Backend.GPU,
@@ -69,6 +82,7 @@ class GemmaOnDeviceTranslationEngine(
                 var lastError: Exception? = null
                 for (backend in backendCandidates) {
                     try {
+                        logDebug { "Gemma backend init start. preferredBackend=$backend" }
                         llmInference =
                             LlmInference.createFromOptions(
                                 context,
@@ -79,6 +93,10 @@ class GemmaOnDeviceTranslationEngine(
                             )
                         lastBackendSummary = "preferredBackend=$backend"
                         loaded = true
+                        logDebug {
+                            "Gemma backend init success. preferredBackend=$backend, " +
+                                "elapsedMs=${System.currentTimeMillis() - loadStart}"
+                        }
                         break
                     } catch (exception: Exception) {
                         lastError = exception
@@ -98,12 +116,21 @@ class GemmaOnDeviceTranslationEngine(
             }
         }
 
-    suspend fun translate(glossText: String): TranslationResult =
+    override suspend fun translate(glossText: String): TranslationResult =
         withContext(Dispatchers.Default) {
             val normalizedGloss = normalizeGlossForPrompt(glossText)
             val start = System.currentTimeMillis()
+            logDebug {
+                "Gemma translate request. gloss=${glossText.toLogPreview()}, " +
+                    "normalized=${normalizedGloss.toLogPreview()}"
+            }
             tryRuleBasedTranslation(normalizedGloss)?.let { sentence ->
                 val elapsed = System.currentTimeMillis() - start
+                logDebug {
+                    "Gemma translate rule-based result. " +
+                        "normalized=${normalizedGloss.toLogPreview()}, " +
+                        "result=${sentence.toLogPreview()}, elapsedMs=$elapsed"
+                }
                 return@withContext TranslationResult(
                     glossText = glossText,
                     koreanText = sentence,
@@ -118,6 +145,11 @@ class GemmaOnDeviceTranslationEngine(
             }
 
             val prompt = buildPrompt(normalizedGloss)
+            logDebug {
+                "Gemma inference start. normalized=${normalizedGloss.toLogPreview()}, " +
+                    "promptChars=${prompt.length}, " +
+                    "promptTail=${prompt.takeLast(LOG_PREVIEW_LIMIT).toLogPreview()}"
+            }
             val raw =
                 requireNotNull(llmInference) {
                     "Gemma LLM must be loaded before translation."
@@ -131,6 +163,12 @@ class GemmaOnDeviceTranslationEngine(
                     raw = raw,
                 )
 
+            logDebug {
+                "Gemma inference result. normalized=${normalizedGloss.toLogPreview()}, " +
+                    "raw=${raw.toLogPreview()}, cleaned=${cleaned.toLogPreview()}, " +
+                    "resolved=${resolved.toLogPreview()}, elapsedMs=$elapsed, " +
+                    "backend=$lastBackendSummary"
+            }
             TranslationResult(
                 glossText = glossText,
                 koreanText = resolved,
@@ -140,10 +178,25 @@ class GemmaOnDeviceTranslationEngine(
             )
         }
 
-    fun close() {
+    override fun close() {
         llmInference?.close()
         llmInference = null
         loaded = false
+    }
+
+    private fun logDebug(message: () -> String) {
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, message())
+        }
+    }
+
+    private fun String.toLogPreview(): String {
+        val singleLine = replace(Regex("\\s+"), " ").trim()
+        return if (singleLine.length <= LOG_PREVIEW_LIMIT) {
+            singleLine
+        } else {
+            "${singleLine.take(LOG_PREVIEW_LIMIT)}..."
+        }
     }
 
     private fun buildLlmOptions(
@@ -209,9 +262,12 @@ class GemmaOnDeviceTranslationEngine(
         val candidate = cleaned.ifBlank { raw.trim() }
         if (looksLikeGlossEcho(glossText, candidate)) {
             tryRuleBasedTranslation(glossText)?.let { return it }
+            fallbackGlossSentence(glossText)?.let { return it }
         }
 
-        return candidate
+        return candidate.ifBlank {
+            fallbackGlossSentence(glossText).orEmpty()
+        }
     }
 
     private fun looksLikeGlossEcho(
@@ -249,12 +305,18 @@ class GemmaOnDeviceTranslationEngine(
 
         return """
             $START_OF_TURN_USER
-            한국 수어 gloss를 자주 쓰는 자연스러운 한국어 한 문장으로 바꿔라.
-            없는 부정은 추가하지 말고, 안/못/아니다는 부정으로 처리하라.
-            어색하면 핵심 의미만 살려 짧고 일상적인 문장으로 만들어라.
-            설명 없이 문장만 출력하라.
+            너는 한국 수어 gloss를 자연스러운 한국어 문장으로 바꾸는 변환기다.
+            아래 규칙을 반드시 지켜라.
 
-            예시:
+            1. 출력은 한국어 문장 하나만 쓴다.
+            2. Gloss, 한국어, 설명, 영어, 따옴표, 번호를 출력하지 않는다.
+            3. 입력 gloss에 없는 행동, 장소, 시제, 부정, 감정을 만들지 않는다.
+            4. gloss의 단어 순서가 어색하면 한국어 어순으로 자연스럽게 재배열한다.
+            5. 조사와 어미를 자연스럽게 붙인다. 예: 학교 가다 -> 학교에 간다.
+            6. 어제/오늘/지금/내일 같은 시간 표현이 있으면 시제에 반영한다.
+            7. 아니다/없다 같은 부정 표현이 있으면 부정문으로 바꾼다.
+            8. 명사만 있으면 "~입니다." 형태의 짧은 문장으로 답한다.
+
             $examplesBlock
 
             Gloss: $glossText
@@ -438,7 +500,7 @@ class GemmaOnDeviceTranslationEngine(
 
     private fun selectFewShotExamples(glossText: String): List<FewShotExample> {
         val glossTokens = tokenizeGloss(glossText)
-        val exampleLimit = if (glossTokens.size <= SHORT_GLOSS_TOKEN_LIMIT) 2 else 1
+        val exampleLimit = if (glossTokens.size <= SHORT_GLOSS_TOKEN_LIMIT) 4 else 3
 
         return FEW_SHOT_EXAMPLES
             .map { example -> example to scoreExample(example, glossTokens) }
@@ -478,6 +540,41 @@ class GemmaOnDeviceTranslationEngine(
             }
 
         return overlapScore + predicateScore + timeScore + negationScore
+    }
+
+    private fun fallbackGlossSentence(glossText: String): String? {
+        tryRuleBasedTranslation(glossText)?.let { return it }
+
+        val tokens =
+            tokenizeGloss(glossText)
+                .filterNot { token -> token.lowercase() in IGNORED_GLOSS_TOKENS }
+                .distinct()
+                .map(::normalizePredicateToken)
+        if (tokens.isEmpty()) return null
+
+        if (tokens.all { token -> token in NOUN_TOKENS }) {
+            return buildNounOnlySentence(tokens)
+        }
+
+        if (tokens.size == 1) {
+            STANDALONE_SENTENCES[tokens.first()]?.let { return it }
+        }
+
+        return null
+    }
+
+    private fun buildNounOnlySentence(tokens: List<String>): String {
+        val phrase =
+            when (tokens.size) {
+                1 -> tokens.first()
+                else ->
+                    tokens
+                        .dropLast(1)
+                        .joinToString(" ") { token -> token + companionParticle(token) } +
+                        " " +
+                        tokens.last()
+            }
+        return "${phrase}입니다."
     }
 
     private fun tokenizeGloss(glossText: String): List<String> =
@@ -761,8 +858,9 @@ class GemmaOnDeviceTranslationEngine(
         private const val HANGUL_START_CODE = 0xAC00
         private const val HANGUL_END_CODE = 0xD7A3
         const val GEMMA_MODEL_ASSET_PATH = "models/gemma3-1b-it-int4.task"
-        const val MAX_TOKENS = 256
+        const val MAX_TOKENS = 1024
         const val TOP_K = 1
+        const val LOG_PREVIEW_LIMIT = 300
         const val TASK_HEADER_SIZE = 8
         const val END_OF_CENTRAL_DIRECTORY_SIZE = 22
         const val CENTRAL_DIRECTORY_ENTRY_FIXED_SIZE = 46
@@ -788,6 +886,8 @@ class GemmaOnDeviceTranslationEngine(
                 "너" to "너는",
                 "엄마" to "엄마는",
                 "아빠" to "아빠는",
+                "아이" to "아이는",
+                "아기" to "아기는",
                 "친구" to "친구는",
                 "선생님" to "선생님은",
                 "할머니" to "할머니는",
@@ -801,7 +901,8 @@ class GemmaOnDeviceTranslationEngine(
         val MOVEMENT_PREDICATES = setOf("가다", "오다")
         val COMPANION_PREDICATES = setOf("놀다")
         val OBJECT_PREDICATES = setOf("먹다", "마시다", "만나다", "보다", "사다", "좋아하다", "싫어하다")
-        val SUBJECT_COMPLEMENT_PREDICATES = setOf("아프다", "배고프다")
+        val SUBJECT_COMPLEMENT_PREDICATES =
+            setOf("좋다", "싫다", "아프다", "배고프다", "목마르다", "무섭다")
         val VERB_FORMS =
             mapOf(
                 "가다" to VerbForms("간다", "갔다", "가지 않는다"),
@@ -816,11 +917,47 @@ class GemmaOnDeviceTranslationEngine(
                 "사다" to VerbForms("산다", "샀다", "사지 않는다"),
                 "좋아하다" to VerbForms("좋아한다", "좋아했다", "좋아하지 않는다"),
                 "싫어하다" to VerbForms("싫어한다", "싫어했다", "싫어하지 않는다"),
+                "좋다" to VerbForms("좋다", "좋았다", "좋지 않다"),
+                "싫다" to VerbForms("싫다", "싫었다", "싫지 않다"),
                 "배고프다" to VerbForms("배고프다", "배고팠다", "배고프지 않다"),
                 "아프다" to VerbForms("아프다", "아팠다", "아프지 않다"),
+                "목마르다" to VerbForms("목마르다", "목말랐다", "목마르지 않다"),
+                "무섭다" to VerbForms("무섭다", "무서웠다", "무섭지 않다"),
+            )
+        val IGNORED_GLOSS_TOKENS = setOf("none", "unknown", "<none>", "<unknown>")
+        val NOUN_TOKENS =
+            setOf(
+                "아기",
+                "아이",
+                "감기",
+                "기차",
+                "밥",
+                "손",
+                "장난감",
+                "병원",
+                "엄마",
+            )
+        val STANDALONE_SENTENCES =
+            mapOf(
+                "감사" to "감사합니다.",
+                "조심" to "조심하세요.",
+                "좋다" to "좋습니다.",
+                "싫다" to "싫습니다.",
+                "배고프다" to "배고픕니다.",
+                "목마르다" to "목마릅니다.",
+                "무섭다" to "무섭습니다.",
+                "아프다" to "아픕니다.",
             )
         val FEW_SHOT_EXAMPLES =
             listOf(
+                FewShotExample("엄마", "엄마입니다."),
+                FewShotExample("기차", "기차입니다."),
+                FewShotExample("엄마 기차", "엄마와 기차입니다."),
+                FewShotExample("아이 좋다", "아이는 좋다."),
+                FewShotExample("아이 가다", "아이는 간다."),
+                FewShotExample("감사", "감사합니다."),
+                FewShotExample("아프다", "아픕니다."),
+                FewShotExample("배고프다", "배고픕니다."),
                 FewShotExample("학교 가다 어제", "어제 학교에 갔다."),
                 FewShotExample("나 학교 가다 내일", "나는 내일 학교에 간다."),
                 FewShotExample("나 먹다 밥 어제", "나는 어제 밥을 먹었다."),

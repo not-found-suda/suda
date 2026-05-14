@@ -676,12 +676,18 @@ private fun LlmDebugDialog(
 ) {
     Dialog(onDismissRequest = onDismiss) {
         Surface(
-            modifier = Modifier.fillMaxWidth(),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.92f),
             color = llmPanelColor(uiState.llmStatus),
             shape = RoundedCornerShape(18.dp),
         ) {
             Column(
-                modifier = Modifier.padding(16.dp),
+                modifier =
+                    Modifier
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Row(
@@ -726,6 +732,7 @@ private fun LlmDebugDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFFE2E8F0),
                 )
+                LlmResultPanel(uiState = uiState)
                 if (uiState.llmDetail.isNotBlank()) {
                     Text(
                         text = uiState.llmDetail,
@@ -733,20 +740,39 @@ private fun LlmDebugDialog(
                         color = Color(0xFFCBD5E1),
                     )
                 }
-                uiState.llmOutput?.let { output ->
-                    Surface(
-                        color = Color(0xFF0F172A),
-                        shape = RoundedCornerShape(12.dp),
-                    ) {
-                        Text(
-                            text = output,
-                            modifier = Modifier.padding(12.dp),
-                            color = Color.White,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    }
-                }
             }
+        }
+    }
+}
+
+@Composable
+private fun LlmResultPanel(uiState: SignDebugUiState) {
+    val resultText =
+        when {
+            uiState.llmOutput != null -> uiState.llmOutput
+            uiState.llmIsRunning -> "생성 중입니다. 완료되면 이 영역에 바로 표시됩니다."
+            else -> "아직 생성된 결과가 없습니다."
+        }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = Color(0xFF0F172A),
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = "생성 결과",
+                color = Color(0xFF93C5FD),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = resultText,
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+            )
         }
     }
 }

@@ -21,7 +21,7 @@ import com.ssafy.mobile.feature.conversation.domain.model.TranslationFeedbackRea
 import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
 import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
 import com.ssafy.mobile.feature.conversation.domain.repository.TranslationModeRepository
-import com.ssafy.mobile.translation.GemmaOnDeviceTranslationEngine
+import com.ssafy.mobile.translation.OnDeviceTranslationEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import javax.inject.Inject
@@ -74,7 +74,7 @@ class ConversationViewModel
         private val networkMonitor: NetworkMonitor,
         private val androidAudioRecorder: AndroidAudioRecorder,
         private val localSignSentenceGenerator: LocalSignSentenceGenerator,
-        private val gemmaOnDeviceTranslationEngine: GemmaOnDeviceTranslationEngine,
+        private val onDeviceTranslationEngine: OnDeviceTranslationEngine,
     ) : ViewModel() {
         private val _sessionState = MutableStateFlow(SessionState.Idle)
         val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
@@ -406,13 +406,13 @@ class ConversationViewModel
 
             return runCatching {
                 normalizeTranslatedSentence(
-                    text = gemmaOnDeviceTranslationEngine.translate(glossText).koreanText,
+                    text = onDeviceTranslationEngine.translate(glossText).koreanText,
                     sentenceType = sentenceType,
                 )
             }.getOrElse { throwable ->
                 Log.w(
                     TAG,
-                    "On-device Gemma translation failed. Falling back to local generator.",
+                    "On-device on-device translation failed. Falling back to local generator.",
                     throwable,
                 )
                 localSignSentenceGenerator
@@ -452,9 +452,9 @@ class ConversationViewModel
         private fun preloadOnDeviceTranslationEngine() {
             viewModelScope.launch {
                 runCatching {
-                    gemmaOnDeviceTranslationEngine.load()
+                    onDeviceTranslationEngine.load()
                 }.onFailure { throwable ->
-                    Log.w(TAG, "On-device Gemma preload failed.", throwable)
+                    Log.w(TAG, "On-device on-device preload failed.", throwable)
                 }
             }
         }

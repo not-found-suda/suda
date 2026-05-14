@@ -1,5 +1,6 @@
 import io.gitlab.arturbosch.detekt.Detekt
 import io.gitlab.arturbosch.detekt.DetektCreateBaselineTask
+import java.io.File
 import java.util.Properties
 
 // 모노레포 루트 .env 파일에서 환경변수 로드
@@ -13,6 +14,31 @@ val mobileBaseUrl: String =
 val naverClientId: String = envProps.getProperty("NAVER_CLIENT_ID", "")
 val naverClientSecret: String = envProps.getProperty("NAVER_CLIENT_SECRET", "")
 val naverClientName: String = envProps.getProperty("NAVER_CLIENT_NAME", "")
+val defaultSllmModelDownloadUrl =
+    "https://d14zyw67949hvk.cloudfront.net/models/sllm/qwen2.5-1.5b/qwen2.5-1.5b.litertlm"
+val sllmModelDownloadUrl: String =
+    envProps.getProperty("SLLM_MODEL_DOWNLOAD_URL", defaultSllmModelDownloadUrl)
+val localPropsFile = rootDir.resolve("local.properties")
+val localProps =
+    Properties().also { props ->
+        if (localPropsFile.exists()) props.load(localPropsFile.inputStream())
+    }
+val qwenModelFileName =
+    "Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm"
+val qwenDebugModelLocalPath: String =
+    localProps.getProperty(
+        "QWEN_MODEL_LOCAL_PATH",
+        rootDir.resolve("local-models/$qwenModelFileName").absolutePath,
+    )
+val mobileApplicationId = "com.ssafy.mobile"
+val debugQwenAssetsDir =
+    layout
+        .buildDirectory
+        .file("generated/debugQwenAssets")
+        .get()
+        .asFile
+val qwenDebugModelFile = File(qwenDebugModelLocalPath)
+val qwenDebugModelAssetsDir = debugQwenAssetsDir.resolve("models")
 
 plugins {
     alias(libs.plugins.android.application)
@@ -28,7 +54,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.ssafy.mobile"
+        applicationId = mobileApplicationId
         minSdk = 28
         targetSdk = 35
         versionCode = 1
@@ -39,6 +65,11 @@ android {
         buildConfigField("String", "NAVER_CLIENT_ID", "\"$naverClientId\"")
         buildConfigField("String", "NAVER_CLIENT_SECRET", "\"$naverClientSecret\"")
         buildConfigField("String", "NAVER_CLIENT_NAME", "\"$naverClientName\"")
+        buildConfigField(
+            "String",
+            "SLLM_MODEL_DOWNLOAD_URL",
+            "\"${sllmModelDownloadUrl.escapeBuildConfig()}\"",
+        )
     }
 
     buildTypes {
@@ -62,7 +93,27 @@ android {
         // local.properties path escaping can fail differently by host OS.
         disable += "PropertyEscape"
     }
+    packaging {
+        jniLibs {
+            pickFirsts +=
+                setOf(
+                    "lib/arm64-v8a/libLiteRt.so",
+                    "lib/arm64-v8a/libLiteRtClGlAccelerator.so",
+                    "lib/x86_64/libLiteRt.so",
+                    "lib/x86_64/libLiteRtClGlAccelerator.so",
+                )
+        }
+    }
+    sourceSets {
+        getByName("debug") {
+            assets.srcDir(debugQwenAssetsDir)
+        }
+    }
 }
+
+fun String.escapeBuildConfig(): String =
+    replace("\\", "\\\\")
+        .replace("\"", "\\\"")
 
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
@@ -89,6 +140,35 @@ tasks.withType<DetektCreateBaselineTask>().configureEach {
     jvmTarget = "21"
 }
 
+val copyDebugQwenModelAssetName = "copyDebugQwenModelAsset"
+if (qwenDebugModelFile.isFile) {
+    tasks.register<Copy>(copyDebugQwenModelAssetName) {
+        group = "build"
+        description =
+            "Copies the local Qwen model into generated debug assets when the model file exists."
+        from(qwenDebugModelFile)
+        into(qwenDebugModelAssetsDir)
+        rename(qwenDebugModelFile.name, qwenModelFileName)
+    }
+} else {
+    tasks.register(copyDebugQwenModelAssetName) {
+        group = "build"
+        description = "No-op because no local Qwen model file exists for debug assets."
+    }
+}
+
+tasks.matching { task -> task.name == "mergeDebugAssets" }.configureEach {
+    dependsOn(copyDebugQwenModelAssetName)
+}
+
+tasks
+    .matching { task ->
+        task.name == "generateDebugLintReportModel" ||
+            task.name == "lintAnalyzeDebug"
+    }.configureEach {
+        dependsOn(copyDebugQwenModelAssetName)
+    }
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -107,7 +187,8 @@ dependencies {
         exclude(group = "com.google.protobuf", module = "protobuf-javalite")
     }
     implementation(libs.protobuf.java)
-    implementation(libs.litert)
+    implementation(libs.litertlm.android)
+    implementation(libs.tensorflow.lite)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.hilt.navigation.compose)
     implementation(libs.naver.oauth)

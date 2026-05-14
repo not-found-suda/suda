@@ -59,6 +59,27 @@ cd mobile
 
 Android 디바이스가 인식되지 않으면 USB 디버깅과 `adb devices`를 먼저 확인하세요.
 
+### 디버그 빌드에 Qwen 모델 포함
+
+온디바이스 문장 변환용 Qwen 모델은 용량이 커서 Git에 포함하지 않습니다.
+개발 PC에 모델 파일이 이미 있다면 `mobile/local.properties`에 아래 값을 추가하면
+debug APK assets에 자동 포함됩니다.
+
+```properties
+QWEN_MODEL_LOCAL_PATH=C:/path/to/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm
+```
+
+또는 아래 기본 위치에 모델 파일을 둘 수 있습니다.
+
+```text
+mobile/local-models/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm
+```
+
+debug 앱 첫 실행 시 assets에 포함된 모델을 앱 내부 저장소로 복사합니다. 복사가
+끝나면 마이페이지에서 모델이 `준비 완료` 상태로 인식됩니다. 로컬 모델 파일이
+없으면 debug assets 포함은 건너뛰고, 앱의 마이페이지에서 모델을 직접 다운로드할
+수 있습니다.
+
 ## 앱에서 확인하는 방법
 
 1. 앱 실행

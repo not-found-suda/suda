@@ -35,9 +35,12 @@ local.properties
 # MediaPipe official model assets are downloaded locally.
 /app/src/main/assets/models/holistic_landmarker.task
 /app/src/main/assets/models/gemma3-1b-it-int4.task
+/app/src/main/assets/models/*.litertlm
 
 # ONNX Runtime caused Android 16KB page-size issues in this project.
 # Keep committed mobile models on the TFLite path unless this is revisited.
 /app/src/main/assets/models/*.onnx
 /app/src/main/assets/models/*.onnx.data
 /app/src/main/assets/models/label_map_mvp_v3_24_intent.json
+
+/local-models/

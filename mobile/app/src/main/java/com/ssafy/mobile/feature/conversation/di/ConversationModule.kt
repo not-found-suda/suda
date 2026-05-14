@@ -12,7 +12,8 @@ import com.ssafy.mobile.feature.conversation.data.repository.DataStoreTranslatio
 import com.ssafy.mobile.feature.conversation.data.repository.DefaultTranslateRepository
 import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
 import com.ssafy.mobile.feature.conversation.domain.repository.TranslationModeRepository
-import com.ssafy.mobile.translation.GemmaOnDeviceTranslationEngine
+import com.ssafy.mobile.translation.OnDeviceTranslationEngine
+import com.ssafy.mobile.translation.QwenLiteRtTranslationEngine
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -63,8 +64,8 @@ abstract class ConversationModule {
 
         @Provides
         @Singleton
-        fun provideGemmaOnDeviceTranslationEngine(
+        fun provideOnDeviceTranslationEngine(
             @ApplicationContext context: Context,
-        ): GemmaOnDeviceTranslationEngine = GemmaOnDeviceTranslationEngine(context)
+        ): OnDeviceTranslationEngine = QwenLiteRtTranslationEngine(context)
     }
 }
