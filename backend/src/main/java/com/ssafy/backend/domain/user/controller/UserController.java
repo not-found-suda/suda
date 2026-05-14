@@ -1,6 +1,9 @@
 package com.ssafy.backend.domain.user.controller;
 
 import com.ssafy.backend.domain.user.docs.UserApiDocs;
+import com.ssafy.backend.domain.user.dto.TtsSpeakerListResponseDto;
+import com.ssafy.backend.domain.user.dto.TtsSpeakerUpdateRequestDto;
+import com.ssafy.backend.domain.user.dto.TtsSpeakerUpdateResponseDto;
 import com.ssafy.backend.domain.user.dto.UserResponseDto;
 import com.ssafy.backend.domain.user.dto.UserUpdateRequestDto;
 import com.ssafy.backend.domain.user.dto.UserUpdateResponseDto;
@@ -29,9 +32,7 @@ public class UserController implements UserApiDocs {
   @GetMapping("/me")
   @Override
   public ResponseEntity<UserResponseDto> me(Authentication authentication) {
-    if (authentication == null || !(authentication.getPrincipal() instanceof Long userId)) {
-      throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
-    }
+    Long userId = extractUserId(authentication);
 
     UserResponseDto responseDto = userService.getUserById(userId);
     return ResponseEntity.ok(responseDto);
@@ -41,11 +42,33 @@ public class UserController implements UserApiDocs {
   @Override
   public ResponseEntity<UserUpdateResponseDto> updateMe(
       Authentication authentication, @Valid @RequestBody UserUpdateRequestDto requestDto) {
-    if (authentication == null || !(authentication.getPrincipal() instanceof Long userId)) {
-      throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
-    }
+    Long userId = extractUserId(authentication);
 
     UserUpdateResponseDto responseDto = userService.updateUser(userId, requestDto.name());
     return ResponseEntity.ok(responseDto);
+  }
+
+  @GetMapping("/me/tts-speakers")
+  @Override
+  public ResponseEntity<TtsSpeakerListResponseDto> getTtsSpeakers(Authentication authentication) {
+    extractUserId(authentication);
+
+    return ResponseEntity.ok(userService.getTtsSpeakers());
+  }
+
+  @PatchMapping("/me/tts-speaker")
+  @Override
+  public ResponseEntity<TtsSpeakerUpdateResponseDto> updateTtsSpeaker(
+      Authentication authentication, @Valid @RequestBody TtsSpeakerUpdateRequestDto requestDto) {
+    Long userId = extractUserId(authentication);
+
+    return ResponseEntity.ok(userService.updateTtsSpeaker(userId, requestDto.ttsSpeaker()));
+  }
+
+  private Long extractUserId(Authentication authentication) {
+    if (authentication == null || !(authentication.getPrincipal() instanceof Long userId)) {
+      throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
+    }
+    return userId;
   }
 }

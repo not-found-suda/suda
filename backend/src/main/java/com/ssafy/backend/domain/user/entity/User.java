@@ -35,6 +35,9 @@ public class User extends BaseEntity {
   @Column(nullable = false, length = 20)
   private Role role;
 
+  @Column(name = "tts_speaker", nullable = false, length = 50)
+  private String ttsSpeaker = TtsSpeaker.MOM_WARM.getCode();
+
   protected User() {}
 
   private User(String email, String password, String name) {
@@ -43,6 +46,7 @@ public class User extends BaseEntity {
     this.name = name;
     this.active = true;
     this.role = Role.USER;
+    this.ttsSpeaker = TtsSpeaker.MOM_WARM.getCode();
   }
 
   public static User create(String email, String password, String name) {
@@ -73,7 +77,15 @@ public class User extends BaseEntity {
     return role;
   }
 
+  public String getTtsSpeaker() {
+    return ttsSpeaker;
+  }
+
   public void updateName(String name) {
     this.name = name;
+  }
+
+  public void updateTtsSpeaker(String ttsSpeaker) {
+    this.ttsSpeaker = ttsSpeaker;
   }
 }

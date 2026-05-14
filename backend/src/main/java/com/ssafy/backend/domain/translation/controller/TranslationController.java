@@ -8,6 +8,7 @@ import com.ssafy.backend.domain.translation.service.TranslationService;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -28,8 +29,11 @@ public class TranslationController implements TranslationApiDocs {
   @PostMapping("/sign-to-speech")
   @Override
   public ResponseEntity<SignToSpeechResponseDto> translateSignToSpeech(
-      @Valid @RequestBody SignToSpeechRequestDto requestDto) {
-    return ResponseEntity.ok(translationService.translateSignToSpeech(requestDto));
+      Authentication authentication, @Valid @RequestBody SignToSpeechRequestDto requestDto) {
+
+    Long userId = extractNullableUserId(authentication);
+
+    return ResponseEntity.ok(translationService.translateSignToSpeech(userId, requestDto));
   }
 
   @PostMapping(value = "/speech-to-text", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -38,7 +42,22 @@ public class TranslationController implements TranslationApiDocs {
       @RequestPart("audioFile") MultipartFile audioFile,
       @RequestPart(value = "locale", required = false) String locale,
       @RequestPart(value = "audioMimeType", required = false) String audioMimeType) {
+
     return ResponseEntity.ok(
         translationService.translateSpeechToText(audioFile, locale, audioMimeType));
+  }
+
+  private Long extractNullableUserId(Authentication authentication) {
+    if (authentication == null || !authentication.isAuthenticated()) {
+      return null;
+    }
+
+    Object principal = authentication.getPrincipal();
+
+    if (principal instanceof Long userId) {
+      return userId;
+    }
+
+    return null;
   }
 }

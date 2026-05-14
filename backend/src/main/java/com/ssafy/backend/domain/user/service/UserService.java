@@ -1,12 +1,17 @@
 package com.ssafy.backend.domain.user.service;
 
+import com.ssafy.backend.domain.user.dto.TtsSpeakerListResponseDto;
+import com.ssafy.backend.domain.user.dto.TtsSpeakerResponseDto;
+import com.ssafy.backend.domain.user.dto.TtsSpeakerUpdateResponseDto;
 import com.ssafy.backend.domain.user.dto.UserAuthResponseDto;
 import com.ssafy.backend.domain.user.dto.UserResponseDto;
 import com.ssafy.backend.domain.user.dto.UserUpdateResponseDto;
+import com.ssafy.backend.domain.user.entity.TtsSpeaker;
 import com.ssafy.backend.domain.user.entity.User;
 import com.ssafy.backend.domain.user.exception.UserErrorCode;
 import com.ssafy.backend.domain.user.repository.UserRepository;
 import com.ssafy.backend.global.exception.BusinessException;
+import java.util.Arrays;
 import java.util.Locale;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -82,6 +87,32 @@ public class UserService {
     return toUpdateResponse(user);
   }
 
+  @Transactional(readOnly = true)
+  public TtsSpeakerListResponseDto getTtsSpeakers() {
+    return new TtsSpeakerListResponseDto(
+        Arrays.stream(TtsSpeaker.values())
+            .map(speaker -> new TtsSpeakerResponseDto(speaker.getCode(), speaker.getLabel()))
+            .toList());
+  }
+
+  public TtsSpeakerUpdateResponseDto updateTtsSpeaker(Long userId, String ttsSpeaker) {
+    String normalizedSpeaker = normalizeTtsSpeaker(ttsSpeaker);
+
+    if (!TtsSpeaker.isSupported(normalizedSpeaker)) {
+      throw new BusinessException(UserErrorCode.UNSUPPORTED_TTS_SPEAKER);
+    }
+
+    User user =
+        userRepository
+            .findById(userId)
+            .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+    user.updateTtsSpeaker(normalizedSpeaker);
+    userRepository.flush();
+
+    return new TtsSpeakerUpdateResponseDto(user.getId(), user.getTtsSpeaker());
+  }
+
   private String normalizeEmail(String email) {
     if (email == null) {
       return "";
@@ -96,9 +127,21 @@ public class UserService {
     return name.trim();
   }
 
+  private String normalizeTtsSpeaker(String ttsSpeaker) {
+    if (ttsSpeaker == null) {
+      return "";
+    }
+    return ttsSpeaker.trim().toLowerCase(Locale.ROOT);
+  }
+
   private UserResponseDto toResponse(User user) {
     return new UserResponseDto(
-        user.getId(), user.getEmail(), user.getName(), user.isActive(), user.getRole());
+        user.getId(),
+        user.getEmail(),
+        user.getName(),
+        user.isActive(),
+        user.getRole(),
+        user.getTtsSpeaker());
   }
 
   private UserUpdateResponseDto toUpdateResponse(User user) {
