@@ -41,6 +41,7 @@ import java.util.Locale
 @Composable
 fun MyPageRoute(
     onLogoutSuccess: () -> Unit,
+    onNavigateToAccountEdit: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: MyPageViewModel = hiltViewModel(),
 ) {
@@ -74,6 +75,7 @@ fun MyPageRoute(
         onDownloadModelClick = viewModel::downloadAiModel,
         onCancelDownloadClick = viewModel::cancelAiModelDownload,
         onDeleteModelClick = { showDeleteModelDialog = true },
+        onAccountEditClick = onNavigateToAccountEdit,
         onLogoutClick = { showLogoutDialog = true },
         modifier = modifier,
     )
@@ -117,6 +119,7 @@ private fun MyPageScreen(
     onDownloadModelClick: () -> Unit,
     onCancelDownloadClick: () -> Unit,
     onDeleteModelClick: () -> Unit,
+    onAccountEditClick: () -> Unit,
     onLogoutClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -150,6 +153,11 @@ private fun MyPageScreen(
                 text = "보호자 계정, 아이 프로필, 앱 설정을 관리합니다.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            MyPageMenuItem(
+                title = "계정 정보",
+                description = "이메일 확인과 이름 수정",
+                onClick = onAccountEditClick,
             )
             MyPageMenuItem(
                 title = "아이 프로필",

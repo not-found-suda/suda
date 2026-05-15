@@ -18,6 +18,7 @@ import com.ssafy.mobile.feature.learning.domain.model.DEFAULT_LEARNING_DIFFICULT
 import com.ssafy.mobile.feature.learning.presentation.category.LearningCategoryRoute
 import com.ssafy.mobile.feature.learning.presentation.wordlist.LearningWordListRoute
 import com.ssafy.mobile.feature.login.presentation.LoginRoute
+import com.ssafy.mobile.feature.mypage.presentation.AccountEditRoute
 import com.ssafy.mobile.feature.mypage.presentation.MyPageRoute
 import com.ssafy.mobile.feature.quiz.presentation.QuizResultRoute
 import com.ssafy.mobile.feature.quiz.presentation.quizQuestionRoute
@@ -270,12 +271,22 @@ fun MobileNavHost(
 
         composable(Screen.MyPage.route) {
             MyPageRoute(
+                onNavigateToAccountEdit = {
+                    navController.navigate(Screen.AccountEdit.route)
+                },
                 onLogoutSuccess = {
                     navController.navigate(Screen.Conversation.route) {
                         popUpTo(Screen.Home.route) { inclusive = true }
                         launchSingleTop = true
                     }
                 },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        composable(Screen.AccountEdit.route) {
+            AccountEditRoute(
+                onNavigateBack = { navController.popBackStack() },
                 modifier = Modifier.fillMaxSize(),
             )
         }

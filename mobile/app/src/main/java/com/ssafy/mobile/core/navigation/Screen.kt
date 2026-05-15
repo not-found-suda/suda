@@ -42,6 +42,8 @@ sealed class Screen(
 
     data object MyPage : Screen("my_page_route")
 
+    data object AccountEdit : Screen("account_edit_route")
+
     data object Sign : Screen("sign_route")
 
     data object LearningCategory : Screen("learning_category_route")
