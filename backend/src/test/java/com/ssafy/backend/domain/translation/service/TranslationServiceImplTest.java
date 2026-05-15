@@ -8,6 +8,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.ssafy.backend.domain.comms.repository.CommunicationMessageRepository;
+import com.ssafy.backend.domain.comms.repository.CommunicationSessionRepository;
 import com.ssafy.backend.domain.comms.service.ClovaSttClient;
 import com.ssafy.backend.domain.comms.service.ClovaTtsClient;
 import com.ssafy.backend.domain.comms.service.SignLanguageCorrectionClient;
@@ -40,6 +42,8 @@ class TranslationServiceImplTest {
   @Mock private ClovaTtsClient clovaTtsClient;
   @Mock private ClovaSttClient clovaSttClient;
   @Mock private UserRepository userRepository;
+  @Mock private CommunicationSessionRepository communicationSessionRepository;
+  @Mock private CommunicationMessageRepository communicationMessageRepository;
 
   private TranslationServiceImpl translationService;
 
@@ -47,14 +51,19 @@ class TranslationServiceImplTest {
   void setUp() {
     translationService =
         new TranslationServiceImpl(
-            signLanguageCorrectionClient, clovaTtsClient, clovaSttClient, userRepository);
+            signLanguageCorrectionClient,
+            clovaTtsClient,
+            clovaSttClient,
+            userRepository,
+            communicationSessionRepository,
+            communicationMessageRepository);
   }
 
   @Test
   @DisplayName("음성 파일이 없으면 STT 요청을 거부한다")
   void translateSpeechToTextRejectsMissingAudioFile() {
     assertTranslationError(
-        () -> translationService.translateSpeechToText(null, "ko-KR", "audio/wav"),
+        () -> translationService.translateSpeechToText(null, null, null, "ko-KR", "audio/wav"),
         TranslationErrorCode.INVALID_AUDIO);
     verifyNoInteractions(clovaSttClient);
   }
@@ -66,7 +75,8 @@ class TranslationServiceImplTest {
         new MockMultipartFile("audioFile", "answer.wav", "audio/wav", new byte[0]);
 
     assertTranslationError(
-        () -> translationService.translateSpeechToText(emptyAudio, "ko-KR", "audio/wav"),
+        () ->
+            translationService.translateSpeechToText(null, null, emptyAudio, "ko-KR", "audio/wav"),
         TranslationErrorCode.INVALID_AUDIO);
     verifyNoInteractions(clovaSttClient);
   }
@@ -77,7 +87,7 @@ class TranslationServiceImplTest {
     MockMultipartFile audio = wavAudio("audio/wav");
 
     assertTranslationError(
-        () -> translationService.translateSpeechToText(audio, "ko-KR", "audio/mpeg"),
+        () -> translationService.translateSpeechToText(null, null, audio, "ko-KR", "audio/mpeg"),
         TranslationErrorCode.INVALID_AUDIO);
     verifyNoInteractions(clovaSttClient);
   }
@@ -88,7 +98,7 @@ class TranslationServiceImplTest {
     MockMultipartFile audio = wavAudio("audio/mpeg");
 
     assertTranslationError(
-        () -> translationService.translateSpeechToText(audio, "ko-KR", null),
+        () -> translationService.translateSpeechToText(null, null, audio, "ko-KR", null),
         TranslationErrorCode.INVALID_AUDIO);
     verifyNoInteractions(clovaSttClient);
   }
@@ -99,7 +109,7 @@ class TranslationServiceImplTest {
     MockMultipartFile audio = wavAudio(null);
 
     assertTranslationError(
-        () -> translationService.translateSpeechToText(audio, "ko-KR", null),
+        () -> translationService.translateSpeechToText(null, null, audio, "ko-KR", null),
         TranslationErrorCode.INVALID_AUDIO);
     verifyNoInteractions(clovaSttClient);
   }
@@ -111,7 +121,7 @@ class TranslationServiceImplTest {
         new MockMultipartFile("audioFile", "answer.wav", "audio/wav", "not-wav-data".getBytes());
 
     assertTranslationError(
-        () -> translationService.translateSpeechToText(audio, "ko-KR", "audio/wav"),
+        () -> translationService.translateSpeechToText(null, null, audio, "ko-KR", "audio/wav"),
         TranslationErrorCode.INVALID_AUDIO);
     verifyNoInteractions(clovaSttClient);
   }
@@ -127,7 +137,7 @@ class TranslationServiceImplTest {
     when(audioFile.getInputStream()).thenThrow(new IOException("read failed"));
 
     assertTranslationError(
-        () -> translationService.translateSpeechToText(audioFile, "ko-KR", "audio/wav"),
+        () -> translationService.translateSpeechToText(null, null, audioFile, "ko-KR", "audio/wav"),
         TranslationErrorCode.INVALID_AUDIO);
     verifyNoInteractions(clovaSttClient);
   }
@@ -138,7 +148,7 @@ class TranslationServiceImplTest {
     MockMultipartFile audio = wavAudio("audio/wav");
 
     assertTranslationError(
-        () -> translationService.translateSpeechToText(audio, "en-US", "audio/wav"),
+        () -> translationService.translateSpeechToText(null, null, audio, "en-US", "audio/wav"),
         TranslationErrorCode.INVALID_LOCALE);
     verifyNoInteractions(clovaSttClient);
   }
@@ -151,7 +161,7 @@ class TranslationServiceImplTest {
         .thenReturn("   ");
 
     assertTranslationError(
-        () -> translationService.translateSpeechToText(audio, null, " audio/WAV "),
+        () -> translationService.translateSpeechToText(null, null, audio, null, " audio/WAV "),
         TranslationErrorCode.UNRECOGNIZABLE_AUDIO);
   }
 
@@ -163,7 +173,7 @@ class TranslationServiceImplTest {
         .thenThrow(new IllegalStateException("stt failed"));
 
     assertTranslationError(
-        () -> translationService.translateSpeechToText(audio, "ko-KR", "audio/wav"),
+        () -> translationService.translateSpeechToText(null, null, audio, "ko-KR", "audio/wav"),
         TranslationErrorCode.SPEECH_RECOGNITION_FAILED);
   }
 
@@ -175,7 +185,7 @@ class TranslationServiceImplTest {
         .thenReturn("안녕하세요");
 
     SpeechToTextResponseDto response =
-        translationService.translateSpeechToText(audio, null, "audio/wav");
+        translationService.translateSpeechToText(null, null, audio, null, "audio/wav");
 
     assertThat(response.recognizedText()).isEqualTo("안녕하세요");
     assertThat(response.correctedText()).isEqualTo("안녕하세요");
@@ -194,7 +204,7 @@ class TranslationServiceImplTest {
         .thenReturn("안녕하세요");
 
     SpeechToTextResponseDto response =
-        translationService.translateSpeechToText(audio, "ko-KR", null);
+        translationService.translateSpeechToText(null, null, audio, "ko-KR", null);
 
     assertThat(response.recognizedText()).isEqualTo("안녕하세요");
     assertThat(response.locale()).isEqualTo("ko-KR");
@@ -209,7 +219,7 @@ class TranslationServiceImplTest {
         .thenReturn("안녕하세요");
 
     SpeechToTextResponseDto response =
-        translationService.translateSpeechToText(audio, "ko-KR", null);
+        translationService.translateSpeechToText(null, null, audio, "ko-KR", null);
 
     assertThat(response.recognizedText()).isEqualTo("안녕하세요");
     assertThat(response.locale()).isEqualTo("ko-KR");
@@ -219,7 +229,8 @@ class TranslationServiceImplTest {
   @Test
   @DisplayName("수어 단어를 보정하고 TTS 음성을 Base64로 반환한다")
   void translateSignToSpeechReturnsCorrectedTextAndAudio() {
-    SignToSpeechRequestDto request = new SignToSpeechRequestDto(List.of("엄마", "해보다"), null, true);
+    SignToSpeechRequestDto request =
+        new SignToSpeechRequestDto(null, List.of("엄마", "해보다"), null, true);
     byte[] audioBytes = new byte[] {1, 2, 3};
     when(signLanguageCorrectionClient.correct("[엄마, 해보다]")).thenReturn("엄마 해봐!");
     when(clovaTtsClient.synthesize("엄마 해봐!", TtsSpeaker.MOM_WARM.getCode())).thenReturn(audioBytes);
@@ -242,7 +253,7 @@ class TranslationServiceImplTest {
   @Test
   @DisplayName("TTS 요청값이 없으면 기본으로 음성을 생성한다")
   void translateSignToSpeechRequestsTtsByDefault() {
-    SignToSpeechRequestDto request = new SignToSpeechRequestDto(List.of("안녕"), "ko-KR", null);
+    SignToSpeechRequestDto request = new SignToSpeechRequestDto(null, List.of("안녕"), "ko-KR", null);
     byte[] audioBytes = new byte[] {4, 5, 6};
     when(signLanguageCorrectionClient.correct("[안녕]")).thenReturn("안녕");
     when(clovaTtsClient.synthesize("안녕", TtsSpeaker.MOM_WARM.getCode())).thenReturn(audioBytes);
@@ -263,7 +274,7 @@ class TranslationServiceImplTest {
     Long userId = 1L;
     User user = User.create("guardian@example.com", "encoded-password", "보호자");
     user.updateTtsSpeaker(TtsSpeaker.DAD_CALM.getCode());
-    SignToSpeechRequestDto request = new SignToSpeechRequestDto(List.of("아빠"), "ko-KR", true);
+    SignToSpeechRequestDto request = new SignToSpeechRequestDto(null, List.of("아빠"), "ko-KR", true);
     byte[] audioBytes = new byte[] {7, 8, 9};
     when(signLanguageCorrectionClient.correct("[아빠]")).thenReturn("아빠");
     when(userRepository.findById(userId)).thenReturn(Optional.of(user));
@@ -281,7 +292,7 @@ class TranslationServiceImplTest {
   @DisplayName("로그인 사용자를 찾을 수 없으면 TTS 요청을 실패 처리한다")
   void translateSignToSpeechRejectsMissingUser() {
     Long userId = 999L;
-    SignToSpeechRequestDto request = new SignToSpeechRequestDto(List.of("엄마"), "ko-KR", true);
+    SignToSpeechRequestDto request = new SignToSpeechRequestDto(null, List.of("엄마"), "ko-KR", true);
     when(signLanguageCorrectionClient.correct("[엄마]")).thenReturn("엄마");
     when(userRepository.findById(userId)).thenReturn(Optional.empty());
 
@@ -298,7 +309,7 @@ class TranslationServiceImplTest {
   @DisplayName("TTS 요청값이 false이면 문장 보정만 수행한다")
   void translateSignToSpeechSkipsTtsWhenRequestTtsIsFalse() {
     SignToSpeechRequestDto request =
-        new SignToSpeechRequestDto(List.of("엄마", "해보다"), "ko-KR", false);
+        new SignToSpeechRequestDto(null, List.of("엄마", "해보다"), "ko-KR", false);
     when(signLanguageCorrectionClient.correct("[엄마, 해보다]")).thenReturn("엄마 해봐!");
 
     SignToSpeechResponseDto response = translationService.translateSignToSpeech(1L, request);
@@ -315,7 +326,7 @@ class TranslationServiceImplTest {
   @Test
   @DisplayName("수어 문맥 보정 실패는 보정 실패 오류로 처리한다")
   void translateSignToSpeechMapsCorrectionFailure() {
-    SignToSpeechRequestDto request = new SignToSpeechRequestDto(List.of("엄마"), "ko-KR", true);
+    SignToSpeechRequestDto request = new SignToSpeechRequestDto(null, List.of("엄마"), "ko-KR", true);
     when(signLanguageCorrectionClient.correct("[엄마]"))
         .thenThrow(new IllegalStateException("correction failed"));
 
@@ -329,7 +340,7 @@ class TranslationServiceImplTest {
   @Test
   @DisplayName("TTS 실패는 음성 합성 실패 오류로 처리한다")
   void translateSignToSpeechMapsTtsFailure() {
-    SignToSpeechRequestDto request = new SignToSpeechRequestDto(List.of("엄마"), "ko-KR", true);
+    SignToSpeechRequestDto request = new SignToSpeechRequestDto(null, List.of("엄마"), "ko-KR", true);
     when(signLanguageCorrectionClient.correct("[엄마]")).thenReturn("엄마");
     when(clovaTtsClient.synthesize("엄마", TtsSpeaker.MOM_WARM.getCode()))
         .thenThrow(new IllegalStateException("tts failed"));
