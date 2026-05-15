@@ -1,5 +1,11 @@
 package com.ssafy.backend.domain.translation.service;
 
+import com.ssafy.backend.domain.comms.entity.CommunicationMessage;
+import com.ssafy.backend.domain.comms.entity.CommunicationSession;
+import com.ssafy.backend.domain.comms.entity.CommunicationSessionStatus;
+import com.ssafy.backend.domain.comms.exception.CommunicationSessionErrorCode;
+import com.ssafy.backend.domain.comms.repository.CommunicationMessageRepository;
+import com.ssafy.backend.domain.comms.repository.CommunicationSessionRepository;
 import com.ssafy.backend.domain.comms.service.ClovaSttClient;
 import com.ssafy.backend.domain.comms.service.ClovaTtsClient;
 import com.ssafy.backend.domain.comms.service.SignLanguageCorrectionClient;
@@ -21,9 +27,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 @Service
+@Transactional
 public class TranslationServiceImpl implements TranslationService {
 
   private static final Logger log = LoggerFactory.getLogger(TranslationServiceImpl.class);
@@ -37,16 +45,22 @@ public class TranslationServiceImpl implements TranslationService {
   private final ClovaTtsClient clovaTtsClient;
   private final ClovaSttClient clovaSttClient;
   private final UserRepository userRepository;
+  private final CommunicationSessionRepository communicationSessionRepository;
+  private final CommunicationMessageRepository communicationMessageRepository;
 
   public TranslationServiceImpl(
       SignLanguageCorrectionClient signLanguageCorrectionClient,
       ClovaTtsClient clovaTtsClient,
       ClovaSttClient clovaSttClient,
-      UserRepository userRepository) {
+      UserRepository userRepository,
+      CommunicationSessionRepository communicationSessionRepository,
+      CommunicationMessageRepository communicationMessageRepository) {
     this.signLanguageCorrectionClient = signLanguageCorrectionClient;
     this.clovaTtsClient = clovaTtsClient;
     this.clovaSttClient = clovaSttClient;
     this.userRepository = userRepository;
+    this.communicationSessionRepository = communicationSessionRepository;
+    this.communicationMessageRepository = communicationMessageRepository;
   }
 
   @Override
@@ -75,9 +89,10 @@ public class TranslationServiceImpl implements TranslationService {
 
     String audioBase64 = null;
     String audioMimeType = null;
+    String speaker = null;
 
     if (requestTts) {
-      String speaker = resolveTtsSpeaker(userId);
+      speaker = resolveTtsSpeaker(userId);
 
       try {
         log.info(
@@ -113,27 +128,23 @@ public class TranslationServiceImpl implements TranslationService {
       }
     }
 
+    saveParentMessageIfSessionExists(
+        userId,
+        requestDto.sessionId(),
+        words,
+        correctedText,
+        audioMimeType,
+        speaker,
+        requestDto.locale());
+
     boolean corrected = !String.join(" ", words).equals(correctedText);
 
     return new SignToSpeechResponseDto(words, correctedText, audioBase64, audioMimeType, corrected);
   }
 
-  private String resolveTtsSpeaker(Long userId) {
-    if (userId == null) {
-      return TtsSpeaker.MOM_WARM.getCode();
-    }
-
-    User user =
-        userRepository
-            .findById(userId)
-            .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
-
-    return user.getTtsSpeaker();
-  }
-
   @Override
   public SpeechToTextResponseDto translateSpeechToText(
-      MultipartFile audioFile, String locale, String audioMimeType) {
+      Long userId, Long sessionId, MultipartFile audioFile, String locale, String audioMimeType) {
 
     logSpeechToTextRequest(audioFile, locale, audioMimeType);
 
@@ -162,7 +173,77 @@ public class TranslationServiceImpl implements TranslationService {
       throw new BusinessException(TranslationErrorCode.UNRECOGNIZABLE_AUDIO);
     }
 
+    saveChildMessageIfSessionExists(
+        userId, sessionId, recognizedText, resolvedAudioMimeType, resolvedLocale);
+
     return new SpeechToTextResponseDto(recognizedText, recognizedText, false, null, resolvedLocale);
+  }
+
+  private void saveParentMessageIfSessionExists(
+      Long userId,
+      Long sessionId,
+      List<String> words,
+      String finalText,
+      String audioMimeType,
+      String speaker,
+      String locale) {
+    if (sessionId == null) {
+      return;
+    }
+
+    CommunicationSession session = getActiveSessionForUpdate(userId, sessionId);
+    int messageOrder = session.allocateNextMessageOrder();
+
+    CommunicationMessage message =
+        CommunicationMessage.parentSignToChildSpeech(
+            session,
+            String.join(" ", words),
+            finalText,
+            audioMimeType,
+            speaker,
+            resolveLocale(locale),
+            messageOrder);
+
+    communicationMessageRepository.save(message);
+  }
+
+  private void saveChildMessageIfSessionExists(
+      Long userId, Long sessionId, String recognizedText, String audioMimeType, String locale) {
+    if (sessionId == null) {
+      return;
+    }
+
+    CommunicationSession session = getActiveSessionForUpdate(userId, sessionId);
+    int messageOrder = session.allocateNextMessageOrder();
+
+    CommunicationMessage message =
+        CommunicationMessage.childSpeechToParentText(
+            session, recognizedText, recognizedText, audioMimeType, locale, messageOrder);
+
+    communicationMessageRepository.save(message);
+  }
+
+  private CommunicationSession getActiveSessionForUpdate(Long userId, Long sessionId) {
+    if (userId == null) {
+      throw new BusinessException(CommunicationSessionErrorCode.SESSION_NOT_FOUND);
+    }
+
+    return communicationSessionRepository
+        .findByIdAndUserIdAndStatusForUpdate(sessionId, userId, CommunicationSessionStatus.ACTIVE)
+        .orElseThrow(() -> new BusinessException(CommunicationSessionErrorCode.SESSION_NOT_FOUND));
+  }
+
+  private String resolveTtsSpeaker(Long userId) {
+    if (userId == null) {
+      return TtsSpeaker.MOM_WARM.getCode();
+    }
+
+    User user =
+        userRepository
+            .findById(userId)
+            .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+    return user.getTtsSpeaker();
   }
 
   private void validateAudioFile(MultipartFile audioFile) {

@@ -7,6 +7,7 @@ import jakarta.validation.constraints.Pattern;
 import java.util.List;
 
 public record SignToSpeechRequestDto(
+    @Schema(description = "대화 세션 ID", example = "1") Long sessionId,
     @Schema(description = "온디바이스 수어 인식 결과 단어 배열", example = "[\"엄마\", \"해보다\"]")
         @NotEmpty(message = "단어 배열은 최소 1개 이상이어야 합니다.")
         List<@NotBlank(message = "단어는 비어 있을 수 없습니다.") String> words,

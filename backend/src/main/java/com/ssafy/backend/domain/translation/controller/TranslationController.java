@@ -12,6 +12,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
@@ -39,12 +40,17 @@ public class TranslationController implements TranslationApiDocs {
   @PostMapping(value = "/speech-to-text", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
   @Override
   public ResponseEntity<SpeechToTextResponseDto> translateSpeechToText(
+      Authentication authentication,
+      @RequestParam(value = "sessionId", required = false) Long sessionId,
       @RequestPart("audioFile") MultipartFile audioFile,
-      @RequestPart(value = "locale", required = false) String locale,
-      @RequestPart(value = "audioMimeType", required = false) String audioMimeType) {
+      @RequestParam(value = "locale", required = false) String locale,
+      @RequestParam(value = "audioMimeType", required = false) String audioMimeType) {
+
+    Long userId = extractNullableUserId(authentication);
 
     return ResponseEntity.ok(
-        translationService.translateSpeechToText(audioFile, locale, audioMimeType));
+        translationService.translateSpeechToText(
+            userId, sessionId, audioFile, locale, audioMimeType));
   }
 
   private Long extractNullableUserId(Authentication authentication) {

@@ -6,8 +6,9 @@ import com.ssafy.backend.domain.translation.dto.SpeechToTextResponseDto;
 import org.springframework.web.multipart.MultipartFile;
 
 public interface TranslationService {
+
   SignToSpeechResponseDto translateSignToSpeech(Long userId, SignToSpeechRequestDto requestDto);
 
   SpeechToTextResponseDto translateSpeechToText(
-      MultipartFile audioFile, String locale, String audioMimeType);
+      Long userId, Long sessionId, MultipartFile audioFile, String locale, String audioMimeType);
 }
