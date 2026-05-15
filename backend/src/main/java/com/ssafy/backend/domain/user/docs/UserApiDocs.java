@@ -3,6 +3,7 @@ package com.ssafy.backend.domain.user.docs;
 import com.ssafy.backend.domain.user.dto.TtsSpeakerListResponseDto;
 import com.ssafy.backend.domain.user.dto.TtsSpeakerUpdateRequestDto;
 import com.ssafy.backend.domain.user.dto.TtsSpeakerUpdateResponseDto;
+import com.ssafy.backend.domain.user.dto.UserPasswordChangeRequestDto;
 import com.ssafy.backend.domain.user.dto.UserResponseDto;
 import com.ssafy.backend.domain.user.dto.UserUpdateRequestDto;
 import com.ssafy.backend.domain.user.dto.UserUpdateResponseDto;
@@ -45,6 +46,24 @@ public interface UserApiDocs {
   ResponseEntity<UserUpdateResponseDto> updateMe(
       @Parameter(hidden = true) Authentication authentication,
       @Valid @RequestBody UserUpdateRequestDto request);
+
+  @Operation(
+      summary = "내 비밀번호 변경",
+      description = "현재 비밀번호를 확인한 뒤 새 비밀번호로 변경합니다.",
+      security = {@SecurityRequirement(name = "bearerAuth")})
+  @ApiErrorCodes({
+    "VALIDATION_REQUIRED_FIELD",
+    "VALIDATION_PASSWORD_LENGTH",
+    "VALIDATION_PASSWORD_CHARSET",
+    "COMMON_UNAUTHORIZED",
+    "USER_NOT_FOUND",
+    "USER_CURRENT_PASSWORD_MISMATCH",
+    "USER_NEW_PASSWORD_SAME_AS_CURRENT"
+  })
+  @ApiResponse(responseCode = "204", description = "성공")
+  ResponseEntity<Void> changePassword(
+      @Parameter(hidden = true) Authentication authentication,
+      @Valid @RequestBody UserPasswordChangeRequestDto request);
 
   @Operation(
       summary = "TTS 목소리 후보 목록 조회",

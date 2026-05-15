@@ -56,7 +56,9 @@ public enum ValidationErrorCode implements ErrorCode {
     }
 
     String normalized = fieldName.toLowerCase(Locale.ROOT);
-    return "password".equals(normalized) || normalized.endsWith(".password");
+    return "password".equals(normalized)
+        || normalized.endsWith(".password")
+        || normalized.endsWith("password");
   }
 
   @Override

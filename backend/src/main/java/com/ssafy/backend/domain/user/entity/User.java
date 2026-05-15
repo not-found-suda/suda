@@ -85,6 +85,10 @@ public class User extends BaseEntity {
     this.name = name;
   }
 
+  public void changePassword(String password) {
+    this.password = password;
+  }
+
   public void updateTtsSpeaker(String ttsSpeaker) {
     this.ttsSpeaker = ttsSpeaker;
   }

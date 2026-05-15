@@ -4,6 +4,7 @@ import com.ssafy.backend.domain.user.docs.UserApiDocs;
 import com.ssafy.backend.domain.user.dto.TtsSpeakerListResponseDto;
 import com.ssafy.backend.domain.user.dto.TtsSpeakerUpdateRequestDto;
 import com.ssafy.backend.domain.user.dto.TtsSpeakerUpdateResponseDto;
+import com.ssafy.backend.domain.user.dto.UserPasswordChangeRequestDto;
 import com.ssafy.backend.domain.user.dto.UserResponseDto;
 import com.ssafy.backend.domain.user.dto.UserUpdateRequestDto;
 import com.ssafy.backend.domain.user.dto.UserUpdateResponseDto;
@@ -46,6 +47,16 @@ public class UserController implements UserApiDocs {
 
     UserUpdateResponseDto responseDto = userService.updateUser(userId, requestDto.name());
     return ResponseEntity.ok(responseDto);
+  }
+
+  @PatchMapping("/me/password")
+  @Override
+  public ResponseEntity<Void> changePassword(
+      Authentication authentication, @Valid @RequestBody UserPasswordChangeRequestDto requestDto) {
+    Long userId = extractUserId(authentication);
+
+    userService.changePassword(userId, requestDto.currentPassword(), requestDto.newPassword());
+    return ResponseEntity.noContent().build();
   }
 
   @GetMapping("/me/tts-speakers")

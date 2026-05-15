@@ -87,6 +87,23 @@ public class UserService {
     return toUpdateResponse(user);
   }
 
+  public void changePassword(Long userId, String currentPassword, String newPassword) {
+    User user =
+        userRepository
+            .findById(userId)
+            .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+    if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
+      throw new BusinessException(UserErrorCode.CURRENT_PASSWORD_MISMATCH);
+    }
+    if (passwordEncoder.matches(newPassword, user.getPassword())) {
+      throw new BusinessException(UserErrorCode.NEW_PASSWORD_SAME_AS_CURRENT);
+    }
+
+    user.changePassword(passwordEncoder.encode(newPassword));
+    userRepository.flush();
+  }
+
   @Transactional(readOnly = true)
   public TtsSpeakerListResponseDto getTtsSpeakers() {
     return new TtsSpeakerListResponseDto(
