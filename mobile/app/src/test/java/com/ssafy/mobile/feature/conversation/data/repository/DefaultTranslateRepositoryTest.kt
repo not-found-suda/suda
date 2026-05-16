@@ -117,6 +117,7 @@ class DefaultTranslateRepositoryTest {
 
         override suspend fun translateSpeechToText(
             audioFile: MultipartBody.Part,
+            sessionId: RequestBody?,
             locale: RequestBody,
             audioMimeType: RequestBody,
             dryRun: Boolean,

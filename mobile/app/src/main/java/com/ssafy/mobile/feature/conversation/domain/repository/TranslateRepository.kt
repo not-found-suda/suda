@@ -13,7 +13,10 @@ interface TranslateRepository {
     /**
      * 부모 수화 단어열을 문장으로 변환하고 TTS 결과 수신
      */
-    suspend fun translateSignToSpeech(words: List<String>): Result<SignToSpeechResponse>
+    suspend fun translateSignToSpeech(
+        words: List<String>,
+        sessionId: Long? = null,
+    ): Result<SignToSpeechResponse>
 
     /**
      * 자녀 발화 음성 파일을 텍스트로 변환
@@ -21,6 +24,7 @@ interface TranslateRepository {
     suspend fun translateSpeechToText(
         audioFile: File,
         mimeType: String,
+        sessionId: Long? = null,
     ): Result<SpeechToTextResponse>
 
     /**

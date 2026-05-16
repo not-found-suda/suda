@@ -7,6 +7,7 @@ import com.ssafy.mobile.core.vision.inference.SignInferenceAdapter
 import com.ssafy.mobile.core.vision.inference.TfliteSignInferenceAdapter
 import com.ssafy.mobile.core.vision.wordspotting.NoOpWordSpottingScanner
 import com.ssafy.mobile.core.vision.wordspotting.WordSpottingScanner
+import com.ssafy.mobile.feature.conversation.data.remote.CommsSessionApiService
 import com.ssafy.mobile.feature.conversation.data.remote.TranslateApiService
 import com.ssafy.mobile.feature.conversation.data.repository.DataStoreTranslationModeRepository
 import com.ssafy.mobile.feature.conversation.data.repository.DefaultTranslateRepository
@@ -20,7 +21,6 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import javax.inject.Named
 import javax.inject.Singleton
 import retrofit2.Retrofit
 
@@ -48,9 +48,13 @@ abstract class ConversationModule {
     companion object {
         @Provides
         @Singleton
-        fun provideTranslateApiService(
-            @Named("NoAuth") retrofit: Retrofit,
-        ): TranslateApiService = retrofit.create(TranslateApiService::class.java)
+        fun provideTranslateApiService(retrofit: Retrofit): TranslateApiService =
+            retrofit.create(TranslateApiService::class.java)
+
+        @Provides
+        @Singleton
+        fun provideCommsSessionApiService(retrofit: Retrofit): CommsSessionApiService =
+            retrofit.create(CommsSessionApiService::class.java)
 
         @Provides
         @Singleton

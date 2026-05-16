@@ -30,11 +30,16 @@ class DefaultTranslateRepository
     ) : TranslateRepository {
         override suspend fun translateSignToSpeech(
             words: List<String>,
+            sessionId: Long?,
         ): Result<SignToSpeechResponse> =
             runCatching {
                 val response =
                     apiService.translateSignToSpeech(
-                        request = SignToSpeechRequest(words = words),
+                        request =
+                            SignToSpeechRequest(
+                                sessionId = sessionId,
+                                words = words,
+                            ),
                     )
                 if (response.isSuccessful) {
                     response.body() ?: throw IllegalStateException(ERROR_EMPTY_BODY)
@@ -46,6 +51,7 @@ class DefaultTranslateRepository
         override suspend fun translateSpeechToText(
             audioFile: File,
             mimeType: String,
+            sessionId: Long?,
         ): Result<SpeechToTextResponse> =
             runCatching {
                 validateSpeechAudioFile(audioFile)
@@ -61,6 +67,7 @@ class DefaultTranslateRepository
                 val response =
                     apiService.translateSpeechToText(
                         audioFile = body,
+                        sessionId = sessionId?.toString()?.toPlainTextRequestBody(),
                         locale = DEFAULT_LOCALE.toPlainTextRequestBody(),
                         audioMimeType = mimeType.toPlainTextRequestBody(),
                     )

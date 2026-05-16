@@ -13,6 +13,10 @@ import com.ssafy.mobile.core.stt.SttErrorType
 import com.ssafy.mobile.core.stt.SttEvent
 import com.ssafy.mobile.core.vision.SignRecognitionEngine
 import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
+import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileManager
+import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
+import com.ssafy.mobile.feature.conversation.data.remote.model.SpeechToTextResponse
+import com.ssafy.mobile.feature.conversation.data.repository.CommsSessionRepository
 import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
 import com.ssafy.mobile.feature.conversation.domain.model.LocalSignSentenceGenerator
 import com.ssafy.mobile.feature.conversation.domain.model.MessageStatus
@@ -34,6 +38,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 enum class SessionState {
     Idle,
@@ -75,6 +81,8 @@ class ConversationViewModel
         private val androidAudioRecorder: AndroidAudioRecorder,
         private val localSignSentenceGenerator: LocalSignSentenceGenerator,
         private val onDeviceTranslationEngine: OnDeviceTranslationEngine,
+        private val activeChildProfileManager: ActiveChildProfileManager,
+        private val commsSessionRepository: CommsSessionRepository,
     ) : ViewModel() {
         private val _sessionState = MutableStateFlow(SessionState.Idle)
         val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
@@ -123,6 +131,10 @@ class ConversationViewModel
         private var completionTimerJob: Job? = null
         private var sttJob: Job? = null
         private var cloudSttJob: Job? = null
+        private var commsSessionJob: Job? = null
+        private val commsSessionMutex = Mutex()
+        private var commsSessionId: Long? = null
+        private var sessionRuntimeStarted = false
         private var currentSttSessionId = 0
         private var isResultsReceived = false
         private var isStoppedReceived = false
@@ -141,7 +153,10 @@ class ConversationViewModel
                     if (previousMode != mode) {
                         resetCloudSttFailures()
                         _translationModeNotice.value = null
-                        if (_sessionState.value == SessionState.Active) {
+                        if (
+                            _sessionState.value == SessionState.Active &&
+                            sessionRuntimeStarted
+                        ) {
                             stopRecordingForStt()
                             startRecordingForStt()
                         }
@@ -162,8 +177,10 @@ class ConversationViewModel
                             resetCloudSttFailures()
                         }
                         updateNetworkFallbackNotice(online)
-                        stopRecordingForStt()
-                        startRecordingForStt()
+                        if (sessionRuntimeStarted) {
+                            stopRecordingForStt()
+                            startRecordingForStt()
+                        }
                     }
                 }
             }
@@ -302,9 +319,15 @@ class ConversationViewModel
 
             translationJob =
                 viewModelScope.launch {
-                    translateRepository
-                        .translateSignToSpeech(words)
-                        .onSuccess { response ->
+                    val sessionId = ensureCommsSessionForServerStorage()
+                    val result =
+                        translateRepository.translateSignToSpeech(
+                            words = words,
+                            sessionId = sessionId,
+                        )
+
+                    result.fold(
+                        onSuccess = { response ->
                             _translationModeNotice.value = null
                             _translatedText.value = response.correctedText
                             addOrUpdateMessage(
@@ -321,29 +344,45 @@ class ConversationViewModel
                             }
 
                             _lastGlosses.value = emptyList()
-                        }.onFailure { throwable ->
-                            if (fallbackOnFailure) {
-                                Log.w(
-                                    TAG,
-                                    "Cloud translation failed. fallback to on-device.",
-                                    throwable,
-                                )
-                                performOnDeviceTranslation(
-                                    words = words,
-                                    sentenceType = sentenceType,
-                                    notice = NOTICE_AUTO_SERVER_FALLBACK,
-                                )
-                            } else {
-                                addOrUpdateMessage(
-                                    text = "서버 번역에 실패했습니다. 다시 시도해 주세요.",
-                                    isFinal = true,
-                                    senderType = SenderType.PARENT,
-                                )
-                                _lastGlosses.value = emptyList()
-                                startRecordingForStt()
-                            }
-                        }
+                        },
+                        onFailure = { throwable ->
+                            handleCloudTranslationFailure(
+                                throwable = throwable,
+                                fallbackOnFailure = fallbackOnFailure,
+                                words = words,
+                                sentenceType = sentenceType,
+                            )
+                        },
+                    )
                 }
+        }
+
+        private fun handleCloudTranslationFailure(
+            throwable: Throwable,
+            fallbackOnFailure: Boolean,
+            words: List<String>,
+            sentenceType: String?,
+        ) {
+            if (fallbackOnFailure) {
+                Log.w(
+                    TAG,
+                    "Cloud translation failed. fallback to on-device.",
+                    throwable,
+                )
+                performOnDeviceTranslation(
+                    words = words,
+                    sentenceType = sentenceType,
+                    notice = NOTICE_AUTO_SERVER_FALLBACK,
+                )
+            } else {
+                addOrUpdateMessage(
+                    text = "서버 번역에 실패했습니다. 다시 시도해 주세요.",
+                    isFinal = true,
+                    senderType = SenderType.PARENT,
+                )
+                _lastGlosses.value = emptyList()
+                startRecordingForStt()
+            }
         }
 
         private fun performOnDeviceTranslation(
@@ -460,7 +499,7 @@ class ConversationViewModel
         }
 
         private fun startRecordingForStt() {
-            if (_sessionState.value != SessionState.Active) return
+            if (_sessionState.value != SessionState.Active || !sessionRuntimeStarted) return
 
             _speechInputPhase.value = SpeechInputPhase.Listening
 
@@ -622,13 +661,19 @@ class ConversationViewModel
             }
 
         private fun canUseCloudStt(): Boolean =
-            _sessionState.value == SessionState.Active && shouldUseCloudStt()
+            _sessionState.value == SessionState.Active &&
+                sessionRuntimeStarted &&
+                shouldUseCloudStt()
 
         private fun canHandleLocalSttEvent(): Boolean =
-            _sessionState.value == SessionState.Active && shouldUseLocalStt()
+            _sessionState.value == SessionState.Active &&
+                sessionRuntimeStarted &&
+                shouldUseLocalStt()
 
         private fun canStartLocalSttAfterCloudLoop(): Boolean =
-            _sessionState.value == SessionState.Active && shouldUseLocalStt()
+            _sessionState.value == SessionState.Active &&
+                sessionRuntimeStarted &&
+                shouldUseLocalStt()
 
         private fun startLocalSttFromCloudLoop() {
             cloudSttJob = null
@@ -696,17 +741,90 @@ class ConversationViewModel
         }
 
         fun startSession() {
+            if (_sessionState.value == SessionState.Active) return
+
             _sessionState.value = SessionState.Active
             _signInputPhase.value = SignInputPhase.Preparing
             _speechInputPhase.value = SpeechInputPhase.Listening
             clearAppSpeechEchoFilter()
             resetCloudSttFailures()
+            sessionRuntimeStarted = false
+            commsSessionJob?.cancel()
+            commsSessionId = null
+            commsSessionJob =
+                viewModelScope.launch {
+                    prepareCommsSession()
+                    startSessionRuntimeIfActive()
+                }
+        }
+
+        private suspend fun prepareCommsSession() {
+            if (canCreateCommsSessionNow()) {
+                ensureCommsSessionForServerStorage()
+            } else {
+                Log.d(
+                    TAG,
+                    "Comms session skipped: mode=${_translationMode.value}, online=${_isOnline.value}",
+                )
+            }
+        }
+
+        private suspend fun ensureCommsSessionForServerStorage(): Long? =
+            commsSessionMutex.withLock {
+                commsSessionId ?: if (canCreateCommsSessionNow()) {
+                    createCommsSessionOrNull()
+                } else {
+                    null
+                }
+            }
+
+        private suspend fun createCommsSessionOrNull(): Long? {
+            val childId = resolveCommsSessionChildId()
+            return if (childId == null || _sessionState.value != SessionState.Active) {
+                null
+            } else {
+                commsSessionRepository
+                    .createSession(childProfileId = childId)
+                    .fold(
+                        onSuccess = { sessionId ->
+                            if (_sessionState.value == SessionState.Active) {
+                                commsSessionId = sessionId
+                                Log.d(TAG, "Comms session created: sessionId=$sessionId")
+                                sessionId
+                            } else {
+                                endCommsSessionById(sessionId)
+                                null
+                            }
+                        },
+                        onFailure = { throwable ->
+                            Log.w(
+                                TAG,
+                                "Comms session creation failed. Continue without saving.",
+                                throwable,
+                            )
+                            null
+                        },
+                    )
+            }
+        }
+
+        private fun canCreateCommsSessionNow(): Boolean =
+            _sessionState.value == SessionState.Active && shouldCreateCommsSession()
+
+        private fun shouldCreateCommsSession(): Boolean =
+            when (_translationMode.value) {
+                TranslationMode.AUTO -> _isOnline.value
+                TranslationMode.SERVER -> _isOnline.value
+                TranslationMode.ON_DEVICE -> false
+            }
+
+        private fun startSessionRuntimeIfActive() {
+            if (_sessionState.value != SessionState.Active || sessionRuntimeStarted) return
+
+            sessionRuntimeStarted = true
             signRecognitionEngine.start()
 
-            // 1. 기존 STT 수집이 있다면 취소
             sttJob?.cancel()
-
-            // 2. STT 수집 시작
             sttJob =
                 viewModelScope.launch {
                     sttEngine.events.collect { event ->
@@ -714,52 +832,105 @@ class ConversationViewModel
                             return@collect
                         }
 
-                        when (event) {
-                            is SttEvent.Error -> handleLocalSttError(event)
-                            is SttEvent.PartialResults -> {
-                                if (shouldIgnoreOwnSpeech(event.text)) {
-                                    return@collect
-                                }
-                                isResultsReceived = false
-                                isStoppedReceived = false
-                                _speechInputPhase.value = SpeechInputPhase.Listening
-                                updateOrAddChildMessage(
-                                    event.text,
-                                    isFinal = false,
-                                )
-                            }
-                            is SttEvent.Results -> {
-                                if (shouldIgnoreOwnSpeech(event.text)) {
-                                    isResultsReceived = true
-                                    checkAndRestartStt()
-                                    return@collect
-                                }
-                                _speechInputPhase.value = SpeechInputPhase.Listening
-                                updateOrAddChildMessage(
-                                    event.text,
-                                    isFinal = true,
-                                )
-                                isResultsReceived = true
-                                checkAndRestartStt()
-                            }
-                            is SttEvent.EndOfSpeech -> {
-                                _speechInputPhase.value = SpeechInputPhase.Analyzing
-                            }
-                            is SttEvent.Stopped -> {
-                                if (_sessionState.value == SessionState.Active) {
-                                    isStoppedReceived = true
-                                    if (shouldUseLocalStt()) {
-                                        isResultsReceived = true // 오프라인은 결과 대기 불필요
-                                    }
-                                    checkAndRestartStt()
-                                }
-                            }
-                            is SttEvent.VolumeChanged -> _micVolume.value = event.db
-                            else -> {}
-                        }
+                        handleSttEvent(event)
                     }
                 }
             startRecordingForStt()
+        }
+
+        private suspend fun handleSttEvent(event: SttEvent) {
+            when (event) {
+                is SttEvent.Error -> handleLocalSttError(event)
+                is SttEvent.PartialResults -> handleSttPartialResults(event.text)
+                is SttEvent.Results -> handleSttResults(event.text)
+                is SttEvent.EndOfSpeech -> {
+                    _speechInputPhase.value = SpeechInputPhase.Analyzing
+                }
+                is SttEvent.Stopped -> handleSttStopped()
+                is SttEvent.VolumeChanged -> _micVolume.value = event.db
+                else -> Unit
+            }
+        }
+
+        private fun handleSttPartialResults(text: String) {
+            if (shouldIgnoreOwnSpeech(text)) return
+
+            isResultsReceived = false
+            isStoppedReceived = false
+            _speechInputPhase.value = SpeechInputPhase.Listening
+            updateOrAddChildMessage(
+                text,
+                isFinal = false,
+            )
+        }
+
+        private suspend fun handleSttResults(text: String) {
+            if (shouldIgnoreOwnSpeech(text)) {
+                isResultsReceived = true
+                checkAndRestartStt()
+                return
+            }
+
+            _speechInputPhase.value = SpeechInputPhase.Listening
+            updateOrAddChildMessage(
+                text,
+                isFinal = true,
+            )
+            isResultsReceived = true
+            checkAndRestartStt()
+        }
+
+        private suspend fun handleSttStopped() {
+            if (_sessionState.value != SessionState.Active) return
+
+            isStoppedReceived = true
+            if (shouldUseLocalStt()) {
+                isResultsReceived = true // 오프라인은 결과 대기 불필요
+            }
+            checkAndRestartStt()
+        }
+
+        private suspend fun resolveCommsSessionChildId(): Long? =
+            when (val state = activeChildProfileManager.getActiveChildProfile()) {
+                is ActiveChildProfileState.Selected -> state.profile.childId
+                ActiveChildProfileState.Loading -> null
+                ActiveChildProfileState.Missing -> {
+                    Log.d(TAG, "Comms session skipped: active child is missing")
+                    null
+                }
+                ActiveChildProfileState.NotFound -> {
+                    Log.w(TAG, "Comms session skipped: active child not found")
+                    null
+                }
+                is ActiveChildProfileState.Error -> {
+                    Log.w(TAG, "Comms session skipped: ${state.message}")
+                    null
+                }
+            }
+
+        private fun endCommsSession() {
+            commsSessionJob?.cancel()
+            commsSessionJob = null
+
+            val sessionId = commsSessionId ?: return
+            commsSessionId = null
+            endCommsSessionById(sessionId)
+        }
+
+        private fun endCommsSessionById(sessionId: Long) {
+            viewModelScope.launch {
+                commsSessionRepository
+                    .endSession(sessionId)
+                    .onSuccess {
+                        Log.d(TAG, "Comms session ended: sessionId=$sessionId")
+                    }.onFailure { throwable ->
+                        Log.w(
+                            TAG,
+                            "Comms session end failed: sessionId=$sessionId",
+                            throwable,
+                        )
+                    }
+            }
         }
 
         private fun handleLocalSttError(event: SttEvent.Error) {
@@ -786,55 +957,76 @@ class ConversationViewModel
                     "Cloud STT upload started: path=${audioFile.absolutePath}, " +
                         "size=${audioFile.length()}, mime=$CLOUD_STT_AUDIO_MIME_TYPE",
                 )
-                translateRepository
-                    .translateSpeechToText(audioFile, CLOUD_STT_AUDIO_MIME_TYPE)
-                    .onSuccess { response ->
-                        cloudSttFailureCount = 0
-                        _speechInputPhase.value = SpeechInputPhase.Listening
-                        val displayText =
-                            buildCloudSttDisplayText(
-                                recognizedText = response.recognizedText,
-                                correctedText = response.correctedText,
-                            )
-                        if (
-                            shouldIgnoreOwnSpeech(response.recognizedText) ||
-                            shouldIgnoreOwnSpeech(response.correctedText)
-                        ) {
-                            removePendingChildMessage()
-                            Log.d(TAG, "Cloud STT result ignored as app speech echo")
-                            return@onSuccess
+                val sessionId = ensureCommsSessionForServerStorage()
+                val result =
+                    translateRepository.translateSpeechToText(
+                        audioFile = audioFile,
+                        mimeType = CLOUD_STT_AUDIO_MIME_TYPE,
+                        sessionId = sessionId,
+                    )
+
+                result.fold(
+                    onSuccess = { response ->
+                        handleCloudSttSuccess(response)?.let { delayMs ->
+                            restartDelayMs = delayMs
                         }
-                        if (displayText.isBlank()) {
-                            removePendingChildMessage()
-                            restartDelayMs = STT_UNRECOGNIZED_NOTICE_MS
-                            _speechInputPhase.value = SpeechInputPhase.Unrecognized
-                            Log.d(TAG, "Cloud STT result ignored because display text is blank")
-                            return@onSuccess
-                        }
-                        if (canUseCloudStt()) {
-                            updateOrAddChildMessage(displayText, isFinal = true)
-                            _sttText.value = ""
-                        }
-                        Log.d(
-                            TAG,
-                            "Cloud STT upload succeeded: recognized=${response.recognizedText}, " +
-                                "corrected=${response.correctedText}, isCorrected=${response.corrected}",
-                        )
-                    }.onFailure {
-                        cloudSttFailureCount++
-                        restartDelayMs = getCloudSttFailureRetryDelay()
-                        removePendingChildMessage()
-                        _speechInputPhase.value = SpeechInputPhase.Unrecognized
-                        Log.w(
-                            TAG,
-                            "Cloud STT upload failed: failureCount=$cloudSttFailureCount, " +
-                                "retryDelayMs=$restartDelayMs",
-                            it,
-                        )
-                    }
+                    },
+                    onFailure = { throwable ->
+                        restartDelayMs = handleCloudSttFailure(throwable)
+                    },
+                )
             } finally {
                 deleteCloudSttAudioFile(audioFile)
             }
+            return restartDelayMs
+        }
+
+        @Suppress("ReturnCount")
+        private fun handleCloudSttSuccess(response: SpeechToTextResponse): Long? {
+            cloudSttFailureCount = 0
+            _speechInputPhase.value = SpeechInputPhase.Listening
+            val displayText =
+                buildCloudSttDisplayText(
+                    recognizedText = response.recognizedText,
+                    correctedText = response.correctedText,
+                )
+            if (
+                shouldIgnoreOwnSpeech(response.recognizedText) ||
+                shouldIgnoreOwnSpeech(response.correctedText)
+            ) {
+                removePendingChildMessage()
+                Log.d(TAG, "Cloud STT result ignored as app speech echo")
+                return null
+            }
+            if (displayText.isBlank()) {
+                removePendingChildMessage()
+                _speechInputPhase.value = SpeechInputPhase.Unrecognized
+                Log.d(TAG, "Cloud STT result ignored because display text is blank")
+                return STT_UNRECOGNIZED_NOTICE_MS
+            }
+            if (canUseCloudStt()) {
+                updateOrAddChildMessage(displayText, isFinal = true)
+                _sttText.value = ""
+            }
+            Log.d(
+                TAG,
+                "Cloud STT upload succeeded: recognized=${response.recognizedText}, " +
+                    "corrected=${response.correctedText}, isCorrected=${response.corrected}",
+            )
+            return null
+        }
+
+        private fun handleCloudSttFailure(throwable: Throwable): Long {
+            cloudSttFailureCount++
+            val restartDelayMs = getCloudSttFailureRetryDelay()
+            removePendingChildMessage()
+            _speechInputPhase.value = SpeechInputPhase.Unrecognized
+            Log.w(
+                TAG,
+                "Cloud STT upload failed: failureCount=$cloudSttFailureCount, " +
+                    "retryDelayMs=$restartDelayMs",
+                throwable,
+            )
             return restartDelayMs
         }
 
@@ -927,8 +1119,10 @@ class ConversationViewModel
 
         fun stopSession() {
             _sessionState.value = SessionState.Idle
+            sessionRuntimeStarted = false
             _signInputPhase.value = SignInputPhase.Idle
             _speechInputPhase.value = SpeechInputPhase.Idle
+            endCommsSession()
             signRecognitionEngine.stop()
             stopRecordingForStt()
             isResultsReceived = false
@@ -1109,6 +1303,7 @@ class ConversationViewModel
         }
 
         override fun onCleared() {
+            endCommsSession()
             signRecognitionEngine.stop()
             audioPlayer.stop()
             ttsPlayer.stop()
@@ -1117,6 +1312,7 @@ class ConversationViewModel
             completionTimerJob?.cancel()
             sttJob?.cancel()
             cloudSttJob?.cancel()
+            commsSessionJob?.cancel()
             super.onCleared()
         }
 

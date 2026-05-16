@@ -6,6 +6,7 @@ import com.google.gson.annotations.SerializedName
  * 부모 수화 변환 요청 DTO
  */
 data class SignToSpeechRequest(
+    @SerializedName("sessionId") val sessionId: Long? = null,
     @SerializedName("words") val words: List<String>,
     @SerializedName("locale") val locale: String = "ko-KR",
     @SerializedName("requestTts") val requestTts: Boolean = true,

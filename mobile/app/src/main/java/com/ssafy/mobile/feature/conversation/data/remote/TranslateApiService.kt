@@ -33,6 +33,7 @@ interface TranslateApiService {
     @POST("v1/translation/speech-to-text")
     suspend fun translateSpeechToText(
         @Part audioFile: MultipartBody.Part,
+        @Part("sessionId") sessionId: RequestBody? = null,
         @Part("locale") locale: RequestBody,
         @Part("audioMimeType") audioMimeType: RequestBody,
         @Query("dryRun") dryRun: Boolean = false,
