@@ -41,6 +41,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -102,7 +103,9 @@ fun conversationRoute(
     val translationModeNotice by viewModel.translationModeNotice.collectAsStateWithLifecycle()
     val translationFeedbackSubmitState by
         viewModel.translationFeedbackSubmitState.collectAsStateWithLifecycle()
+    val predictionFeedbackToken by viewModel.predictionFeedbackToken.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val hapticFeedback = LocalHapticFeedback.current
 
     // 세션 활성화 중에는 화면이 꺼지지 않도록 설정합니다.
     DisposableEffect(sessionState) {
@@ -128,6 +131,12 @@ fun conversationRoute(
             if (activity?.isChangingConfigurations != true) {
                 viewModel.stopSession()
             }
+        }
+    }
+
+    LaunchedEffect(predictionFeedbackToken, sessionState) {
+        if (sessionState == SessionState.Active && predictionFeedbackToken != 0L) {
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
         }
     }
 

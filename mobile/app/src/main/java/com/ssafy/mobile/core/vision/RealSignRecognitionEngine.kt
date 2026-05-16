@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 class RealSignRecognitionEngine(
     private val featureEncoder: LandmarkFeatureEncoder =
         LandmarkFeatureEncoder(
+            isHandForwardFillEnabled = false,
             normalizeMode = LandmarkFeatureNormalizeMode.RAW,
         ),
     private var sequenceBuffer: SignSequenceBuffer = SignSequenceBuffer(),
@@ -46,6 +47,7 @@ class RealSignRecognitionEngine(
     ) : this(
         featureEncoder =
             LandmarkFeatureEncoder(
+                isHandForwardFillEnabled = false,
                 normalizeMode = LandmarkFeatureNormalizeMode.RAW,
             ),
         sequenceBuffer = SignSequenceBuffer(),
@@ -134,7 +136,7 @@ class RealSignRecognitionEngine(
 
     private fun processFrame(frame: LandmarkFrameResult) {
         logger.logFrameState(frame)
-        if (!frame.hasHands) {
+        if (!frame.hasHands || frame.areBothHandsInactiveByHeight()) {
             frame.normalizedEyebrowGap()?.let(::addNeutralEyebrowGap)
             processNoHandsFrame(frame)
             return
@@ -384,6 +386,34 @@ private fun LandmarkFrameResult.normalizedEyebrowGap(): Float? {
     return (eyeY - eyebrowY) / eyeDistance
 }
 
+private fun LandmarkFrameResult.areBothHandsInactiveByHeight(): Boolean {
+    val thresholdY = inactiveHandThresholdY() ?: return false
+    return leftHand.isInactiveByHeight(thresholdY) && rightHand.isInactiveByHeight(thresholdY)
+}
+
+private fun LandmarkFrameResult.inactiveHandThresholdY(): Float? {
+    if (!pose.landmarks.hasIndices(TORSO_POSE_INDICES)) {
+        return null
+    }
+    val shoulderCenterY =
+        (pose.landmarks[LEFT_SHOULDER_INDEX].y + pose.landmarks[RIGHT_SHOULDER_INDEX].y) / 2f
+    val hipCenterY =
+        (pose.landmarks[LEFT_HIP_INDEX].y + pose.landmarks[RIGHT_HIP_INDEX].y) / 2f
+    if (hipCenterY <= shoulderCenterY) {
+        return null
+    }
+    return shoulderCenterY + (hipCenterY - shoulderCenterY) * 0.85f
+}
+
+private fun com.ssafy.mobile.core.vision.landmark.HandLandmarks.isInactiveByHeight(
+    thresholdY: Float,
+): Boolean {
+    if (!hasLandmarks) {
+        return true
+    }
+    return landmarks[HAND_WRIST_INDEX].y >= thresholdY
+}
+
 private fun List<LandmarkPoint>.averagePoint(indices: List<Int>): LandmarkPoint {
     val points = indices.map { index -> this[index] }
     return LandmarkPoint(
@@ -436,6 +466,18 @@ private val LEFT_EYEBROW_INDICES = listOf(70, 63, 105, 66)
 private val RIGHT_EYEBROW_INDICES = listOf(336, 296, 334, 293)
 private val LEFT_EYE_CENTER_INDICES = listOf(33, 133)
 private val RIGHT_EYE_CENTER_INDICES = listOf(362, 263)
+private const val LEFT_SHOULDER_INDEX = 11
+private const val RIGHT_SHOULDER_INDEX = 12
+private const val LEFT_HIP_INDEX = 23
+private const val RIGHT_HIP_INDEX = 24
+private const val HAND_WRIST_INDEX = 0
+private val TORSO_POSE_INDICES =
+    listOf(
+        LEFT_SHOULDER_INDEX,
+        RIGHT_SHOULDER_INDEX,
+        LEFT_HIP_INDEX,
+        RIGHT_HIP_INDEX,
+    )
 private val EYEBROW_FACE_INDICES =
     LEFT_EYEBROW_INDICES +
         RIGHT_EYEBROW_INDICES +

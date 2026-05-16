@@ -115,6 +115,9 @@ class ConversationViewModel
         private val _lastGlosses = MutableStateFlow<List<String>>(emptyList())
         val lastGlosses: StateFlow<List<String>> = _lastGlosses.asStateFlow()
 
+        private val _predictionFeedbackToken = MutableStateFlow(0L)
+        val predictionFeedbackToken: StateFlow<Long> = _predictionFeedbackToken.asStateFlow()
+
         private val _translatedText = MutableStateFlow("")
         val translatedText: StateFlow<String> = _translatedText.asStateFlow()
 
@@ -216,6 +219,7 @@ class ConversationViewModel
             val currentGlosses = _lastGlosses.value + event.gloss
             _lastGlosses.value = currentGlosses
             _signInputPhase.value = SignInputPhase.Collecting
+            _predictionFeedbackToken.value = event.timestampMs
 
             restartTranslationTimer(glosses = currentGlosses)
         }
