@@ -106,7 +106,7 @@ android {
     }
     sourceSets {
         getByName("debug") {
-            assets.srcDir(debugQwenAssetsDir)
+            assets.setSrcDirs(listOf(debugQwenAssetsDir))
         }
     }
 }

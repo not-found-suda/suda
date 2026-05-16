@@ -10,10 +10,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 /**
- * 에러 상태를 표시하기 위한 전용 텍스트 컴포넌트.
+ * 인라인 문맥에서 사용하는 간단한 에러 텍스트 컴포넌트.
  */
 @Composable
-fun AppErrorText(
+fun AppInlineErrorText(
     text: String,
     modifier: Modifier = Modifier,
 ) {

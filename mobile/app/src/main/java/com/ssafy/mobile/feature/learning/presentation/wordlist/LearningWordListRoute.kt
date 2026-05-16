@@ -34,7 +34,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
 import com.ssafy.mobile.core.ui.components.AppCard
-import com.ssafy.mobile.core.ui.components.AppErrorText
+import com.ssafy.mobile.core.ui.components.AppInlineErrorText
 import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
 import com.ssafy.mobile.core.ui.components.AppNetworkImage
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
@@ -131,7 +131,7 @@ internal fun LearningWordListScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
                         ) {
-                            AppErrorText(text = uiState.message)
+                            AppInlineErrorText(text = uiState.message)
                             Spacer(modifier = Modifier.height(16.dp))
                             AppPrimaryButton(
                                 text = "다시 시도",
