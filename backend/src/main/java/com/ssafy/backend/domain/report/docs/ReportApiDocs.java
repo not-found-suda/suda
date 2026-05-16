@@ -3,6 +3,7 @@ package com.ssafy.backend.domain.report.docs;
 import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
 import com.ssafy.backend.domain.learn.quiz.entity.QuizSessionStatus;
 import com.ssafy.backend.domain.report.dto.ReportCategoryListResponse;
+import com.ssafy.backend.domain.report.dto.ReportCommunicationSummaryResponse;
 import com.ssafy.backend.domain.report.dto.ReportQuizSessionDetailResponse;
 import com.ssafy.backend.domain.report.dto.ReportQuizSessionListResponse;
 import com.ssafy.backend.domain.report.dto.ReportSummaryResponse;
@@ -18,7 +19,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 
-@Tag(name = "리포트 API", description = "아이별 퀴즈 기록 리포트 API")
+@Tag(name = "리포트 API", description = "아이별 퀴즈 및 소통 기록 리포트 API")
 public interface ReportApiDocs {
 
   @Operation(
@@ -31,6 +32,22 @@ public interface ReportApiDocs {
       description = "성공",
       content = @Content(schema = @Schema(implementation = ReportSummaryResponse.class)))
   ResponseEntity<ReportSummaryResponse> getSummary(
+      @Parameter(hidden = true) Authentication authentication,
+      @Parameter(description = "아이 프로필 ID", example = "1") Long childId,
+      @Parameter(description = "조회 시작일", example = "2026-05-01") String from,
+      @Parameter(description = "조회 종료일", example = "2026-05-31") String to);
+
+  @Operation(
+      summary = "소통 발화 분석 리포트 조회",
+      description = "특정 아이의 양방향 소통 세션에서 저장된 CHILD 발화 분석 결과를 조회합니다.",
+      security = {@SecurityRequirement(name = "bearerAuth")})
+  @ApiErrorCodes({"VALIDATION_INVALID_INPUT", "COMMON_UNAUTHORIZED", "CHILD_PROFILE_NOT_FOUND"})
+  @ApiResponse(
+      responseCode = "200",
+      description = "성공",
+      content =
+          @Content(schema = @Schema(implementation = ReportCommunicationSummaryResponse.class)))
+  ResponseEntity<ReportCommunicationSummaryResponse> getCommunicationSummary(
       @Parameter(hidden = true) Authentication authentication,
       @Parameter(description = "아이 프로필 ID", example = "1") Long childId,
       @Parameter(description = "조회 시작일", example = "2026-05-01") String from,
