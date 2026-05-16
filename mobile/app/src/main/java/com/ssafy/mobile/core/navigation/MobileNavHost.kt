@@ -26,6 +26,7 @@ import com.ssafy.mobile.feature.mypage.presentation.MyPageRoute
 import com.ssafy.mobile.feature.quiz.presentation.QuizResultRoute
 import com.ssafy.mobile.feature.quiz.presentation.quizQuestionRoute
 import com.ssafy.mobile.feature.report.presentation.ReportCategoryProgressRoute
+import com.ssafy.mobile.feature.report.presentation.ReportCommunicationSummaryRoute
 import com.ssafy.mobile.feature.report.presentation.ReportHomeRoute
 import com.ssafy.mobile.feature.report.presentation.ReportQuizSessionDetailRoute
 import com.ssafy.mobile.feature.report.presentation.ReportQuizSessionsRoute
@@ -379,6 +380,9 @@ fun MobileNavHost(
                 onNavigateToCategoryProgress = {
                     navController.navigate(Screen.ReportCategoryProgress.route)
                 },
+                onNavigateToCommunicationSummary = {
+                    navController.navigate(Screen.ReportCommunicationSummary.route)
+                },
                 onNavigateToQuizSessions = {
                     navController.navigate(Screen.ReportQuizSessions.route)
                 },
@@ -411,6 +415,16 @@ fun MobileNavHost(
 
         composable(Screen.ReportCategoryProgress.route) {
             ReportCategoryProgressRoute(
+                onNavigateBack = { navController.popBackStack() },
+                onSwitchChild = {
+                    navController.navigate(Screen.ChildSelect.route)
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        composable(Screen.ReportCommunicationSummary.route) {
+            ReportCommunicationSummaryRoute(
                 onNavigateBack = { navController.popBackStack() },
                 onSwitchChild = {
                     navController.navigate(Screen.ChildSelect.route)
