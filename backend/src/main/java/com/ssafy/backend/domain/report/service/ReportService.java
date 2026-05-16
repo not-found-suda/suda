@@ -1,9 +1,16 @@
 package com.ssafy.backend.domain.report.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ssafy.backend.domain.child.exception.ChildProfileErrorCode;
 import com.ssafy.backend.domain.child.repository.ChildProfileRepository;
+import com.ssafy.backend.domain.comms.entity.CommunicationAnalysisStatus;
+import com.ssafy.backend.domain.comms.repository.CommunicationSessionAnalysisRepository;
 import com.ssafy.backend.domain.report.dto.ReportCategoryListResponse;
 import com.ssafy.backend.domain.report.dto.ReportCategoryResponse;
+import com.ssafy.backend.domain.report.dto.ReportCommunicationSessionSummaryResponse;
+import com.ssafy.backend.domain.report.dto.ReportCommunicationSummaryResponse;
+import com.ssafy.backend.domain.report.dto.ReportExpressionTypeCountsResponse;
 import com.ssafy.backend.domain.report.dto.ReportLatestCategoryResponse;
 import com.ssafy.backend.domain.report.dto.ReportQuizAnswerResponse;
 import com.ssafy.backend.domain.report.dto.ReportQuizSessionDetailResponse;
@@ -14,8 +21,10 @@ import com.ssafy.backend.domain.report.dto.ReportSummaryResponse;
 import com.ssafy.backend.domain.report.dto.ReportWeakWordListResponse;
 import com.ssafy.backend.domain.report.dto.ReportWeakWordResponse;
 import com.ssafy.backend.domain.report.dto.ReportWeakWordSearchCondition;
+import com.ssafy.backend.domain.report.dto.ReportWordCountResponse;
 import com.ssafy.backend.domain.report.exception.ReportErrorCode;
 import com.ssafy.backend.domain.report.repository.ReportCategoryQueryRow;
+import com.ssafy.backend.domain.report.repository.ReportCommunicationAnalysisQueryRow;
 import com.ssafy.backend.domain.report.repository.ReportLatestCategoryQueryRow;
 import com.ssafy.backend.domain.report.repository.ReportQuizAnswerQueryRow;
 import com.ssafy.backend.domain.report.repository.ReportQuizSessionQueryRepository;
@@ -27,7 +36,11 @@ import com.ssafy.backend.global.exception.ValidationErrorCode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -40,16 +53,21 @@ public class ReportService {
   private static final int DEFAULT_PAGE = 1;
   private static final int DEFAULT_MIN_ATTEMPT_COUNT = 1;
   private static final int SUMMARY_WEAK_WORD_LIMIT = 5;
+  private static final int RECENT_COMMUNICATION_SESSION_LIMIT = 5;
   private static final int MAX_SIZE = 100;
 
   private final ChildProfileRepository childProfileRepository;
   private final ReportQuizSessionQueryRepository reportQuizSessionQueryRepository;
+  private final CommunicationSessionAnalysisRepository communicationSessionAnalysisRepository;
+  private final ObjectMapper objectMapper = new ObjectMapper();
 
   public ReportService(
       ChildProfileRepository childProfileRepository,
-      ReportQuizSessionQueryRepository reportQuizSessionQueryRepository) {
+      ReportQuizSessionQueryRepository reportQuizSessionQueryRepository,
+      CommunicationSessionAnalysisRepository communicationSessionAnalysisRepository) {
     this.childProfileRepository = childProfileRepository;
     this.reportQuizSessionQueryRepository = reportQuizSessionQueryRepository;
+    this.communicationSessionAnalysisRepository = communicationSessionAnalysisRepository;
   }
 
   public ReportSummaryResponse getSummary(Long userId, Long childId, String from, String to) {
@@ -89,6 +107,94 @@ public class ReportService {
                 latestCategory.categoryId(), latestCategory.categoryName())
             : null,
         weakWords);
+  }
+
+  public ReportCommunicationSummaryResponse getCommunicationSummary(
+      Long userId, Long childId, String from, String to) {
+    validatePositiveId(childId, "childId");
+    validateChildProfileOwner(childId, userId);
+
+    LocalDateTime fromDateTime = parseFrom(from);
+    LocalDateTime toDateTime = parseToExclusive(to);
+    validateDateRange(fromDateTime, toDateTime);
+
+    if (fromDateTime == null) {
+      fromDateTime = LocalDateTime.of(1900, 1, 1, 0, 0);
+    }
+
+    if (toDateTime == null) {
+      toDateTime = LocalDateTime.of(9999, 12, 31, 23, 59, 59);
+    }
+
+    List<ReportCommunicationAnalysisQueryRow> rows =
+        communicationSessionAnalysisRepository.findCommunicationAnalysisRows(
+            childId, fromDateTime, toDateTime);
+
+    long totalSessionCount = rows.size();
+    long totalUtteranceCount = 0;
+    double sentenceLengthSum = 0.0;
+    long completedCount = 0;
+
+    Map<String, Integer> wordCounts = new LinkedHashMap<>();
+    int requestCount = 0;
+    int emotionCount = 0;
+    int responseCount = 0;
+    int playCount = 0;
+    int otherCount = 0;
+
+    List<ReportCommunicationSessionSummaryResponse> recentSessions = new ArrayList<>();
+
+    for (ReportCommunicationAnalysisQueryRow row : rows) {
+      JsonNode summary = parseSummaryJson(row.summaryJson());
+
+      int utteranceCount = readInt(summary, "utteranceCount");
+      double averageSentenceLength = readDouble(summary, "averageSentenceLength");
+      String sessionSummary = readText(summary, "summary");
+
+      if (row.analysisStatus() == CommunicationAnalysisStatus.COMPLETED) {
+        completedCount++;
+        totalUtteranceCount += utteranceCount;
+        sentenceLengthSum += averageSentenceLength;
+
+        mergeFrequentWords(wordCounts, summary.path("frequentWords"));
+
+        JsonNode expressionTypeCounts = summary.path("expressionTypeCounts");
+        requestCount += readInt(expressionTypeCounts, "REQUEST");
+        emotionCount += readInt(expressionTypeCounts, "EMOTION");
+        responseCount += readInt(expressionTypeCounts, "RESPONSE");
+        playCount += readInt(expressionTypeCounts, "PLAY");
+        otherCount += readInt(expressionTypeCounts, "OTHER");
+      }
+
+      if (recentSessions.size() < RECENT_COMMUNICATION_SESSION_LIMIT) {
+        recentSessions.add(
+            new ReportCommunicationSessionSummaryResponse(
+                row.sessionId(),
+                row.startedAt(),
+                row.endedAt(),
+                utteranceCount,
+                toTopWordResponses(summary.path("frequentWords"), 5),
+                sessionSummary,
+                row.analysisStatus(),
+                row.analyzedAt()));
+      }
+    }
+
+    CommunicationAnalysisStatus status = resolveOverallAnalysisStatus(rows);
+    double averageSentenceLength =
+        completedCount == 0 ? 0.0 : roundOneDecimal(sentenceLengthSum / completedCount);
+
+    return new ReportCommunicationSummaryResponse(
+        childId,
+        status,
+        totalSessionCount,
+        totalUtteranceCount,
+        averageSentenceLength,
+        toTopWordResponses(wordCounts, 5),
+        new ReportExpressionTypeCountsResponse(
+            requestCount, emotionCount, responseCount, playCount, otherCount),
+        recentSessions,
+        LocalDateTime.now());
   }
 
   public ReportWeakWordListResponse getWeakWords(
@@ -270,6 +376,118 @@ public class ReportService {
         calculateAccuracyRate(row.correctCount(), row.totalQuestionCount()),
         calculateAverageStar(row.totalStar(), row.totalQuestionCount()),
         row.latestSessionAt());
+  }
+
+  private CommunicationAnalysisStatus resolveOverallAnalysisStatus(
+      List<ReportCommunicationAnalysisQueryRow> rows) {
+    if (rows.isEmpty()) {
+      return CommunicationAnalysisStatus.EMPTY;
+    }
+
+    boolean hasProcessing =
+        rows.stream()
+            .anyMatch(
+                row ->
+                    row.analysisStatus() == CommunicationAnalysisStatus.PENDING
+                        || row.analysisStatus() == CommunicationAnalysisStatus.PROCESSING);
+
+    if (hasProcessing) {
+      return CommunicationAnalysisStatus.PROCESSING;
+    }
+
+    boolean hasCompleted =
+        rows.stream()
+            .anyMatch(row -> row.analysisStatus() == CommunicationAnalysisStatus.COMPLETED);
+
+    if (hasCompleted) {
+      return CommunicationAnalysisStatus.COMPLETED;
+    }
+
+    boolean allEmpty =
+        rows.stream().allMatch(row -> row.analysisStatus() == CommunicationAnalysisStatus.EMPTY);
+
+    if (allEmpty) {
+      return CommunicationAnalysisStatus.EMPTY;
+    }
+
+    return CommunicationAnalysisStatus.FAILED;
+  }
+
+  private JsonNode parseSummaryJson(String summaryJson) {
+    if (summaryJson == null || summaryJson.isBlank()) {
+      return objectMapper.createObjectNode();
+    }
+
+    try {
+      return objectMapper.readTree(summaryJson);
+    } catch (Exception e) {
+      return objectMapper.createObjectNode();
+    }
+  }
+
+  private int readInt(JsonNode node, String fieldName) {
+    JsonNode value = node.path(fieldName);
+    return value.isNumber() ? value.asInt() : 0;
+  }
+
+  private double readDouble(JsonNode node, String fieldName) {
+    JsonNode value = node.path(fieldName);
+    return value.isNumber() ? value.asDouble() : 0.0;
+  }
+
+  private String readText(JsonNode node, String fieldName) {
+    JsonNode value = node.path(fieldName);
+    return value.isTextual() ? value.asText() : "";
+  }
+
+  private void mergeFrequentWords(Map<String, Integer> wordCounts, JsonNode frequentWords) {
+    if (frequentWords == null || !frequentWords.isArray()) {
+      return;
+    }
+
+    for (JsonNode wordNode : frequentWords) {
+      String word = readText(wordNode, "word");
+      int count = readInt(wordNode, "count");
+
+      if (word == null || word.isBlank() || count <= 0) {
+        continue;
+      }
+
+      wordCounts.merge(word, count, Integer::sum);
+    }
+  }
+
+  private List<ReportWordCountResponse> toTopWordResponses(
+      Map<String, Integer> wordCounts, int limit) {
+    return wordCounts.entrySet().stream()
+        .sorted(Map.Entry.<String, Integer>comparingByValue(Comparator.reverseOrder()))
+        .limit(limit)
+        .map(entry -> new ReportWordCountResponse(entry.getKey(), entry.getValue()))
+        .toList();
+  }
+
+  private List<ReportWordCountResponse> toTopWordResponses(JsonNode frequentWords, int limit) {
+    if (frequentWords == null || !frequentWords.isArray()) {
+      return List.of();
+    }
+
+    List<ReportWordCountResponse> words = new ArrayList<>();
+
+    for (JsonNode wordNode : frequentWords) {
+      String word = readText(wordNode, "word");
+      int count = readInt(wordNode, "count");
+
+      if (word == null || word.isBlank() || count <= 0) {
+        continue;
+      }
+
+      words.add(new ReportWordCountResponse(word, count));
+    }
+
+    return words.stream()
+        .sorted(Comparator.comparingInt(ReportWordCountResponse::count).reversed())
+        .limit(limit)
+        .toList();
   }
 
   private LocalDateTime parseFrom(String value) {

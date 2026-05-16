@@ -28,7 +28,7 @@ public class OpenAiClient {
     }
 
     try {
-      String result = callGemini(systemInstruction, userInput);
+      String result = callGemini(systemInstruction, userInput, 0.1, 64);
 
       if (result == null || result.isBlank()) {
         throw new IllegalStateException("Gemini 응답 텍스트가 비어 있습니다.");
@@ -59,7 +59,45 @@ public class OpenAiClient {
     }
   }
 
-  private String callGemini(String systemInstruction, String userInput) {
+  public String generateJson(String systemInstruction, String userInput) {
+    if (userInput == null || userInput.isBlank()) {
+      return "{}";
+    }
+
+    try {
+      String result = callGemini(systemInstruction, userInput, 0.2, 1024);
+
+      if (result == null || result.isBlank()) {
+        throw new IllegalStateException("Gemini JSON 응답이 비어 있습니다.");
+      }
+
+      return cleanJson(result);
+
+    } catch (RestClientResponseException e) {
+      log.warn(
+          "Gemini analysis request failed. status={}, responseHeaders={}, responseBody={}, exceptionClass={}, message={}",
+          e.getStatusCode(),
+          e.getResponseHeaders(),
+          abbreviate(e.getResponseBodyAsString(), 1000),
+          e.getClass().getName(),
+          e.getMessage(),
+          e);
+
+      throw new IllegalStateException("Gemini 발화 분석 호출에 실패했습니다.", e);
+
+    } catch (Exception e) {
+      log.warn(
+          "Gemini analysis request failed. exceptionClass={}, message={}",
+          e.getClass().getName(),
+          e.getMessage(),
+          e);
+
+      throw new IllegalStateException("Gemini 발화 분석 호출에 실패했습니다.", e);
+    }
+  }
+
+  private String callGemini(
+      String systemInstruction, String userInput, double temperature, int maxOutputTokens) {
     AiProperties.Gemini gemini = aiProperties.gemini();
 
     if (gemini == null) {
@@ -76,7 +114,7 @@ public class OpenAiClient {
         new GeminiRequest(
             new GeminiContent(List.of(new GeminiPart(systemInstruction))),
             List.of(new GeminiContent(List.of(new GeminiPart(userInput)))),
-            new GeminiGenerationConfig(0.1, 64, new GeminiThinkingConfig(0)));
+            new GeminiGenerationConfig(temperature, maxOutputTokens, new GeminiThinkingConfig(0)));
 
     GeminiResponse response =
         restClient
@@ -104,6 +142,10 @@ public class OpenAiClient {
 
   private String clean(String result) {
     return result.trim().replace("\"", "").replace("'", "").replace("`", "").split("\\n")[0].trim();
+  }
+
+  private String cleanJson(String result) {
+    return result.trim().replace("```json", "").replace("```", "").trim();
   }
 
   private String abbreviate(String value, int maxLength) {
