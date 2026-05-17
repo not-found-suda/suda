@@ -1,12 +1,14 @@
 package com.ssafy.backend.global.security.jwt;
 
 import com.ssafy.backend.domain.auth.service.AccessTokenBlacklistStore;
+import com.ssafy.backend.domain.auth.service.AccessTokenInvalidationStore;
 import com.ssafy.backend.global.security.Role;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.time.Instant;
 import java.util.List;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -22,11 +24,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
   private final JwtTokenProvider jwtTokenProvider;
   private final AccessTokenBlacklistStore accessTokenBlacklistStore;
+  private final AccessTokenInvalidationStore accessTokenInvalidationStore;
 
   public JwtAuthenticationFilter(
-      JwtTokenProvider jwtTokenProvider, AccessTokenBlacklistStore accessTokenBlacklistStore) {
+      JwtTokenProvider jwtTokenProvider,
+      AccessTokenBlacklistStore accessTokenBlacklistStore,
+      AccessTokenInvalidationStore accessTokenInvalidationStore) {
     this.jwtTokenProvider = jwtTokenProvider;
     this.accessTokenBlacklistStore = accessTokenBlacklistStore;
+    this.accessTokenInvalidationStore = accessTokenInvalidationStore;
   }
 
   @Override
@@ -46,6 +52,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       }
 
       Long userId = jwtTokenProvider.getUserId(token);
+      Instant issuedAt = jwtTokenProvider.getIssuedAt(token);
+      if (accessTokenInvalidationStore.isInvalidated(userId, issuedAt)) {
+        filterChain.doFilter(request, response);
+        return;
+      }
+
       Role role = jwtTokenProvider.getRole(token);
 
       UsernamePasswordAuthenticationToken authenticationToken =

@@ -87,6 +87,11 @@ public class JwtTokenProvider {
     return Role.valueOf(roleName);
   }
 
+  public Instant getIssuedAt(String token) {
+    Claims claims = parseClaims(token);
+    return claims.getIssuedAt().toInstant();
+  }
+
   public boolean isAccessToken(String token) {
     Claims claims = parseClaims(token);
     String tokenType = claims.get(TOKEN_TYPE_CLAIM, String.class);
