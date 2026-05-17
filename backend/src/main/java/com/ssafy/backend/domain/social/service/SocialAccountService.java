@@ -53,6 +53,7 @@ public class SocialAccountService {
     User user = getActiveUser(userId);
     NaverOAuthClient.NaverProfile profile = naverOAuthClient.getProfile(providerAccessToken);
     String providerEmail = normalizeEmail(profile.email());
+    validateProviderEmail(user, providerEmail);
 
     return socialAccountRepository
         .findByUserIdAndProvider(userId, SocialProvider.NAVER)
@@ -97,6 +98,12 @@ public class SocialAccountService {
       throw new BusinessException(SocialAccountErrorCode.ALREADY_LINKED);
     }
     return toLinkedResponse(existing);
+  }
+
+  private void validateProviderEmail(User user, String providerEmail) {
+    if (!normalizeEmail(user.getEmail()).equals(providerEmail)) {
+      throw new BusinessException(SocialAccountErrorCode.EMAIL_MISMATCH);
+    }
   }
 
   private User getActiveUser(Long userId) {

@@ -36,6 +36,7 @@ class SocialAccountServiceTest {
   private static final String NAVER_PROVIDER_USER_ID = "naver-123";
   private static final String OTHER_NAVER_PROVIDER_USER_ID = "naver-456";
   private static final String PROVIDER_EMAIL = "guardian@naver.com";
+  private static final String OTHER_PROVIDER_EMAIL = "other@naver.com";
 
   @Mock private SocialAccountRepository socialAccountRepository;
   @Mock private UserRepository userRepository;
@@ -137,6 +138,22 @@ class SocialAccountServiceTest {
   }
 
   @Test
+  @DisplayName("네이버 계정 이메일이 현재 사용자 이메일과 다르면 연동할 수 없다")
+  void linkNaverRejectsProviderEmailMismatch() {
+    User user = passwordUser(USER_ID, OTHER_PROVIDER_EMAIL);
+    when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+    when(naverOAuthClient.getProfile(PROVIDER_ACCESS_TOKEN))
+        .thenReturn(naverProfile(NAVER_PROVIDER_USER_ID));
+
+    assertSocialAccountError(
+        () -> socialAccountService.linkNaver(USER_ID, PROVIDER_ACCESS_TOKEN),
+        SocialAccountErrorCode.EMAIL_MISMATCH);
+
+    verify(socialAccountRepository, never()).findByUserIdAndProvider(Mockito.any(), Mockito.any());
+    verify(socialAccountRepository, never()).saveAndFlush(Mockito.any());
+  }
+
+  @Test
   @DisplayName("다른 사용자에게 연동된 네이버 계정은 연동할 수 없다")
   void linkNaverRejectsAccountLinkedToOtherUser() {
     User user = passwordUser(USER_ID);
@@ -207,14 +224,17 @@ class SocialAccountServiceTest {
   }
 
   private User passwordUser(Long userId) {
-    User user = User.create("guardian" + userId + "@example.com", "encoded-password", "보호자");
+    return passwordUser(userId, PROVIDER_EMAIL);
+  }
+
+  private User passwordUser(Long userId, String email) {
+    User user = User.create(email, "encoded-password", "보호자");
     ReflectionTestUtils.setField(user, "id", userId);
     return user;
   }
 
   private User oauthOnlyUser(Long userId) {
-    User user =
-        User.createOAuthUser("guardian" + userId + "@example.com", "encoded-password", "보호자");
+    User user = User.createOAuthUser(PROVIDER_EMAIL, "encoded-password", "보호자");
     ReflectionTestUtils.setField(user, "id", userId);
     return user;
   }
