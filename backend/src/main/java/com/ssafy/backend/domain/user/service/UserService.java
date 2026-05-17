@@ -123,6 +123,30 @@ public class UserService {
     userRepository.flush();
   }
 
+  public void withdraw(Long userId, String password) {
+    User user =
+        userRepository
+            .findById(userId)
+            .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+    if (!user.isActive()) {
+      throw new BusinessException(UserErrorCode.USER_NOT_FOUND);
+    }
+
+    if (user.isPasswordLoginEnabled()) {
+      if (password == null || password.isBlank()) {
+        throw new BusinessException(UserErrorCode.WITHDRAW_PASSWORD_REQUIRED);
+      }
+      if (!passwordEncoder.matches(password, user.getPassword())) {
+        throw new BusinessException(UserErrorCode.CURRENT_PASSWORD_MISMATCH);
+      }
+    }
+
+    user.withdraw();
+    userRepository.flush();
+    userTokenInvalidationService.invalidateAll(userId);
+  }
+
   @Transactional(readOnly = true)
   public TtsSpeakerListResponseDto getTtsSpeakers() {
     return new TtsSpeakerListResponseDto(

@@ -11,6 +11,8 @@ public enum UserErrorCode implements ErrorCode {
       "USER_NEW_PASSWORD_SAME_AS_CURRENT", HttpStatus.BAD_REQUEST, "새 비밀번호는 현재 비밀번호와 달라야 합니다."),
   PASSWORD_LOGIN_NOT_ENABLED(
       "USER_PASSWORD_LOGIN_NOT_ENABLED", HttpStatus.BAD_REQUEST, "비밀번호 로그인을 사용할 수 없는 계정입니다."),
+  WITHDRAW_PASSWORD_REQUIRED(
+      "USER_WITHDRAW_PASSWORD_REQUIRED", HttpStatus.BAD_REQUEST, "회원 탈퇴를 위해 현재 비밀번호가 필요합니다."),
   UNSUPPORTED_TTS_SPEAKER(
       "USER_UNSUPPORTED_TTS_SPEAKER", HttpStatus.BAD_REQUEST, "지원하지 않는 TTS 목소리입니다.");
 

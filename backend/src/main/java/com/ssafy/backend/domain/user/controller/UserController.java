@@ -8,12 +8,14 @@ import com.ssafy.backend.domain.user.dto.UserPasswordChangeRequestDto;
 import com.ssafy.backend.domain.user.dto.UserResponseDto;
 import com.ssafy.backend.domain.user.dto.UserUpdateRequestDto;
 import com.ssafy.backend.domain.user.dto.UserUpdateResponseDto;
+import com.ssafy.backend.domain.user.dto.UserWithdrawRequestDto;
 import com.ssafy.backend.domain.user.service.UserService;
 import com.ssafy.backend.global.exception.BusinessException;
 import com.ssafy.backend.global.exception.CommonErrorCode;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -56,6 +58,18 @@ public class UserController implements UserApiDocs {
     Long userId = extractUserId(authentication);
 
     userService.changePassword(userId, requestDto.currentPassword(), requestDto.newPassword());
+    return ResponseEntity.noContent().build();
+  }
+
+  @DeleteMapping("/me")
+  @Override
+  public ResponseEntity<Void> withdrawMe(
+      Authentication authentication,
+      @RequestBody(required = false) UserWithdrawRequestDto requestDto) {
+    Long userId = extractUserId(authentication);
+    String password = requestDto != null ? requestDto.password() : null;
+
+    userService.withdraw(userId, password);
     return ResponseEntity.noContent().build();
   }
 

@@ -101,6 +101,10 @@ public class User extends BaseEntity {
     this.password = password;
   }
 
+  public void withdraw() {
+    this.active = false;
+  }
+
   public void updateTtsSpeaker(String ttsSpeaker) {
     this.ttsSpeaker = ttsSpeaker;
   }

@@ -7,6 +7,7 @@ import com.ssafy.backend.domain.user.dto.UserPasswordChangeRequestDto;
 import com.ssafy.backend.domain.user.dto.UserResponseDto;
 import com.ssafy.backend.domain.user.dto.UserUpdateRequestDto;
 import com.ssafy.backend.domain.user.dto.UserUpdateResponseDto;
+import com.ssafy.backend.domain.user.dto.UserWithdrawRequestDto;
 import com.ssafy.backend.global.docs.ApiErrorCodes;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -57,6 +58,7 @@ public interface UserApiDocs {
     "VALIDATION_PASSWORD_CHARSET",
     "COMMON_UNAUTHORIZED",
     "USER_NOT_FOUND",
+    "USER_PASSWORD_LOGIN_NOT_ENABLED",
     "USER_CURRENT_PASSWORD_MISMATCH",
     "USER_NEW_PASSWORD_SAME_AS_CURRENT"
   })
@@ -64,6 +66,22 @@ public interface UserApiDocs {
   ResponseEntity<Void> changePassword(
       @Parameter(hidden = true) Authentication authentication,
       @Valid @RequestBody UserPasswordChangeRequestDto request);
+
+  @Operation(
+      summary = "회원 탈퇴",
+      description =
+          "인증된 사용자의 계정을 비활성화합니다. 비밀번호 로그인 계정은 현재 비밀번호 확인이 필요하며, 소셜 전용 계정은 비밀번호 없이 탈퇴할 수 있습니다.",
+      security = {@SecurityRequirement(name = "bearerAuth")})
+  @ApiErrorCodes({
+    "COMMON_UNAUTHORIZED",
+    "USER_NOT_FOUND",
+    "USER_WITHDRAW_PASSWORD_REQUIRED",
+    "USER_CURRENT_PASSWORD_MISMATCH"
+  })
+  @ApiResponse(responseCode = "204", description = "성공")
+  ResponseEntity<Void> withdrawMe(
+      @Parameter(hidden = true) Authentication authentication,
+      @RequestBody(required = false) UserWithdrawRequestDto request);
 
   @Operation(
       summary = "TTS 목소리 후보 목록 조회",
