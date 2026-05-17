@@ -31,20 +31,24 @@ public class ChildProfile extends BaseEntity {
   @Column(name = "birth_date", nullable = false)
   private LocalDate birthDate;
 
+  @Column(name = "avatar_key", nullable = false, length = 50)
+  private String avatarKey;
+
   @Column(nullable = false)
   private boolean active;
 
   protected ChildProfile() {}
 
-  private ChildProfile(User user, String name, LocalDate birthDate) {
+  private ChildProfile(User user, String name, LocalDate birthDate, String avatarKey) {
     this.user = user;
     this.name = name;
     this.birthDate = birthDate;
+    this.avatarKey = avatarKey;
     this.active = true;
   }
 
-  public static ChildProfile create(User user, String name, LocalDate birthDate) {
-    return new ChildProfile(user, name, birthDate);
+  public static ChildProfile create(User user, String name, LocalDate birthDate, String avatarKey) {
+    return new ChildProfile(user, name, birthDate, avatarKey);
   }
 
   public Long getId() {
@@ -59,16 +63,23 @@ public class ChildProfile extends BaseEntity {
     return birthDate;
   }
 
+  public String getAvatarKey() {
+    return avatarKey;
+  }
+
   public boolean isActive() {
     return active;
   }
 
-  public void update(String name, LocalDate birthDate) {
+  public void update(String name, LocalDate birthDate, String avatarKey) {
     if (name != null) {
       this.name = name;
     }
     if (birthDate != null) {
       this.birthDate = birthDate;
+    }
+    if (avatarKey != null) {
+      this.avatarKey = avatarKey;
     }
   }
 

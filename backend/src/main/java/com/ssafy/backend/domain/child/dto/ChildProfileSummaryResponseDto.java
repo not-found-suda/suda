@@ -8,4 +8,5 @@ public record ChildProfileSummaryResponseDto(
     @Schema(description = "아이 이름", example = "민준") String name,
     @Schema(description = "아이 생년월일", example = "2020-05-01") LocalDate birthDate,
     @Schema(description = "응답 시점 기준 만 나이", example = "6") int age,
+    @Schema(description = "프로필 이미지 키", example = "purple_diamond") String avatarKey,
     @Schema(description = "활성 여부", example = "true") boolean active) {}

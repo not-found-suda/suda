@@ -10,4 +10,5 @@ public record ChildProfileCreateRequestDto(
             description = "아이 생년월일",
             example = "2020-05-01",
             requiredMode = Schema.RequiredMode.REQUIRED)
-        LocalDate birthDate) {}
+        LocalDate birthDate,
+    @Schema(description = "프로필 이미지 키", example = "purple_diamond") String avatarKey) {}
