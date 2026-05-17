@@ -42,6 +42,10 @@ val SudaOfflineBanner = SudaWarning
 val SudaOnlineRestoredBanner = SudaSuccess
 val SudaOnStatusBanner = Color(0xFFFFFFFF)
 
+// Screen accent colors
+val SudaHomeAccent = SudaPrimaryLight
+val SudaReportAccent = SudaTertiaryLight
+
 // Dark Theme Colors
 val SudaPrimaryDark = Color(0xFF7EDBD0)
 val SudaOnPrimaryDark = Color(0xFF003B35)

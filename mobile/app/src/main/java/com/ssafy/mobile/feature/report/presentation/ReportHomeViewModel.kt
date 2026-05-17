@@ -45,35 +45,59 @@ class ReportHomeViewModel
     constructor(
         private val activeChildProfileManager: ActiveChildProfileManager,
         private val reportRepository: ReportRepository,
+        private val filterSelectionStore: ReportFilterSelectionStore,
     ) : ViewModel() {
-        private val _uiState = MutableStateFlow(ReportHomeUiState())
+        private val _uiState =
+            MutableStateFlow(
+                ReportHomeUiState(
+                    filterUiState =
+                        ReportFilterUiState(
+                            input = filterSelectionStore.currentInput(),
+                            hasAppliedFilter = true,
+                        ),
+                ),
+            )
         val uiState: StateFlow<ReportHomeUiState> = _uiState.asStateFlow()
         private var loadJob: Job? = null
-        private var appliedFilter = defaultReportFilterState()
+        private var appliedFilter =
+            filterSelectionStore
+                .currentInput()
+                .toDateFilter()
+                .getOrDefault(
+                    defaultReportFilterState(),
+                )
 
         init {
             loadActiveChildProfile()
         }
 
-        fun loadActiveChildProfile() {
+        fun loadActiveChildProfile(showLoading: Boolean = true) {
             loadJob?.cancel()
             loadJob =
                 viewModelScope.launch {
-                    _uiState.value =
-                        _uiState.value.copy(
-                            activeChildState = ActiveChildProfileState.Loading,
-                            summaryState = ReportSummaryUiState.Idle,
-                        )
+                    if (showLoading) {
+                        _uiState.value =
+                            _uiState.value.copy(
+                                activeChildState = ActiveChildProfileState.Loading,
+                                summaryState = ReportSummaryUiState.Idle,
+                            )
+                    }
                     val state =
                         withContext(Dispatchers.IO) {
                             activeChildProfileManager.getActiveChildProfile()
                         }
+                    val shouldShowSummaryLoading =
+                        showLoading || _uiState.value.summaryState is ReportSummaryUiState.Idle
                     _uiState.value =
                         _uiState.value.copy(
                             activeChildState = state,
                             summaryState =
                                 if (state is ActiveChildProfileState.Selected) {
-                                    ReportSummaryUiState.Loading
+                                    if (shouldShowSummaryLoading) {
+                                        ReportSummaryUiState.Loading
+                                    } else {
+                                        _uiState.value.summaryState
+                                    }
                                 } else {
                                     ReportSummaryUiState.Idle
                                 },
@@ -116,6 +140,7 @@ class ReportHomeViewModel
                 }
 
             appliedFilter = filter
+            filterSelectionStore.update(_uiState.value.filterUiState.input)
             _uiState.value =
                 _uiState.value.copy(
                     filterUiState =
@@ -129,9 +154,14 @@ class ReportHomeViewModel
 
         fun resetFilter() {
             appliedFilter = defaultReportFilterState()
+            filterSelectionStore.reset()
             _uiState.value =
                 _uiState.value.copy(
-                    filterUiState = ReportFilterUiState(),
+                    filterUiState =
+                        ReportFilterUiState(
+                            input = filterSelectionStore.currentInput(),
+                            hasAppliedFilter = true,
+                        ),
                 )
             reloadSummaryWithCurrentChild()
         }

@@ -14,7 +14,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.ssafy.mobile.core.ui.theme.SudaInfo
 import com.ssafy.mobile.core.ui.theme.SudaSuccess
-import com.ssafy.mobile.core.ui.theme.SudaWarning
 
 @Composable
 fun AppBadge(
@@ -74,8 +73,8 @@ private fun AppBadgeTone.colors(): AppBadgeColors =
             )
         AppBadgeTone.Warning ->
             AppBadgeColors(
-                container = SudaWarning.copy(alpha = 0.16f),
-                content = Color(0xFF6B4200),
+                container = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.58f),
+                content = MaterialTheme.colorScheme.onSecondaryContainer,
             )
         AppBadgeTone.Error ->
             AppBadgeColors(

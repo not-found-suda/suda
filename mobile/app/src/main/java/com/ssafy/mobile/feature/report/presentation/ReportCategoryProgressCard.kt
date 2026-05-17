@@ -71,26 +71,28 @@ private fun ReportCategoryProgressHeader(category: ReportCategoryProgress) {
 
 @Composable
 private fun ReportCategoryMetricRow(category: ReportCategoryProgress) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        ReportCategoryMetric(
-            title = "완료 퀴즈",
-            value = "${category.completedSessionCount}회",
-            tone = ReportVisualTone.Primary,
-            modifier = Modifier.weight(1f),
-        )
-        ReportCategoryMetric(
-            title = "문제 수",
-            value = "${category.totalQuestionCount}",
-            tone = ReportVisualTone.Tertiary,
-            modifier = Modifier.weight(1f),
-        )
-        ReportStarMetricTile(
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ReportCategoryMetric(
+                title = "완료 퀴즈",
+                value = "${category.completedSessionCount}회",
+                tone = ReportVisualTone.Primary,
+                modifier = Modifier.weight(1f),
+            )
+            ReportCategoryMetric(
+                title = "문제 수",
+                value = "${category.totalQuestionCount}",
+                tone = ReportVisualTone.Tertiary,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        ReportInlineStarMetric(
             title = "평균 별점",
             rating = category.averageStar,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.fillMaxWidth(),
         )
     }
 }

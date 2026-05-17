@@ -9,6 +9,7 @@ data class LearningQuizSession(
     val totalQuestionCount: Int,
     val currentQuestionNumber: Int,
     val status: String,
+    val imageUrls: List<String> = emptyList(),
 )
 
 data class LearningQuizQuestion(

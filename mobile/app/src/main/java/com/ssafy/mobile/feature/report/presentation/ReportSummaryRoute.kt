@@ -18,10 +18,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -29,10 +27,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.ssafy.mobile.core.ui.components.AppBadge
-import com.ssafy.mobile.core.ui.components.AppBadgeTone
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+import com.ssafy.mobile.core.ui.components.SudaMascot
+import com.ssafy.mobile.core.ui.components.SudaStateView
 import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -50,7 +48,7 @@ fun ReportSummaryRoute(
         val observer =
             LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
-                    viewModel.loadActiveChildProfile()
+                    viewModel.loadActiveChildProfile(showLoading = false)
                 }
             }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -85,17 +83,10 @@ fun ReportSummaryRoute(
         ReportSummaryContent(
             activeChildState = uiState.activeChildState,
             summaryState = uiState.summaryState,
-            filterUiState = uiState.filterUiState,
             actions =
                 ReportSummaryActions(
-                    onRetryClick = viewModel::loadActiveChildProfile,
+                    onRetryClick = { viewModel.loadActiveChildProfile() },
                     onSwitchChild = onSwitchChild,
-                    filterActions =
-                        ReportFilterActions(
-                            onInputChange = viewModel::updateFilterInput,
-                            onApplyClick = viewModel::applyFilter,
-                            onResetClick = viewModel::resetFilter,
-                        ),
                 ),
             modifier =
                 Modifier
@@ -109,7 +100,6 @@ fun ReportSummaryRoute(
 private fun ReportSummaryContent(
     activeChildState: ActiveChildProfileState,
     summaryState: ReportSummaryUiState,
-    filterUiState: ReportFilterUiState,
     actions: ReportSummaryActions,
     modifier: Modifier = Modifier,
 ) {
@@ -129,13 +119,6 @@ private fun ReportSummaryContent(
                 }
 
             is ActiveChildProfileState.Selected -> {
-                item {
-                    ReportFilterPanel(
-                        state = filterUiState,
-                        config = ReportFilterPanelConfig(),
-                        actions = actions.filterActions,
-                    )
-                }
                 item {
                     ReportSummarySection(
                         summaryState = summaryState,
@@ -176,7 +159,6 @@ private fun ReportSummaryContent(
 private data class ReportSummaryActions(
     val onRetryClick: () -> Unit,
     val onSwitchChild: () -> Unit,
-    val filterActions: ReportFilterActions,
 )
 
 @Composable
@@ -204,16 +186,11 @@ private fun ReportSummaryStatusCard(message: String) {
     ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        AppBadge(
-            text = "상태",
-            tone = AppBadgeTone.Neutral,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
+        SudaStateView(
+            mascot = SudaMascot.Loading,
+            title = message.replace("...", ""),
+            modifier = Modifier.height(132.dp),
+            compact = true,
         )
     }
 }
@@ -226,27 +203,18 @@ private fun ReportSummaryErrorCard(
     ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            AppBadge(
-                text = "불러오기 실패",
-                tone = AppBadgeTone.Error,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            AppSecondaryButton(
-                text = "다시 시도",
-                onClick = onRetryClick,
-                modifier = Modifier.height(36.dp),
-            )
-        }
+        SudaStateView(
+            mascot = SudaMascot.ErrorNetwork,
+            title = "학습 요약을 불러오지 못했어요",
+            description = message,
+            action = {
+                AppSecondaryButton(
+                    text = "다시 시도",
+                    onClick = onRetryClick,
+                    modifier = Modifier.height(36.dp),
+                )
+            },
+        )
     }
 }
 
@@ -259,26 +227,16 @@ private fun ReportSummaryActionCard(
     ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            AppBadge(
-                text = "아이 선택",
-                tone = AppBadgeTone.Warning,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            AppPrimaryButton(
-                text = buttonText,
-                onClick = onClick,
-                modifier = Modifier.height(40.dp),
-            )
-        }
+        SudaStateView(
+            mascot = SudaMascot.Report,
+            title = message,
+            action = {
+                AppPrimaryButton(
+                    text = buttonText,
+                    onClick = onClick,
+                    modifier = Modifier.height(40.dp),
+                )
+            },
+        )
     }
 }

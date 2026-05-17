@@ -1,36 +1,27 @@
 package com.ssafy.mobile.feature.report.presentation
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.ssafy.mobile.core.ui.components.AppBadge
-import com.ssafy.mobile.core.ui.components.AppBadgeTone
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+import com.ssafy.mobile.core.ui.components.SudaMascot
+import com.ssafy.mobile.core.ui.components.SudaStateView
 
 @Composable
 internal fun ReportQuizSessionDetailStatusCard(message: String) {
+    val lines = message.toStateLines()
     ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        AppBadge(
-            text = "상태",
-            tone = AppBadgeTone.Neutral,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
+        SudaStateView(
+            mascot = if (message.contains("없")) SudaMascot.Empty else SudaMascot.Loading,
+            title = lines.first,
+            description = lines.second,
+            modifier = Modifier.height(132.dp),
+            compact = true,
         )
     }
 }
@@ -43,27 +34,18 @@ internal fun ReportQuizSessionDetailErrorCard(
     ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            AppBadge(
-                text = "불러오기 실패",
-                tone = AppBadgeTone.Error,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            AppSecondaryButton(
-                text = "다시 시도",
-                onClick = onRetryClick,
-                modifier = Modifier.height(36.dp),
-            )
-        }
+        SudaStateView(
+            mascot = SudaMascot.ErrorNetwork,
+            title = "퀴즈 상세를 불러오지 못했어요",
+            description = message,
+            action = {
+                AppSecondaryButton(
+                    text = "다시 시도",
+                    onClick = onRetryClick,
+                    modifier = Modifier.height(36.dp),
+                )
+            },
+        )
     }
 }
 
@@ -76,26 +58,22 @@ internal fun ReportQuizSessionDetailActionCard(
     ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            AppBadge(
-                text = "아이 선택",
-                tone = AppBadgeTone.Warning,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            AppPrimaryButton(
-                text = buttonText,
-                onClick = onClick,
-                modifier = Modifier.height(40.dp),
-            )
-        }
+        SudaStateView(
+            mascot = SudaMascot.Report,
+            title = message,
+            action = {
+                AppPrimaryButton(
+                    text = buttonText,
+                    onClick = onClick,
+                    modifier = Modifier.height(40.dp),
+                )
+            },
+        )
     }
+}
+
+private fun String.toStateLines(): Pair<String, String?> {
+    val lines = lines().filter { it.isNotBlank() }
+    return lines.firstOrNull().orEmpty() to
+        lines.drop(1).joinToString("\n").takeIf { it.isNotBlank() }
 }

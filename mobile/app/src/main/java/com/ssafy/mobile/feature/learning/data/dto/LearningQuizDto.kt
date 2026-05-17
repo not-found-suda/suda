@@ -32,6 +32,8 @@ data class LearningQuizSessionResponseDto(
     val currentQuestionNumber: Int,
     @SerializedName("status")
     val status: String,
+    @SerializedName("imageUrls")
+    val imageUrls: List<String>? = null,
 ) {
     fun toDomain(): LearningQuizSession =
         LearningQuizSession(
@@ -41,6 +43,7 @@ data class LearningQuizSessionResponseDto(
             totalQuestionCount = totalQuestionCount,
             currentQuestionNumber = currentQuestionNumber,
             status = status,
+            imageUrls = imageUrls.orEmpty(),
         )
 }
 

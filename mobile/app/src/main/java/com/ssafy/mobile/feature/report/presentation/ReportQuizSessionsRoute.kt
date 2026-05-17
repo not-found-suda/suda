@@ -35,7 +35,10 @@ import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+import com.ssafy.mobile.core.ui.components.SudaMascot
+import com.ssafy.mobile.core.ui.components.SudaStateView
 import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
+import com.ssafy.mobile.feature.report.domain.model.ReportQuizSession
 import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionPage
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -43,7 +46,7 @@ import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionPage
 fun ReportQuizSessionsRoute(
     onNavigateBack: () -> Unit,
     onSwitchChild: () -> Unit,
-    onNavigateToDetail: (Long) -> Unit,
+    onSessionClick: (ReportQuizSession) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ReportQuizSessionsViewModel = hiltViewModel(),
 ) {
@@ -54,7 +57,7 @@ fun ReportQuizSessionsRoute(
         val observer =
             LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
-                    viewModel.loadActiveChildProfile()
+                    viewModel.loadActiveChildProfile(showLoading = false)
                 }
             }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -92,17 +95,10 @@ fun ReportQuizSessionsRoute(
             filterUiState = uiState.filterUiState,
             actions =
                 ReportQuizSessionsActions(
-                    onRetryClick = viewModel::loadActiveChildProfile,
+                    onRetryClick = { viewModel.loadActiveChildProfile() },
                     onLoadMoreClick = viewModel::loadMoreQuizSessions,
                     onSwitchChild = onSwitchChild,
-                    onNavigateToDetail = onNavigateToDetail,
-                    filterActions =
-                        ReportFilterActions(
-                            onInputChange = viewModel::updateFilterInput,
-                            onApplyClick = viewModel::applyFilter,
-                            onResetClick = viewModel::resetFilter,
-                            onRetryCategoriesClick = viewModel::loadFilterCategories,
-                        ),
+                    onSessionClick = onSessionClick,
                 ),
             modifier =
                 Modifier
@@ -126,26 +122,32 @@ private fun ReportQuizSessionsContent(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            ReportQuizSessionsIntro(activeChildState = activeChildState)
+            ReportQuizSessionsIntro(
+                activeChildState = activeChildState,
+                isResumeOnly = filterUiState.input.status == QUIZ_STATUS_IN_PROGRESS,
+            )
         }
 
         when (activeChildState) {
             ActiveChildProfileState.Loading ->
                 item {
-                    ReportQuizSessionsStatusCard(message = "아이 정보를 불러오는 중...")
+                    ReportQuizSessionsStatusCard(
+                        mascot = SudaMascot.Loading,
+                        title = "아이 정보를 불러오는 중이에요",
+                    )
                 }
 
             is ActiveChildProfileState.Selected ->
                 quizSessionsItems(
                     state = quizSessionsState,
-                    filterUiState = filterUiState,
                     actions = actions,
                 )
 
             ActiveChildProfileState.Missing ->
                 item {
                     ReportQuizSessionsActionCard(
-                        message = "리포트를 보려면 아이를 먼저 선택해 주세요.",
+                        title = "아이를 먼저 선택해 주세요",
+                        description = "퀴즈 기록을 보려면 아이 정보가 필요해요.",
                         buttonText = "아이 선택하기",
                         onClick = actions.onSwitchChild,
                     )
@@ -154,7 +156,8 @@ private fun ReportQuizSessionsContent(
             ActiveChildProfileState.NotFound ->
                 item {
                     ReportQuizSessionsActionCard(
-                        message = "선택된 아이 정보를 찾을 수 없습니다.",
+                        title = "아이 정보를 찾을 수 없어요",
+                        description = "다시 선택하면 퀴즈 기록을 볼 수 있어요.",
                         buttonText = "아이 다시 선택하기",
                         onClick = actions.onSwitchChild,
                     )
@@ -173,39 +176,25 @@ private fun ReportQuizSessionsContent(
 
 private fun LazyListScope.quizSessionsItems(
     state: ReportQuizSessionsState,
-    filterUiState: ReportFilterUiState,
     actions: ReportQuizSessionsActions,
 ) {
-    item {
-        ReportFilterPanel(
-            state = filterUiState,
-            config =
-                ReportFilterPanelConfig(
-                    showCategory = true,
-                    showDifficulty = true,
-                    showStatus = true,
-                ),
-            actions = actions.filterActions,
-        )
-    }
-
     when (state) {
         ReportQuizSessionsState.Idle,
         ReportQuizSessionsState.Loading,
         ->
             item {
-                ReportQuizSessionsStatusCard(message = "퀴즈 기록을 불러오는 중...")
+                ReportQuizSessionsStatusCard(
+                    mascot = SudaMascot.Loading,
+                    title = "퀴즈 기록을 불러오는 중이에요",
+                )
             }
 
         ReportQuizSessionsState.Empty ->
             item {
                 ReportQuizSessionsStatusCard(
-                    message =
-                        if (filterUiState.hasAppliedFilter) {
-                            "조건에 맞는 퀴즈 기록이 없어요."
-                        } else {
-                            "아직 퀴즈 기록이 없어요.\n퀴즈를 완료하면 기록을 모아볼 수 있어요."
-                        },
+                    mascot = SudaMascot.Empty,
+                    title = "이번 기간에 퀴즈 기록이 없어요",
+                    description = "퀴즈를 완료하면 기록을 모아볼 수 있어요.",
                 )
             }
 
@@ -227,7 +216,7 @@ private fun LazyListScope.quizSessionsItems(
             ) { session ->
                 ReportQuizSessionCard(
                     session = session,
-                    onClick = { actions.onNavigateToDetail(session.sessionId) },
+                    onClick = { actions.onSessionClick(session) },
                 )
             }
             item {
@@ -244,16 +233,29 @@ private data class ReportQuizSessionsActions(
     val onRetryClick: () -> Unit,
     val onLoadMoreClick: () -> Unit,
     val onSwitchChild: () -> Unit,
-    val onNavigateToDetail: (Long) -> Unit,
-    val filterActions: ReportFilterActions,
+    val onSessionClick: (ReportQuizSession) -> Unit,
 )
 
 @Composable
-private fun ReportQuizSessionsIntro(activeChildState: ActiveChildProfileState) {
+private fun ReportQuizSessionsIntro(
+    activeChildState: ActiveChildProfileState,
+    isResumeOnly: Boolean,
+) {
     val selectedProfile = (activeChildState as? ActiveChildProfileState.Selected)?.profile
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
-            text = selectedProfile?.let { "${it.name}의 퀴즈 기록" } ?: "퀴즈 기록",
+            text =
+                selectedProfile?.let { profile ->
+                    if (isResumeOnly) {
+                        "${profile.name}의 이어하기"
+                    } else {
+                        "${profile.name}의 퀴즈 기록"
+                    }
+                } ?: if (isResumeOnly) {
+                    "이어하기"
+                } else {
+                    "퀴즈 기록"
+                },
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
@@ -261,12 +263,19 @@ private fun ReportQuizSessionsIntro(activeChildState: ActiveChildProfileState) {
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = "아이의 퀴즈 풀이 기록을 최신순으로 정리했어요.",
+            text =
+                if (isResumeOnly) {
+                    "진행 중인 퀴즈만 모아봤어요."
+                } else {
+                    "아이의 퀴즈 풀이 기록을 최신순으로 정리했어요."
+                },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
+
+private const val QUIZ_STATUS_IN_PROGRESS = "IN_PROGRESS"
 
 @Composable
 private fun ReportQuizSessionsSummary(page: ReportQuizSessionPage) {
@@ -319,20 +328,20 @@ private fun ReportQuizSessionsMoreSection(
 }
 
 @Composable
-private fun ReportQuizSessionsStatusCard(message: String) {
+private fun ReportQuizSessionsStatusCard(
+    mascot: SudaMascot,
+    title: String,
+    description: String? = null,
+) {
     ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        AppBadge(
-            text = "상태",
-            tone = AppBadgeTone.Neutral,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
+        SudaStateView(
+            mascot = mascot,
+            title = title,
+            description = description,
+            modifier = Modifier.height(132.dp),
+            compact = true,
         )
     }
 }
@@ -345,59 +354,42 @@ private fun ReportQuizSessionsErrorCard(
     ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            AppBadge(
-                text = "불러오기 실패",
-                tone = AppBadgeTone.Error,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            AppSecondaryButton(
-                text = "다시 시도",
-                onClick = onRetryClick,
-                modifier = Modifier.height(36.dp),
-            )
-        }
+        SudaStateView(
+            mascot = SudaMascot.ErrorNetwork,
+            title = "퀴즈 기록을 불러오지 못했어요",
+            description = message,
+            action = {
+                AppSecondaryButton(
+                    text = "다시 시도",
+                    onClick = onRetryClick,
+                    modifier = Modifier.height(36.dp),
+                )
+            },
+        )
     }
 }
 
 @Composable
 private fun ReportQuizSessionsActionCard(
-    message: String,
+    title: String,
+    description: String,
     buttonText: String,
     onClick: () -> Unit,
 ) {
     ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            AppBadge(
-                text = "아이 선택",
-                tone = AppBadgeTone.Warning,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            AppPrimaryButton(
-                text = buttonText,
-                onClick = onClick,
-                modifier = Modifier.height(40.dp),
-            )
-        }
+        SudaStateView(
+            mascot = SudaMascot.Report,
+            title = title,
+            description = description,
+            action = {
+                AppPrimaryButton(
+                    text = buttonText,
+                    onClick = onClick,
+                    modifier = Modifier.height(40.dp),
+                )
+            },
+        )
     }
 }

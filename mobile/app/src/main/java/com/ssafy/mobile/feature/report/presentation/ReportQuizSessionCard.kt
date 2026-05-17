@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -62,60 +63,32 @@ fun ReportQuizSessionCard(
             ReportPercentMeter(
                 title = "정답률",
                 value = session.accuracyRate,
-                detail = "${session.correctCount}/${session.totalQuestionCount}문제",
                 tone = ReportVisualTone.Success,
             )
-            Spacer(modifier = Modifier.height(12.dp))
-            ReportQuizSessionMetricRow(session = session)
             Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                text = session.toDateLabel(),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "평균 별점",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                ReportStarRating(rating = session.averageStar)
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = session.toDateLabel(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
-}
-
-@Composable
-private fun ReportQuizSessionMetricRow(session: ReportQuizSession) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        ReportQuizSessionMetric(
-            title = "정답",
-            value = "${session.correctCount}개",
-            tone = ReportVisualTone.Success,
-            modifier = Modifier.weight(1f),
-        )
-        ReportQuizSessionMetric(
-            title = "문제",
-            value = "${session.totalQuestionCount}개",
-            tone = ReportVisualTone.Tertiary,
-            modifier = Modifier.weight(1f),
-        )
-        ReportStarMetricTile(
-            title = "평균 별점",
-            rating = session.averageStar,
-            modifier = Modifier.weight(1f),
-        )
-    }
-}
-
-@Composable
-private fun ReportQuizSessionMetric(
-    title: String,
-    value: String,
-    modifier: Modifier = Modifier,
-    tone: ReportVisualTone = ReportVisualTone.Primary,
-) {
-    ReportMetricTile(
-        title = title,
-        value = value,
-        modifier = modifier,
-        tone = tone,
-    )
 }
 
 private fun ReportQuizSession.toDateLabel(): String =

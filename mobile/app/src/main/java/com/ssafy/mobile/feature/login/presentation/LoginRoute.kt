@@ -59,7 +59,6 @@ import com.ssafy.mobile.core.ui.theme.SudaFriendlyFontFamily
 @Composable
 fun LoginRoute(
     onNavigateToHome: () -> Unit,
-    onNavigateToChildSelect: () -> Unit,
     onNavigateToSignup: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: LoginViewModel = hiltViewModel(),
@@ -91,13 +90,9 @@ fun LoginRoute(
     }
 
     LaunchedEffect(uiState) {
-        when (val state = uiState) {
+        when (uiState) {
             is LoginUiState.Success -> {
-                if (state.hasActiveChild) {
-                    onNavigateToHome()
-                } else {
-                    onNavigateToChildSelect()
-                }
+                onNavigateToHome()
             }
             else -> Unit
         }

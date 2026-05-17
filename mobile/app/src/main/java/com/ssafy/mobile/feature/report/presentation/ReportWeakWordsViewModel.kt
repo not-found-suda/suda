@@ -55,42 +55,66 @@ class ReportWeakWordsViewModel
         private val activeChildProfileManager: ActiveChildProfileManager,
         private val reportRepository: ReportRepository,
         private val learningCategoryRepository: LearningCategoryRepository,
+        private val filterSelectionStore: ReportFilterSelectionStore,
     ) : ViewModel() {
-        private val _uiState = MutableStateFlow(ReportWeakWordsUiState())
+        private val _uiState =
+            MutableStateFlow(
+                ReportWeakWordsUiState(
+                    filterUiState =
+                        ReportFilterUiState(
+                            input = filterSelectionStore.currentInput(),
+                            hasAppliedFilter = true,
+                        ),
+                ),
+            )
         val uiState: StateFlow<ReportWeakWordsUiState> = _uiState.asStateFlow()
 
         private var loadJob: Job? = null
         private var loadMoreJob: Job? = null
         private var loadCategoriesJob: Job? = null
-        private var appliedFilter = defaultReportFilterState()
+        private var appliedFilter =
+            filterSelectionStore
+                .currentInput()
+                .toWeakWordsFilter()
+                .getOrDefault(
+                    defaultReportFilterState(),
+                )
 
         init {
             loadFilterCategories()
             loadActiveChildProfile()
         }
 
-        fun loadActiveChildProfile() {
+        fun loadActiveChildProfile(showLoading: Boolean = true) {
             loadJob?.cancel()
             loadMoreJob?.cancel()
             loadJob =
                 viewModelScope.launch {
-                    _uiState.value =
-                        _uiState.value.copy(
-                            activeChildState = ActiveChildProfileState.Loading,
-                            weakWordsState = ReportWeakWordsState.Idle,
-                        )
+                    if (showLoading) {
+                        _uiState.value =
+                            _uiState.value.copy(
+                                activeChildState = ActiveChildProfileState.Loading,
+                                weakWordsState = ReportWeakWordsState.Idle,
+                            )
+                    }
 
                     val state =
                         withContext(Dispatchers.IO) {
                             activeChildProfileManager.getActiveChildProfile()
                         }
+                    val shouldShowWeakWordsLoading =
+                        showLoading || _uiState.value.weakWordsState is ReportWeakWordsState.Idle
 
                     _uiState.value =
                         _uiState.value.copy(
                             activeChildState = state,
                             weakWordsState =
                                 if (state is ActiveChildProfileState.Selected) {
-                                    ReportWeakWordsState.Loading
+                                    if (shouldShowWeakWordsLoading) {
+                                        ReportWeakWordsState.Loading
+                                    } else {
+                                        _uiState.value.weakWordsState
+                                    }
                                 } else {
                                     ReportWeakWordsState.Idle
                                 },

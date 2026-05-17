@@ -20,10 +20,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -35,6 +33,8 @@ import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+import com.ssafy.mobile.core.ui.components.SudaMascot
+import com.ssafy.mobile.core.ui.components.SudaStateView
 import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
 import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgressPage
 
@@ -53,7 +53,7 @@ fun ReportCategoryProgressRoute(
         val observer =
             LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
-                    viewModel.loadActiveChildProfile()
+                    viewModel.loadActiveChildProfile(showLoading = false)
                 }
             }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -88,15 +88,8 @@ fun ReportCategoryProgressRoute(
         ReportCategoryProgressContent(
             activeChildState = uiState.activeChildState,
             categoryProgressState = uiState.categoryProgressState,
-            filterUiState = uiState.filterUiState,
-            onRetryClick = viewModel::loadActiveChildProfile,
+            onRetryClick = { viewModel.loadActiveChildProfile() },
             onSwitchChild = onSwitchChild,
-            filterActions =
-                ReportFilterActions(
-                    onInputChange = viewModel::updateFilterInput,
-                    onApplyClick = viewModel::applyFilter,
-                    onResetClick = viewModel::resetFilter,
-                ),
             modifier =
                 Modifier
                     .fillMaxSize()
@@ -109,10 +102,8 @@ fun ReportCategoryProgressRoute(
 private fun ReportCategoryProgressContent(
     activeChildState: ActiveChildProfileState,
     categoryProgressState: ReportCategoryProgressState,
-    filterUiState: ReportFilterUiState,
     onRetryClick: () -> Unit,
     onSwitchChild: () -> Unit,
-    filterActions: ReportFilterActions,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -133,8 +124,6 @@ private fun ReportCategoryProgressContent(
             is ActiveChildProfileState.Selected ->
                 categoryProgressItems(
                     state = categoryProgressState,
-                    filterUiState = filterUiState,
-                    filterActions = filterActions,
                     onRetryClick = onRetryClick,
                 )
 
@@ -169,18 +158,8 @@ private fun ReportCategoryProgressContent(
 
 private fun LazyListScope.categoryProgressItems(
     state: ReportCategoryProgressState,
-    filterUiState: ReportFilterUiState,
-    filterActions: ReportFilterActions,
     onRetryClick: () -> Unit,
 ) {
-    item {
-        ReportFilterPanel(
-            state = filterUiState,
-            config = ReportFilterPanelConfig(),
-            actions = filterActions,
-        )
-    }
-
     when (state) {
         ReportCategoryProgressState.Idle,
         ReportCategoryProgressState.Loading,
@@ -192,12 +171,7 @@ private fun LazyListScope.categoryProgressItems(
         ReportCategoryProgressState.Empty ->
             item {
                 ReportCategoryProgressStatusCard(
-                    message =
-                        if (filterUiState.hasAppliedFilter) {
-                            "조건에 맞는 카테고리 기록이 없어요."
-                        } else {
-                            "아직 완료된 퀴즈 기록이 있는 카테고리가 없어요.\n퀴즈를 마치면 진행도를 확인할 수 있어요."
-                        },
+                    message = "이번 기간에 카테고리 기록이 없어요.\n퀴즈를 마치면 진행도를 확인할 수 있어요.",
                 )
             }
 
@@ -263,19 +237,16 @@ private fun ReportCategoryProgressSummary(page: ReportCategoryProgressPage) {
 
 @Composable
 private fun ReportCategoryProgressStatusCard(message: String) {
+    val lines = message.toStateLines()
     ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        AppBadge(
-            text = "상태",
-            tone = AppBadgeTone.Neutral,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
+        SudaStateView(
+            mascot = if (message.contains("없")) SudaMascot.Empty else SudaMascot.Loading,
+            title = lines.first.replace("...", ""),
+            description = lines.second,
+            modifier = Modifier.height(132.dp),
+            compact = true,
         )
     }
 }
@@ -288,27 +259,18 @@ private fun ReportCategoryProgressErrorCard(
     ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            AppBadge(
-                text = "불러오기 실패",
-                tone = AppBadgeTone.Error,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            AppSecondaryButton(
-                text = "다시 시도",
-                onClick = onRetryClick,
-                modifier = Modifier.height(36.dp),
-            )
-        }
+        SudaStateView(
+            mascot = SudaMascot.ErrorNetwork,
+            title = "진행도를 불러오지 못했어요",
+            description = message,
+            action = {
+                AppSecondaryButton(
+                    text = "다시 시도",
+                    onClick = onRetryClick,
+                    modifier = Modifier.height(36.dp),
+                )
+            },
+        )
     }
 }
 
@@ -321,26 +283,22 @@ private fun ReportCategoryProgressActionCard(
     ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            AppBadge(
-                text = "아이 선택",
-                tone = AppBadgeTone.Warning,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            AppPrimaryButton(
-                text = buttonText,
-                onClick = onClick,
-                modifier = Modifier.height(40.dp),
-            )
-        }
+        SudaStateView(
+            mascot = SudaMascot.Report,
+            title = message,
+            action = {
+                AppPrimaryButton(
+                    text = buttonText,
+                    onClick = onClick,
+                    modifier = Modifier.height(40.dp),
+                )
+            },
+        )
     }
+}
+
+private fun String.toStateLines(): Pair<String, String?> {
+    val lines = lines().filter { it.isNotBlank() }
+    return lines.firstOrNull().orEmpty() to
+        lines.drop(1).joinToString("\n").takeIf { it.isNotBlank() }
 }

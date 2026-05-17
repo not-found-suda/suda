@@ -14,6 +14,11 @@ interface ReportRepository {
         filter: ReportFilterState = ReportFilterState(),
     ): Result<ReportSummary>
 
+    suspend fun getCommunicationSummary(
+        childId: Long,
+        filter: ReportFilterState = ReportFilterState(),
+    ): Result<ReportCommunicationSummary>
+
     suspend fun getWeakWords(
         childId: Long,
         page: Int,
@@ -25,11 +30,6 @@ interface ReportRepository {
         childId: Long,
         filter: ReportFilterState = ReportFilterState(),
     ): Result<ReportCategoryProgressPage>
-
-    suspend fun getCommunicationSummary(
-        childId: Long,
-        filter: ReportFilterState = ReportFilterState(),
-    ): Result<ReportCommunicationSummary>
 
     suspend fun getQuizSessions(
         childId: Long,

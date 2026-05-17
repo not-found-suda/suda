@@ -21,11 +21,19 @@ sealed class Screen(
 
     data object Home : Screen("home_route")
 
-    data object Quiz : Screen("quiz_question_route/{categoryId}?difficulty={difficulty}") {
+    data object Quiz :
+        Screen("quiz_question_route/{categoryId}?difficulty={difficulty}&sessionId={sessionId}") {
         fun createRoute(
             categoryId: Long,
             difficulty: String = DEFAULT_LEARNING_DIFFICULTY,
         ) = "quiz_question_route/$categoryId?difficulty=${android.net.Uri.encode(difficulty)}"
+
+        fun createResumeRoute(
+            sessionId: Long,
+            categoryId: Long,
+            difficulty: String,
+        ) = "quiz_question_route/$categoryId?difficulty=${android.net.Uri.encode(difficulty)}" +
+            "&sessionId=$sessionId"
     }
 
     data object QuizResult :
@@ -55,13 +63,19 @@ sealed class Screen(
     data object LearningCategory : Screen("learning_category_route")
 
     data object WordList :
-        Screen("learning_words/{categoryId}?categoryName={categoryName}&difficulty={difficulty}") {
+        Screen(
+            "learning_words/{categoryId}?categoryName={categoryName}" +
+                "&difficulty={difficulty}&targetWordId={targetWordId}",
+        ) {
         fun createRoute(
             categoryId: Long,
             categoryName: String,
             difficulty: String = DEFAULT_LEARNING_DIFFICULTY,
-        ) = "learning_words/$categoryId?categoryName=${android.net.Uri.encode(categoryName)}" +
-            "&difficulty=${android.net.Uri.encode(difficulty)}"
+            targetWordId: Long? = null,
+        ): String =
+            "learning_words/$categoryId?categoryName=${android.net.Uri.encode(categoryName)}" +
+                "&difficulty=${android.net.Uri.encode(difficulty)}" +
+                targetWordId?.let { "&targetWordId=$it" }.orEmpty()
     }
 
     data object ReportHome : Screen("report_home_route")
@@ -74,7 +88,13 @@ sealed class Screen(
 
     data object ReportCommunicationSummary : Screen("report_communication_summary_route")
 
-    data object ReportQuizSessions : Screen("report_quiz_sessions_route")
+    data object ReportQuizSessions : Screen("report_quiz_sessions_route?status={status}") {
+        fun createRoute(status: String? = null): String =
+            status
+                ?.takeIf { it.isNotBlank() }
+                ?.let { "report_quiz_sessions_route?status=${android.net.Uri.encode(it)}" }
+                ?: "report_quiz_sessions_route"
+    }
 
     data object ReportQuizSessionDetail : Screen("report_quiz_session_detail/{sessionId}") {
         fun createRoute(sessionId: Long) = "report_quiz_session_detail/$sessionId"

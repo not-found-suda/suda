@@ -3,6 +3,7 @@ package com.ssafy.mobile.feature.childprofile.presentation
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ssafy.mobile.core.auth.AuthSessionManager
 import com.ssafy.mobile.core.session.ActiveChildStorage
 import com.ssafy.mobile.feature.childprofile.domain.repository.ChildProfileRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -24,6 +25,7 @@ class ChildProfileSelectViewModel
     constructor(
         private val childProfileRepository: ChildProfileRepository,
         private val activeChildStorage: ActiveChildStorage,
+        private val authSessionManager: AuthSessionManager,
     ) : ViewModel() {
         companion object {
             private const val TAG = "ChildProfileSelectViewModel"
@@ -35,6 +37,9 @@ class ChildProfileSelectViewModel
 
         private val _isSelecting = MutableStateFlow(false)
         val isSelecting: StateFlow<Boolean> = _isSelecting.asStateFlow()
+
+        private val _isLoggingOut = MutableStateFlow(false)
+        val isLoggingOut: StateFlow<Boolean> = _isLoggingOut.asStateFlow()
 
         private val _navigationEvent = MutableSharedFlow<ChildProfileSelectNavigationEvent>()
         val navigationEvent: SharedFlow<ChildProfileSelectNavigationEvent> =
@@ -104,8 +109,31 @@ class ChildProfileSelectViewModel
         fun retry() {
             loadProfiles()
         }
+
+        @Suppress("TooGenericExceptionCaught")
+        fun logout() {
+            if (_isLoggingOut.value) return
+            _isLoggingOut.value = true
+
+            viewModelScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        authSessionManager.clearSession()
+                    }
+                    _navigationEvent.emit(ChildProfileSelectNavigationEvent.NavigateToLogin)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to clear auth session", e)
+                    _isLoggingOut.value = false
+                    _uiState.value = ChildProfileSelectUiState.Error("로그아웃하지 못했습니다. 다시 시도해 주세요.")
+                }
+            }
+        }
     }
 
 sealed interface ChildProfileSelectNavigationEvent {
     data object NavigateToHome : ChildProfileSelectNavigationEvent
+
+    data object NavigateToLogin : ChildProfileSelectNavigationEvent
 }

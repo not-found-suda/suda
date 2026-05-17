@@ -3,7 +3,13 @@
 package com.ssafy.mobile.feature.learning.presentation.wordlist
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,7 +23,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -50,6 +56,8 @@ import com.ssafy.mobile.core.ui.components.ChunkyButtonTone
 import com.ssafy.mobile.core.ui.components.FlipCard
 import com.ssafy.mobile.core.ui.components.SudaMascot
 import com.ssafy.mobile.core.ui.components.SudaMascotImage
+import com.ssafy.mobile.core.ui.components.SudaStateView
+import com.ssafy.mobile.core.ui.components.rememberNetworkImagesPreloaded
 import com.ssafy.mobile.feature.learning.domain.model.LearningWord
 
 @Composable
@@ -143,11 +151,24 @@ internal fun LearningWordListScreen(
                         }
 
                         is LearningWordListUiState.Success -> {
-                            WordLearningCard(
-                                state = uiState,
-                                actions = actions,
-                                modifier = Modifier.fillMaxSize(),
-                            )
+                            val imagesReady =
+                                rememberNetworkImagesPreloaded(
+                                    imageUrls = uiState.words.map { it.imageUrl },
+                                )
+                            if (imagesReady) {
+                                WordLearningCard(
+                                    state = uiState,
+                                    actions = actions,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            } else {
+                                WordListMessageState(
+                                    mascot = SudaMascot.Loading,
+                                    title = "그림 카드 5장을 저장하고 있어요",
+                                    description = "이미지를 모두 준비한 뒤 바로 시작할게요.",
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
                         }
 
                         is LearningWordListUiState.Empty -> {
@@ -288,41 +309,125 @@ private fun WordLearningCard(
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         AnimatedContent(
-            targetState = word,
+            targetState = state.currentIndex,
             label = "wordFlashCard",
+            transitionSpec = {
+                val direction = if (targetState > initialState) 1 else -1
+                (
+                    slideInHorizontally { fullWidth -> fullWidth * direction } +
+                        fadeIn()
+                ).togetherWith(
+                    slideOutHorizontally { fullWidth -> -fullWidth * direction / 3 } +
+                        fadeOut(),
+                ).using(SizeTransform(clip = false))
+            },
             modifier =
                 Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(top = 18.dp, bottom = 8.dp),
-        ) { currentWord ->
-            FlipCard(
-                isFlipped = isFlipped,
-                onFlip = { isFlipped = !isFlipped },
-                front = {
-                    FlashWordCardFront(
-                        word = currentWord,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                },
-                back = {
-                    FlashWordCardBack(
-                        word = currentWord,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                },
+                    .padding(top = 8.dp, bottom = 4.dp),
+        ) { currentIndex ->
+            val currentWord = state.words.getOrNull(currentIndex) ?: word
+            StoryBookPage(
+                pageNumber = currentIndex + 1,
+                totalCount = state.words.size,
                 modifier = Modifier.fillMaxSize(),
-            )
+            ) {
+                FlipCard(
+                    isFlipped = isFlipped,
+                    onFlip = { isFlipped = !isFlipped },
+                    front = {
+                        FlashWordCardFront(
+                            word = currentWord,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    },
+                    back = {
+                        FlashWordCardBack(
+                            word = currentWord,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
 
-        AudioOnlyButton(
+        AudioBubbleButton(
             audioState = state.audioState,
             onPlayClick = actions.onPlayAudio,
             onStopClick = actions.onStopAudio,
         )
+    }
+}
+
+@Composable
+private fun StoryBookPage(
+    pageNumber: Int,
+    totalCount: Int,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Box(modifier = modifier) {
+        Surface(
+            modifier =
+                Modifier
+                    .matchParentSize()
+                    .padding(start = 14.dp, top = 16.dp, end = 6.dp)
+                    .alpha(0.42f),
+            shape = RoundedCornerShape(30.dp),
+            color = Color.White,
+            shadowElevation = 4.dp,
+        ) {}
+        Surface(
+            modifier =
+                Modifier
+                    .matchParentSize()
+                    .padding(start = 7.dp, top = 8.dp, end = 3.dp)
+                    .alpha(0.68f),
+            shape = RoundedCornerShape(30.dp),
+            color = Color(0xFFFFFEF7),
+            shadowElevation = 6.dp,
+        ) {}
+        Box(modifier = Modifier.matchParentSize()) {
+            content()
+            PageCornerFold(
+                pageNumber = pageNumber,
+                totalCount = totalCount,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PageCornerFold(
+    pageNumber: Int,
+    totalCount: Int,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier.padding(16.dp)) {
+        Surface(
+            modifier =
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .size(width = 46.dp, height = 34.dp),
+            shape = RoundedCornerShape(topEnd = 16.dp, bottomStart = 18.dp),
+            color = Color(0xFFF2F9F6),
+            shadowElevation = 3.dp,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = "$pageNumber/$totalCount",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Black,
+                )
+            }
+        }
     }
 }
 
@@ -346,11 +451,11 @@ private fun FlashWordCardFront(
                         Brush.verticalGradient(
                             colors =
                                 listOf(
-                                    Color.White,
+                                    Color(0xFFFFFEF7),
                                     Color(0xFFF8FFFC),
                                 ),
                         ),
-                    ).padding(horizontal = 24.dp, vertical = 26.dp),
+                    ).padding(horizontal = 16.dp, vertical = 18.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
@@ -368,12 +473,12 @@ private fun FlashWordCardFront(
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 230.dp),
+                            .heightIn(max = 300.dp),
                     contentScale = ContentScale.Fit,
                     placeholder = { WordFallback(word = word.word) },
                 )
             }
-            Spacer(modifier = Modifier.height(22.dp))
+            Spacer(modifier = Modifier.height(14.dp))
             Text(
                 text = word.word,
                 style = MaterialTheme.typography.displayMedium,
@@ -426,7 +531,7 @@ private fun FlashWordCardBack(
 }
 
 @Composable
-private fun AudioOnlyButton(
+private fun AudioBubbleButton(
     audioState: AudioPlaybackState,
     onPlayClick: () -> Unit,
     onStopClick: () -> Unit,
@@ -443,8 +548,11 @@ private fun AudioOnlyButton(
             }
         },
         enabled = !isLoading,
-        modifier = Modifier.size(88.dp),
-        shape = CircleShape,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(64.dp),
+        shape = RoundedCornerShape(999.dp),
         color =
             if (isPlaying) {
                 Color(0xFF57BFE4)
@@ -459,7 +567,10 @@ private fun AudioOnlyButton(
             },
         shadowElevation = 10.dp,
     ) {
-        Box(contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
             if (isLoading) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(30.dp),
@@ -467,14 +578,70 @@ private fun AudioOnlyButton(
                     color = MaterialTheme.colorScheme.primary,
                 )
             } else {
-                Text(
-                    text = if (isPlaying) "■" else "🔊",
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Black,
-                )
+                AudioButtonContent(isPlaying = isPlaying)
             }
         }
     }
+}
+
+@Composable
+private fun AudioButtonContent(isPlaying: Boolean) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        SudaMascotImage(
+            mascot = SudaMascot.Microphone,
+            contentDescription = null,
+            modifier = Modifier.size(40.dp),
+        )
+        if (isPlaying) {
+            StopIcon()
+        } else {
+            SoundWaveIcon()
+        }
+        Text(
+            text = if (isPlaying) "멈추기" else "소리 듣기",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Black,
+        )
+    }
+}
+
+@Composable
+private fun SoundWaveIcon() {
+    Row(
+        modifier = Modifier.height(28.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        SoundWaveBar(heightFraction = 0.42f)
+        SoundWaveBar(heightFraction = 0.72f)
+        SoundWaveBar(heightFraction = 1f)
+    }
+}
+
+@Composable
+private fun SoundWaveBar(heightFraction: Float) {
+    Box(
+        modifier =
+            Modifier
+                .width(6.dp)
+                .height((28 * heightFraction).dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color.White.copy(alpha = 0.92f)),
+    )
+}
+
+@Composable
+private fun StopIcon() {
+    Box(
+        modifier =
+            Modifier
+                .size(20.dp)
+                .clip(RoundedCornerShape(5.dp))
+                .background(Color.White.copy(alpha = 0.92f)),
+    )
 }
 
 @Composable
@@ -525,21 +692,11 @@ private fun WordFallback(
                 ),
         contentAlignment = Alignment.Center,
     ) {
-        Surface(
-            modifier = Modifier.size(140.dp),
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text(
-                    text = word.firstOrNull()?.toString() ?: "?",
-                    style = MaterialTheme.typography.displayLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 72.sp,
-                )
-            }
-        }
+        SudaStateView(
+            mascot = SudaMascot.WordCard,
+            title = "그림을 준비하고 있어요",
+            description = word,
+        )
     }
 }
 

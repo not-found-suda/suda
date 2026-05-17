@@ -54,6 +54,7 @@ import com.ssafy.mobile.core.ui.components.AppInlineErrorText
 import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
 import com.ssafy.mobile.core.ui.components.AppNetworkImage
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+import com.ssafy.mobile.core.ui.components.PreloadNetworkImages
 import com.ssafy.mobile.core.ui.components.SudaMascot
 import com.ssafy.mobile.core.ui.components.SudaMascotImage
 import com.ssafy.mobile.core.ui.feedback.AppEmptyState
@@ -115,6 +116,9 @@ internal fun LearningCategoryScreen(
                         }
 
                         is LearningCategoryUiState.Success -> {
+                            PreloadNetworkImages(
+                                imageUrls = uiState.categories.map { it.thumbnailUrl },
+                            )
                             LearningMap(
                                 categories = uiState.categories,
                                 onCategoryClick = onCategoryClick,

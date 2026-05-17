@@ -6,6 +6,7 @@ import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationSessionSu
 import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationSummary
 import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationWordCount
 import com.ssafy.mobile.feature.report.domain.model.ReportExpressionTypeCounts
+import java.util.Locale
 
 data class ReportCommunicationSummaryResponseDto(
     @SerializedName("childId")
@@ -121,7 +122,7 @@ private fun ReportCommunicationWordCountDto.toDomainOrNull(): ReportCommunicatio
 }
 
 private fun String?.toCommunicationAnalysisStatus(): ReportCommunicationAnalysisStatus =
-    when (this) {
+    when (this?.uppercase(Locale.ROOT)) {
         "PENDING" -> ReportCommunicationAnalysisStatus.Pending
         "PROCESSING" -> ReportCommunicationAnalysisStatus.Processing
         "COMPLETED" -> ReportCommunicationAnalysisStatus.Completed

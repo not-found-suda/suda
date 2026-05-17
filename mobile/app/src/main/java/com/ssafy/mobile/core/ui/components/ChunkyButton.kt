@@ -71,9 +71,9 @@ fun ChunkyButton(
                 )
             ChunkyButtonTone.Warning ->
                 Triple(
-                    Color(0xFFFFC43B),
-                    Color(0xFFE89A00),
-                    Color(0xFF7A4A00),
+                    MaterialTheme.colorScheme.secondary,
+                    MaterialTheme.colorScheme.secondary.copy(alpha = 0.78f),
+                    MaterialTheme.colorScheme.onSecondary,
                 )
             ChunkyButtonTone.Danger ->
                 Triple(
