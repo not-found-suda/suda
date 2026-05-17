@@ -123,6 +123,28 @@ public class UserService {
     userRepository.flush();
   }
 
+  public Long resetPasswordByEmail(String email, String newPassword) {
+    String normalizedEmail = normalizeEmail(email);
+    User user =
+        userRepository
+            .findByEmailIgnoreCase(normalizedEmail)
+            .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+    if (!user.isActive()) {
+      throw new BusinessException(UserErrorCode.USER_NOT_FOUND);
+    }
+    if (!user.isPasswordLoginEnabled()) {
+      throw new BusinessException(UserErrorCode.PASSWORD_LOGIN_NOT_ENABLED);
+    }
+    if (passwordEncoder.matches(newPassword, user.getPassword())) {
+      throw new BusinessException(UserErrorCode.NEW_PASSWORD_SAME_AS_CURRENT);
+    }
+
+    user.changePassword(passwordEncoder.encode(newPassword));
+    userRepository.flush();
+    return user.getId();
+  }
+
   public void withdraw(Long userId, String password) {
     User user =
         userRepository

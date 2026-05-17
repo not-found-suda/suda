@@ -4,12 +4,17 @@ import com.ssafy.backend.domain.auth.docs.AuthApiDocs;
 import com.ssafy.backend.domain.auth.dto.LoginRequestDto;
 import com.ssafy.backend.domain.auth.dto.LoginResponseDto;
 import com.ssafy.backend.domain.auth.dto.OAuthLoginRequestDto;
+import com.ssafy.backend.domain.auth.dto.PasswordResetConfirmRequestDto;
+import com.ssafy.backend.domain.auth.dto.PasswordResetRequestDto;
+import com.ssafy.backend.domain.auth.dto.PasswordResetVerifyRequestDto;
+import com.ssafy.backend.domain.auth.dto.PasswordResetVerifyResponseDto;
 import com.ssafy.backend.domain.auth.dto.RefreshTokenRequestDto;
 import com.ssafy.backend.domain.auth.dto.RefreshTokenResponseDto;
 import com.ssafy.backend.domain.auth.dto.SignupRequestDto;
 import com.ssafy.backend.domain.auth.dto.SignupResponseDto;
 import com.ssafy.backend.domain.auth.service.AuthService;
 import com.ssafy.backend.domain.auth.service.OAuthService;
+import com.ssafy.backend.domain.auth.service.PasswordResetService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -28,10 +33,15 @@ public class AuthController implements AuthApiDocs {
 
   private final AuthService authService;
   private final OAuthService oAuthService;
+  private final PasswordResetService passwordResetService;
 
-  public AuthController(AuthService authService, OAuthService oAuthService) {
+  public AuthController(
+      AuthService authService,
+      OAuthService oAuthService,
+      PasswordResetService passwordResetService) {
     this.authService = authService;
     this.oAuthService = oAuthService;
+    this.passwordResetService = passwordResetService;
   }
 
   @PostMapping("/signup")
@@ -70,6 +80,29 @@ public class AuthController implements AuthApiDocs {
   public ResponseEntity<LoginResponseDto> loginWithNaver(
       @Valid @RequestBody OAuthLoginRequestDto requestDto) {
     return ResponseEntity.ok(oAuthService.loginWithNaver(requestDto));
+  }
+
+  @PostMapping("/password-reset/request")
+  @Override
+  public ResponseEntity<Void> requestPasswordReset(
+      @Valid @RequestBody PasswordResetRequestDto requestDto) {
+    passwordResetService.request(requestDto.email());
+    return ResponseEntity.noContent().build();
+  }
+
+  @PostMapping("/password-reset/verify")
+  @Override
+  public ResponseEntity<PasswordResetVerifyResponseDto> verifyPasswordReset(
+      @Valid @RequestBody PasswordResetVerifyRequestDto requestDto) {
+    return ResponseEntity.ok(passwordResetService.verify(requestDto.email(), requestDto.code()));
+  }
+
+  @PostMapping("/password-reset/confirm")
+  @Override
+  public ResponseEntity<Void> confirmPasswordReset(
+      @Valid @RequestBody PasswordResetConfirmRequestDto requestDto) {
+    passwordResetService.confirm(requestDto.resetToken(), requestDto.newPassword());
+    return ResponseEntity.noContent().build();
   }
 
   private String resolveAccessToken(HttpServletRequest request) {

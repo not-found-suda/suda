@@ -3,6 +3,10 @@ package com.ssafy.backend.domain.auth.docs;
 import com.ssafy.backend.domain.auth.dto.LoginRequestDto;
 import com.ssafy.backend.domain.auth.dto.LoginResponseDto;
 import com.ssafy.backend.domain.auth.dto.OAuthLoginRequestDto;
+import com.ssafy.backend.domain.auth.dto.PasswordResetConfirmRequestDto;
+import com.ssafy.backend.domain.auth.dto.PasswordResetRequestDto;
+import com.ssafy.backend.domain.auth.dto.PasswordResetVerifyRequestDto;
+import com.ssafy.backend.domain.auth.dto.PasswordResetVerifyResponseDto;
 import com.ssafy.backend.domain.auth.dto.RefreshTokenRequestDto;
 import com.ssafy.backend.domain.auth.dto.RefreshTokenResponseDto;
 import com.ssafy.backend.domain.auth.dto.SignupRequestDto;
@@ -68,4 +72,30 @@ public interface AuthApiDocs {
       description = "성공",
       content = @Content(schema = @Schema(implementation = LoginResponseDto.class)))
   ResponseEntity<LoginResponseDto> loginWithNaver(OAuthLoginRequestDto request);
+
+  @Operation(
+      summary = "비밀번호 재설정 인증 코드 요청",
+      description = "이메일로 비밀번호 재설정 인증 코드를 요청합니다. 가입 여부 노출을 막기 위해 동일한 성공 응답을 반환합니다.")
+  @ApiErrorCodes({"VALIDATION_INVALID_INPUT"})
+  @ApiResponse(responseCode = "204", description = "콘텐츠 없음")
+  ResponseEntity<Void> requestPasswordReset(PasswordResetRequestDto request);
+
+  @Operation(summary = "비밀번호 재설정 인증 코드 검증", description = "이메일과 인증 코드를 검증하고 새 비밀번호 설정용 토큰을 발급합니다.")
+  @ApiErrorCodes({"VALIDATION_INVALID_INPUT", "AUTH_INVALID_PASSWORD_RESET_CODE"})
+  @ApiResponse(
+      responseCode = "200",
+      description = "성공",
+      content = @Content(schema = @Schema(implementation = PasswordResetVerifyResponseDto.class)))
+  ResponseEntity<PasswordResetVerifyResponseDto> verifyPasswordReset(
+      PasswordResetVerifyRequestDto request);
+
+  @Operation(summary = "새 비밀번호 재설정 확정", description = "재설정 토큰으로 새 비밀번호를 설정합니다.")
+  @ApiErrorCodes({
+    "VALIDATION_INVALID_INPUT",
+    "AUTH_INVALID_PASSWORD_RESET_TOKEN",
+    "USER_NEW_PASSWORD_SAME_AS_CURRENT",
+    "USER_PASSWORD_LOGIN_NOT_ENABLED"
+  })
+  @ApiResponse(responseCode = "204", description = "콘텐츠 없음")
+  ResponseEntity<Void> confirmPasswordReset(PasswordResetConfirmRequestDto request);
 }

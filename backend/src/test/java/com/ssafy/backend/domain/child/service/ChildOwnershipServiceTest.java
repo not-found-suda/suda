@@ -13,6 +13,7 @@ import com.ssafy.backend.domain.child.dto.ChildProfileUpdateRequestDto;
 import com.ssafy.backend.domain.child.entity.ChildProfile;
 import com.ssafy.backend.domain.child.exception.ChildProfileErrorCode;
 import com.ssafy.backend.domain.child.repository.ChildProfileRepository;
+import com.ssafy.backend.domain.comms.repository.CommunicationSessionAnalysisRepository;
 import com.ssafy.backend.domain.comms.service.ClovaSttClient;
 import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
 import com.ssafy.backend.domain.learn.quiz.dto.request.QuizSessionCreateRequest;
@@ -61,6 +62,7 @@ class ChildOwnershipServiceTest {
   @Mock private QuizGradingService quizGradingService;
   @Mock private AssetUrlResolver assetUrlResolver;
   @Mock private ReportQuizSessionQueryRepository reportQuizSessionQueryRepository;
+  @Mock private CommunicationSessionAnalysisRepository communicationSessionAnalysisRepository;
 
   private ChildProfileService childProfileService;
   private QuizService quizService;
@@ -79,7 +81,11 @@ class ChildOwnershipServiceTest {
             clovaSttClient,
             quizGradingService,
             assetUrlResolver);
-    reportService = new ReportService(childProfileRepository, reportQuizSessionQueryRepository);
+    reportService =
+        new ReportService(
+            childProfileRepository,
+            reportQuizSessionQueryRepository,
+            communicationSessionAnalysisRepository);
   }
 
   @Test

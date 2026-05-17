@@ -20,6 +20,7 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class UserServicePasswordChangeTest {
@@ -114,6 +115,73 @@ class UserServicePasswordChangeTest {
         UserErrorCode.USER_NOT_FOUND);
 
     verify(passwordEncoder, never()).matches(Mockito.any(), Mockito.any());
+    verify(passwordEncoder, never()).encode(Mockito.any());
+    verify(userRepository, never()).flush();
+  }
+
+  @Test
+  @DisplayName("재설정 토큰 기반 비밀번호 변경은 새 비밀번호를 인코딩하고 저장한다")
+  void resetPasswordByEmailEncodesAndStoresNewPassword() {
+    User user = user();
+    ReflectionTestUtils.setField(user, "id", USER_ID);
+    when(userRepository.findByEmailIgnoreCase("guardian@example.com"))
+        .thenReturn(Optional.of(user));
+    when(passwordEncoder.matches(NEW_PASSWORD, ENCODED_CURRENT_PASSWORD)).thenReturn(false);
+    when(passwordEncoder.encode(NEW_PASSWORD)).thenReturn(ENCODED_NEW_PASSWORD);
+
+    Long userId = userService.resetPasswordByEmail(" Guardian@Example.com ", NEW_PASSWORD);
+
+    assertThat(userId).isEqualTo(USER_ID);
+    assertThat(user.getPassword()).isEqualTo(ENCODED_NEW_PASSWORD);
+    verify(userRepository).flush();
+  }
+
+  @Test
+  @DisplayName("재설정 토큰 기반 비밀번호 변경은 비활성 계정을 거부한다")
+  void resetPasswordByEmailRejectsInactiveUser() {
+    User user = user();
+    user.withdraw();
+    when(userRepository.findByEmailIgnoreCase("guardian@example.com"))
+        .thenReturn(Optional.of(user));
+
+    assertUserError(
+        () -> userService.resetPasswordByEmail(" Guardian@Example.com ", NEW_PASSWORD),
+        UserErrorCode.USER_NOT_FOUND);
+
+    verify(passwordEncoder, never()).matches(Mockito.any(), Mockito.any());
+    verify(passwordEncoder, never()).encode(Mockito.any());
+    verify(userRepository, never()).flush();
+  }
+
+  @Test
+  @DisplayName("재설정 토큰 기반 비밀번호 변경은 소셜 전용 계정을 거부한다")
+  void resetPasswordByEmailRejectsPasswordDisabledUser() {
+    User user = oauthOnlyUser();
+    when(userRepository.findByEmailIgnoreCase("guardian@example.com"))
+        .thenReturn(Optional.of(user));
+
+    assertUserError(
+        () -> userService.resetPasswordByEmail(" Guardian@Example.com ", NEW_PASSWORD),
+        UserErrorCode.PASSWORD_LOGIN_NOT_ENABLED);
+
+    verify(passwordEncoder, never()).matches(Mockito.any(), Mockito.any());
+    verify(passwordEncoder, never()).encode(Mockito.any());
+    verify(userRepository, never()).flush();
+  }
+
+  @Test
+  @DisplayName("재설정 토큰 기반 비밀번호 변경은 기존 비밀번호와 같은 새 비밀번호를 거부한다")
+  void resetPasswordByEmailRejectsSameAsCurrentPassword() {
+    User user = user();
+    when(userRepository.findByEmailIgnoreCase("guardian@example.com"))
+        .thenReturn(Optional.of(user));
+    when(passwordEncoder.matches(NEW_PASSWORD, ENCODED_CURRENT_PASSWORD)).thenReturn(true);
+
+    assertUserError(
+        () -> userService.resetPasswordByEmail(" Guardian@Example.com ", NEW_PASSWORD),
+        UserErrorCode.NEW_PASSWORD_SAME_AS_CURRENT);
+
+    assertThat(user.getPassword()).isEqualTo(ENCODED_CURRENT_PASSWORD);
     verify(passwordEncoder, never()).encode(Mockito.any());
     verify(userRepository, never()).flush();
   }
