@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.ssafy.backend.domain.child.entity.ChildProfile;
 import com.ssafy.backend.domain.child.repository.ChildProfileRepository;
+import com.ssafy.backend.domain.comms.repository.CommunicationSessionAnalysisRepository;
 import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
 import com.ssafy.backend.domain.learn.quiz.entity.QuizSessionStatus;
 import com.ssafy.backend.domain.report.dto.ReportCategoryListResponse;
@@ -47,12 +48,17 @@ class ReportServiceQueryValidationTest {
 
   @Mock private ChildProfileRepository childProfileRepository;
   @Mock private ReportQuizSessionQueryRepository reportQuizSessionQueryRepository;
+  @Mock private CommunicationSessionAnalysisRepository communicationSessionAnalysisRepository;
 
   private ReportService reportService;
 
   @BeforeEach
   void setUp() {
-    reportService = new ReportService(childProfileRepository, reportQuizSessionQueryRepository);
+    reportService =
+        new ReportService(
+            childProfileRepository,
+            reportQuizSessionQueryRepository,
+            communicationSessionAnalysisRepository);
   }
 
   @Test
