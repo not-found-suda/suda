@@ -45,38 +45,63 @@ class ReportCategoryProgressViewModel
     constructor(
         private val activeChildProfileManager: ActiveChildProfileManager,
         private val reportRepository: ReportRepository,
+        private val filterSelectionStore: ReportFilterSelectionStore,
     ) : ViewModel() {
-        private val _uiState = MutableStateFlow(ReportCategoryProgressUiState())
+        private val _uiState =
+            MutableStateFlow(
+                ReportCategoryProgressUiState(
+                    filterUiState =
+                        ReportFilterUiState(
+                            input = filterSelectionStore.currentInput(),
+                            hasAppliedFilter = true,
+                        ),
+                ),
+            )
         val uiState: StateFlow<ReportCategoryProgressUiState> = _uiState.asStateFlow()
 
         private var loadJob: Job? = null
-        private var appliedFilter = defaultReportFilterState()
+        private var appliedFilter =
+            filterSelectionStore
+                .currentInput()
+                .toDateFilter()
+                .getOrDefault(
+                    defaultReportFilterState(),
+                )
 
         init {
             loadActiveChildProfile()
         }
 
-        fun loadActiveChildProfile() {
+        fun loadActiveChildProfile(showLoading: Boolean = true) {
             loadJob?.cancel()
             loadJob =
                 viewModelScope.launch {
-                    _uiState.value =
-                        _uiState.value.copy(
-                            activeChildState = ActiveChildProfileState.Loading,
-                            categoryProgressState = ReportCategoryProgressState.Idle,
-                        )
+                    if (showLoading) {
+                        _uiState.value =
+                            _uiState.value.copy(
+                                activeChildState = ActiveChildProfileState.Loading,
+                                categoryProgressState = ReportCategoryProgressState.Idle,
+                            )
+                    }
 
                     val state =
                         withContext(Dispatchers.IO) {
                             activeChildProfileManager.getActiveChildProfile()
                         }
+                    val shouldShowCategoryProgressLoading =
+                        showLoading ||
+                            _uiState.value.categoryProgressState is ReportCategoryProgressState.Idle
 
                     _uiState.value =
                         _uiState.value.copy(
                             activeChildState = state,
                             categoryProgressState =
                                 if (state is ActiveChildProfileState.Selected) {
-                                    ReportCategoryProgressState.Loading
+                                    if (shouldShowCategoryProgressLoading) {
+                                        ReportCategoryProgressState.Loading
+                                    } else {
+                                        _uiState.value.categoryProgressState
+                                    }
                                 } else {
                                     ReportCategoryProgressState.Idle
                                 },

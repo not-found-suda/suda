@@ -48,16 +48,20 @@ import com.ssafy.mobile.core.ui.feedback.AppErrorText
 import com.ssafy.mobile.feature.childprofile.domain.model.ChildProfile
 
 @Composable
+@Suppress("LongParameterList")
 fun ChildProfileSelectRoute(
     navController: NavController,
     onNavigateToHome: () -> Unit,
     onNavigateToCreate: () -> Unit,
     onNavigateToEdit: (Long) -> Unit,
+    onLogoutSuccess: () -> Unit,
+    showLogoutButton: Boolean,
     modifier: Modifier = Modifier,
     viewModel: ChildProfileSelectViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isSelecting by viewModel.isSelecting.collectAsStateWithLifecycle()
+    val isLoggingOut by viewModel.isLoggingOut.collectAsStateWithLifecycle()
     var isManageMode by remember { mutableStateOf(false) }
 
     val refreshNeeded by navController.currentBackStackEntry
@@ -79,6 +83,7 @@ fun ChildProfileSelectRoute(
         viewModel.navigationEvent.collect { event ->
             when (event) {
                 ChildProfileSelectNavigationEvent.NavigateToHome -> onNavigateToHome()
+                ChildProfileSelectNavigationEvent.NavigateToLogin -> onLogoutSuccess()
             }
         }
     }
@@ -92,6 +97,9 @@ fun ChildProfileSelectRoute(
         onRetry = viewModel::retry,
         onNavigateToCreate = onNavigateToCreate,
         onNavigateToEdit = onNavigateToEdit,
+        onLogoutClick = viewModel::logout,
+        showLogoutButton = showLogoutButton,
+        isLoggingOut = isLoggingOut,
         modifier = modifier,
     )
 }
@@ -107,6 +115,9 @@ private fun ChildProfileSelectScreen(
     onRetry: () -> Unit,
     onNavigateToCreate: () -> Unit,
     onNavigateToEdit: (Long) -> Unit,
+    onLogoutClick: () -> Unit,
+    showLogoutButton: Boolean,
+    isLoggingOut: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -166,6 +177,14 @@ private fun ChildProfileSelectScreen(
                     )
                 }
             }
+            if (showLogoutButton) {
+                TextButton(
+                    onClick = onLogoutClick,
+                    enabled = !isLoggingOut,
+                ) {
+                    Text(text = if (isLoggingOut) "로그아웃 중..." else "다른 계정으로 로그인")
+                }
+            }
         }
     }
 }
@@ -184,14 +203,17 @@ private fun HeaderActionRow(
         Text(
             text =
                 if (isManageMode) {
-                    "수정할 아이 프로필을 선택해 주세요."
+                    "수정할 프로필을 선택해 주세요."
                 } else {
-                    "학습과 리포트에 사용할 아이 프로필을 선택해 주세요."
+                    "사용할 아이를 선택해 주세요."
                 },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 56.dp),
         )
         if (showManageButton) {
             TextButton(

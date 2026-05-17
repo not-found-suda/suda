@@ -2,7 +2,7 @@
 
 package com.ssafy.mobile.feature.mypage.presentation
 
-import androidx.compose.foundation.background
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,10 +14,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -35,14 +35,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ssafy.mobile.R
 import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
-import com.ssafy.mobile.core.ui.components.AppDialog
+import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import java.util.Locale
 
 @Composable
@@ -88,17 +92,82 @@ fun MyPageRoute(
     )
 
     if (showLogoutDialog) {
-        AppDialog(
-            title = "로그아웃할까요?",
-            message = "현재 기기의 로그인 정보가 삭제됩니다. 다시 이용하려면 로그인이 필요해요.",
-            confirmText = "로그아웃",
-            dismissText = "취소",
+        LogoutConfirmDialog(
             onConfirm = {
                 showLogoutDialog = false
                 viewModel.logout()
             },
             onDismiss = { showLogoutDialog = false },
         )
+    }
+}
+
+@Composable
+private fun LogoutConfirmDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            tonalElevation = 6.dp,
+            shadowElevation = 12.dp,
+        ) {
+            Column(
+                modifier = Modifier.padding(22.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Surface(
+                    modifier = Modifier.size(52.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.58f),
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_mypage_logout),
+                            contentDescription = null,
+                            modifier = Modifier.size(26.dp),
+                        )
+                    }
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "로그아웃할까요?",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = "현재 기기의 로그인 정보만 삭제돼요. 다시 이용하려면 로그인하면 됩니다.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    AppSecondaryButton(
+                        text = "취소",
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                    )
+                    AppPrimaryButton(
+                        text = "로그아웃",
+                        onClick = onConfirm,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -148,14 +217,14 @@ private fun MyPageScreen(
                             MyPageMenuSpec(
                                 title = "계정 정보",
                                 description = "이메일 확인과 이름 수정",
-                                initials = "계정",
+                                iconRes = R.drawable.ic_mypage_account,
                                 iconColor = Color(0xFF3F8DF6),
                                 onClick = onAccountEditClick,
                             ),
                             MyPageMenuSpec(
                                 title = "아이 프로필",
                                 description = "프로필 선택과 전환",
-                                initials = "아이",
+                                iconRes = R.drawable.ic_mypage_child_profile,
                                 iconColor = Color(0xFF22B8A8),
                                 onClick = onChildProfileClick,
                             ),
@@ -177,7 +246,7 @@ private fun MyPageScreen(
                             MyPageMenuSpec(
                                 title = "앱 설정",
                                 description = "테마와 사용 환경 설정",
-                                initials = "설정",
+                                iconRes = R.drawable.ic_mypage_settings,
                                 iconColor = Color(0xFF8CC63F),
                                 onClick = onAppSettingsClick,
                             ),
@@ -188,7 +257,7 @@ private fun MyPageScreen(
                             MyPageMenuSpec(
                                 title = "로그아웃",
                                 description = "현재 기기의 로그인 세션 종료",
-                                initials = "종료",
+                                iconRes = R.drawable.ic_mypage_logout,
                                 iconColor = Color(0xFF8B95A1),
                                 onClick = onLogoutClick,
                             ),
@@ -275,7 +344,7 @@ private fun AiModelManagementRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             MyPageIcon(
-                label = "AI",
+                iconRes = R.drawable.ic_mypage_ai_model,
                 color = Color(0xFF6C5CE7),
                 modifier = Modifier.padding(start = 20.dp),
             )
@@ -301,13 +370,6 @@ private fun AiModelManagementRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Text(
-                text = "모델 관리",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(end = 20.dp),
-            )
         }
 
         AiModelDownloadProgress(
@@ -367,7 +429,7 @@ private fun MyPageMenuRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         MyPageIcon(
-            label = item.initials.take(2),
+            iconRes = item.iconRes,
             color = item.iconColor,
             modifier = Modifier.padding(start = 20.dp),
         )
@@ -405,35 +467,30 @@ private fun MyPageMenuRow(
 
 @Composable
 private fun MyPageIcon(
-    label: String,
+    @DrawableRes iconRes: Int,
     color: Color,
     modifier: Modifier = Modifier,
 ) {
-    Box(
+    Surface(
         modifier =
             modifier
-                .size(42.dp)
-                .background(color, CircleShape),
-        contentAlignment = Alignment.Center,
+                .size(42.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = color.copy(alpha = 0.12f),
+        contentColor = color,
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-        )
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painter = painterResource(id = iconRes),
+                contentDescription = null,
+                modifier = Modifier.size(23.dp),
+            )
+        }
     }
 }
-
-private fun AiModelDownloadStatus.label(): String =
-    when (this) {
-        AiModelDownloadStatus.Ready -> "준비 완료"
-        AiModelDownloadStatus.Missing -> "미설치"
-        AiModelDownloadStatus.Downloading -> "다운로드 중"
-        AiModelDownloadStatus.Success -> "완료"
-        AiModelDownloadStatus.Canceled -> "취소됨"
-        AiModelDownloadStatus.Failed -> "실패"
-    }
 
 private fun AiModelDownloadStatus.badgeTone(): AppBadgeTone =
     when (this) {
@@ -470,7 +527,7 @@ private fun formatDuration(millis: Long): String {
 private data class MyPageMenuSpec(
     val title: String,
     val description: String,
-    val initials: String,
+    @param:DrawableRes val iconRes: Int,
     val iconColor: Color,
     val onClick: () -> Unit,
     val badgeText: String? = null,

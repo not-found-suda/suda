@@ -46,7 +46,7 @@ fun ReportQuizSessionDetailRoute(
         val observer =
             LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
-                    viewModel.loadActiveChildProfile()
+                    viewModel.loadActiveChildProfile(showLoading = false)
                 }
             }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -81,7 +81,7 @@ fun ReportQuizSessionDetailRoute(
         ReportQuizSessionDetailContent(
             activeChildState = uiState.activeChildState,
             detailState = uiState.detailState,
-            onRetryClick = viewModel::loadActiveChildProfile,
+            onRetryClick = { viewModel.loadActiveChildProfile() },
             onSwitchChild = onSwitchChild,
             modifier =
                 Modifier

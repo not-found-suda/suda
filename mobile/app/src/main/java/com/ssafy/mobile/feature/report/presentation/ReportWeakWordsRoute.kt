@@ -35,7 +35,10 @@ import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+import com.ssafy.mobile.core.ui.components.SudaMascot
+import com.ssafy.mobile.core.ui.components.SudaStateView
 import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
+import com.ssafy.mobile.feature.report.domain.model.ReportWeakWord
 import com.ssafy.mobile.feature.report.domain.model.ReportWeakWordPage
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -43,6 +46,7 @@ import com.ssafy.mobile.feature.report.domain.model.ReportWeakWordPage
 fun ReportWeakWordsRoute(
     onNavigateBack: () -> Unit,
     onSwitchChild: () -> Unit,
+    onLearnWord: (ReportWeakWord) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ReportWeakWordsViewModel = hiltViewModel(),
 ) {
@@ -53,7 +57,7 @@ fun ReportWeakWordsRoute(
         val observer =
             LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
-                    viewModel.loadActiveChildProfile()
+                    viewModel.loadActiveChildProfile(showLoading = false)
                 }
             }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -88,19 +92,12 @@ fun ReportWeakWordsRoute(
         ReportWeakWordsContent(
             activeChildState = uiState.activeChildState,
             weakWordsState = uiState.weakWordsState,
-            filterUiState = uiState.filterUiState,
             actions =
                 ReportWeakWordsActions(
-                    onRetryClick = viewModel::loadActiveChildProfile,
+                    onRetryClick = { viewModel.loadActiveChildProfile() },
                     onLoadMoreClick = viewModel::loadMoreWeakWords,
                     onSwitchChild = onSwitchChild,
-                    filterActions =
-                        ReportFilterActions(
-                            onInputChange = viewModel::updateFilterInput,
-                            onApplyClick = viewModel::applyFilter,
-                            onResetClick = viewModel::resetFilter,
-                            onRetryCategoriesClick = viewModel::loadFilterCategories,
-                        ),
+                    onLearnWord = onLearnWord,
                 ),
             modifier =
                 Modifier
@@ -114,7 +111,6 @@ fun ReportWeakWordsRoute(
 private fun ReportWeakWordsContent(
     activeChildState: ActiveChildProfileState,
     weakWordsState: ReportWeakWordsState,
-    filterUiState: ReportFilterUiState,
     actions: ReportWeakWordsActions,
     modifier: Modifier = Modifier,
 ) {
@@ -130,20 +126,23 @@ private fun ReportWeakWordsContent(
         when (activeChildState) {
             ActiveChildProfileState.Loading ->
                 item {
-                    ReportWeakWordsStatusCard(message = "아이 정보를 불러오는 중...")
+                    ReportWeakWordsStatusCard(
+                        mascot = SudaMascot.Loading,
+                        title = "아이 정보를 불러오는 중이에요",
+                    )
                 }
 
             is ActiveChildProfileState.Selected ->
                 weakWordsItems(
                     state = weakWordsState,
-                    filterUiState = filterUiState,
                     actions = actions,
                 )
 
             ActiveChildProfileState.Missing ->
                 item {
                     ReportWeakWordsActionCard(
-                        message = "리포트를 보려면 아이를 먼저 선택해 주세요.",
+                        title = "아이를 먼저 선택해 주세요",
+                        description = "리포트를 보려면 아이 정보가 필요해요.",
                         buttonText = "아이 선택하기",
                         onClick = actions.onSwitchChild,
                     )
@@ -152,7 +151,8 @@ private fun ReportWeakWordsContent(
             ActiveChildProfileState.NotFound ->
                 item {
                     ReportWeakWordsActionCard(
-                        message = "선택된 아이 정보를 찾을 수 없습니다.",
+                        title = "아이 정보를 찾을 수 없어요",
+                        description = "다시 선택하면 리포트를 볼 수 있어요.",
                         buttonText = "아이 다시 선택하기",
                         onClick = actions.onSwitchChild,
                     )
@@ -171,41 +171,31 @@ private fun ReportWeakWordsContent(
 
 private fun LazyListScope.weakWordsItems(
     state: ReportWeakWordsState,
-    filterUiState: ReportFilterUiState,
     actions: ReportWeakWordsActions,
 ) {
-    item {
-        ReportFilterPanel(
-            state = filterUiState,
-            config =
-                ReportFilterPanelConfig(
-                    showCategory = true,
-                    showMinAttemptCount = true,
-                ),
-            actions = actions.filterActions,
-        )
-    }
-
     when (state) {
         ReportWeakWordsState.Idle ->
             item {
-                ReportWeakWordsStatusCard(message = "취약 단어를 불러오는 중...")
+                ReportWeakWordsStatusCard(
+                    mascot = SudaMascot.Loading,
+                    title = "취약 단어를 불러오는 중이에요",
+                )
             }
 
         ReportWeakWordsState.Loading ->
             item {
-                ReportWeakWordsStatusCard(message = "취약 단어를 불러오는 중...")
+                ReportWeakWordsStatusCard(
+                    mascot = SudaMascot.Loading,
+                    title = "취약 단어를 불러오는 중이에요",
+                )
             }
 
         ReportWeakWordsState.Empty ->
             item {
                 ReportWeakWordsStatusCard(
-                    message =
-                        if (filterUiState.hasAppliedFilter) {
-                            "조건에 맞는 취약 단어가 없어요."
-                        } else {
-                            "아직 자주 틀리는 단어가 없어요.\n퀴즈를 더 풀면 어려워하는 단어를 모아볼 수 있어요."
-                        },
+                    mascot = SudaMascot.Empty,
+                    title = "이번 기간에 취약 단어가 없어요",
+                    description = "퀴즈를 더 풀면 어려워하는 단어를 모아볼 수 있어요.",
                 )
             }
 
@@ -225,7 +215,10 @@ private fun LazyListScope.weakWordsItems(
                 items = state.page.words,
                 key = { word -> word.wordId },
             ) { word ->
-                ReportWeakWordCard(word = word)
+                ReportWeakWordCard(
+                    word = word,
+                    onLearnClick = { actions.onLearnWord(word) },
+                )
             }
             item {
                 ReportWeakWordsMoreSection(
@@ -241,7 +234,7 @@ private data class ReportWeakWordsActions(
     val onRetryClick: () -> Unit,
     val onLoadMoreClick: () -> Unit,
     val onSwitchChild: () -> Unit,
-    val filterActions: ReportFilterActions,
+    val onLearnWord: (ReportWeakWord) -> Unit,
 )
 
 @Composable
@@ -315,20 +308,20 @@ private fun ReportWeakWordsMoreSection(
 }
 
 @Composable
-private fun ReportWeakWordsStatusCard(message: String) {
+private fun ReportWeakWordsStatusCard(
+    mascot: SudaMascot,
+    title: String,
+    description: String? = null,
+) {
     ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        AppBadge(
-            text = "상태",
-            tone = AppBadgeTone.Neutral,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
+        SudaStateView(
+            mascot = mascot,
+            title = title,
+            description = description,
+            modifier = Modifier.height(132.dp),
+            compact = true,
         )
     }
 }
@@ -341,59 +334,42 @@ private fun ReportWeakWordsErrorCard(
     ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            AppBadge(
-                text = "불러오기 실패",
-                tone = AppBadgeTone.Error,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            AppSecondaryButton(
-                text = "다시 시도",
-                onClick = onRetryClick,
-                modifier = Modifier.height(36.dp),
-            )
-        }
+        SudaStateView(
+            mascot = SudaMascot.ErrorNetwork,
+            title = "취약 단어를 불러오지 못했어요",
+            description = message,
+            action = {
+                AppSecondaryButton(
+                    text = "다시 시도",
+                    onClick = onRetryClick,
+                    modifier = Modifier.height(36.dp),
+                )
+            },
+        )
     }
 }
 
 @Composable
 private fun ReportWeakWordsActionCard(
-    message: String,
+    title: String,
+    description: String,
     buttonText: String,
     onClick: () -> Unit,
 ) {
     ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            AppBadge(
-                text = "아이 선택",
-                tone = AppBadgeTone.Warning,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            AppPrimaryButton(
-                text = buttonText,
-                onClick = onClick,
-                modifier = Modifier.height(40.dp),
-            )
-        }
+        SudaStateView(
+            mascot = SudaMascot.Report,
+            title = title,
+            description = description,
+            action = {
+                AppPrimaryButton(
+                    text = buttonText,
+                    onClick = onClick,
+                    modifier = Modifier.height(40.dp),
+                )
+            },
+        )
     }
 }

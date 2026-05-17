@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,7 +29,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -45,7 +47,6 @@ import com.ssafy.mobile.core.navigation.Screen
 import com.ssafy.mobile.core.permission.PermissionGuide
 import com.ssafy.mobile.core.permission.PermissionHandler
 import com.ssafy.mobile.core.permission.PermissionRequestState
-import com.ssafy.mobile.core.ui.icons.SudaBottomNavIcons
 import com.ssafy.mobile.core.ui.theme.MobileTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -159,7 +160,7 @@ private fun MobileAppShell(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         bottomBar = {
-            if (bottomNavigationItems.any { it.screen.route == currentRoute }) {
+            if (shouldShowBottomNavigation(currentRoute, authState)) {
                 AppBottomNavigationBar(
                     navController = navController,
                     currentRoute = currentRoute,
@@ -177,6 +178,13 @@ private fun MobileAppShell(
         )
     }
 }
+
+private fun shouldShowBottomNavigation(
+    currentRoute: String?,
+    authState: AuthState,
+): Boolean =
+    authState is AuthState.AuthenticatedWithChild &&
+        bottomNavigationItems.any { it.screen.route == currentRoute }
 
 @Composable
 private fun AppBottomNavigationBar(
@@ -223,8 +231,12 @@ private fun AppBottomNavigationBar(
                     ),
                 icon = {
                     Icon(
-                        imageVector = item.icon,
+                        painter =
+                            painterResource(
+                                id = if (selected) item.selectedIcon else item.defaultIcon,
+                            ),
                         contentDescription = item.label,
+                        tint = Color.Unspecified,
                     )
                 },
                 label = {
@@ -260,7 +272,8 @@ private fun PermissionCheckingContent(modifier: Modifier = Modifier) {
 private data class BottomNavigationItem(
     val screen: Screen,
     val label: String,
-    val icon: ImageVector,
+    @param:DrawableRes val defaultIcon: Int,
+    @param:DrawableRes val selectedIcon: Int,
 )
 
 private val bottomNavigationItems =
@@ -268,26 +281,31 @@ private val bottomNavigationItems =
         BottomNavigationItem(
             screen = Screen.Home,
             label = "홈",
-            icon = SudaBottomNavIcons.Home,
+            defaultIcon = R.drawable.nav_home_default,
+            selectedIcon = R.drawable.nav_home_selected,
         ),
         BottomNavigationItem(
             screen = Screen.Conversation,
             label = "소통",
-            icon = SudaBottomNavIcons.Conversation,
+            defaultIcon = R.drawable.nav_communication_default,
+            selectedIcon = R.drawable.nav_communication_selected,
         ),
         BottomNavigationItem(
             screen = Screen.LearningCategory,
             label = "학습",
-            icon = SudaBottomNavIcons.Learning,
+            defaultIcon = R.drawable.nav_learning_default,
+            selectedIcon = R.drawable.nav_learning_selected,
         ),
         BottomNavigationItem(
             screen = Screen.ReportHome,
             label = "리포트",
-            icon = SudaBottomNavIcons.Report,
+            defaultIcon = R.drawable.nav_report_default,
+            selectedIcon = R.drawable.nav_report_selected,
         ),
         BottomNavigationItem(
             screen = Screen.MyPage,
             label = "마이",
-            icon = SudaBottomNavIcons.Profile,
+            defaultIcon = R.drawable.nav_mypage_default,
+            selectedIcon = R.drawable.nav_mypage_selected,
         ),
     )

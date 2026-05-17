@@ -67,6 +67,45 @@ class RemoteReportRepository
                 Result.failure(IllegalStateException("리포트 요약을 불러오는 중 오류가 발생했습니다."))
             }
 
+        override suspend fun getCommunicationSummary(
+            childId: Long,
+            filter: ReportFilterState,
+        ): Result<ReportCommunicationSummary> =
+            try {
+                val response =
+                    apiService.getCommunicationSummary(
+                        childId = childId,
+                        filters = filter.toDateQueryMap(),
+                    )
+
+                if (response.isSuccessful) {
+                    val body =
+                        response.body()
+                            ?: return Result.failure(IllegalStateException("소통 분석 응답이 비어 있습니다."))
+                    Result.success(body.toDomain())
+                } else {
+                    Result.failure(
+                        IllegalStateException(
+                            response.toReportFailureMessage(
+                                endpoint = "reports/communication-summary",
+                                defaultMessage = "소통 분석 리포트를 불러오지 못했습니다.",
+                            ),
+                        ),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                Log.e(TAG, "Report communication summary network error", e)
+                Result.failure(IOException("네트워크 연결을 확인해 주세요."))
+            } catch (
+                @Suppress("TooGenericExceptionCaught")
+                e: Exception,
+            ) {
+                Log.e(TAG, "Report communication summary unknown error", e)
+                Result.failure(IllegalStateException("소통 분석 리포트를 불러오는 중 오류가 발생했습니다."))
+            }
+
         override suspend fun getWeakWords(
             childId: Long,
             page: Int,
@@ -147,47 +186,6 @@ class RemoteReportRepository
             ) {
                 Log.e(TAG, "Report category progress unknown error", e)
                 Result.failure(IllegalStateException("카테고리별 리포트를 불러오는 중 오류가 발생했습니다."))
-            }
-
-        override suspend fun getCommunicationSummary(
-            childId: Long,
-            filter: ReportFilterState,
-        ): Result<ReportCommunicationSummary> =
-            try {
-                val response =
-                    apiService.getCommunicationSummary(
-                        childId = childId,
-                        filters = filter.toDateQueryMap(),
-                    )
-
-                if (response.isSuccessful) {
-                    val body =
-                        response.body()
-                            ?: return Result.failure(
-                                IllegalStateException("소통 발화 분석 리포트 응답이 비어 있습니다."),
-                            )
-                    Result.success(body.toDomain())
-                } else {
-                    Result.failure(
-                        IllegalStateException(
-                            response.toReportFailureMessage(
-                                endpoint = "reports/communication-summary",
-                                defaultMessage = "소통 발화 분석 리포트를 불러오지 못했습니다.",
-                            ),
-                        ),
-                    )
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: IOException) {
-                Log.e(TAG, "Report communication summary network error", e)
-                Result.failure(IOException("네트워크 연결을 확인해 주세요."))
-            } catch (
-                @Suppress("TooGenericExceptionCaught")
-                e: Exception,
-            ) {
-                Log.e(TAG, "Report communication summary unknown error", e)
-                Result.failure(IllegalStateException("소통 발화 분석 리포트를 불러오는 중 오류가 발생했습니다."))
             }
 
         override suspend fun getQuizSessions(

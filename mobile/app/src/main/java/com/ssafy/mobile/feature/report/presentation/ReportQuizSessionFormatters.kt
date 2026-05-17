@@ -14,6 +14,7 @@ internal fun String.toReportDifficultyLabel(): String =
 internal fun String.toReportSessionStatusLabel(): String =
     when (this) {
         "COMPLETED" -> "완료"
+        "IN_PROGRESS" -> "진행 중"
         "STARTED" -> "진행 중"
         "ABANDONED" -> "중단"
         else -> this
@@ -22,6 +23,7 @@ internal fun String.toReportSessionStatusLabel(): String =
 internal fun String.toReportSessionStatusBadgeTone(): AppBadgeTone =
     when (this) {
         "COMPLETED" -> AppBadgeTone.Success
+        "IN_PROGRESS" -> AppBadgeTone.Primary
         "STARTED" -> AppBadgeTone.Primary
         "ABANDONED" -> AppBadgeTone.Warning
         else -> AppBadgeTone.Neutral

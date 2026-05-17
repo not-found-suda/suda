@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber")
+@file:Suppress("MagicNumber", "TooManyFunctions")
 
 package com.ssafy.mobile.feature.report.presentation
 
@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -29,7 +30,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.ssafy.mobile.core.ui.theme.SudaHomeAccent
 import com.ssafy.mobile.core.ui.theme.SudaInfo
+import com.ssafy.mobile.core.ui.theme.SudaReportAccent
 import com.ssafy.mobile.core.ui.theme.SudaSuccess
 import com.ssafy.mobile.core.ui.theme.SudaWarning
 import java.util.Locale
@@ -45,13 +48,11 @@ internal fun ReportGlassCard(
     val shape = RoundedCornerShape(8.dp)
     val cardModifier =
         modifier
-            .clip(shape)
-            .background(reportGlassBrush(), shape)
             .border(
                 border =
                     BorderStroke(
                         width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.62f),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.54f),
                     ),
                 shape = shape,
             )
@@ -60,10 +61,10 @@ internal fun ReportGlassCard(
         Surface(
             modifier = cardModifier,
             shape = shape,
-            color = Color.Transparent,
+            color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp,
+            tonalElevation = 1.dp,
+            shadowElevation = 1.dp,
         ) {
             Column(
                 modifier = Modifier.padding(contentPadding),
@@ -75,10 +76,10 @@ internal fun ReportGlassCard(
             onClick = onClick,
             modifier = cardModifier,
             shape = shape,
-            color = Color.Transparent,
+            color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp,
+            tonalElevation = 1.dp,
+            shadowElevation = 1.dp,
         ) {
             Column(
                 modifier = Modifier.padding(contentPadding),
@@ -94,19 +95,46 @@ internal fun ReportSectionTitle(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        if (!subtitle.isNullOrBlank()) {
-            Spacer(modifier = Modifier.height(4.dp))
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+    ) {
+        ReportSectionMarker()
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReportSectionMarker() {
+    Surface(
+        modifier = Modifier.size(28.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.58f),
+        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Box(
+                modifier =
+                    Modifier
+                        .size(9.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(SudaReportAccent),
             )
         }
     }
@@ -257,6 +285,41 @@ internal fun ReportStarRating(
 }
 
 @Composable
+internal fun ReportInlineStarMetric(
+    title: String,
+    rating: Double?,
+    modifier: Modifier = Modifier,
+    emptyText: String = "정보 없음",
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(modifier = Modifier.weight(1f))
+        if (rating == null) {
+            Text(
+                text = emptyText,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        } else {
+            ReportStarRating(rating = rating)
+        }
+    }
+}
+
+@Composable
 internal fun ReportPercentMeter(
     title: String,
     value: Double,
@@ -324,21 +387,10 @@ internal enum class ReportVisualTone {
 }
 
 @Composable
-private fun reportGlassBrush(): Brush =
-    Brush.linearGradient(
-        colors =
-            listOf(
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.24f),
-                MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.18f),
-            ),
-    )
-
-@Composable
 private fun ReportVisualTone.reportVisualColors(): ReportVisualColors {
-    val primary = MaterialTheme.colorScheme.primary
+    val primary = SudaHomeAccent
     val secondary = MaterialTheme.colorScheme.secondary
-    val tertiary = MaterialTheme.colorScheme.tertiary
+    val tertiary = SudaReportAccent
     val error = MaterialTheme.colorScheme.error
 
     return when (this) {
@@ -372,10 +424,10 @@ private fun ReportVisualTone.reportVisualColors(): ReportVisualColors {
             )
         ReportVisualTone.Warning ->
             ReportVisualColors(
-                container = SudaWarning.copy(alpha = 0.13f),
-                content = Color(0xFF6B4200),
-                accent = SudaWarning,
-                progressBrush = SudaWarning.toReportProgressBrush(startAlpha = 0.7f),
+                container = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.48f),
+                content = MaterialTheme.colorScheme.onSecondaryContainer,
+                accent = secondary,
+                progressBrush = secondary.toReportProgressBrush(startAlpha = 0.62f),
             )
         ReportVisualTone.Error ->
             ReportVisualColors(

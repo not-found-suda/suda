@@ -9,6 +9,7 @@ import com.ssafy.mobile.feature.learning.domain.model.DEFAULT_QUIZ_QUESTION_COUN
 import com.ssafy.mobile.feature.learning.domain.model.LearningQuizAnswerResult
 import com.ssafy.mobile.feature.learning.domain.model.LearningQuizQuestion
 import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizRepository
+import com.ssafy.mobile.feature.learning.domain.repository.LearningWordRepository
 import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
 import com.ssafy.mobile.feature.quiz.domain.model.QuizQuestion
 import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionState
@@ -29,6 +30,7 @@ class QuizQuestionViewModel
     constructor(
         savedStateHandle: SavedStateHandle,
         private val quizRepository: LearningQuizRepository,
+        private val wordRepository: LearningWordRepository,
         private val activeChildStorage: ActiveChildStorage,
     ) : ViewModel() {
         val categoryId: Long =
@@ -36,6 +38,10 @@ class QuizQuestionViewModel
                 "Quiz route requires categoryId."
             }
         val difficulty: String = savedStateHandle["difficulty"] ?: DEFAULT_LEARNING_DIFFICULTY
+        private val resumeSessionId: Long? =
+            savedStateHandle
+                .get<Long>("sessionId")
+                ?.takeUnless { it == RESUME_SESSION_ID_NONE }
         private var isCompletionPending = false
 
         private val _quizState = MutableStateFlow(QuizSessionState(isLoading = true))
@@ -46,7 +52,11 @@ class QuizQuestionViewModel
         val answerSubmitState: StateFlow<QuizAnswerSubmitState> = _answerSubmitState.asStateFlow()
 
         init {
-            startSession()
+            if (resumeSessionId == null) {
+                startSession()
+            } else {
+                resumeSession(resumeSessionId)
+            }
         }
 
         fun restart() {
@@ -184,6 +194,9 @@ class QuizQuestionViewModel
                     return@launch
                 }
 
+                val preloadImageUrls =
+                    loadPreloadImageUrls()
+
                 val sessionResult =
                     withContext(Dispatchers.IO) {
                         quizRepository.createSession(
@@ -203,6 +216,10 @@ class QuizQuestionViewModel
                                 totalQuestionCountOverride = session.totalQuestionCount,
                                 currentQuestionNumberOverride =
                                     session.currentQuestionNumber,
+                                preloadImageUrls =
+                                    (session.imageUrls + preloadImageUrls)
+                                        .filter { it.isNotBlank() }
+                                        .distinct(),
                             )
                         loadCurrentQuestion(session.sessionId)
                     }.onFailure { throwable ->
@@ -214,6 +231,32 @@ class QuizQuestionViewModel
                     }
             }
         }
+
+        private fun resumeSession(sessionId: Long) {
+            viewModelScope.launch {
+                _quizState.value = QuizSessionState(isLoading = true, sessionId = sessionId)
+                _answerSubmitState.value = QuizAnswerSubmitState.Idle
+                isCompletionPending = false
+
+                val preloadImageUrls = loadPreloadImageUrls()
+                _quizState.value =
+                    _quizState.value.copy(
+                        preloadImageUrls = preloadImageUrls,
+                    )
+                loadCurrentQuestion(sessionId)
+            }
+        }
+
+        private suspend fun loadPreloadImageUrls(): List<String> =
+            withContext(Dispatchers.IO) {
+                wordRepository
+                    .getWords(
+                        categoryId = categoryId,
+                        difficulty = difficulty,
+                    ).getOrNull()
+                    .orEmpty()
+                    .mapNotNull { word -> word.imageUrl?.takeIf { it.isNotBlank() } }
+            }
 
         private fun loadCurrentQuestion(sessionId: Long) {
             viewModelScope.launch {
@@ -275,6 +318,10 @@ class QuizQuestionViewModel
                         sessionId = question.sessionId,
                         totalQuestionCountOverride = question.totalQuestionCount,
                         currentQuestionNumberOverride = question.questionNumber,
+                        preloadImageUrls =
+                            (_quizState.value.preloadImageUrls + question.imageUrl)
+                                .filter { it.isNotBlank() }
+                                .distinct(),
                     )
                 isCompletionPending = false
                 _answerSubmitState.value = QuizAnswerSubmitState.Idle
@@ -395,3 +442,5 @@ private fun QuizSessionState.isLastQuestion(): Boolean =
     currentQuestionNumberOverride != null &&
         totalQuestionCountOverride != null &&
         currentQuestionNumberOverride >= totalQuestionCountOverride
+
+private const val RESUME_SESSION_ID_NONE = -1L

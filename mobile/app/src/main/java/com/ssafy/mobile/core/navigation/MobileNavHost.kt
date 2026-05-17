@@ -55,11 +55,6 @@ fun MobileNavHost(
                         popUpTo(Screen.AppEntry.route) { inclusive = true }
                     }
                 },
-                onNavigateToChildSelect = {
-                    navController.navigate(Screen.ChildSelect.route) {
-                        popUpTo(Screen.AppEntry.route) { inclusive = true }
-                    }
-                },
                 onNavigateToHome = {
                     navController.navigate(Screen.Home.route) {
                         popUpTo(Screen.AppEntry.route) { inclusive = true }
@@ -88,13 +83,6 @@ fun MobileNavHost(
                         popUpTo(popTarget) { inclusive = true }
                     }
                 },
-                onNavigateToChildSelect = {
-                    val popTarget =
-                        navController.loginEntryPopTarget()
-                    navController.navigate(Screen.ChildSelect.route) {
-                        popUpTo(popTarget) { inclusive = true }
-                    }
-                },
                 onNavigateToSignup = {
                     navController.navigate(Screen.Signup.route)
                 },
@@ -118,10 +106,10 @@ fun MobileNavHost(
         }
 
         composable(Screen.ChildSelect.route) {
+            val previousRoute = navController.previousBackStackEntry?.destination?.route
             ChildProfileSelectRoute(
                 navController = navController,
                 onNavigateToHome = {
-                    val previousRoute = navController.previousBackStackEntry?.destination?.route
                     val returnRoute =
                         when (previousRoute) {
                             Screen.MyPage.route -> Screen.MyPage.route
@@ -148,6 +136,15 @@ fun MobileNavHost(
                 onNavigateToEdit = { childId ->
                     navController.navigate(Screen.ChildProfileEdit.createRoute(childId))
                 },
+                onLogoutSuccess = {
+                    navController.navigate(Screen.GuestConversation.route) {
+                        popUpTo(Screen.ChildSelect.route) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
+                showLogoutButton =
+                    previousRoute != Screen.MyPage.route &&
+                        previousRoute != Screen.ReportHome.route,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -187,18 +184,25 @@ fun MobileNavHost(
 
         composable(Screen.Home.route) {
             HomeRoute(
-                onStartLearning = {
-                    navController.navigate(Screen.LearningCategory.route) {
-                        launchSingleTop = true
-                    }
+                onResumeQuiz = { session ->
+                    navController.navigate(
+                        Screen.Quiz.createResumeRoute(
+                            sessionId = session.sessionId,
+                            categoryId = session.categoryId,
+                            difficulty = session.difficulty,
+                        ),
+                    )
                 },
-                onStartConversation = {
-                    navController.navigate(Screen.Conversation.route) {
-                        launchSingleTop = true
-                    }
+                onViewAllResumeQuizzes = {
+                    navController.navigate(
+                        Screen.ReportQuizSessions.createRoute(status = QUIZ_STATUS_IN_PROGRESS),
+                    )
                 },
                 onNavigateToChildSelect = {
-                    navController.navigate(Screen.ChildSelect.route)
+                    navController.navigate(Screen.ChildSelect.route) {
+                        popUpTo(Screen.Home.route) { inclusive = true }
+                        launchSingleTop = true
+                    }
                 },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -212,6 +216,10 @@ fun MobileNavHost(
                     navArgument("difficulty") {
                         type = NavType.StringType
                         defaultValue = DEFAULT_LEARNING_DIFFICULTY
+                    },
+                    navArgument("sessionId") {
+                        type = NavType.LongType
+                        defaultValue = RESUME_SESSION_ID_NONE
                     },
                 ),
         ) {
@@ -365,6 +373,10 @@ fun MobileNavHost(
                         type = NavType.StringType
                         defaultValue = DEFAULT_LEARNING_DIFFICULTY
                     },
+                    navArgument("targetWordId") {
+                        type = NavType.LongType
+                        defaultValue = -1L
+                    },
                 ),
         ) {
             LearningWordListRoute(
@@ -383,17 +395,17 @@ fun MobileNavHost(
                 onNavigateToSummary = {
                     navController.navigate(Screen.ReportSummary.route)
                 },
+                onNavigateToCommunication = {
+                    navController.navigate(Screen.ReportCommunicationSummary.route)
+                },
                 onNavigateToWeakWords = {
                     navController.navigate(Screen.ReportWeakWords.route)
                 },
                 onNavigateToCategoryProgress = {
                     navController.navigate(Screen.ReportCategoryProgress.route)
                 },
-                onNavigateToCommunicationSummary = {
-                    navController.navigate(Screen.ReportCommunicationSummary.route)
-                },
                 onNavigateToQuizSessions = {
-                    navController.navigate(Screen.ReportQuizSessions.route)
+                    navController.navigate(Screen.ReportQuizSessions.createRoute())
                 },
                 onSwitchChild = {
                     navController.navigate(Screen.ChildSelect.route)
@@ -417,6 +429,15 @@ fun MobileNavHost(
                 onNavigateBack = { navController.popBackStack() },
                 onSwitchChild = {
                     navController.navigate(Screen.ChildSelect.route)
+                },
+                onLearnWord = { word ->
+                    navController.navigate(
+                        Screen.WordList.createRoute(
+                            categoryId = word.categoryId,
+                            categoryName = word.categoryName,
+                            targetWordId = word.wordId,
+                        ),
+                    )
                 },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -442,14 +463,36 @@ fun MobileNavHost(
             )
         }
 
-        composable(Screen.ReportQuizSessions.route) {
+        composable(
+            route = Screen.ReportQuizSessions.route,
+            arguments =
+                listOf(
+                    navArgument("status") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
+        ) {
             ReportQuizSessionsRoute(
                 onNavigateBack = { navController.popBackStack() },
                 onSwitchChild = {
                     navController.navigate(Screen.ChildSelect.route)
                 },
-                onNavigateToDetail = { sessionId ->
-                    navController.navigate(Screen.ReportQuizSessionDetail.createRoute(sessionId))
+                onSessionClick = { session ->
+                    if (session.status == QUIZ_STATUS_IN_PROGRESS) {
+                        navController.navigate(
+                            Screen.Quiz.createResumeRoute(
+                                sessionId = session.sessionId,
+                                categoryId = session.categoryId,
+                                difficulty = session.difficulty,
+                            ),
+                        )
+                    } else {
+                        navController.navigate(
+                            Screen.ReportQuizSessionDetail.createRoute(session.sessionId),
+                        )
+                    }
                 },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -476,3 +519,6 @@ private fun NavHostController.loginEntryPopTarget(): String =
         Screen.Conversation.route -> Screen.Conversation.route
         else -> Screen.Login.route
     }
+
+private const val RESUME_SESSION_ID_NONE = -1L
+private const val QUIZ_STATUS_IN_PROGRESS = "IN_PROGRESS"

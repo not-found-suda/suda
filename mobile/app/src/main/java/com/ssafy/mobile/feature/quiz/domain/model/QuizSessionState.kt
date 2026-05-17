@@ -11,6 +11,7 @@ data class QuizSessionState(
     val sessionId: Long? = null,
     val totalQuestionCountOverride: Int? = null,
     val currentQuestionNumberOverride: Int? = null,
+    val preloadImageUrls: List<String> = emptyList(),
 ) {
     val totalQuestionCount: Int
         get() = totalQuestionCountOverride ?: questions.size

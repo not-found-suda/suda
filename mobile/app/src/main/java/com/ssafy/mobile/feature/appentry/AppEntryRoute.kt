@@ -31,7 +31,6 @@ import com.ssafy.mobile.core.ui.feedback.AppErrorText
 @Composable
 fun AppEntryRoute(
     onNavigateToLogin: () -> Unit,
-    onNavigateToChildSelect: () -> Unit,
     onNavigateToHome: () -> Unit,
     onNavigateToConversation: () -> Unit,
     modifier: Modifier = Modifier,
@@ -44,7 +43,7 @@ fun AppEntryRoute(
             is AuthState.Restoring -> Unit
             is AuthState.RestoreFailed -> Unit
             is AuthState.Unauthenticated -> onNavigateToConversation()
-            is AuthState.AuthenticatedWithoutChild -> onNavigateToChildSelect()
+            is AuthState.AuthenticatedWithoutChild -> onNavigateToHome()
             is AuthState.AuthenticatedWithChild -> onNavigateToHome()
         }
     }

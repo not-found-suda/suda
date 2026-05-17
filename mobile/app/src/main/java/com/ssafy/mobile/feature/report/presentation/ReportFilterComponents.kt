@@ -1,10 +1,8 @@
+@file:Suppress("ComplexCondition", "MagicNumber", "TooManyFunctions")
+
 package com.ssafy.mobile.feature.report.presentation
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.slideInVertically
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,33 +11,37 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.core.ui.components.AppTextField
-
-private const val FILTER_ENTER_SLIDE_DIVISOR = 5
+import java.time.LocalDate
+import java.time.YearMonth
 
 @Composable
 internal fun ReportFilterPanel(
@@ -48,48 +50,89 @@ internal fun ReportFilterPanel(
     actions: ReportFilterActions,
     modifier: Modifier = Modifier,
 ) {
-    var expanded by rememberSaveable { mutableStateOf(false) }
-
     ReportGlassCard(
         modifier =
             modifier
                 .fillMaxWidth()
                 .animateContentSize(),
+        contentPadding = PaddingValues(14.dp),
     ) {
-        Column(
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            ReportFilterHeader(
-                hasAppliedFilter = state.hasAppliedFilter,
-                expanded = expanded,
-                onToggleClick = { expanded = !expanded },
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            ReportFilterHeader(state = state)
+            ReportDateRangePicker(
+                input = state.input,
+                isError = state.errorMessage != null,
+                onInputChange = actions.onInputChange,
             )
-            AnimatedVisibility(
-                visible = expanded || state.errorMessage != null,
-                enter = fadeIn() + slideInVertically { it / FILTER_ENTER_SLIDE_DIVISOR },
-            ) {
-                ReportFilterExpandedContent(
-                    state = state,
-                    config = config,
-                    actions = actions,
+            ReportFilterOptionSection(
+                state = state,
+                config = config,
+                actions = actions,
+            )
+            state.errorMessage?.let { message ->
+                AppBadge(
+                    text = message,
+                    tone = AppBadgeTone.Error,
                 )
             }
+            ReportFilterActionRow(
+                onApplyClick = actions.onApplyClick,
+                onResetClick = actions.onResetClick,
+            )
         }
     }
 }
 
 @Composable
-private fun ReportFilterExpandedContent(
+private fun ReportFilterHeader(state: ReportFilterUiState) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = "조회 조건",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = state.input.dateRangeLabel(),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        AppBadge(
+            text = if (state.hasAppliedFilter) "적용됨" else "전체",
+            tone = if (state.hasAppliedFilter) AppBadgeTone.Primary else AppBadgeTone.Neutral,
+        )
+    }
+}
+
+@Composable
+private fun ReportFilterOptionSection(
     state: ReportFilterUiState,
     config: ReportFilterPanelConfig,
     actions: ReportFilterActions,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ReportYearRangePicker(
-            input = state.input,
-            isError = state.errorMessage != null,
-            onInputChange = actions.onInputChange,
-        )
+    if (
+        !config.showCategory &&
+        !config.showDifficulty &&
+        !config.showStatus &&
+        !config.showMinAttemptCount
+    ) {
+        return
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (config.showCategory) {
             ReportCategoryFilter(
                 state = state,
@@ -102,9 +145,8 @@ private fun ReportFilterExpandedContent(
                 label = "난이도",
                 selectedLabel =
                     difficultyOptions
-                        .firstOrNull {
-                            it.value == state.input.difficulty
-                        }?.label ?: "전체 난이도",
+                        .firstOrNull { it.value == state.input.difficulty }
+                        ?.label ?: "전체 난이도",
                 options = difficultyOptions,
                 onSelected = { value ->
                     actions.onInputChange(state.input.copy(difficulty = value))
@@ -116,9 +158,8 @@ private fun ReportFilterExpandedContent(
                 label = "상태",
                 selectedLabel =
                     statusOptions
-                        .firstOrNull {
-                            it.value == state.input.status
-                        }?.label ?: "전체 상태",
+                        .firstOrNull { it.value == state.input.status }
+                        ?.label ?: "전체 상태",
                 options = statusOptions,
                 onSelected = { value ->
                     actions.onInputChange(state.input.copy(status = value))
@@ -136,178 +177,486 @@ private fun ReportFilterExpandedContent(
                 supportingText = "1 이상",
             )
         }
-        state.errorMessage?.let { message ->
-            AppBadge(
-                text = message,
-                tone = AppBadgeTone.Error,
-            )
-        }
-        ReportFilterActionRow(
-            onApplyClick = actions.onApplyClick,
-            onResetClick = actions.onResetClick,
-        )
     }
 }
 
 @Composable
-private fun ReportFilterHeader(
-    hasAppliedFilter: Boolean,
-    expanded: Boolean,
-    onToggleClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "기간/조건",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = if (hasAppliedFilter) "지정한 조건으로 보고 있어요." else "기본은 전체 기간이에요.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Spacer(modifier = Modifier.width(8.dp))
-        ReportFilterToggleButton(
-            expanded = expanded,
-            onClick = onToggleClick,
-        )
-    }
-}
-
-@Composable
-private fun ReportFilterToggleButton(
-    expanded: Boolean,
-    onClick: () -> Unit,
-) {
-    OutlinedButton(
-        onClick = onClick,
-        modifier =
-            Modifier
-                .width(80.dp)
-                .height(34.dp),
-        shape = RoundedCornerShape(8.dp),
-        contentPadding = PaddingValues(horizontal = 4.dp),
-    ) {
-        Text(
-            text = if (expanded) "접기" else "더 보기",
-            style = MaterialTheme.typography.labelMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@Composable
-private fun ReportYearRangePicker(
+private fun ReportDateRangePicker(
     input: ReportFilterInputState,
     isError: Boolean,
     onInputChange: (ReportFilterInputState) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(
-            text = "조회 연도",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            ReportYearStepButton(
-                text = "이전",
-                onClick = { onInputChange(input.shiftYear(offset = -1)) },
-            )
-            Column(
-                modifier =
-                    Modifier
-                        .weight(1f)
-                        .heightIn(min = 40.dp),
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(
-                    text = input.yearLabel(),
-                    modifier = Modifier.fillMaxWidth(),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color =
-                        if (isError) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        },
-                    textAlign = TextAlign.Center,
-                )
-                Text(
-                    text = input.yearRangeLabel(),
-                    modifier = Modifier.fillMaxWidth(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color =
-                        if (isError) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    textAlign = TextAlign.Center,
-                )
-            }
-            ReportYearStepButton(
-                text = "다음",
-                onClick = { onInputChange(input.shiftYear(offset = 1)) },
-            )
-        }
-        OutlinedButton(
-            onClick = { onInputChange(input.selectCurrentYear()) },
-            modifier =
-                Modifier
-                    .width(88.dp)
-                    .height(34.dp),
-            shape = RoundedCornerShape(8.dp),
-            contentPadding = PaddingValues(horizontal = 4.dp),
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                text = "올해 보기",
-                style = MaterialTheme.typography.labelMedium,
+                text = "기간",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color =
+                    if (isError) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+            )
+            ReportQuickPeriodRows(
+                input = input,
+                onInputChange = onInputChange,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ReportDateField(
+                    label = "시작일",
+                    value = input.from,
+                    isError = isError,
+                    onDateSelected = { selectedDate ->
+                        onInputChange(input.copy(from = selectedDate))
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+                ReportDateField(
+                    label = "종료일",
+                    value = input.to,
+                    isError = isError,
+                    onDateSelected = { selectedDate ->
+                        onInputChange(input.copy(to = selectedDate))
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReportQuickPeriodRows(
+    input: ReportFilterInputState,
+    onInputChange: (ReportFilterInputState) -> Unit,
+) {
+    val selectedRange = input.selectedQuickDateRange()
+    val ranges = ReportQuickDateRange.entries
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        ranges.forEach { range ->
+            ReportQuickPeriodButton(
+                text = range.label,
+                selected = selectedRange == range,
+                onClick = { onInputChange(input.applyQuickDateRange(range)) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReportDateField(
+    label: String,
+    value: String,
+    isError: Boolean,
+    onDateSelected: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    var isCalendarOpen by remember { mutableStateOf(false) }
+
+    Surface(
+        onClick = { isCalendarOpen = true },
+        modifier = modifier,
+        shape = RoundedCornerShape(8.dp),
+        color = colors.surface,
+        contentColor = colors.onSurface,
+        tonalElevation = 1.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (isError) colors.error else colors.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = value.ifBlank { "날짜 선택" },
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color =
+                    when {
+                        isError -> colors.error
+                        value.isBlank() -> colors.onSurfaceVariant
+                        else -> colors.onSurface
+                    },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
     }
+
+    if (isCalendarOpen) {
+        ReportCalendarDialog(
+            title = "$label 선택",
+            initialDate = value.toReportDateOrNull() ?: LocalDate.now(),
+            onDismiss = { isCalendarOpen = false },
+            onDateSelected = { selectedDate ->
+                isCalendarOpen = false
+                onDateSelected(selectedDate)
+            },
+        )
+    }
 }
 
 @Composable
-private fun ReportYearStepButton(
+private fun ReportCalendarDialog(
+    title: String,
+    initialDate: LocalDate,
+    onDismiss: () -> Unit,
+    onDateSelected: (String) -> Unit,
+) {
+    var currentMonth by remember(initialDate) { mutableStateOf(YearMonth.from(initialDate)) }
+    var pickerMode by remember { mutableStateOf(ReportCalendarPickerMode.Day) }
+    val days = remember(currentMonth) { currentMonth.toCalendarDays() }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 360.dp),
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            tonalElevation = 8.dp,
+        ) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                ReportCalendarTitle(
+                    title = title,
+                    month = currentMonth,
+                    onPreviousMonthClick = { currentMonth = currentMonth.minusMonths(1) },
+                    onNextMonthClick = { currentMonth = currentMonth.plusMonths(1) },
+                    onYearClick = { pickerMode = ReportCalendarPickerMode.Year },
+                    onMonthClick = { pickerMode = ReportCalendarPickerMode.Month },
+                )
+                when (pickerMode) {
+                    ReportCalendarPickerMode.Day -> {
+                        ReportCalendarWeekdays()
+                        ReportCalendarMonthGrid(
+                            days = days,
+                            selectedDate = initialDate,
+                            onDateSelected = onDateSelected,
+                        )
+                    }
+
+                    ReportCalendarPickerMode.Year ->
+                        ReportCalendarYearPicker(
+                            selectedYear = currentMonth.year,
+                            onYearSelected = { year ->
+                                currentMonth = YearMonth.of(year, currentMonth.monthValue)
+                                pickerMode = ReportCalendarPickerMode.Day
+                            },
+                        )
+
+                    ReportCalendarPickerMode.Month ->
+                        ReportCalendarMonthPicker(
+                            selectedMonth = currentMonth.monthValue,
+                            onMonthSelected = { month ->
+                                currentMonth = YearMonth.of(currentMonth.year, month)
+                                pickerMode = ReportCalendarPickerMode.Day
+                            },
+                        )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReportCalendarTitle(
+    title: String,
+    month: YearMonth,
+    onPreviousMonthClick: () -> Unit,
+    onNextMonthClick: () -> Unit,
+    onYearClick: () -> Unit,
+    onMonthClick: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ReportCalendarNavButton(
+                text = "‹",
+                onClick = onPreviousMonthClick,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ReportCalendarTitleButton(
+                    text = "${month.year}년",
+                    onClick = onYearClick,
+                )
+                ReportCalendarTitleButton(
+                    text = "${month.monthValue}월",
+                    onClick = onMonthClick,
+                )
+            }
+            ReportCalendarNavButton(
+                text = "›",
+                onClick = onNextMonthClick,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReportCalendarTitleButton(
     text: String,
     onClick: () -> Unit,
 ) {
-    OutlinedButton(
+    Surface(
         onClick = onClick,
-        modifier =
-            Modifier
-                .width(56.dp)
-                .height(36.dp),
         shape = RoundedCornerShape(8.dp),
-        colors =
-            ButtonDefaults.outlinedButtonColors(
-                contentColor = MaterialTheme.colorScheme.primary,
-            ),
-        border =
-            BorderStroke(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant,
-            ),
-        contentPadding = PaddingValues(horizontal = 4.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.64f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+@Composable
+private fun ReportCalendarNavButton(
+    text: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.size(38.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.64f),
+        contentColor = MaterialTheme.colorScheme.primary,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReportCalendarWeekdays() {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        calendarWeekdayLabels.forEach { label ->
+            Text(
+                text = label,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReportCalendarMonthGrid(
+    days: List<LocalDate?>,
+    selectedDate: LocalDate,
+    onDateSelected: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        days.chunked(CALENDAR_DAYS_IN_WEEK).forEach { week ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                week.forEach { date ->
+                    ReportCalendarDayCell(
+                        date = date,
+                        selected = date == selectedDate,
+                        onDateSelected = onDateSelected,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReportCalendarYearPicker(
+    selectedYear: Int,
+    onYearSelected: (Int) -> Unit,
+) {
+    LazyColumn(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(CALENDAR_PICKER_HEIGHT),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        items(calendarYearRange.toList()) { year ->
+            ReportCalendarPickerRow(
+                text = "${year}년",
+                selected = year == selectedYear,
+                onClick = { onYearSelected(year) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReportCalendarMonthPicker(
+    selectedMonth: Int,
+    onMonthSelected: (Int) -> Unit,
+) {
+    LazyColumn(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(CALENDAR_PICKER_HEIGHT),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        items((1..MONTHS_IN_YEAR).toList()) { month ->
+            ReportCalendarPickerRow(
+                text = "${month}월",
+                selected = month == selectedMonth,
+                onClick = { onMonthSelected(month) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReportCalendarPickerRow(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        color = if (selected) colors.primary else colors.surfaceVariant.copy(alpha = 0.52f),
+        contentColor = if (selected) colors.onPrimary else colors.onSurface,
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun ReportCalendarDayCell(
+    date: LocalDate?,
+    selected: Boolean,
+    onDateSelected: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    val cellColor =
+        when {
+            selected -> colors.primary
+            date != null -> colors.surfaceVariant.copy(alpha = 0.48f)
+            else -> colors.surface
+        }
+    val contentColor =
+        when {
+            selected -> colors.onPrimary
+            date != null -> colors.onSurface
+            else -> colors.surface
+        }
+
+    Surface(
+        onClick = {
+            date?.let { onDateSelected(it.toString()) }
+        },
+        modifier =
+            modifier
+                .height(40.dp),
+        enabled = date != null,
+        shape = RoundedCornerShape(8.dp),
+        color = cellColor,
+        contentColor = contentColor,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = date?.dayOfMonth?.toString().orEmpty(),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReportQuickPeriodButton(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(38.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = if (selected) colors.primary else colors.surface,
+        contentColor = if (selected) colors.onPrimary else colors.onSurfaceVariant,
+        tonalElevation = if (selected) 0.dp else 1.dp,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -321,29 +670,31 @@ private fun ReportCategoryFilter(
         state.categoryOptions.firstOrNull { option ->
             option.categoryId == state.input.categoryId
         }
-    ReportCategoryDropdown(
-        selectedLabel = selectedCategory?.name ?: "전체 카테고리",
-        options = state.categoryOptions,
-        onSelected = { categoryId ->
-            onInputChange(state.input.copy(categoryId = categoryId))
-        },
-    )
-    if (state.isCategoryLoading) {
-        AppBadge(
-            text = "카테고리를 불러오는 중...",
-            tone = AppBadgeTone.Neutral,
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        ReportCategoryDropdown(
+            selectedLabel = selectedCategory?.name ?: "전체 카테고리",
+            options = state.categoryOptions,
+            onSelected = { categoryId ->
+                onInputChange(state.input.copy(categoryId = categoryId))
+            },
         )
-    }
-    state.categoryErrorMessage?.let { message ->
-        AppBadge(
-            text = message,
-            tone = AppBadgeTone.Error,
-        )
-        AppSecondaryButton(
-            text = "카테고리 다시 불러오기",
-            onClick = onRetryClick,
-            modifier = Modifier.height(36.dp),
-        )
+        if (state.isCategoryLoading) {
+            AppBadge(
+                text = "카테고리를 불러오는 중...",
+                tone = AppBadgeTone.Neutral,
+            )
+        }
+        state.categoryErrorMessage?.let { message ->
+            AppBadge(
+                text = message,
+                tone = AppBadgeTone.Error,
+            )
+            AppSecondaryButton(
+                text = "카테고리 다시 불러오기",
+                onClick = onRetryClick,
+                modifier = Modifier.height(36.dp),
+            )
+        }
     }
 }
 
@@ -353,26 +704,14 @@ private fun ReportCategoryDropdown(
     options: List<ReportFilterCategoryOption>,
     onSelected: (Long?) -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    Box(modifier = Modifier.fillMaxWidth()) {
-        OutlinedButton(
-            onClick = { expanded = true },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(
-                text = selectedLabel,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-        ) {
+    ReportDropdownField(
+        label = "카테고리",
+        selectedLabel = selectedLabel,
+        menuContent = { close ->
             DropdownMenuItem(
                 text = { Text(text = "전체 카테고리") },
                 onClick = {
-                    expanded = false
+                    close()
                     onSelected(null)
                 },
             )
@@ -380,13 +719,13 @@ private fun ReportCategoryDropdown(
                 DropdownMenuItem(
                     text = { Text(text = option.name) },
                     onClick = {
-                        expanded = false
+                        close()
                         onSelected(option.categoryId)
                     },
                 )
             }
-        }
-    }
+        },
+    )
 }
 
 @Composable
@@ -396,27 +735,73 @@ private fun ReportOptionDropdown(
     options: List<ReportFilterSelectionOption>,
     onSelected: (String?) -> Unit,
 ) {
+    ReportDropdownField(
+        label = label,
+        selectedLabel = selectedLabel,
+        menuContent = { close ->
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(text = option.label) },
+                    onClick = {
+                        close()
+                        onSelected(option.value)
+                    },
+                )
+            }
+        },
+    )
+}
+
+@Composable
+private fun ReportDropdownField(
+    label: String,
+    selectedLabel: String,
+    menuContent: @Composable (close: () -> Unit) -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
+
     Box(modifier = Modifier.fillMaxWidth()) {
-        OutlinedButton(
+        Surface(
             onClick = { expanded = true },
             modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f),
+            contentColor = MaterialTheme.colorScheme.onSurface,
         ) {
-            Text(text = "$label: $selectedLabel")
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = selectedLabel,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text(
+                    text = "⌄",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
-            options.forEach { option ->
-                DropdownMenuItem(
-                    text = { Text(text = option.label) },
-                    onClick = {
-                        expanded = false
-                        onSelected(option.value)
-                    },
-                )
-            }
+            menuContent { expanded = false }
         }
     }
 }
@@ -426,23 +811,25 @@ private fun ReportFilterActionRow(
     onApplyClick: () -> Unit,
     onResetClick: () -> Unit,
 ) {
-    Row(modifier = Modifier.fillMaxWidth()) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         AppSecondaryButton(
             text = "초기화",
             onClick = onResetClick,
             modifier =
                 Modifier
                     .weight(1f)
-                    .height(40.dp),
+                    .height(42.dp),
         )
-        Spacer(modifier = Modifier.width(8.dp))
         AppPrimaryButton(
             text = "적용",
             onClick = onApplyClick,
             modifier =
                 Modifier
                     .weight(1f)
-                    .height(40.dp),
+                    .height(42.dp),
         )
     }
 }
@@ -467,3 +854,28 @@ private val statusOptions =
         ReportFilterSelectionOption(value = "STARTED", label = "진행 중"),
         ReportFilterSelectionOption(value = "ABANDONED", label = "중단"),
     )
+
+private fun YearMonth.toCalendarDays(): List<LocalDate?> {
+    val leadingBlankCount = atDay(1).dayOfWeek.value % CALENDAR_DAYS_IN_WEEK
+    val monthDates = (1..lengthOfMonth()).map { day -> atDay(day) }
+    val trailingBlankCount = CALENDAR_TOTAL_CELL_COUNT - leadingBlankCount - monthDates.size
+
+    return buildList {
+        repeat(leadingBlankCount) { add(null) }
+        addAll(monthDates)
+        repeat(trailingBlankCount) { add(null) }
+    }
+}
+
+private enum class ReportCalendarPickerMode {
+    Day,
+    Year,
+    Month,
+}
+
+private val calendarWeekdayLabels = listOf("일", "월", "화", "수", "목", "금", "토")
+private val calendarYearRange = 2020..LocalDate.now().year + 1
+private val CALENDAR_PICKER_HEIGHT = 270.dp
+private const val CALENDAR_DAYS_IN_WEEK = 7
+private const val CALENDAR_TOTAL_CELL_COUNT = 42
+private const val MONTHS_IN_YEAR = 12

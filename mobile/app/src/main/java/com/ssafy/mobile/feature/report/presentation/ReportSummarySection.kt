@@ -18,6 +18,8 @@ import androidx.compose.ui.unit.dp
 import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+import com.ssafy.mobile.core.ui.components.SudaMascot
+import com.ssafy.mobile.core.ui.components.SudaStateView
 import com.ssafy.mobile.feature.report.domain.model.ReportSummary
 import com.ssafy.mobile.feature.report.domain.model.ReportWeakWord
 
@@ -27,20 +29,20 @@ fun ReportSummarySection(
     onRetryClick: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        ReportSectionTitle(
-            title = "요약",
-            subtitle = "완료한 퀴즈 기준으로 핵심 지표를 모았어요.",
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-
         when (summaryState) {
             ReportSummaryUiState.Idle,
             ReportSummaryUiState.Loading,
-            -> ReportSummaryStatusCard(message = "리포트 요약을 불러오는 중...")
+            ->
+                ReportSummaryStatusCard(
+                    mascot = SudaMascot.Loading,
+                    title = "리포트 요약을 불러오는 중이에요",
+                )
 
             ReportSummaryUiState.Empty ->
                 ReportSummaryStatusCard(
-                    message = "아직 완료된 퀴즈 기록이 없어요.\n퀴즈를 마치면 이곳에 리포트가 쌓입니다.",
+                    mascot = SudaMascot.Empty,
+                    title = "아직 완료된 퀴즈 기록이 없어요",
+                    description = "퀴즈를 마치면 이곳에 리포트가 쌓여요.",
                 )
 
             is ReportSummaryUiState.Error ->
@@ -56,19 +58,20 @@ fun ReportSummarySection(
 }
 
 @Composable
-private fun ReportSummaryStatusCard(message: String) {
+private fun ReportSummaryStatusCard(
+    mascot: SudaMascot,
+    title: String,
+    description: String? = null,
+) {
     ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        AppBadge(
-            text = "요약",
-            tone = AppBadgeTone.Neutral,
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        SudaStateView(
+            mascot = mascot,
+            title = title,
+            description = description,
+            modifier = Modifier.height(132.dp),
+            compact = true,
         )
     }
 }
@@ -81,26 +84,18 @@ private fun ReportSummaryErrorCard(
     ReportGlassCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            AppBadge(
-                text = "불러오기 실패",
-                tone = AppBadgeTone.Error,
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            AppSecondaryButton(
-                text = "다시 시도",
-                onClick = onRetryClick,
-                modifier = Modifier.height(36.dp),
-            )
-        }
+        SudaStateView(
+            mascot = SudaMascot.ErrorNetwork,
+            title = "리포트를 불러오지 못했어요",
+            description = message,
+            action = {
+                AppSecondaryButton(
+                    text = "다시 시도",
+                    onClick = onRetryClick,
+                    modifier = Modifier.height(36.dp),
+                )
+            },
+        )
     }
 }
 
@@ -139,7 +134,6 @@ private fun SummaryMetricGrid(summary: ReportSummary) {
             SummaryMetricCard(
                 title = "정답률",
                 value = "$accuracyRateLabel%",
-                detail = "전체 문제 기준",
                 tone = ReportVisualTone.Success,
                 modifier = Modifier.weight(1f),
             )
@@ -152,14 +146,14 @@ private fun SummaryMetricGrid(summary: ReportSummary) {
                 title = "푼 문제",
                 value = "${summary.participation.totalQuestionCount}문제",
                 tone = ReportVisualTone.Tertiary,
-                modifier = Modifier.weight(1f),
-            )
-            ReportStarMetricTile(
-                title = "평균 별점",
-                rating = summary.performance.averageStar,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxWidth(),
             )
         }
+        ReportInlineStarMetric(
+            title = "평균 별점",
+            rating = summary.performance.averageStar,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

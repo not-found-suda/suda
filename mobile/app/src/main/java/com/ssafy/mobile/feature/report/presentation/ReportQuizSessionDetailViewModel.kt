@@ -58,27 +58,36 @@ class ReportQuizSessionDetailViewModel
             loadActiveChildProfile()
         }
 
-        fun loadActiveChildProfile() {
+        fun loadActiveChildProfile(showLoading: Boolean = true) {
             loadJob?.cancel()
             loadJob =
                 viewModelScope.launch {
-                    _uiState.value =
-                        _uiState.value.copy(
-                            activeChildState = ActiveChildProfileState.Loading,
-                            detailState = ReportQuizSessionDetailState.Idle,
-                        )
+                    if (showLoading) {
+                        _uiState.value =
+                            _uiState.value.copy(
+                                activeChildState = ActiveChildProfileState.Loading,
+                                detailState = ReportQuizSessionDetailState.Idle,
+                            )
+                    }
 
                     val state =
                         withContext(Dispatchers.IO) {
                             activeChildProfileManager.getActiveChildProfile()
                         }
+                    val shouldShowDetailLoading =
+                        showLoading ||
+                            _uiState.value.detailState is ReportQuizSessionDetailState.Idle
 
                     _uiState.value =
                         _uiState.value.copy(
                             activeChildState = state,
                             detailState =
                                 if (state is ActiveChildProfileState.Selected) {
-                                    ReportQuizSessionDetailState.Loading
+                                    if (shouldShowDetailLoading) {
+                                        ReportQuizSessionDetailState.Loading
+                                    } else {
+                                        _uiState.value.detailState
+                                    }
                                 } else {
                                     ReportQuizSessionDetailState.Idle
                                 },

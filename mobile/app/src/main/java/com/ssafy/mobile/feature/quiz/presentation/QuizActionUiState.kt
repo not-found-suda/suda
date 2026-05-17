@@ -2,12 +2,17 @@
 
 package com.ssafy.mobile.feature.quiz.presentation
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -23,6 +28,8 @@ import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
 import com.ssafy.mobile.core.ui.components.ChunkyButton
 import com.ssafy.mobile.core.ui.components.ChunkyButtonTone
+import com.ssafy.mobile.core.ui.components.SudaMascot
+import com.ssafy.mobile.core.ui.components.SudaMascotImage
 import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
 
 internal data class QuizActionUiState(
@@ -127,7 +134,8 @@ internal fun QuizActionCard(
                 modifier = Modifier.fillMaxWidth(0.62f),
             )
         } else {
-            MicCircleButton(
+            MicSpeakButton(
+                text = actionState.recordButton.text,
                 isRecording = isRecording,
                 isBusy = isBusy,
                 enabled = actionState.recordButton.enabled || isRecording,
@@ -146,7 +154,8 @@ internal fun QuizActionCard(
 }
 
 @Composable
-private fun MicCircleButton(
+private fun MicSpeakButton(
+    text: String,
     isRecording: Boolean,
     isBusy: Boolean,
     enabled: Boolean,
@@ -155,8 +164,11 @@ private fun MicCircleButton(
     Surface(
         onClick = onClick,
         enabled = enabled && !isBusy,
-        modifier = Modifier.size(88.dp),
-        shape = CircleShape,
+        modifier =
+            Modifier
+                .fillMaxWidth(0.86f)
+                .height(92.dp),
+        shape = RoundedCornerShape(32.dp),
         color =
             when {
                 isRecording -> Color(0xFFFF8F8F)
@@ -166,7 +178,13 @@ private fun MicCircleButton(
         contentColor = Color.White,
         shadowElevation = 10.dp,
     ) {
-        Box(contentAlignment = Alignment.Center) {
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp),
+            contentAlignment = Alignment.Center,
+        ) {
             if (isBusy) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(32.dp),
@@ -174,15 +192,91 @@ private fun MicCircleButton(
                     color = Color.White,
                 )
             } else {
-                Text(
-                    text = if (isRecording) "■" else "🎙",
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Black,
-                    textAlign = TextAlign.Center,
+                MicSpeakButtonContent(
+                    text = text,
+                    isRecording = isRecording,
                 )
             }
         }
     }
+}
+
+@Composable
+private fun MicSpeakButtonContent(
+    text: String,
+    isRecording: Boolean,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Surface(
+            modifier = Modifier.size(52.dp),
+            shape = RoundedCornerShape(18.dp),
+            color = Color.White.copy(alpha = 0.22f),
+            contentColor = Color.White,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                SudaMascotImage(
+                    mascot = SudaMascot.Microphone,
+                    contentDescription = null,
+                    modifier = Modifier.size(42.dp),
+                )
+            }
+        }
+        if (isRecording) {
+            StopIcon()
+        } else {
+            SoundWaveIcon()
+        }
+        Text(
+            text = text,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Black,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun SoundWaveIcon() {
+    Row(
+        modifier = Modifier.height(30.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        SoundWaveBar(height = 12)
+        SoundWaveBar(height = 21)
+        SoundWaveBar(height = 30)
+    }
+}
+
+@Composable
+private fun SoundWaveBar(height: Int) {
+    Box(
+        modifier =
+            Modifier
+                .width(6.dp)
+                .height(height.dp)
+                .background(
+                    color = Color.White.copy(alpha = 0.92f),
+                    shape = RoundedCornerShape(999.dp),
+                ),
+    )
+}
+
+@Composable
+private fun StopIcon() {
+    Box(
+        modifier =
+            Modifier
+                .size(22.dp)
+                .background(
+                    color = Color.White.copy(alpha = 0.92f),
+                    shape = RoundedCornerShape(6.dp),
+                ),
+    )
 }
 
 @Composable

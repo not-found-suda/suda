@@ -18,8 +18,8 @@ data class ReportFilterCategoryOption(
 )
 
 data class ReportFilterUiState(
-    val input: ReportFilterInputState = ReportFilterInputState(),
-    val hasAppliedFilter: Boolean = false,
+    val input: ReportFilterInputState = defaultReportFilterInputState(),
+    val hasAppliedFilter: Boolean = true,
     val errorMessage: String? = null,
     val categoryOptions: List<ReportFilterCategoryOption> = emptyList(),
     val isCategoryLoading: Boolean = false,

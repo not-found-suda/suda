@@ -14,7 +14,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,7 +21,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +42,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssafy.mobile.core.ui.components.AppNetworkImage
+import com.ssafy.mobile.core.ui.components.SudaMascot
+import com.ssafy.mobile.core.ui.components.SudaStateView
+import com.ssafy.mobile.core.ui.components.rememberNetworkImagesPreloaded
 import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
 import com.ssafy.mobile.feature.quiz.domain.model.QuizQuestion
 import com.ssafy.mobile.feature.quiz.domain.model.QuizRetryPolicy
@@ -134,6 +135,8 @@ private fun QuizQuestionScreen(
     onRetryClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val imagesReady = rememberNetworkImagesPreloaded(state.preloadImageUrls)
+
     Surface(
         modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
@@ -141,8 +144,17 @@ private fun QuizQuestionScreen(
         when {
             state.isLoading -> {
                 QuizMessageState(
-                    title = "퀴즈를 불러오는 중이에요",
-                    description = "잠시만 기다려 주세요.",
+                    title = "퀴즈 그림을 저장하고 있어요",
+                    description = "5개 이미지를 모두 준비한 뒤 시작할게요.",
+                    visual = QuizMessageVisual.Loading,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+
+            imagesReady.not() -> {
+                QuizMessageState(
+                    title = "퀴즈 그림을 저장하고 있어요",
+                    description = "5개 이미지를 모두 준비한 뒤 시작할게요.",
                     visual = QuizMessageVisual.Loading,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -345,35 +357,14 @@ private fun QuizImagePlaceholder(
     word: String,
     modifier: Modifier = Modifier,
 ) {
-    val displayText = word.takeIf { it.isNotBlank() }?.take(FIRST_LETTER_COUNT) ?: "?"
-
-    Column(
+    Box(
         modifier = modifier.padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+        contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier =
-                Modifier
-                    .size(104.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = displayText,
-                style = MaterialTheme.typography.displaySmall,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Black,
-            )
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        Text(
-            text = "말하기 카드",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        SudaStateView(
+            mascot = SudaMascot.Microphone,
+            title = "말하기 카드를 준비하고 있어요",
+            description = word.takeIf { it.isNotBlank() },
         )
     }
 }
@@ -482,5 +473,3 @@ private fun QuizActionArea(
         )
     }
 }
-
-private const val FIRST_LETTER_COUNT = 1

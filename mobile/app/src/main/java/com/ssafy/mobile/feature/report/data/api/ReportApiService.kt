@@ -19,6 +19,12 @@ interface ReportApiService {
         @QueryMap filters: Map<String, String> = emptyMap(),
     ): Response<ReportSummaryResponseDto>
 
+    @GET("v1/children/{childId}/reports/communication-summary")
+    suspend fun getCommunicationSummary(
+        @Path("childId") childId: Long,
+        @QueryMap filters: Map<String, String> = emptyMap(),
+    ): Response<ReportCommunicationSummaryResponseDto>
+
     @GET("v1/children/{childId}/reports/weak-words")
     suspend fun getWeakWords(
         @Path("childId") childId: Long,
@@ -32,12 +38,6 @@ interface ReportApiService {
         @Path("childId") childId: Long,
         @QueryMap filters: Map<String, String> = emptyMap(),
     ): Response<ReportCategoryProgressListResponseDto>
-
-    @GET("v1/children/{childId}/reports/communication-summary")
-    suspend fun getCommunicationSummary(
-        @Path("childId") childId: Long,
-        @QueryMap filters: Map<String, String> = emptyMap(),
-    ): Response<ReportCommunicationSummaryResponseDto>
 
     @GET("v1/children/{childId}/reports/sessions")
     suspend fun getQuizSessions(

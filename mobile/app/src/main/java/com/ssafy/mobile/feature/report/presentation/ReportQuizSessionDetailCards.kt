@@ -83,18 +83,18 @@ private fun ReportQuizSessionSummaryMetricGrid(detail: ReportQuizSessionDetail) 
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            ReportStarMetricTile(
-                title = "평균 별점",
-                rating = detail.averageStar,
-                modifier = Modifier.weight(1f),
-            )
             ReportQuizSessionDetailMetric(
                 title = "총 별점",
                 value = detail.totalStar?.let { "${it}점" } ?: "정보 없음",
                 tone = ReportVisualTone.Warning,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxWidth(),
             )
         }
+        ReportInlineStarMetric(
+            title = "평균 별점",
+            rating = detail.averageStar,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
@@ -166,20 +166,17 @@ internal fun ReportQuizAnswerCard(answer: ReportQuizAnswer) {
 
 @Composable
 private fun ReportQuizAnswerMetricRow(answer: ReportQuizAnswer) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         ReportQuizSessionDetailMetric(
             title = "정답 여부",
             value = answer.correctnessLabel(),
             tone = answer.toReportCorrectnessVisualTone(),
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.fillMaxWidth(),
         )
-        ReportStarMetricTile(
+        ReportInlineStarMetric(
             title = "별점",
             rating = answer.star?.toDouble(),
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.fillMaxWidth(),
         )
     }
 }

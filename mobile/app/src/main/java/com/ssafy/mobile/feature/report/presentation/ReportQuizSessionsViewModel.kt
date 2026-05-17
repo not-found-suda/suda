@@ -1,5 +1,6 @@
 package com.ssafy.mobile.feature.report.presentation
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileManager
@@ -55,42 +56,75 @@ class ReportQuizSessionsViewModel
         private val activeChildProfileManager: ActiveChildProfileManager,
         private val reportRepository: ReportRepository,
         private val learningCategoryRepository: LearningCategoryRepository,
+        private val filterSelectionStore: ReportFilterSelectionStore,
+        savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
-        private val _uiState = MutableStateFlow(ReportQuizSessionsUiState())
+        private val initialFilterInput =
+            savedStateHandle
+                .get<String>(ROUTE_STATUS_ARGUMENT)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { status ->
+                    ReportFilterInputState(status = status)
+                }
+                ?: filterSelectionStore.currentInput()
+        private val _uiState =
+            MutableStateFlow(
+                ReportQuizSessionsUiState(
+                    filterUiState =
+                        ReportFilterUiState(
+                            input = initialFilterInput,
+                            hasAppliedFilter = true,
+                        ),
+                ),
+            )
         val uiState: StateFlow<ReportQuizSessionsUiState> = _uiState.asStateFlow()
 
         private var loadJob: Job? = null
         private var loadMoreJob: Job? = null
         private var loadCategoriesJob: Job? = null
-        private var appliedFilter = defaultReportFilterState()
+        private var appliedFilter =
+            initialFilterInput
+                .toQuizSessionsFilter()
+                .getOrDefault(
+                    defaultReportFilterState(),
+                )
 
         init {
             loadFilterCategories()
             loadActiveChildProfile()
         }
 
-        fun loadActiveChildProfile() {
+        fun loadActiveChildProfile(showLoading: Boolean = true) {
             loadJob?.cancel()
             loadMoreJob?.cancel()
             loadJob =
                 viewModelScope.launch {
-                    _uiState.value =
-                        _uiState.value.copy(
-                            activeChildState = ActiveChildProfileState.Loading,
-                            quizSessionsState = ReportQuizSessionsState.Idle,
-                        )
+                    if (showLoading) {
+                        _uiState.value =
+                            _uiState.value.copy(
+                                activeChildState = ActiveChildProfileState.Loading,
+                                quizSessionsState = ReportQuizSessionsState.Idle,
+                            )
+                    }
 
                     val state =
                         withContext(Dispatchers.IO) {
                             activeChildProfileManager.getActiveChildProfile()
                         }
+                    val shouldShowQuizSessionsLoading =
+                        showLoading ||
+                            _uiState.value.quizSessionsState is ReportQuizSessionsState.Idle
 
                     _uiState.value =
                         _uiState.value.copy(
                             activeChildState = state,
                             quizSessionsState =
                                 if (state is ActiveChildProfileState.Selected) {
-                                    ReportQuizSessionsState.Loading
+                                    if (shouldShowQuizSessionsLoading) {
+                                        ReportQuizSessionsState.Loading
+                                    } else {
+                                        _uiState.value.quizSessionsState
+                                    }
                                 } else {
                                     ReportQuizSessionsState.Idle
                                 },
@@ -361,3 +395,4 @@ class ReportQuizSessionsViewModel
 
 private const val FIRST_PAGE = 1
 private const val DEFAULT_QUIZ_SESSIONS_PAGE_SIZE = 20
+private const val ROUTE_STATUS_ARGUMENT = "status"

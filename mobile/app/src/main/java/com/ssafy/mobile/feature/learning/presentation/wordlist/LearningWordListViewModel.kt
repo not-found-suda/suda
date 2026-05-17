@@ -28,6 +28,10 @@ class LearningWordListViewModel
         val categoryId: Long = checkNotNull(savedStateHandle["categoryId"])
         val categoryName: String? = savedStateHandle["categoryName"]
         val difficulty: String = savedStateHandle["difficulty"] ?: DEFAULT_LEARNING_DIFFICULTY
+        private val targetWordId: Long? =
+            savedStateHandle
+                .get<Long>("targetWordId")
+                ?.takeIf { it > 0L }
 
         private val _uiState =
             MutableStateFlow<LearningWordListUiState>(LearningWordListUiState.Loading)
@@ -56,11 +60,19 @@ class LearningWordListViewModel
 
                     result
                         .onSuccess { words ->
+                            val focusedWords =
+                                targetWordId
+                                    ?.let { id -> words.firstOrNull { word -> word.id == id } }
+                                    ?.let { word -> listOf(word) }
+                                    ?: words
                             _uiState.value =
-                                if (words.isEmpty()) {
+                                if (focusedWords.isEmpty()) {
                                     LearningWordListUiState.Empty
                                 } else {
-                                    LearningWordListUiState.Success(words)
+                                    LearningWordListUiState.Success(
+                                        words = focusedWords,
+                                        currentIndex = 0,
+                                    )
                                 }
                         }.onFailure { throwable ->
                             _uiState.value =

@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber")
+@file:Suppress("MagicNumber", "TooManyFunctions")
 
 package com.ssafy.mobile.feature.quiz.presentation
 
@@ -15,6 +15,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
@@ -33,7 +35,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.ssafy.mobile.R
+import com.ssafy.mobile.core.ui.components.AppBadge
+import com.ssafy.mobile.core.ui.components.AppBadgeTone
 import com.ssafy.mobile.core.ui.components.AppCard
+import com.ssafy.mobile.core.ui.components.SudaMascot
+import com.ssafy.mobile.core.ui.components.SudaMascotImage
 import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
 
 @Composable
@@ -60,15 +66,82 @@ internal fun QuizStarResultCard(
             StarRewardBurst(
                 eventKey = eventKey,
                 isCorrect = answer.isCorrect == true,
+                star = answer.star,
             )
+            QuizFeedbackMascotMessage(
+                mascot = answer.toFeedbackMascot(remainingRetryCount),
+                title = answer.toRewardTitle(remainingRetryCount),
+                description = answer.toRewardDescription(remainingRetryCount),
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuizFeedbackMascotMessage(
+    mascot: SudaMascot,
+    title: String,
+    description: String,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        SudaMascotImage(
+            mascot = mascot,
+            contentDescription = null,
+            modifier = Modifier.size(70.dp),
+        )
+        Column(
+            horizontalAlignment = Alignment.Start,
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
             Text(
-                text = answer.toRewardTitle(remainingRetryCount),
+                text = title,
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.Black,
-                textAlign = TextAlign.Center,
+                textAlign = TextAlign.Start,
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Start,
             )
         }
+    }
+}
+
+@Composable
+private fun StarScoreIndicator(
+    star: Int?,
+    modifier: Modifier = Modifier,
+) {
+    val starCount = star?.coerceIn(MIN_STAR, MAX_STAR) ?: MIN_STAR
+
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        repeat(MAX_STAR) { index ->
+            Image(
+                painter = painterResource(R.drawable.star_reward_small),
+                contentDescription = null,
+                modifier =
+                    Modifier
+                        .size(28.dp)
+                        .alpha(if (index < starCount) 1f else EMPTY_STAR_ALPHA),
+            )
+        }
+        AppBadge(
+            text = star.toStarBadgeText(),
+            tone = star.toStarBadgeTone(),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp),
+        )
     }
 }
 
@@ -76,6 +149,7 @@ internal fun QuizStarResultCard(
 private fun StarRewardBurst(
     eventKey: String?,
     isCorrect: Boolean,
+    star: Int?,
     modifier: Modifier = Modifier,
 ) {
     val scale = remember(eventKey) { Animatable(0.7f) }
@@ -137,6 +211,7 @@ private fun StarRewardBurst(
 
     StarRewardBurstContent(
         isCorrect = isCorrect,
+        star = star,
         starScale = scale.value,
         starRotation = rotation.value,
         sparkleScale = sparkleScale.value,
@@ -148,6 +223,7 @@ private fun StarRewardBurst(
 @Composable
 private fun StarRewardBurstContent(
     isCorrect: Boolean,
+    star: Int?,
     starScale: Float,
     starRotation: Float,
     sparkleScale: Float,
@@ -198,6 +274,13 @@ private fun StarRewardBurstContent(
                         rotationZ = starRotation
                     },
         )
+        StarScoreIndicator(
+            star = star,
+            modifier =
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .offset(y = (-4).dp),
+        )
     }
 }
 
@@ -227,6 +310,36 @@ private fun QuizAnswer.toRewardTitle(remainingRetryCount: Int): String =
         else -> "괜찮아요!"
     }
 
+private fun QuizAnswer.toRewardDescription(remainingRetryCount: Int): String =
+    when {
+        star == null -> "목소리를 듣고 별을 세고 있어요."
+        isCorrect == true -> "별을 멋지게 모았어요."
+        remainingRetryCount > 0 -> "천천히 다시 말하면 돼요."
+        else -> "다음 문제에서 또 해봐요."
+    }
+
+private fun QuizAnswer.toFeedbackMascot(remainingRetryCount: Int): SudaMascot =
+    when {
+        star == null -> SudaMascot.Loading
+        isCorrect == true -> SudaMascot.Success3Star
+        remainingRetryCount > 0 -> SudaMascot.Retry1Star
+        else -> SudaMascot.Good2Star
+    }
+
+private fun Int?.toStarBadgeText(): String =
+    this
+        ?.coerceIn(MIN_STAR, MAX_STAR)
+        ?.let { "별 $it / $MAX_STAR" }
+        ?: "채점 중"
+
+private fun Int?.toStarBadgeTone(): AppBadgeTone =
+    when (this?.coerceIn(MIN_STAR, MAX_STAR)) {
+        null -> AppBadgeTone.Neutral
+        MAX_STAR -> AppBadgeTone.Success
+        PASSING_STAR -> AppBadgeTone.Warning
+        else -> AppBadgeTone.Error
+    }
+
 private fun QuizAnswer.feedbackEventKey(): String? =
     star?.let { "${questionId}_${attemptCount}_$it" }
 
@@ -236,3 +349,8 @@ private fun QuizAnswer.toFeedbackCue(): QuizFeedbackCue? =
         isCorrect == true -> QuizFeedbackCue.Correct
         else -> QuizFeedbackCue.Retry
     }
+
+private const val MIN_STAR = 0
+private const val PASSING_STAR = 2
+private const val MAX_STAR = 3
+private const val EMPTY_STAR_ALPHA = 0.24f

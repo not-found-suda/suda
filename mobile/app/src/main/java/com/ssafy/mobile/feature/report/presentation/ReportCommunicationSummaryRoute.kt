@@ -357,7 +357,6 @@ private fun ReportCommunicationOverviewCard(summary: ReportCommunicationSummary)
         ReportMetricTile(
             title = "평균 문장 길이",
             value = String.format(Locale.KOREA, "%.1f단어", summary.averageSentenceLength),
-            detail = "분석 완료 세션 기준",
             tone = ReportVisualTone.Tertiary,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -677,7 +676,7 @@ private fun ReportCommunicationAnalysisStatus.toLabel(): String =
         ReportCommunicationAnalysisStatus.Processing -> "분석 중"
         ReportCommunicationAnalysisStatus.Completed -> "분석 완료"
         ReportCommunicationAnalysisStatus.Failed -> "분석 실패"
-        ReportCommunicationAnalysisStatus.Empty -> "발화 없음"
+        ReportCommunicationAnalysisStatus.Empty -> "기록 없음"
         ReportCommunicationAnalysisStatus.Unknown -> "상태 확인"
     }
 
