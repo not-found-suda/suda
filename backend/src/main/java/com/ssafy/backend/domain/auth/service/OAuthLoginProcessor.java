@@ -61,7 +61,7 @@ public class OAuthLoginProcessor {
 
     String name = resolveName(profile);
     String encodedPassword = passwordEncoder.encode("oauth:" + UUID.randomUUID());
-    User user = userRepository.saveAndFlush(User.create(email, encodedPassword, name));
+    User user = userRepository.saveAndFlush(User.createOAuthUser(email, encodedPassword, name));
     socialAccountRepository.saveAndFlush(
         SocialAccount.create(user, SocialProvider.NAVER, profile.id(), email));
     return user;

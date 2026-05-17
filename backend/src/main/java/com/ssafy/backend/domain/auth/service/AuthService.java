@@ -63,7 +63,7 @@ public class AuthService {
       throw new BusinessException(AuthErrorCode.INACTIVE_ACCOUNT);
     }
 
-    if (!isValidPassword(requestDto.password(), user.password())) {
+    if (!user.passwordLoginEnabled() || !isValidPassword(requestDto.password(), user.password())) {
       throw new BusinessException(AuthErrorCode.INVALID_CREDENTIALS);
     }
 

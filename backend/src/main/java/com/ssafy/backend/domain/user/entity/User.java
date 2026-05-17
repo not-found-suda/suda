@@ -25,6 +25,9 @@ public class User extends BaseEntity {
   @Column(nullable = false, length = 255)
   private String password;
 
+  @Column(name = "password_login_enabled", nullable = false)
+  private boolean passwordLoginEnabled;
+
   @Column(length = 50)
   private String name;
 
@@ -40,9 +43,10 @@ public class User extends BaseEntity {
 
   protected User() {}
 
-  private User(String email, String password, String name) {
+  private User(String email, String password, String name, boolean passwordLoginEnabled) {
     this.email = email;
     this.password = password;
+    this.passwordLoginEnabled = passwordLoginEnabled;
     this.name = name;
     this.active = true;
     this.role = Role.USER;
@@ -50,7 +54,11 @@ public class User extends BaseEntity {
   }
 
   public static User create(String email, String password, String name) {
-    return new User(email, password, name);
+    return new User(email, password, name, true);
+  }
+
+  public static User createOAuthUser(String email, String password, String name) {
+    return new User(email, password, name, false);
   }
 
   public Long getId() {
@@ -63,6 +71,10 @@ public class User extends BaseEntity {
 
   public String getPassword() {
     return password;
+  }
+
+  public boolean isPasswordLoginEnabled() {
+    return passwordLoginEnabled;
   }
 
   public String getName() {

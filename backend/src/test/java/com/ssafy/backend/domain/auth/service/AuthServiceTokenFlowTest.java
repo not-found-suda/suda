@@ -98,6 +98,20 @@ class AuthServiceTokenFlowTest {
   }
 
   @Test
+  @DisplayName("비밀번호 로그인을 사용할 수 없는 계정은 이메일 로그인 토큰을 발급하지 않는다")
+  void loginRejectsPasswordDisabledUser() {
+    when(userService.getAuthInfoByEmail(EMAIL)).thenReturn(passwordDisabledUser());
+
+    assertAuthError(
+        () -> authService.login(new LoginRequestDto(EMAIL, RAW_PASSWORD)),
+        AuthErrorCode.INVALID_CREDENTIALS);
+
+    verify(passwordEncoder, never()).matches(Mockito.any(), Mockito.any());
+    verifyTokenPairNotGenerated();
+    verify(refreshTokenStore, never()).save(Mockito.any(), Mockito.any(), Mockito.any());
+  }
+
+  @Test
   @DisplayName("유효한 refreshToken이면 기존 토큰을 삭제하고 새 토큰 쌍을 발급한다")
   void refreshRotatesRefreshToken() {
     String oldRefreshToken = "old-refresh-token";
@@ -205,11 +219,15 @@ class AuthServiceTokenFlowTest {
   }
 
   private UserAuthResponseDto activeUser() {
-    return new UserAuthResponseDto(USER_ID, EMAIL, ENCODED_PASSWORD, true, Role.USER);
+    return new UserAuthResponseDto(USER_ID, EMAIL, ENCODED_PASSWORD, true, true, Role.USER);
   }
 
   private UserAuthResponseDto inactiveUser() {
-    return new UserAuthResponseDto(USER_ID, EMAIL, ENCODED_PASSWORD, false, Role.USER);
+    return new UserAuthResponseDto(USER_ID, EMAIL, ENCODED_PASSWORD, true, false, Role.USER);
+  }
+
+  private UserAuthResponseDto passwordDisabledUser() {
+    return new UserAuthResponseDto(USER_ID, EMAIL, ENCODED_PASSWORD, false, true, Role.USER);
   }
 
   private void verifyTokenPairNotGenerated() {

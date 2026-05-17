@@ -7,6 +7,7 @@ public record UserResponseDto(
     @Schema(description = "사용자 ID", example = "1") Long userId,
     @Schema(description = "이메일", example = "user1@test.com") String email,
     @Schema(description = "사용자 이름", example = "김보호") String name,
+    @Schema(description = "비밀번호 로그인 가능 여부", example = "true") boolean passwordLoginEnabled,
     @Schema(description = "활성 여부", example = "true") boolean active,
     @Schema(description = "권한", example = "USER") Role role,
     @Schema(description = "선택된 TTS speaker 코드", example = "vara") String ttsSpeaker) {}

@@ -6,6 +6,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.ssafy.backend.domain.auth.service.UserTokenInvalidationService;
 import com.ssafy.backend.domain.user.entity.User;
 import com.ssafy.backend.domain.user.exception.UserErrorCode;
 import com.ssafy.backend.domain.user.repository.UserRepository;
@@ -31,12 +32,28 @@ class UserServicePasswordChangeTest {
 
   @Mock private UserRepository userRepository;
   @Mock private PasswordEncoder passwordEncoder;
+  @Mock private UserTokenInvalidationService userTokenInvalidationService;
 
   private UserService userService;
 
   @BeforeEach
   void setUp() {
-    userService = new UserService(userRepository, passwordEncoder);
+    userService = new UserService(userRepository, passwordEncoder, userTokenInvalidationService);
+  }
+
+  @Test
+  @DisplayName("비밀번호 로그인을 사용할 수 없는 계정은 비밀번호를 변경하지 않는다")
+  void changePasswordRejectsPasswordDisabledUser() {
+    User user = oauthOnlyUser();
+    when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+
+    assertUserError(
+        () -> userService.changePassword(USER_ID, CURRENT_PASSWORD, NEW_PASSWORD),
+        UserErrorCode.PASSWORD_LOGIN_NOT_ENABLED);
+
+    verify(passwordEncoder, never()).matches(Mockito.any(), Mockito.any());
+    verify(passwordEncoder, never()).encode(Mockito.any());
+    verify(userRepository, never()).flush();
   }
 
   @Test
@@ -103,6 +120,10 @@ class UserServicePasswordChangeTest {
 
   private User user() {
     return User.create("guardian@example.com", ENCODED_CURRENT_PASSWORD, "보호자");
+  }
+
+  private User oauthOnlyUser() {
+    return User.createOAuthUser("guardian@example.com", ENCODED_CURRENT_PASSWORD, "보호자");
   }
 
   private void assertUserError(ThrowingCall call, UserErrorCode expectedErrorCode) {
