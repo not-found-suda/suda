@@ -1,6 +1,7 @@
 package com.ssafy.mobile.feature.report.domain.repository
 
 import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgressPage
+import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationSummary
 import com.ssafy.mobile.feature.report.domain.model.ReportFilterState
 import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionDetail
 import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionPage
@@ -24,6 +25,11 @@ interface ReportRepository {
         childId: Long,
         filter: ReportFilterState = ReportFilterState(),
     ): Result<ReportCategoryProgressPage>
+
+    suspend fun getCommunicationSummary(
+        childId: Long,
+        filter: ReportFilterState = ReportFilterState(),
+    ): Result<ReportCommunicationSummary>
 
     suspend fun getQuizSessions(
         childId: Long,

@@ -1,6 +1,7 @@
 package com.ssafy.mobile.feature.report.data.api
 
 import com.ssafy.mobile.feature.report.data.dto.ReportCategoryProgressListResponseDto
+import com.ssafy.mobile.feature.report.data.dto.ReportCommunicationSummaryResponseDto
 import com.ssafy.mobile.feature.report.data.dto.ReportQuizSessionDetailResponseDto
 import com.ssafy.mobile.feature.report.data.dto.ReportQuizSessionListResponseDto
 import com.ssafy.mobile.feature.report.data.dto.ReportSummaryResponseDto
@@ -31,6 +32,12 @@ interface ReportApiService {
         @Path("childId") childId: Long,
         @QueryMap filters: Map<String, String> = emptyMap(),
     ): Response<ReportCategoryProgressListResponseDto>
+
+    @GET("v1/children/{childId}/reports/communication-summary")
+    suspend fun getCommunicationSummary(
+        @Path("childId") childId: Long,
+        @QueryMap filters: Map<String, String> = emptyMap(),
+    ): Response<ReportCommunicationSummaryResponseDto>
 
     @GET("v1/children/{childId}/reports/sessions")
     suspend fun getQuizSessions(

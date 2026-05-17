@@ -40,10 +40,12 @@ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
 import com.ssafy.mobile.feature.childprofile.domain.model.ChildProfile
 
 @Composable
+@Suppress("LongParameterList")
 fun ReportHomeRoute(
     onNavigateToSummary: () -> Unit,
     onNavigateToWeakWords: () -> Unit,
     onNavigateToCategoryProgress: () -> Unit,
+    onNavigateToCommunicationSummary: () -> Unit,
     onNavigateToQuizSessions: () -> Unit,
     onSwitchChild: () -> Unit,
     modifier: Modifier = Modifier,
@@ -74,6 +76,7 @@ fun ReportHomeRoute(
                 onNavigateToSummary = onNavigateToSummary,
                 onNavigateToWeakWords = onNavigateToWeakWords,
                 onNavigateToCategoryProgress = onNavigateToCategoryProgress,
+                onNavigateToCommunicationSummary = onNavigateToCommunicationSummary,
                 onNavigateToQuizSessions = onNavigateToQuizSessions,
                 onSwitchChild = onSwitchChild,
                 onRetryClick = viewModel::loadActiveChildProfile,
@@ -92,6 +95,7 @@ private data class ReportHomeActions(
     val onNavigateToSummary: () -> Unit,
     val onNavigateToWeakWords: () -> Unit,
     val onNavigateToCategoryProgress: () -> Unit,
+    val onNavigateToCommunicationSummary: () -> Unit,
     val onNavigateToQuizSessions: () -> Unit,
     val onSwitchChild: () -> Unit,
     val onRetryClick: () -> Unit,
@@ -188,6 +192,14 @@ private fun ReportMenuSection(
             badgeText = "진행",
             badgeTone = AppBadgeTone.Secondary,
             onClick = actions.onNavigateToCategoryProgress,
+            enabled = enabled,
+        )
+        ReportMenuCard(
+            title = "소통 발화 분석",
+            description = "아이의 대화 발화와 표현 유형을 AI 분석으로 정리했어요.",
+            badgeText = "소통",
+            badgeTone = AppBadgeTone.Success,
+            onClick = actions.onNavigateToCommunicationSummary,
             enabled = enabled,
         )
         ReportMenuCard(
