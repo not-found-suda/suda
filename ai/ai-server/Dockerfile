@@ -4,14 +4,15 @@ WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV SIGN_MODEL_PATH=/models/best_sign_model_v6.pt
+ENV SIGN_TRAIN_CONFIG_PATH=/models/train_config_v6.json
+ENV SIGN_LABEL_MAP_PATH=/models/label_map_v6.json
+ENV SIGN_MODEL_MODULE_PATH=/models/model.py
 
 COPY ai-server/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY ai-server/app ./app
-COPY src/sign2text_tcn/model.py ./src/sign2text_tcn/model.py
-COPY models/tcn_mobile/train_config_v6.json ./models/tcn_mobile/train_config_v6.json
-COPY models/tcn_mobile/label_map_v6.json ./models/tcn_mobile/label_map_v6.json
 
 EXPOSE 8000
 

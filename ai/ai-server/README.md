@@ -2,8 +2,9 @@
 
 V6 PyTorch TCN 모델을 사용해 서버 측 수어 인식을 수행하는 FastAPI 서버입니다.
 
-`.pt` 모델 파일은 repository에 커밋하지 않습니다. 로컬 실행 시에는 `SIGN_MODEL_PATH`로
-모델 경로를 지정하고, Docker 실행 시에는 `/models` 경로에 mount해서 사용합니다.
+모델 artifact 파일은 repository에 커밋하지 않습니다. 로컬 실행 시에는 각 파일 경로를
+환경변수로 지정하고, Docker 실행 시에는 같은 artifact 디렉터리를 `/models` 경로에
+mount해서 사용합니다.
 
 ## 로컬 실행
 
@@ -29,8 +30,14 @@ docker compose up --build ai-server
 서버를 직접 호출해야 한다면 로컬에서 `uvicorn`으로 실행하거나, 개발용 override compose
 파일에서 localhost 전용 port를 열어 사용합니다.
 
-Docker 실행 시에는 `SIGN_MODEL_HOST_PATH`로 지정한 host 디렉터리에
-`best_sign_model_v6.pt`를 두면 컨테이너 내부 `/models/best_sign_model_v6.pt`로 mount됩니다.
+Docker 실행 시에는 `SIGN_MODEL_ARTIFACT_PATH`로 지정한 host 디렉터리가 컨테이너 내부
+`/models`로 mount됩니다. 이 디렉터리에는 같은 학습 run에서 나온 아래 파일들이 함께 있어야
+합니다.
+
+- `best_sign_model_v6.pt`
+- `train_config_v6.json`
+- `label_map_v6.json`
+- `model.py`
 
 Spring을 Docker Compose에서 실행하는 경우 이 서버는
 `SIGN_AI_BASE_URL=http://ai-server:8000`으로 호출합니다.

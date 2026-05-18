@@ -28,7 +28,7 @@ class ModelSettings:
     train_config_path: Path
     label_map_path: Path
     model_module_path: Path
-    confidence_threshold: float
+    confidence_threshold: str
     none_label: str
     model_version: str | None
 
@@ -41,6 +41,7 @@ class SignModelService:
         self.device: Any | None = None
         self.label_map: dict[int, str] = {}
         self.model_version: str | None = None
+        self.confidence_threshold = DEFAULT_CONFIDENCE_THRESHOLD
         self.load_error: str | None = None
 
     @property
@@ -65,7 +66,7 @@ class SignModelService:
             "modelLoaded": self.is_loaded,
             "device": str(self.device) if self.device is not None else None,
             "modelVersion": self.model_version,
-            "confidenceThreshold": self.settings.confidence_threshold,
+            "confidenceThreshold": self.confidence_threshold,
             "error": self.load_error,
         }
 
@@ -125,6 +126,7 @@ class SignModelService:
         )
 
     def _load(self) -> None:
+        confidence_threshold = parse_confidence_threshold(self.settings.confidence_threshold)
         if not self.settings.model_path.exists():
             raise FileNotFoundError(f"model file not found: {self.settings.model_path}")
         if not self.settings.train_config_path.exists():
@@ -167,6 +169,7 @@ class SignModelService:
         self.device = device
         self.model = model
         self.label_map = label_map
+        self.confidence_threshold = confidence_threshold
         self.model_version = resolve_model_version(
             self.settings,
             train_config,
@@ -174,7 +177,7 @@ class SignModelService:
         )
 
     def _resolve_acceptance(self, raw_gloss: str, confidence: float) -> tuple[bool, str | None, str]:
-        if confidence < self.settings.confidence_threshold:
+        if confidence < self.confidence_threshold:
             return False, "low_confidence", self.settings.none_label
         if raw_gloss == self.settings.none_label:
             return False, "none_class", self.settings.none_label
@@ -199,8 +202,9 @@ def load_model_settings() -> ModelSettings:
             os.getenv("SIGN_MODEL_MODULE_PATH"),
             default_model_module_path,
         ),
-        confidence_threshold=float(
-            os.getenv("SIGN_CONFIDENCE_THRESHOLD", str(DEFAULT_CONFIDENCE_THRESHOLD))
+        confidence_threshold=os.getenv(
+            "SIGN_CONFIDENCE_THRESHOLD",
+            str(DEFAULT_CONFIDENCE_THRESHOLD),
         ),
         none_label=os.getenv("SIGN_NONE_LABEL", DEFAULT_NONE_LABEL),
         model_version=os.getenv("SIGN_MODEL_VERSION"),
@@ -247,6 +251,13 @@ def validate_model_contract(train_config: dict[str, Any], label_map: dict[int, s
         raise ValueError(f"unsupported normalize_mode={normalize_mode}; expected none/raw/off")
     if sorted(label_map) != list(range(len(label_map))):
         raise ValueError("label_map indexes must be contiguous from 0")
+
+
+def parse_confidence_threshold(value: str) -> float:
+    threshold = float(value)
+    if threshold < 0.0 or threshold > 1.0:
+        raise ValueError("SIGN_CONFIDENCE_THRESHOLD must be between 0.0 and 1.0")
+    return threshold
 
 
 def load_state_dict(torch_module: Any, model_path: Path, device: Any) -> Any:
