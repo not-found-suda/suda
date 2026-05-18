@@ -21,10 +21,14 @@ class NoHandsDetectionTracker(
             return null
         }
 
-        val startedAtMs = noHandsStartedAtMs ?: frame.timestampMs
+        return onNoActiveHands(frame.timestampMs)
+    }
+
+    fun onNoActiveHands(timestampMs: Long): SignRecognitionEvent.NoHandsDetected? {
+        val startedAtMs = noHandsStartedAtMs ?: timestampMs
         noHandsStartedAtMs = startedAtMs
 
-        val elapsedMs = (frame.timestampMs - startedAtMs).coerceAtLeast(0L)
+        val elapsedMs = (timestampMs - startedAtMs).coerceAtLeast(0L)
         return if (!hasEmittedNoHands && elapsedMs >= detectionDelayMs) {
             hasEmittedNoHands = true
             SignRecognitionEvent.NoHandsDetected
@@ -38,7 +42,7 @@ class NoHandsDetectionTracker(
         hasEmittedNoHands = false
     }
 
-    private companion object {
+    companion object {
         const val DEFAULT_DETECTION_DELAY_MS = 1_500L
     }
 }

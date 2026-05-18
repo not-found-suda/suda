@@ -40,6 +40,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
 
 enum class SessionState {
     Idle,
@@ -220,8 +221,6 @@ class ConversationViewModel
             _lastGlosses.value = currentGlosses
             _signInputPhase.value = SignInputPhase.Collecting
             _predictionFeedbackToken.value = event.timestampMs
-
-            restartTranslationTimer(glosses = currentGlosses)
         }
 
         private fun handleUtterance(event: SignRecognitionEvent.Utterance) {
@@ -229,8 +228,9 @@ class ConversationViewModel
 
             _lastGlosses.value = event.glosses
             _signInputPhase.value = SignInputPhase.Collecting
-            restartTranslationTimer(
-                glosses = event.glosses,
+            completionTimerJob?.cancel()
+            requestTranslation(
+                words = event.glosses,
                 sentenceType = event.sentenceType,
             )
         }
@@ -244,23 +244,6 @@ class ConversationViewModel
         private fun handleSignRecognitionError(event: SignRecognitionEvent.Error) {
             _signInputPhase.value = SignInputPhase.Error
             addSystemMessage(event.message)
-        }
-
-        private fun restartTranslationTimer(
-            glosses: List<String>,
-            sentenceType: String? = null,
-        ) {
-            completionTimerJob?.cancel()
-            completionTimerJob =
-                viewModelScope.launch {
-                    delay(COMPLETION_THRESHOLD_MS)
-                    if (glosses.isNotEmpty()) {
-                        requestTranslation(
-                            words = glosses,
-                            sentenceType = sentenceType,
-                        )
-                    }
-                }
         }
 
         private fun requestTranslation(
@@ -325,10 +308,16 @@ class ConversationViewModel
                 viewModelScope.launch {
                     val sessionId = ensureCommsSessionForServerStorage()
                     val result =
-                        translateRepository.translateSignToSpeech(
-                            words = words,
-                            sessionId = sessionId,
-                        )
+                        runCatching {
+                            withTimeout(SIGN_TRANSLATION_TIMEOUT_MS) {
+                                translateRepository.translateSignToSpeech(
+                                    words = words,
+                                    sessionId = sessionId,
+                                )
+                            }
+                        }.getOrElse { throwable ->
+                            Result.failure(throwable)
+                        }
 
                     result.fold(
                         onSuccess = { response ->
@@ -341,10 +330,11 @@ class ConversationViewModel
                                 isFeedbackAvailable = true,
                             )
 
-                            response.audioBase64?.let { base64Audio ->
-                                handleTtsSuccess(base64Audio)
-                            } ?: run {
-                                startRecordingForStt()
+                            val audioBase64 = response.audioBase64
+                            if (audioBase64.isNullOrBlank()) {
+                                speakTranslatedTextWithDeviceTts(response.correctedText)
+                            } else {
+                                handleTtsSuccess(audioBase64)
                             }
 
                             _lastGlosses.value = emptyList()
@@ -1118,6 +1108,20 @@ class ConversationViewModel
             )
         }
 
+        private fun speakTranslatedTextWithDeviceTts(text: String) {
+            if (text.isBlank()) {
+                startRecordingForStt()
+                return
+            }
+
+            markAppSpeech(text)
+            ttsPlayer.speak(
+                text = text,
+                onComplete = { startRecordingForStt() },
+                onError = { startRecordingForStt() },
+            )
+        }
+
         fun updateTranslationMode(mode: TranslationMode) {
             viewModelScope.launch {
                 translationModeRepository.saveTranslationMode(mode)
@@ -1353,8 +1357,8 @@ class ConversationViewModel
 
         companion object {
             private const val TAG = "ConversationViewModel"
+            private const val SIGN_TRANSLATION_TIMEOUT_MS = 6000L
             private const val NONE_GLOSS = "none"
-            private const val COMPLETION_THRESHOLD_MS = 2000L
             private const val STT_RESTART_DELAY_MS = 500L
             private const val STT_UNRECOGNIZED_NOTICE_MS = 1200L
             private const val CLOUD_STT_POLL_INTERVAL_MS = 150L

@@ -132,8 +132,8 @@ class RealSignRecognitionEngineTest {
                     predictionStabilizer =
                         SignPredictionStabilizer(
                             confidenceThreshold = TEST_CONFIDENCE_THRESHOLD,
-                            windowSize = 1,
-                            requiredVotes = 1,
+                            windowSize = TEST_PREDICTION_WINDOW_SIZE,
+                            requiredVotes = TEST_PREDICTION_WINDOW_SIZE,
                         ),
                 )
 
@@ -413,7 +413,7 @@ class RealSignRecognitionEngineTest {
         const val TEST_STABLE_SEGMENT_FRAMES = 8
         const val TEST_FRAME_INTERVAL_MS = 50L
         const val NO_HANDS_DELAY_MS = 1_000L
-        const val MISSING_HAND_RESET_FRAMES = 16
+        const val MISSING_HAND_RESET_FRAMES = 22
         const val FULL_POSE_LANDMARK_COUNT = 33
         const val FLOAT_DELTA = 0.0001f
         const val TIMEOUT_MS = 1_000L

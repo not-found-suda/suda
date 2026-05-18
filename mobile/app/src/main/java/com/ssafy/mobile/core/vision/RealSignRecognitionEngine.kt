@@ -36,7 +36,7 @@ class RealSignRecognitionEngine(
     private var sequenceBuffer: SignSequenceBuffer = SignSequenceBuffer(),
     private val inferenceAdapter: SignInferenceAdapter = FakeSignInferenceAdapter(),
     private val wordSpottingScanner: WordSpottingScanner = NoOpWordSpottingScanner,
-    private val noHandsDetectionTracker: NoHandsDetectionTracker = NoHandsDetectionTracker(),
+    private var noHandsDetectionTracker: NoHandsDetectionTracker = NoHandsDetectionTracker(),
     private var predictionStabilizer: SignPredictionStabilizer = SignPredictionStabilizer(),
     private val logger: SignPipelineLogger = SignPipelineLogger(),
 ) : SignRecognitionEngine {
@@ -61,7 +61,6 @@ class RealSignRecognitionEngine(
     private val isStarted = AtomicBoolean(false)
     private var config = SignRecognitionConfig()
     private var hasSeenHandsInSegment = false
-    private var missingHandFrames = 0
     private var sentenceIsQuestion = false
     private val segmentFrames = mutableListOf<LandmarkFeatureFrame>()
     private val sentenceBuffer = mutableListOf<StableSignPrediction>()
@@ -115,6 +114,10 @@ class RealSignRecognitionEngine(
                 requiredVotes = config.smoothingRequiredVotes,
                 emitCooldownMs = config.emitCooldownMs,
             )
+        noHandsDetectionTracker =
+            NoHandsDetectionTracker(
+                detectionDelayMs = config.noHandsDetectionDelayMs,
+            )
         resetRecognitionState()
     }
 
@@ -149,7 +152,6 @@ class RealSignRecognitionEngine(
         if (!hasSeenHandsInSegment) {
             hasSeenHandsInSegment = true
         }
-        missingHandFrames = 0
         updateSentenceType(frame)
         noHandsDetectionTracker.reset()
         processFeatureFrame(frame)
@@ -246,6 +248,7 @@ class RealSignRecognitionEngine(
             confidence = stablePrediction.confidence,
         )
         appendSentencePrediction(stablePrediction)
+        resetLivePredictionWindow()
         _events.tryEmit(
             SignRecognitionEvent.Prediction(
                 gloss = stablePrediction.gloss,
@@ -259,6 +262,10 @@ class RealSignRecognitionEngine(
         if (sentenceBuffer.lastOrNull()?.gloss != prediction.gloss) {
             sentenceBuffer += prediction
         }
+    }
+
+    private fun resetLivePredictionWindow() {
+        sequenceBuffer.clear()
     }
 
     private fun updateSentenceType(frame: LandmarkFrameResult) {
@@ -285,8 +292,7 @@ class RealSignRecognitionEngine(
             return
         }
 
-        missingHandFrames += 1
-        if (missingHandFrames <= MAX_MISSING_HAND_FRAMES) {
+        if (noHandsDetectionTracker.onNoActiveHands(frame.timestampMs) == null) {
             frame.normalizedEyebrowGap()?.let(::addNeutralEyebrowGap)
             return
         }
@@ -341,7 +347,6 @@ class RealSignRecognitionEngine(
 
     private fun resetRecognitionState() {
         hasSeenHandsInSegment = false
-        missingHandFrames = 0
         sentenceIsQuestion = false
         sentenceBuffer.clear()
         featureEncoder.reset()
@@ -353,7 +358,6 @@ class RealSignRecognitionEngine(
     private companion object {
         const val EVENT_BUFFER_CAPACITY = 64
         const val NANOS_PER_MILLIS = 1_000_000.0
-        const val MAX_MISSING_HAND_FRAMES = 15
         const val NEUTRAL_FACE_WINDOW = 45
         const val MIN_NEUTRAL_FACE_SAMPLES = 15
         const val QUESTION_EYEBROW_DELTA_THRESHOLD = 0.055f
