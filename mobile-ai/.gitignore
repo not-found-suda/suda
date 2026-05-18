@@ -1,9 +1,0 @@
-data/**/*.npy
-data/**/*.json
-data/**/*.csv
-data/*.csv
-data/*.json
-data/*.txt
-artifacts/
-src/__pycache__/
-*.pyc
