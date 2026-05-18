@@ -42,6 +42,24 @@ services:
       - app-network
     restart: unless-stopped
 
+  ai-server:
+    build:
+      context: ./ai/ai-server
+      dockerfile: Dockerfile
+    container_name: ai-server
+    environment:
+      TZ: Asia/Seoul
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2).read()\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - app-network
+    restart: unless-stopped
+
   backend:
     build:
       context: ./backend
@@ -51,6 +69,8 @@ services:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      ai-server:
         condition: service_healthy
     environment:
       TZ: Asia/Seoul
@@ -81,6 +101,9 @@ services:
       CLOVA_TTS_FORMAT: ${CLOVA_TTS_FORMAT:-mp3}
       CLOVA_STT_URL: ${CLOVA_STT_URL:-https://naveropenapi.apigw.ntruss.com/recog/v1/stt}
       CLOVA_STT_LANGUAGE: ${CLOVA_STT_LANGUAGE:-Kor}
+      SIGN_AI_BASE_URL: http://ai-server:8000
+      SIGN_AI_CONNECT_TIMEOUT: ${SIGN_AI_CONNECT_TIMEOUT:-1s}
+      SIGN_AI_READ_TIMEOUT: ${SIGN_AI_READ_TIMEOUT:-1s}
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     networks:
