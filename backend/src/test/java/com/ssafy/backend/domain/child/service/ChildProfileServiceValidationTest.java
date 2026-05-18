@@ -33,6 +33,7 @@ class ChildProfileServiceValidationTest {
 
   private static final Long USER_ID = 1L;
   private static final Long CHILD_ID = 10L;
+  private static final String DEFAULT_AVATAR_KEY = "purple_diamond";
 
   @Mock private ChildProfileRepository childProfileRepository;
   @Mock private UserRepository userRepository;
@@ -168,7 +169,7 @@ class ChildProfileServiceValidationTest {
     assertBusinessError(
         () ->
             childProfileService.updateChild(
-                USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto(null, null)),
+                USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto(null, null, null)),
         ValidationErrorCode.INVALID_INPUT);
     verifyNoInteractions(childProfileRepository, userRepository);
   }
@@ -182,7 +183,7 @@ class ChildProfileServiceValidationTest {
     assertBusinessError(
         () ->
             childProfileService.updateChild(
-                USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto("   ", null)),
+                USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto("   ", null, null)),
         ChildProfileErrorCode.INVALID_NAME);
     verify(childProfileRepository, never()).flush();
   }
@@ -199,7 +200,7 @@ class ChildProfileServiceValidationTest {
     assertBusinessError(
         () ->
             childProfileService.updateChild(
-                USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto(" 서연 ", null)),
+                USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto(" 서연 ", null, null)),
         ChildProfileErrorCode.DUPLICATE_NAME);
     verify(childProfileRepository)
         .existsByUserIdAndNameIgnoreCaseAndActiveTrueAndIdNot(USER_ID, "서연", CHILD_ID);
@@ -217,7 +218,7 @@ class ChildProfileServiceValidationTest {
             childProfileService.updateChild(
                 USER_ID,
                 CHILD_ID,
-                new ChildProfileUpdateRequestDto(null, LocalDate.now().plusDays(1))),
+                new ChildProfileUpdateRequestDto(null, LocalDate.now().plusDays(1), null)),
         ChildProfileErrorCode.INVALID_BIRTH_DATE);
     verify(childProfileRepository, never()).flush();
   }
@@ -233,7 +234,7 @@ class ChildProfileServiceValidationTest {
             childProfileService.updateChild(
                 USER_ID,
                 CHILD_ID,
-                new ChildProfileUpdateRequestDto(null, LocalDate.now().minusYears(19))),
+                new ChildProfileUpdateRequestDto(null, LocalDate.now().minusYears(19), null)),
         ChildProfileErrorCode.INVALID_BIRTH_DATE);
     verify(childProfileRepository, never()).flush();
   }
@@ -251,7 +252,7 @@ class ChildProfileServiceValidationTest {
 
     ChildProfileUpdateResponseDto response =
         childProfileService.updateChild(
-            USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto(" 서연 ", newBirthDate));
+            USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto(" 서연 ", newBirthDate, null));
 
     assertThat(child.getName()).isEqualTo("서연");
     assertThat(child.getBirthDate()).isEqualTo(newBirthDate);
@@ -275,12 +276,15 @@ class ChildProfileServiceValidationTest {
   }
 
   private ChildProfileCreateRequestDto newCreateRequest(String name, LocalDate birthDate) {
-    return new ChildProfileCreateRequestDto(name, birthDate);
+    return new ChildProfileCreateRequestDto(name, birthDate, DEFAULT_AVATAR_KEY);
   }
 
   private ChildProfile activeChild() {
     return ChildProfile.create(
-        User.create("guardian@example.com", "encoded-password", "보호자"), "민준", validBirthDate());
+        User.create("guardian@example.com", "encoded-password", "보호자"),
+        "민준",
+        validBirthDate(),
+        DEFAULT_AVATAR_KEY);
   }
 
   private LocalDate validBirthDate() {

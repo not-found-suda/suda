@@ -428,7 +428,8 @@ class QuizServiceFlowTest {
     return ChildProfile.create(
         User.create("guardian@example.com", "encoded-password", "보호자"),
         "민준",
-        LocalDate.now().minusYears(6));
+        LocalDate.now().minusYears(6),
+        "purple_diamond");
   }
 
   private MockMultipartFile audioFile() {
