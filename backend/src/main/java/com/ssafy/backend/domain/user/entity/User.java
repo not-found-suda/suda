@@ -25,6 +25,12 @@ public class User extends BaseEntity {
   @Column(nullable = false, length = 255)
   private String password;
 
+  @Column(name = "password_login_enabled", nullable = false)
+  private boolean passwordLoginEnabled;
+
+  @Column(length = 50)
+  private String name;
+
   @Column(nullable = false)
   private boolean active;
 
@@ -32,17 +38,27 @@ public class User extends BaseEntity {
   @Column(nullable = false, length = 20)
   private Role role;
 
+  @Column(name = "tts_speaker", nullable = false, length = 50)
+  private String ttsSpeaker = TtsSpeaker.MOM_WARM.getCode();
+
   protected User() {}
 
-  private User(String email, String password) {
+  private User(String email, String password, String name, boolean passwordLoginEnabled) {
     this.email = email;
     this.password = password;
+    this.passwordLoginEnabled = passwordLoginEnabled;
+    this.name = name;
     this.active = true;
     this.role = Role.USER;
+    this.ttsSpeaker = TtsSpeaker.MOM_WARM.getCode();
   }
 
-  public static User create(String email, String password) {
-    return new User(email, password);
+  public static User create(String email, String password, String name) {
+    return new User(email, password, name, true);
+  }
+
+  public static User createOAuthUser(String email, String password, String name) {
+    return new User(email, password, name, false);
   }
 
   public Long getId() {
@@ -57,11 +73,39 @@ public class User extends BaseEntity {
     return password;
   }
 
+  public boolean isPasswordLoginEnabled() {
+    return passwordLoginEnabled;
+  }
+
+  public String getName() {
+    return name;
+  }
+
   public boolean isActive() {
     return active;
   }
 
   public Role getRole() {
     return role;
+  }
+
+  public String getTtsSpeaker() {
+    return ttsSpeaker;
+  }
+
+  public void updateName(String name) {
+    this.name = name;
+  }
+
+  public void changePassword(String password) {
+    this.password = password;
+  }
+
+  public void withdraw() {
+    this.active = false;
+  }
+
+  public void updateTtsSpeaker(String ttsSpeaker) {
+    this.ttsSpeaker = ttsSpeaker;
   }
 }

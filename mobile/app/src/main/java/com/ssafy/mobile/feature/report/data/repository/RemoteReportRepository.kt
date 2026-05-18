@@ -1,0 +1,360 @@
+package com.ssafy.mobile.feature.report.data.repository
+
+import android.util.Log
+import com.ssafy.mobile.feature.report.data.api.ReportApiService
+import com.ssafy.mobile.feature.report.data.dto.toDomain
+import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgressPage
+import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationSummary
+import com.ssafy.mobile.feature.report.domain.model.ReportFilterState
+import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionDetail
+import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionPage
+import com.ssafy.mobile.feature.report.domain.model.ReportSummary
+import com.ssafy.mobile.feature.report.domain.model.ReportWeakWordPage
+import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
+import java.io.IOException
+import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
+import retrofit2.Response
+
+private const val TAG = "RemoteReportRepository"
+private const val ERROR_BODY_PREVIEW_LENGTH = 1_000
+private const val HTTP_STATUS_BAD_REQUEST = 400
+private const val HTTP_STATUS_UNAUTHORIZED = 401
+private const val HTTP_STATUS_NOT_FOUND = 404
+private const val HTTP_STATUS_INTERNAL_SERVER_ERROR = 500
+
+class RemoteReportRepository
+    @Inject
+    constructor(
+        private val apiService: ReportApiService,
+    ) : ReportRepository {
+        override suspend fun getSummary(
+            childId: Long,
+            filter: ReportFilterState,
+        ): Result<ReportSummary> =
+            try {
+                val response =
+                    apiService.getSummary(
+                        childId = childId,
+                        filters = filter.toDateQueryMap(),
+                    )
+
+                if (response.isSuccessful) {
+                    val body =
+                        response.body()
+                            ?: return Result.failure(IllegalStateException("리포트 요약 응답이 비어 있습니다."))
+                    Result.success(body.toDomain())
+                } else {
+                    Result.failure(
+                        IllegalStateException(
+                            response.toReportFailureMessage(
+                                endpoint = "reports/summary",
+                                defaultMessage = "리포트 요약을 불러오지 못했습니다.",
+                            ),
+                        ),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                Log.e(TAG, "Report summary network error", e)
+                Result.failure(IOException("네트워크 연결을 확인해 주세요."))
+            } catch (
+                @Suppress("TooGenericExceptionCaught")
+                e: Exception,
+            ) {
+                Log.e(TAG, "Report summary unknown error", e)
+                Result.failure(IllegalStateException("리포트 요약을 불러오는 중 오류가 발생했습니다."))
+            }
+
+        override suspend fun getCommunicationSummary(
+            childId: Long,
+            filter: ReportFilterState,
+        ): Result<ReportCommunicationSummary> =
+            try {
+                val response =
+                    apiService.getCommunicationSummary(
+                        childId = childId,
+                        filters = filter.toDateQueryMap(),
+                    )
+
+                if (response.isSuccessful) {
+                    val body =
+                        response.body()
+                            ?: return Result.failure(IllegalStateException("소통 분석 응답이 비어 있습니다."))
+                    Result.success(body.toDomain())
+                } else {
+                    Result.failure(
+                        IllegalStateException(
+                            response.toReportFailureMessage(
+                                endpoint = "reports/communication-summary",
+                                defaultMessage = "소통 분석 리포트를 불러오지 못했습니다.",
+                            ),
+                        ),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                Log.e(TAG, "Report communication summary network error", e)
+                Result.failure(IOException("네트워크 연결을 확인해 주세요."))
+            } catch (
+                @Suppress("TooGenericExceptionCaught")
+                e: Exception,
+            ) {
+                Log.e(TAG, "Report communication summary unknown error", e)
+                Result.failure(IllegalStateException("소통 분석 리포트를 불러오는 중 오류가 발생했습니다."))
+            }
+
+        override suspend fun getWeakWords(
+            childId: Long,
+            page: Int,
+            size: Int,
+            filter: ReportFilterState,
+        ): Result<ReportWeakWordPage> =
+            try {
+                val response =
+                    apiService.getWeakWords(
+                        childId = childId,
+                        page = page,
+                        size = size,
+                        filters = filter.toWeakWordsQueryMap(),
+                    )
+
+                if (response.isSuccessful) {
+                    val body =
+                        response.body()
+                            ?: return Result.failure(IllegalStateException("취약 단어 응답이 비어 있습니다."))
+                    Result.success(body.toDomain())
+                } else {
+                    Result.failure(
+                        IllegalStateException(
+                            response.toReportFailureMessage(
+                                endpoint = "reports/weak-words",
+                                defaultMessage = "취약 단어를 불러오지 못했습니다.",
+                            ),
+                        ),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                Log.e(TAG, "Report weak words network error", e)
+                Result.failure(IOException("네트워크 연결을 확인해 주세요."))
+            } catch (
+                @Suppress("TooGenericExceptionCaught")
+                e: Exception,
+            ) {
+                Log.e(TAG, "Report weak words unknown error", e)
+                Result.failure(IllegalStateException("취약 단어를 불러오는 중 오류가 발생했습니다."))
+            }
+
+        override suspend fun getCategoryProgress(
+            childId: Long,
+            filter: ReportFilterState,
+        ): Result<ReportCategoryProgressPage> =
+            try {
+                val response =
+                    apiService.getCategoryProgress(
+                        childId = childId,
+                        filters = filter.toDateQueryMap(),
+                    )
+
+                if (response.isSuccessful) {
+                    val body =
+                        response.body()
+                            ?: return Result.failure(IllegalStateException("카테고리 리포트 응답이 비어 있습니다."))
+                    Result.success(body.toDomain())
+                } else {
+                    Result.failure(
+                        IllegalStateException(
+                            response.toReportFailureMessage(
+                                endpoint = "reports/categories",
+                                defaultMessage = "카테고리별 리포트를 불러오지 못했습니다.",
+                            ),
+                        ),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                Log.e(TAG, "Report category progress network error", e)
+                Result.failure(IOException("네트워크 연결을 확인해 주세요."))
+            } catch (
+                @Suppress("TooGenericExceptionCaught")
+                e: Exception,
+            ) {
+                Log.e(TAG, "Report category progress unknown error", e)
+                Result.failure(IllegalStateException("카테고리별 리포트를 불러오는 중 오류가 발생했습니다."))
+            }
+
+        override suspend fun getQuizSessions(
+            childId: Long,
+            page: Int,
+            size: Int,
+            filter: ReportFilterState,
+        ): Result<ReportQuizSessionPage> =
+            try {
+                val response =
+                    apiService.getQuizSessions(
+                        childId = childId,
+                        page = page,
+                        size = size,
+                        filters = filter.toQuizSessionsQueryMap(),
+                    )
+
+                if (response.isSuccessful) {
+                    val body =
+                        response.body()
+                            ?: return Result.failure(IllegalStateException("퀴즈 기록 응답이 비어 있습니다."))
+                    Result.success(body.toDomain())
+                } else {
+                    Result.failure(
+                        IllegalStateException(
+                            response.toReportFailureMessage(
+                                endpoint = "reports/sessions",
+                                defaultMessage = "퀴즈 기록을 불러오지 못했습니다.",
+                            ),
+                        ),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                Log.e(TAG, "Report quiz sessions network error", e)
+                Result.failure(IOException("네트워크 연결을 확인해 주세요."))
+            } catch (
+                @Suppress("TooGenericExceptionCaught")
+                e: Exception,
+            ) {
+                Log.e(TAG, "Report quiz sessions unknown error", e)
+                Result.failure(IllegalStateException("퀴즈 기록을 불러오는 중 오류가 발생했습니다."))
+            }
+
+        override suspend fun getQuizSessionDetail(
+            childId: Long,
+            sessionId: Long,
+        ): Result<ReportQuizSessionDetail> =
+            try {
+                val response =
+                    apiService.getQuizSessionDetail(
+                        childId = childId,
+                        sessionId = sessionId,
+                    )
+
+                if (response.isSuccessful) {
+                    val body =
+                        response.body()
+                            ?: return Result.failure(IllegalStateException("퀴즈 기록 상세 응답이 비어 있습니다."))
+                    Result.success(body.toDomain())
+                } else {
+                    Result.failure(
+                        IllegalStateException(
+                            response.toReportFailureMessage(
+                                endpoint = "reports/sessions/{sessionId}",
+                                defaultMessage = "퀴즈 기록 상세를 불러오지 못했습니다.",
+                                notFoundMessage = "퀴즈 기록을 찾을 수 없습니다.",
+                            ),
+                        ),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                Log.e(TAG, "Report quiz session detail network error", e)
+                Result.failure(IOException("네트워크 연결을 확인해 주세요."))
+            } catch (
+                @Suppress("TooGenericExceptionCaught")
+                e: Exception,
+            ) {
+                Log.e(TAG, "Report quiz session detail unknown error", e)
+                Result.failure(IllegalStateException("퀴즈 기록 상세를 불러오는 중 오류가 발생했습니다."))
+            }
+
+        private fun errorMessage(
+            statusCode: Int,
+            defaultMessage: String,
+            notFoundMessage: String = "아이 정보를 찾을 수 없습니다. 아이를 다시 선택해 주세요.",
+        ): String =
+            when (statusCode) {
+                HTTP_STATUS_BAD_REQUEST -> "리포트 요청 값이 올바르지 않습니다."
+                HTTP_STATUS_UNAUTHORIZED -> "세션이 만료되었습니다. 다시 로그인해 주세요."
+                HTTP_STATUS_NOT_FOUND -> notFoundMessage
+                HTTP_STATUS_INTERNAL_SERVER_ERROR -> "서버에서 리포트 정보를 불러오지 못했습니다."
+                else -> defaultMessage
+            }
+
+        private fun Response<*>.toReportFailureMessage(
+            endpoint: String,
+            defaultMessage: String,
+            notFoundMessage: String = "아이 정보를 찾을 수 없습니다. 아이를 다시 선택해 주세요.",
+        ): String {
+            val errorBody = errorBody()?.string().orEmpty()
+            logApiError(
+                endpoint = endpoint,
+                statusCode = code(),
+                responseMessage = message(),
+                errorBody = errorBody,
+            )
+            return errorMessage(
+                statusCode = code(),
+                defaultMessage = defaultMessage,
+                notFoundMessage = notFoundMessage,
+            )
+        }
+
+        private fun logApiError(
+            endpoint: String,
+            statusCode: Int,
+            responseMessage: String,
+            errorBody: String,
+        ) {
+            Log.w(
+                TAG,
+                buildString {
+                    append("Report API error. endpoint=")
+                    append(endpoint)
+                    append(", status=")
+                    append(statusCode)
+                    if (responseMessage.isNotBlank()) {
+                        append(", message=")
+                        append(responseMessage)
+                    }
+                    if (errorBody.isNotBlank()) {
+                        append(", body=")
+                        append(errorBody.take(ERROR_BODY_PREVIEW_LENGTH))
+                    }
+                },
+            )
+        }
+    }
+
+private fun ReportFilterState.toDateQueryMap(): Map<String, String> =
+    buildMap {
+        putIfNotBlank(key = "from", value = from)
+        putIfNotBlank(key = "to", value = to)
+    }
+
+private fun ReportFilterState.toWeakWordsQueryMap(): Map<String, String> =
+    buildMap {
+        putAll(toDateQueryMap())
+        categoryId?.let { put("categoryId", it.toString()) }
+        minAttemptCount?.let { put("minAttemptCount", it.toString()) }
+    }
+
+private fun ReportFilterState.toQuizSessionsQueryMap(): Map<String, String> =
+    buildMap {
+        putAll(toDateQueryMap())
+        categoryId?.let { put("categoryId", it.toString()) }
+        putIfNotBlank(key = "difficulty", value = difficulty)
+        putIfNotBlank(key = "status", value = status)
+    }
+
+private fun MutableMap<String, String>.putIfNotBlank(
+    key: String,
+    value: String?,
+) {
+    if (!value.isNullOrBlank()) {
+        put(key, value)
+    }
+}

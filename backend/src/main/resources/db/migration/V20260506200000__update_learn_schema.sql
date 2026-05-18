@@ -1,0 +1,2 @@
+ALTER TABLE learn
+DROP COLUMN IF EXISTS category;

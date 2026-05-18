@@ -7,6 +7,7 @@ import com.ssafy.backend.domain.auth.dto.SignupRequestDto;
 import com.ssafy.backend.domain.auth.dto.SignupResponseDto;
 import com.ssafy.backend.domain.auth.exception.AuthErrorCode;
 import com.ssafy.backend.domain.user.dto.UserAuthResponseDto;
+import com.ssafy.backend.domain.user.dto.UserResponseDto;
 import com.ssafy.backend.domain.user.exception.UserErrorCode;
 import com.ssafy.backend.domain.user.service.UserService;
 import com.ssafy.backend.global.exception.BusinessException;
@@ -50,8 +51,9 @@ public class AuthService {
       throw new BusinessException(AuthErrorCode.DUPLICATE_EMAIL);
     }
 
-    Long userId = userService.register(requestDto.email(), requestDto.password());
-    return new SignupResponseDto(userId, requestDto.email());
+    UserResponseDto user =
+        userService.register(requestDto.email(), requestDto.password(), requestDto.name());
+    return new SignupResponseDto(user.userId(), user.email(), user.name());
   }
 
   @Transactional
@@ -61,17 +63,12 @@ public class AuthService {
       throw new BusinessException(AuthErrorCode.INACTIVE_ACCOUNT);
     }
 
-    if (!isValidPassword(requestDto.password(), user.password())) {
+    if (!user.passwordLoginEnabled() || !isValidPassword(requestDto.password(), user.password())) {
       throw new BusinessException(AuthErrorCode.INVALID_CREDENTIALS);
     }
 
     TokenPair tokenPair = createTokenPair(user.id(), user.role());
-    persistRefreshToken(tokenPair.refreshToken());
-
-    LoginResponseDto response =
-        new LoginResponseDto(
-            tokenPair.accessToken(), "Bearer", jwtProperties.getAccessTokenTtlSeconds());
-    return new LoginResult(response, tokenPair.refreshToken());
+    return toLoginResult(tokenPair);
   }
 
   @Transactional
@@ -105,7 +102,10 @@ public class AuthService {
 
     RefreshTokenResponseDto response =
         new RefreshTokenResponseDto(
-            tokenPair.accessToken(), "Bearer", jwtProperties.getAccessTokenTtlSeconds());
+            tokenPair.accessToken(),
+            tokenPair.refreshToken(),
+            "Bearer",
+            jwtProperties.getAccessTokenTtlSeconds());
     return new RefreshTokenResult(response, tokenPair.refreshToken());
   }
 
@@ -135,7 +135,16 @@ public class AuthService {
     }
 
     long ttlSeconds = jwtTokenProvider.getRemainingValiditySeconds(accessToken);
+    if (ttlSeconds <= 0) {
+      return;
+    }
     accessTokenBlacklistStore.blacklist(accessJti, Duration.ofSeconds(ttlSeconds));
+  }
+
+  @Transactional
+  public LoginResult issueLoginTokens(Long userId, Role role) {
+    TokenPair tokenPair = createTokenPair(userId, role);
+    return toLoginResult(tokenPair);
   }
 
   private boolean isValidPassword(String rawPassword, String storedPassword) {
@@ -178,6 +187,17 @@ public class AuthService {
     Long userId = jwtTokenProvider.getUserId(refreshToken);
     refreshTokenStore.save(
         refreshJti, userId, Duration.ofSeconds(jwtProperties.getRefreshTokenTtlSeconds()));
+  }
+
+  private LoginResult toLoginResult(TokenPair tokenPair) {
+    persistRefreshToken(tokenPair.refreshToken());
+    LoginResponseDto response =
+        new LoginResponseDto(
+            tokenPair.accessToken(),
+            tokenPair.refreshToken(),
+            "Bearer",
+            jwtProperties.getAccessTokenTtlSeconds());
+    return new LoginResult(response, tokenPair.refreshToken());
   }
 
   public record LoginResult(LoginResponseDto response, String refreshToken) {}

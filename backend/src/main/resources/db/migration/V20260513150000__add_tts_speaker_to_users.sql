@@ -1,0 +1,3 @@
+
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS tts_speaker VARCHAR(50) NOT NULL DEFAULT 'nara';

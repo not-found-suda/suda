@@ -1,6 +1,9 @@
 package com.ssafy.backend.global.exception;
 
 import com.ssafy.backend.domain.auth.exception.AuthErrorCode;
+import com.ssafy.backend.domain.auth.exception.OAuthErrorCode;
+import com.ssafy.backend.domain.child.exception.ChildProfileErrorCode;
+import com.ssafy.backend.domain.social.exception.SocialAccountErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -19,6 +22,8 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -50,6 +55,31 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ProblemDetail> handleBindException(
       BindException exception, HttpServletRequest request) {
     return handleValidationException(exception.getBindingResult(), request);
+  }
+
+  @ExceptionHandler(MissingServletRequestPartException.class)
+  public ResponseEntity<ProblemDetail> handleMissingServletRequestPartException(
+      MissingServletRequestPartException exception, HttpServletRequest request) {
+    ValidationErrorCode errorCode = ValidationErrorCode.REQUIRED_FIELD;
+    String message = "필수 요청 파트가 누락되었습니다.";
+    log.warn(
+        "Missing request part: method={}, uri={}, code={}, message={}",
+        request.getMethod(),
+        request.getRequestURI(),
+        errorCode.getCode(),
+        exception.getMessage());
+
+    ProblemDetail problemDetail = ProblemDetails.of(errorCode, request.getRequestURI(), message);
+    problemDetail.setProperty(
+        "errors",
+        List.of(
+            Map.of(
+                "field", exception.getRequestPartName(),
+                "code", errorCode.getCode(),
+                "message", message)));
+    problemDetail.setProperty("errorCount", 1);
+
+    return ResponseEntity.status(errorCode.getHttpStatus()).body(problemDetail);
   }
 
   private ResponseEntity<ProblemDetail> handleValidationException(
@@ -137,13 +167,62 @@ public class GlobalExceptionHandler {
         .body(ProblemDetails.of(errorCode, request.getRequestURI()));
   }
 
+  @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+  public ResponseEntity<ProblemDetail> handleMethodArgumentTypeMismatch(
+      MethodArgumentTypeMismatchException exception, HttpServletRequest request) {
+    ValidationErrorCode errorCode = ValidationErrorCode.INVALID_INPUT;
+    String message = "요청 파라미터 형식이 올바르지 않습니다.";
+    log.warn(
+        "Request parameter type mismatch: method={}, uri={}, parameter={}, code={}, message={}",
+        request.getMethod(),
+        request.getRequestURI(),
+        exception.getName(),
+        errorCode.getCode(),
+        exception.getMessage());
+    return ResponseEntity.status(errorCode.getHttpStatus())
+        .body(ProblemDetails.of(errorCode, request.getRequestURI(), message));
+  }
+
   @ExceptionHandler(DataIntegrityViolationException.class)
   public ResponseEntity<ProblemDetail> handleDataIntegrityViolation(
       DataIntegrityViolationException exception, HttpServletRequest request) {
     if (isDuplicateEmailViolation(exception)) {
+      if (isOAuthRequest(request)) {
+        OAuthErrorCode errorCode = OAuthErrorCode.EMAIL_ALREADY_EXISTS;
+        log.warn(
+            "Duplicate OAuth email violation: method={}, uri={}, code={}, message={}",
+            request.getMethod(),
+            request.getRequestURI(),
+            errorCode.getCode(),
+            errorCode.getMessage());
+        return ResponseEntity.status(errorCode.getHttpStatus())
+            .body(ProblemDetails.of(errorCode, request.getRequestURI()));
+      }
       AuthErrorCode errorCode = AuthErrorCode.DUPLICATE_EMAIL;
       log.warn(
           "Duplicate email violation: method={}, uri={}, code={}, message={}",
+          request.getMethod(),
+          request.getRequestURI(),
+          errorCode.getCode(),
+          errorCode.getMessage());
+      return ResponseEntity.status(errorCode.getHttpStatus())
+          .body(ProblemDetails.of(errorCode, request.getRequestURI()));
+    }
+    if (isDuplicateChildProfileNameViolation(exception)) {
+      ChildProfileErrorCode errorCode = ChildProfileErrorCode.DUPLICATE_NAME;
+      log.warn(
+          "Duplicate child profile name violation: method={}, uri={}, code={}, message={}",
+          request.getMethod(),
+          request.getRequestURI(),
+          errorCode.getCode(),
+          errorCode.getMessage());
+      return ResponseEntity.status(errorCode.getHttpStatus())
+          .body(ProblemDetails.of(errorCode, request.getRequestURI()));
+    }
+    if (isDuplicateSocialAccountViolation(exception)) {
+      SocialAccountErrorCode errorCode = SocialAccountErrorCode.ALREADY_LINKED;
+      log.warn(
+          "Duplicate social account violation: method={}, uri={}, code={}, message={}",
           request.getMethod(),
           request.getRequestURI(),
           errorCode.getCode(),
@@ -193,6 +272,48 @@ public class GlobalExceptionHandler {
                 || lower.contains("(email)")
                 || lower.contains(" email ");
         if (duplicateKey && emailKey) {
+          return true;
+        }
+      }
+      current = current.getCause();
+    }
+    return false;
+  }
+
+  private boolean isOAuthRequest(HttpServletRequest request) {
+    return request.getRequestURI() != null && request.getRequestURI().contains("/auth/oauth/");
+  }
+
+  private boolean isDuplicateChildProfileNameViolation(Throwable throwable) {
+    Throwable current = throwable;
+    while (current != null) {
+      String message = current.getMessage();
+      if (message != null) {
+        String lower = message.toLowerCase();
+        boolean duplicateKey =
+            lower.contains("duplicate key") || lower.contains("unique constraint");
+        boolean childProfileNameKey = lower.contains("ux_child_profiles_user_active_name_lower");
+        if (duplicateKey && childProfileNameKey) {
+          return true;
+        }
+      }
+      current = current.getCause();
+    }
+    return false;
+  }
+
+  private boolean isDuplicateSocialAccountViolation(Throwable throwable) {
+    Throwable current = throwable;
+    while (current != null) {
+      String message = current.getMessage();
+      if (message != null) {
+        String lower = message.toLowerCase();
+        boolean duplicateKey =
+            lower.contains("duplicate key") || lower.contains("unique constraint");
+        boolean socialAccountKey =
+            lower.contains("ux_social_accounts_provider_user")
+                || lower.contains("ux_social_accounts_user_provider");
+        if (duplicateKey && socialAccountKey) {
           return true;
         }
       }

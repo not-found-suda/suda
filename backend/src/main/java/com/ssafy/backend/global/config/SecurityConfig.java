@@ -1,5 +1,6 @@
 package com.ssafy.backend.global.config;
 
+import com.ssafy.backend.domain.auth.service.PasswordResetProperties;
 import com.ssafy.backend.global.security.ProblemDetailAccessDeniedHandler;
 import com.ssafy.backend.global.security.ProblemDetailAuthenticationEntryPoint;
 import com.ssafy.backend.global.security.jwt.JwtAuthenticationFilter;
@@ -24,7 +25,11 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 @EnableMethodSecurity
-@EnableConfigurationProperties({CorsProperties.class, JwtProperties.class})
+@EnableConfigurationProperties({
+  CorsProperties.class,
+  JwtProperties.class,
+  PasswordResetProperties.class
+})
 public class SecurityConfig {
 
   private final ProblemDetailAuthenticationEntryPoint authenticationEntryPoint;
@@ -68,6 +73,8 @@ public class SecurityConfig {
                     .requestMatchers("/api/v1/auth/status")
                     .authenticated()
                     .requestMatchers("/api/v1/auth/**")
+                    .permitAll()
+                    .requestMatchers("/api/v1/translation/**")
                     .permitAll()
                     .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**")
                     .permitAll()

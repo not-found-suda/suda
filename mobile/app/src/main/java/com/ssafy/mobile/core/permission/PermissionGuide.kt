@@ -14,13 +14,14 @@ import androidx.compose.ui.unit.dp
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 
 /**
- * 권한 거부 시 사용자에게 설정창 이동을 유도하는 안내 UI. (COMM_002)
+ * 필수 권한이 없을 때 앱 진입을 막고 사용자가 다음 행동을 선택하도록 안내합니다.
  */
 @Composable
 fun PermissionGuide(
     title: String,
     description: String,
-    onOpenSettings: () -> Unit,
+    buttonText: String,
+    onButtonClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -41,8 +42,8 @@ fun PermissionGuide(
         )
         Spacer(modifier = Modifier.height(16.dp))
         AppPrimaryButton(
-            text = "설정에서 권한 허용하기",
-            onClick = onOpenSettings,
+            text = buttonText,
+            onClick = onButtonClick,
         )
     }
 }

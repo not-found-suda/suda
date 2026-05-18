@@ -32,7 +32,9 @@ public enum ValidationErrorCode implements ErrorCode {
   }
 
   public static ValidationErrorCode from(String validationType, String fieldName) {
-    if ("NotBlank".equals(validationType) || "NotNull".equals(validationType)) {
+    if ("NotBlank".equals(validationType)
+        || "NotNull".equals(validationType)
+        || "NotEmpty".equals(validationType)) {
       return REQUIRED_FIELD;
     }
     if ("Email".equals(validationType)) {
@@ -54,7 +56,9 @@ public enum ValidationErrorCode implements ErrorCode {
     }
 
     String normalized = fieldName.toLowerCase(Locale.ROOT);
-    return "password".equals(normalized) || normalized.endsWith(".password");
+    return "password".equals(normalized)
+        || normalized.endsWith(".password")
+        || normalized.endsWith("password");
   }
 
   @Override

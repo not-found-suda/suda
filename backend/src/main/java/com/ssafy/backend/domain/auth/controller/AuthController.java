@@ -3,14 +3,20 @@ package com.ssafy.backend.domain.auth.controller;
 import com.ssafy.backend.domain.auth.docs.AuthApiDocs;
 import com.ssafy.backend.domain.auth.dto.LoginRequestDto;
 import com.ssafy.backend.domain.auth.dto.LoginResponseDto;
+import com.ssafy.backend.domain.auth.dto.OAuthLoginRequestDto;
+import com.ssafy.backend.domain.auth.dto.PasswordResetConfirmRequestDto;
+import com.ssafy.backend.domain.auth.dto.PasswordResetRequestDto;
+import com.ssafy.backend.domain.auth.dto.PasswordResetVerifyRequestDto;
+import com.ssafy.backend.domain.auth.dto.PasswordResetVerifyResponseDto;
+import com.ssafy.backend.domain.auth.dto.RefreshTokenRequestDto;
 import com.ssafy.backend.domain.auth.dto.RefreshTokenResponseDto;
 import com.ssafy.backend.domain.auth.dto.SignupRequestDto;
 import com.ssafy.backend.domain.auth.dto.SignupResponseDto;
 import com.ssafy.backend.domain.auth.service.AuthService;
-import com.ssafy.backend.domain.auth.service.RefreshTokenCookieManager;
+import com.ssafy.backend.domain.auth.service.OAuthService;
+import com.ssafy.backend.domain.auth.service.PasswordResetService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -26,12 +32,16 @@ public class AuthController implements AuthApiDocs {
   private static final String BEARER_PREFIX = "Bearer ";
 
   private final AuthService authService;
-  private final RefreshTokenCookieManager refreshTokenCookieManager;
+  private final OAuthService oAuthService;
+  private final PasswordResetService passwordResetService;
 
   public AuthController(
-      AuthService authService, RefreshTokenCookieManager refreshTokenCookieManager) {
+      AuthService authService,
+      OAuthService oAuthService,
+      PasswordResetService passwordResetService) {
     this.authService = authService;
-    this.refreshTokenCookieManager = refreshTokenCookieManager;
+    this.oAuthService = oAuthService;
+    this.passwordResetService = passwordResetService;
   }
 
   @PostMapping("/signup")
@@ -45,32 +55,54 @@ public class AuthController implements AuthApiDocs {
   @Override
   public ResponseEntity<LoginResponseDto> login(@Valid @RequestBody LoginRequestDto requestDto) {
     AuthService.LoginResult loginResult = authService.login(requestDto);
-    HttpHeaders headers = new HttpHeaders();
-    refreshTokenCookieManager.addRefreshTokenCookie(headers, loginResult.refreshToken());
-    return ResponseEntity.ok().headers(headers).body(loginResult.response());
+    return ResponseEntity.ok(loginResult.response());
   }
 
   @PostMapping("/refresh")
   @Override
-  public ResponseEntity<RefreshTokenResponseDto> refresh(HttpServletRequest request) {
-    String refreshToken = refreshTokenCookieManager.resolveRefreshToken(request);
-    AuthService.RefreshTokenResult refreshResult = authService.refresh(refreshToken);
-
-    HttpHeaders headers = new HttpHeaders();
-    refreshTokenCookieManager.addRefreshTokenCookie(headers, refreshResult.refreshToken());
-    return ResponseEntity.ok().headers(headers).body(refreshResult.response());
+  public ResponseEntity<RefreshTokenResponseDto> refresh(
+      @RequestBody RefreshTokenRequestDto requestDto) {
+    AuthService.RefreshTokenResult refreshResult = authService.refresh(requestDto.refreshToken());
+    return ResponseEntity.ok(refreshResult.response());
   }
 
   @PostMapping("/logout")
   @Override
-  public ResponseEntity<Void> logout(HttpServletRequest request) {
-    String refreshToken = refreshTokenCookieManager.resolveRefreshToken(request);
+  public ResponseEntity<Void> logout(
+      @RequestBody RefreshTokenRequestDto requestDto, HttpServletRequest request) {
     String accessToken = resolveAccessToken(request);
-    authService.logout(refreshToken, accessToken);
+    authService.logout(requestDto.refreshToken(), accessToken);
+    return ResponseEntity.noContent().build();
+  }
 
-    HttpHeaders headers = new HttpHeaders();
-    refreshTokenCookieManager.expireRefreshTokenCookie(headers);
-    return ResponseEntity.noContent().headers(headers).build();
+  @PostMapping("/oauth/naver")
+  @Override
+  public ResponseEntity<LoginResponseDto> loginWithNaver(
+      @Valid @RequestBody OAuthLoginRequestDto requestDto) {
+    return ResponseEntity.ok(oAuthService.loginWithNaver(requestDto));
+  }
+
+  @PostMapping("/password-reset/request")
+  @Override
+  public ResponseEntity<Void> requestPasswordReset(
+      @Valid @RequestBody PasswordResetRequestDto requestDto) {
+    passwordResetService.request(requestDto.email());
+    return ResponseEntity.noContent().build();
+  }
+
+  @PostMapping("/password-reset/verify")
+  @Override
+  public ResponseEntity<PasswordResetVerifyResponseDto> verifyPasswordReset(
+      @Valid @RequestBody PasswordResetVerifyRequestDto requestDto) {
+    return ResponseEntity.ok(passwordResetService.verify(requestDto.email(), requestDto.code()));
+  }
+
+  @PostMapping("/password-reset/confirm")
+  @Override
+  public ResponseEntity<Void> confirmPasswordReset(
+      @Valid @RequestBody PasswordResetConfirmRequestDto requestDto) {
+    passwordResetService.confirm(requestDto.resetToken(), requestDto.newPassword());
+    return ResponseEntity.noContent().build();
   }
 
   private String resolveAccessToken(HttpServletRequest request) {

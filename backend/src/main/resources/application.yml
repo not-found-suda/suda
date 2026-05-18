@@ -17,5 +17,32 @@ spring:
       port: "${REDIS_PORT}"
       password: "${REDIS_PASSWORD}"
   flyway:
-    enabled: true
+    enabled: ${SPRING_FLYWAY_ENABLED:false}
     locations: classpath:db/migration
+
+ai:
+  gemini:
+    api-key: ${GMS_KEY}
+    model: ${GEMINI_MODEL:gemini-2.5-flash-lite}
+    base-url: ${GEMINI_BASE_URL:https://gms.ssafy.io/gmsapi/generativelanguage.googleapis.com}
+
+  clova:
+    client-id: ${CLOVA_CLIENT_ID}
+    client-secret: ${CLOVA_CLIENT_SECRET}
+
+    tts-url: ${CLOVA_TTS_URL:https://naveropenapi.apigw.ntruss.com/tts-premium/v1/tts}
+    speaker: ${CLOVA_TTS_SPEAKER:nara}
+    format: ${CLOVA_TTS_FORMAT:mp3}
+
+    stt-url: ${CLOVA_STT_URL:https://naveropenapi.apigw.ntruss.com/recog/v1/stt}
+    stt-language: ${CLOVA_STT_LANGUAGE:Kor}
+
+external-api:
+  timeout:
+    connect: 3s
+    read: 10s
+
+app:
+  asset:
+    cloud-front-domain: ${ASSET_CLOUDFRONT_DOMAIN:https://d14zyw67949hvk.cloudfront.net}
+

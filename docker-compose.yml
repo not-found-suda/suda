@@ -71,6 +71,16 @@ services:
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+      GMS_KEY: ${GMS_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash-lite}
+      GEMINI_BASE_URL: ${GEMINI_BASE_URL:-https://gms.ssafy.io/gmsapi/generativelanguage.googleapis.com}
+      CLOVA_CLIENT_ID: ${CLOVA_CLIENT_ID}
+      CLOVA_CLIENT_SECRET: ${CLOVA_CLIENT_SECRET}
+      CLOVA_TTS_URL: ${CLOVA_TTS_URL:-https://naveropenapi.apigw.ntruss.com/tts-premium/v1/tts}
+      CLOVA_TTS_SPEAKER: ${CLOVA_TTS_SPEAKER:-nara}
+      CLOVA_TTS_FORMAT: ${CLOVA_TTS_FORMAT:-mp3}
+      CLOVA_STT_URL: ${CLOVA_STT_URL:-https://naveropenapi.apigw.ntruss.com/recog/v1/stt}
+      CLOVA_STT_LANGUAGE: ${CLOVA_STT_LANGUAGE:-Kor}
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     networks:

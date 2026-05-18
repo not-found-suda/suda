@@ -1,0 +1,122 @@
+{
+    "run_idx": 6,
+    "data_dir": "/home/j-k14a404/Transformer_Kim/Training_v5/processed_npy_v5",
+    "model_dir_name": "overfit_model_v5_7words_demo_stable",
+    "epochs": 120,
+    "batch_size": 16,
+    "learning_rate": 0.001,
+    "input_dim": 332,
+    "max_len": 30,
+    "use_class_weights": false,
+    "use_scheduler": false,
+    "use_balanced_sampler": false,
+    "single_batch_check_steps": 200,
+    "classes": [
+        "기차",
+        "장난감",
+        "놀다",
+        "가다",
+        "일어나다",
+        "병원",
+        "조심"
+    ],
+    "stats": {
+        "class_counts": {
+            "기차": 60,
+            "장난감": 60,
+            "놀다": 60,
+            "가다": 30,
+            "일어나다": 30,
+            "병원": 60,
+            "조심": 60
+        },
+        "variant_counts": {
+            "기차/기차": 60,
+            "장난감/장난감": 60,
+            "놀다/놀다": 60,
+            "가다/가다4": 30,
+            "일어나다/일어나다2": 30,
+            "병원/병원": 60,
+            "조심/조심": 60
+        },
+        "priority_file_keywords": [
+            "_FRONT",
+            "_LEFT",
+            "_RIGHT"
+        ],
+        "priority_file_counts": {
+            "기차": 19,
+            "장난감": 9,
+            "놀다": 19,
+            "가다": 25,
+            "일어나다": 25,
+            "병원": 4,
+            "조심": 29
+        },
+        "train_class_counts": {
+            "기차": 80,
+            "장난감": 80,
+            "놀다": 80,
+            "가다": 80,
+            "일어나다": 80,
+            "병원": 80,
+            "조심": 80
+        },
+        "val_class_counts": {
+            "기차": 12,
+            "장난감": 12,
+            "놀다": 12,
+            "가다": 6,
+            "일어나다": 6,
+            "병원": 12,
+            "조심": 12
+        },
+        "target_variants": {
+            "가다": [
+                "가다4"
+            ],
+            "일어나다": [
+                "일어나다2"
+            ]
+        },
+        "max_files_per_class": {
+            "기차": 60,
+            "장난감": 60,
+            "놀다": 60,
+            "병원": 60,
+            "조심": 60
+        },
+        "file_sample_seed": 42,
+        "total_size": 632,
+        "original_total_size": 360,
+        "train_size": 560,
+        "original_train_size": 288,
+        "val_size": 72,
+        "stratified_split": true,
+        "balanced_sampling": false,
+        "use_augmentation": true,
+        "target_samples_per_class": 80,
+        "augmentation_counts": {
+            "기차": 32,
+            "장난감": 32,
+            "놀다": 32,
+            "가다": 56,
+            "일어나다": 56,
+            "병원": 32,
+            "조심": 32
+        },
+        "augmentation": {
+            "seed": 2026,
+            "noise_std": 0.01,
+            "time_scale_range": [
+                0.9,
+                1.1
+            ],
+            "time_shift_range": [
+                -2,
+                2
+            ]
+        },
+        "skipped_file_count": 0
+    }
+}

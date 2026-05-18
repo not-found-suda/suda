@@ -4,3 +4,5 @@ mediapipe==0.10.14
 numpy
 torch
 scikit-learn
+boto3
+python-dotenv
