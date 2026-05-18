@@ -42,6 +42,12 @@ external-api:
     connect: 3s
     read: 10s
 
+sign-ai:
+  base-url: ${SIGN_AI_BASE_URL:http://localhost:8000}
+  timeout:
+    connect: ${SIGN_AI_CONNECT_TIMEOUT:1s}
+    read: ${SIGN_AI_READ_TIMEOUT:1s}
+
 app:
   asset:
     cloud-front-domain: ${ASSET_CLOUDFRONT_DOMAIN:https://d14zyw67949hvk.cloudfront.net}

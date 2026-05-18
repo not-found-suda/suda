@@ -76,6 +76,8 @@ public class SecurityConfig {
                     .permitAll()
                     .requestMatchers("/api/v1/translation/**")
                     .permitAll()
+                    .requestMatchers("/api/v1/sign/**")
+                    .permitAll()
                     .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**")
                     .permitAll()
                     .requestMatchers("/error")
