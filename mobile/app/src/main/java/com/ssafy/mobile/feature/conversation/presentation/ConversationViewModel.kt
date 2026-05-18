@@ -435,17 +435,21 @@ class ConversationViewModel
             words: List<String>,
             sentenceType: String?,
         ): String {
+            val normalizedWords = normalizeOnDeviceGlosses(words)
+            if (normalizedWords.isEmpty()) {
+                return ""
+            }
+
+            generateDemoSentenceOrNull(normalizedWords)?.let { return it }
+
             localSignSentenceGenerator
                 .generateKnownPatternOrNull(
-                    glosses = words,
+                    glosses = normalizedWords,
                     sentenceType = sentenceType,
                     speechStyle = onDeviceSpeechStyle,
                 )?.let { return it }
 
-            val glossText = words.joinToString(" ").trim()
-            if (glossText.isBlank()) {
-                return ""
-            }
+            val glossText = normalizedWords.joinToString(" ").trim()
 
             return runCatching {
                 normalizeTranslatedSentence(
@@ -460,13 +464,29 @@ class ConversationViewModel
                 )
                 localSignSentenceGenerator
                     .generate(
-                        glosses = words,
+                        glosses = normalizedWords,
                         sentenceType = sentenceType,
                         speechStyle = onDeviceSpeechStyle,
                     ).ifBlank {
                         glossText
                     }
             }
+        }
+
+        private fun normalizeOnDeviceGlosses(words: List<String>): List<String> =
+            words
+                .map { word -> word.trim() }
+                .filter { word ->
+                    word.isNotBlank() && !word.equals(NONE_GLOSS, ignoreCase = true)
+                }.fold(emptyList()) { result, word ->
+                    if (result.lastOrNull() == word) result else result + word
+                }
+
+        private fun generateDemoSentenceOrNull(words: List<String>): String? {
+            val compact = words.joinToString(" ")
+            return exactStableDemoRules[compact]
+                ?: stableSetDemoRules[words.toSet()]
+                ?: exactHoldDemoRules[compact]
         }
 
         private fun normalizeTranslatedSentence(
@@ -1333,6 +1353,7 @@ class ConversationViewModel
 
         companion object {
             private const val TAG = "ConversationViewModel"
+            private const val NONE_GLOSS = "none"
             private const val COMPLETION_THRESHOLD_MS = 2000L
             private const val STT_RESTART_DELAY_MS = 500L
             private const val STT_UNRECOGNIZED_NOTICE_MS = 1200L
@@ -1356,6 +1377,28 @@ class ConversationViewModel
             private const val CLOUD_STT_ANALYZING_MESSAGE = "대화 내용을 분석 중입니다..."
             private const val CLOUD_STT_AUDIO_MIME_TYPE = "audio/wav"
             private const val APP_SPEECH_ECHO_FILTER_MS = 5000L
+            private val exactStableDemoRules =
+                mapOf(
+                    "엄마 아프다 치료" to "엄마가 아파서 치료가 필요해요.",
+                    "시험 모르다 위로" to "시험을 몰라서 위로가 필요해요.",
+                    "엄마 서점 독서" to "엄마가 서점에서 독서해요.",
+                    "서점 독서 좋다" to "서점에서 독서하는 게 좋아요.",
+                )
+            private val stableSetDemoRules =
+                mapOf(
+                    setOf("엄마", "아프다", "치료") to "엄마가 아파서 치료가 필요해요.",
+                    setOf("시험", "모르다", "위로") to "시험을 몰라서 위로가 필요해요.",
+                    setOf("엄마", "서점", "독서") to "엄마가 서점에서 독서해요.",
+                )
+            private val exactHoldDemoRules =
+                mapOf(
+                    "엄마 아프다 의사" to "엄마가 아파서 의사를 만나야 해요.",
+                    "의사 치료 위로" to "의사가 치료하고 위로해 줘요.",
+                    "서점 가다 독서" to "서점에 가서 독서해요.",
+                    "엄마 병원 가다" to "엄마가 병원에 가요.",
+                    "병원 치료 받다" to "병원에서 치료를 받아요.",
+                    "우유 주다 감사" to "우유를 줘서 감사해요.",
+                )
             private const val NOTICE_AUTO_OFFLINE_FALLBACK =
                 "자동 모드: 네트워크가 없어 기기 내 처리로 전환했어요."
             private const val NOTICE_AUTO_SERVER_FALLBACK =

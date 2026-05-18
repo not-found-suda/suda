@@ -191,11 +191,11 @@ class QwenLiteRtTranslationEngine(
 
     private fun buildUserPrompt(glossText: String): String =
         """
-        다음 한국 수어 gloss를 자연스러운 한국어 한 문장으로 변환해.
-        출력은 변환된 한국어 문장 하나만 작성해.
+        다음 수어 gloss를 자연스러운 한국어 한 문장으로 바꿔.
 
-        Gloss: $glossText
-        한국어:
+        gloss: $glossText
+
+        출력:
         """.trimIndent()
 
     private fun extractText(message: Message): String {
@@ -216,7 +216,9 @@ class QwenLiteRtTranslationEngine(
                 .map { line ->
                     line
                         .trim()
+                        .removePrefix("한국어 문장:")
                         .removePrefix("한국어:")
+                        .removePrefix("출력:")
                         .removePrefix("Korean:")
                         .removePrefix("정답:")
                         .trim()
@@ -225,6 +227,7 @@ class QwenLiteRtTranslationEngine(
                         !line.startsWith("<think>", ignoreCase = true) &&
                         !line.startsWith("</think>", ignoreCase = true) &&
                         !line.startsWith("Gloss:") &&
+                        !line.startsWith("gloss:") &&
                         !line.equals("user", ignoreCase = true) &&
                         !line.equals("model", ignoreCase = true)
                 }.orEmpty()
@@ -437,13 +440,16 @@ class QwenLiteRtTranslationEngine(
             """
             너는 한국 수어 gloss를 자연스러운 한국어 한 문장으로 바꾸는 변환기다.
             규칙:
-            - 출력은 한국어 문장 하나만 쓴다.
-            - 설명, 영어, 따옴표, 번호를 쓰지 않는다.
-            - 입력에 없는 행동, 장소, 시제, 부정을 만들지 않는다.
-            - gloss의 단어 순서가 어색하면 한국어 어순으로 자연스럽게 바꾼다.
+            - 출력은 변환된 한국어 문장 하나만 쓴다.
+            - 설명, 영어, 따옴표, 번호, 후보 문장을 쓰지 않는다.
+            - 입력 gloss에 없는 사람, 장소, 시간, 감정, 이유를 새로 만들지 않는다.
+            - "none"은 무시한다.
+            - 같은 단어가 반복되면 한 번만 반영한다.
+            - 단어 순서가 어색하면 의미를 유지한 채 자연스러운 한국어 어순으로만 바꾼다.
+            - 의학적 진단, 원인, 처방은 추측하지 않는다.
+            - 의미가 애매하면 짧고 안전한 문장으로 만든다.
             - 명사만 있으면 "~입니다." 형태로 답한다.
-            - 아니다, 없다, 못 같은 표현이 있으면 반드시 부정문으로 답한다.
-            - 어제, 오늘, 내일, 지금 같은 시간 표현이 있으면 반드시 반영한다.
+            - 싫다, 없다, 모르다 같은 표현은 의미가 바뀌지 않게 반영한다.
             """.trimIndent()
     }
 }
