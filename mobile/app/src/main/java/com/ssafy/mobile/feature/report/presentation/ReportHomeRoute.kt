@@ -862,9 +862,7 @@ private fun ReportRecordGridItem(
                 text = description,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.heightIn(min = 32.dp),
+                maxLines = 4,
             )
 
             Row(
@@ -874,15 +872,14 @@ private fun ReportRecordGridItem(
             ) {
                 Text(
                     text = valueText,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
                     text = "›",
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
                 )

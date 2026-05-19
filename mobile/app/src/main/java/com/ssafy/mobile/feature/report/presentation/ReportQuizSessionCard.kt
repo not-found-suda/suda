@@ -68,25 +68,29 @@ fun ReportQuizSessionCard(
                 tone = ReportVisualTone.Success,
             )
             Spacer(modifier = Modifier.height(10.dp))
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+                horizontalAlignment = Alignment.Start,
             ) {
-                Text(
-                    text = "평균 별점",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                ReportStarRating(rating = session.averageStar)
-                Spacer(modifier = Modifier.weight(1f))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "평균 별점",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    ReportStarRating(rating = session.averageStar)
+                }
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = session.toDateLabel(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }

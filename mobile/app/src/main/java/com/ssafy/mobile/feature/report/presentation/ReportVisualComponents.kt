@@ -257,23 +257,27 @@ internal fun ReportStarRating(
         )
     val label = String.format(Locale.KOREA, "%.1f", safeRating)
 
-    Row(
+    Column(
         modifier = modifier,
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalAlignment = Alignment.Start,
     ) {
-        repeat(STAR_MAX) { index ->
-            Text(
-                text = "⭐",
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = if (index < filledCount) Modifier else Modifier.alpha(0.3f),
-            )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            repeat(STAR_MAX) { index ->
+                Text(
+                    text = "⭐",
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = if (index < filledCount) Modifier else Modifier.alpha(0.3f),
+                )
+            }
         }
         if (showValue) {
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = "$label/3",
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

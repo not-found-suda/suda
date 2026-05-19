@@ -109,19 +109,24 @@ fun ReportWeakWordCard(
                 tone = ReportVisualTone.Primary,
             )
             Spacer(modifier = Modifier.height(12.dp))
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+                horizontalAlignment = Alignment.Start,
             ) {
-                Text(
-                    text = "평균 별점",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                ReportStarRating(rating = word.averageStar)
-                Spacer(modifier = Modifier.weight(1f))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "평균 별점",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    ReportStarRating(rating = word.averageStar)
+                }
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "📅 최근 ${word.lastAnsweredAt.toReportDateLabel()}",
                     style = MaterialTheme.typography.bodySmall,
