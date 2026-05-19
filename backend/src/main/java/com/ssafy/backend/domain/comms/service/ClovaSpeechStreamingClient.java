@@ -20,6 +20,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -83,6 +85,48 @@ public class ClovaSpeechStreamingClient {
     } finally {
       channel.shutdownNow();
     }
+  }
+
+  public StreamingCall openStream(ResponseHandler responseHandler) {
+    if (!properties.hasSecretKey()) {
+      throw new IllegalStateException("CLOVA Speech secret key is not configured.");
+    }
+
+    ManagedChannel channel =
+        NettyChannelBuilder.forTarget(properties.endpoint()).useTransportSecurity().build();
+
+    NestServiceGrpc.NestServiceStub client =
+        NestServiceGrpc.newStub(
+            ClientInterceptors.intercept(
+                channel, MetadataUtils.newAttachHeadersInterceptor(authorizationMetadata())));
+
+    StreamingCall call = new StreamingCall(channel);
+
+    StreamObserver<NestResponse> responseObserver =
+        new StreamObserver<>() {
+          @Override
+          public void onNext(NestResponse response) {
+            responseHandler.onResponse(response.getContents());
+          }
+
+          @Override
+          public void onError(Throwable throwable) {
+            call.markClosed();
+            responseHandler.onError(throwable);
+            channel.shutdownNow();
+          }
+
+          @Override
+          public void onCompleted() {
+            call.markClosed();
+            responseHandler.onCompleted();
+            channel.shutdownNow();
+          }
+        };
+
+    call.bind(client.recognize(responseObserver));
+    sendConfig(call.requestObserver());
+    return call;
   }
 
   private Metadata authorizationMetadata() {
@@ -168,6 +212,70 @@ public class ClovaSpeechStreamingClient {
                 .setExtraContents(extraContents)
                 .build())
         .build();
+  }
+
+  public interface ResponseHandler {
+
+    void onResponse(String contents);
+
+    void onError(Throwable throwable);
+
+    void onCompleted();
+  }
+
+  public class StreamingCall implements AutoCloseable {
+
+    private final ManagedChannel channel;
+    private final AtomicInteger seqId = new AtomicInteger(1);
+    private final AtomicBoolean closed = new AtomicBoolean(false);
+    private StreamObserver<NestRequest> requestObserver;
+
+    private StreamingCall(ManagedChannel channel) {
+      this.channel = channel;
+    }
+
+    private void bind(StreamObserver<NestRequest> requestObserver) {
+      this.requestObserver = requestObserver;
+    }
+
+    private StreamObserver<NestRequest> requestObserver() {
+      return requestObserver;
+    }
+
+    public void sendAudio(byte[] audioBytes, boolean epFlag) {
+      if (audioBytes == null || audioBytes.length == 0 || closed.get()) {
+        return;
+      }
+
+      synchronized (this) {
+        if (!closed.get()) {
+          requestObserver.onNext(
+              audioRequest(audioBytes, audioBytes.length, seqId.getAndIncrement(), epFlag));
+        }
+      }
+    }
+
+    public void complete() {
+      synchronized (this) {
+        if (closed.compareAndSet(false, true)) {
+          requestObserver.onCompleted();
+        }
+      }
+    }
+
+    private void markClosed() {
+      closed.set(true);
+    }
+
+    @Override
+    public void close() {
+      synchronized (this) {
+        if (closed.compareAndSet(false, true)) {
+          requestObserver.onCompleted();
+        }
+      }
+      channel.shutdownNow();
+    }
   }
 
   private void skipFully(InputStream inputStream, long byteCount) throws IOException {
