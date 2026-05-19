@@ -48,9 +48,10 @@ public class QuizController implements QuizControllerDocs {
       Authentication authentication,
       @PathVariable Long sessionId,
       @RequestParam Long questionId,
-      @RequestPart(value = "audioFile", required = false) MultipartFile audioFile) {
+      @RequestPart(value = "audioFile", required = false) MultipartFile audioFile,
+      @RequestPart(value = "recognizedText", required = false) String recognizedText) {
     return quizService.submitAnswer(
-        resolveUserId(authentication), sessionId, questionId, audioFile);
+        resolveUserId(authentication), sessionId, questionId, audioFile, recognizedText);
   }
 
   @Override

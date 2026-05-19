@@ -156,7 +156,7 @@ class ChildOwnershipServiceTest {
     givenSessionOfUnownedOrInactiveChild();
 
     assertChildNotFoundAndVerifyOwnership(
-        () -> quizService.submitAnswer(USER_ID, SESSION_ID, 1L, null));
+        () -> quizService.submitAnswer(USER_ID, SESSION_ID, 1L, null, null));
     verify(quizSessionRepository).findById(SESSION_ID);
     verifyNoInteractions(quizQuestionRepository, quizAnswerRepository);
   }
