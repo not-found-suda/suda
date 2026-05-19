@@ -8,8 +8,10 @@ import com.ssafy.backend.domain.comms.dto.CommunicationSessionResponseDto;
 import com.ssafy.backend.domain.comms.entity.CommunicationSession;
 import com.ssafy.backend.domain.comms.entity.CommunicationSessionAnalysis;
 import com.ssafy.backend.domain.comms.entity.CommunicationSessionStatus;
+import com.ssafy.backend.domain.comms.entity.SpeakerRole;
 import com.ssafy.backend.domain.comms.event.CommunicationSessionEndedEvent;
 import com.ssafy.backend.domain.comms.exception.CommunicationSessionErrorCode;
+import com.ssafy.backend.domain.comms.repository.CommunicationMessageRepository;
 import com.ssafy.backend.domain.comms.repository.CommunicationSessionAnalysisRepository;
 import com.ssafy.backend.domain.comms.repository.CommunicationSessionRepository;
 import com.ssafy.backend.domain.user.entity.User;
@@ -28,6 +30,7 @@ public class CommunicationSessionService {
   private final CommunicationSessionRepository communicationSessionRepository;
   private final ChildProfileRepository childProfileRepository;
   private final UserRepository userRepository;
+  private final CommunicationMessageRepository communicationMessageRepository;
   private final CommunicationSessionAnalysisRepository communicationSessionAnalysisRepository;
   private final ApplicationEventPublisher eventPublisher;
 
@@ -35,11 +38,13 @@ public class CommunicationSessionService {
       CommunicationSessionRepository communicationSessionRepository,
       ChildProfileRepository childProfileRepository,
       UserRepository userRepository,
+      CommunicationMessageRepository communicationMessageRepository,
       CommunicationSessionAnalysisRepository communicationSessionAnalysisRepository,
       ApplicationEventPublisher eventPublisher) {
     this.communicationSessionRepository = communicationSessionRepository;
     this.childProfileRepository = childProfileRepository;
     this.userRepository = userRepository;
+    this.communicationMessageRepository = communicationMessageRepository;
     this.communicationSessionAnalysisRepository = communicationSessionAnalysisRepository;
     this.eventPublisher = eventPublisher;
   }
@@ -78,6 +83,13 @@ public class CommunicationSessionService {
     }
 
     session.end();
+
+    int childMessageCount =
+        communicationMessageRepository.countBySessionIdAndSpeakerRole(
+            session.getId(), SpeakerRole.CHILD);
+    if (childMessageCount == 0) {
+      return toResponse(session);
+    }
 
     if (!communicationSessionAnalysisRepository.existsBySessionId(session.getId())) {
       communicationSessionAnalysisRepository.save(CommunicationSessionAnalysis.pending(session));

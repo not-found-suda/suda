@@ -12,5 +12,7 @@ public interface CommunicationMessageRepository extends JpaRepository<Communicat
   List<CommunicationMessage> findBySessionIdAndSpeakerRoleOrderByMessageOrderAsc(
       Long sessionId, SpeakerRole speakerRole);
 
+  int countBySessionIdAndSpeakerRole(Long sessionId, SpeakerRole speakerRole);
+
   int countBySessionId(Long sessionId);
 }
