@@ -133,7 +133,7 @@ public class TranslationStreamingSttWebSocketHandler extends AbstractWebSocketHa
 
               @Override
               public void onError(Throwable throwable) {
-                handleClovaError(session, throwable);
+                handleClovaError(session, state, throwable);
               }
 
               @Override
@@ -201,27 +201,35 @@ public class TranslationStreamingSttWebSocketHandler extends AbstractWebSocketHa
 
     } catch (Exception e) {
       log.warn("[Streaming STT] Failed to handle CLOVA Speech response. contents={}", contents, e);
-      handleClovaError(session, e);
+      handleClovaError(session, state, e);
     }
   }
 
-  private void handleClovaError(WebSocketSession session, Throwable throwable) {
+  private void handleClovaError(
+      WebSocketSession session, StreamingSessionState state, Throwable throwable) {
     log.warn("[Streaming STT] CLOVA Speech stream failed.", throwable);
+    state.cancelEndTimeout();
+
+    if (!removeStateIfSame(session, state)) {
+      state.close();
+      return;
+    }
+
     try {
       sendError(session, "CLOVA Speech streaming failed.");
     } catch (IOException e) {
       log.warn("[Streaming STT] Failed to send error message to websocket client.", e);
     } finally {
-      StreamingSessionState state = removeState(session);
-      if (state != null) {
-        state.cancelEndTimeout();
-        state.close();
-      }
+      state.close();
     }
   }
 
   private void handleClovaCompleted(WebSocketSession session, StreamingSessionState state) {
     state.cancelEndTimeout();
+    if (!removeStateIfSame(session, state)) {
+      return;
+    }
+
     if (state.markSaved()) {
       streamingSttResultService.saveFinalResult(
           state.userId(), state.sessionId(), state.recognizedText(), state.locale());
@@ -231,8 +239,6 @@ public class TranslationStreamingSttWebSocketHandler extends AbstractWebSocketHa
       sendJson(session, Map.of("type", "closed"));
     } catch (IOException e) {
       log.warn("[Streaming STT] Failed to send close message to websocket client.", e);
-    } finally {
-      removeState(session);
     }
   }
 
