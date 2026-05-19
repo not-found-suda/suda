@@ -24,6 +24,7 @@ import retrofit2.Response
 /**
  * TranslateRepository의 실제 구현체
  */
+@Suppress("TooManyFunctions")
 class DefaultTranslateRepository
     @Inject
     constructor(

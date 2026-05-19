@@ -1122,6 +1122,7 @@ class ConversationViewModel
             return restartDelayMs
         }
 
+        @Suppress("ReturnCount")
         private suspend fun performCloudStreamingStt(): Long {
             val sessionId = ensureCommsSessionForServerStorage()
             if (sessionId == null) {
@@ -1132,6 +1133,7 @@ class ConversationViewModel
             }
 
             val resultDelay = CompletableDeferred<Long>()
+            val startDelay = CompletableDeferred<Long?>()
             val finalText = StringBuilder()
             val connection =
                 streamingSttClient.start(
@@ -1143,6 +1145,7 @@ class ConversationViewModel
                                     handleCloudStreamingSttEvent(
                                         event = event,
                                         finalText = finalText,
+                                        startDelay = startDelay,
                                         resultDelay = resultDelay,
                                     )
                                 }
@@ -1150,6 +1153,21 @@ class ConversationViewModel
                         },
                 )
             cloudStreamingConnection = connection
+
+            val startFailureDelay =
+                runCatching {
+                    withTimeout(CLOUD_STREAMING_START_TIMEOUT_MS) {
+                        startDelay.await()
+                    }
+                }.getOrElse { throwable ->
+                    connection.close()
+                    cloudStreamingConnection = null
+                    return handleCloudStreamingFailure(throwable)
+                }
+
+            if (startFailureDelay != null) {
+                return startFailureDelay
+            }
 
             val started =
                 androidAudioRecorder.startPcmStream { audioBytes ->
@@ -1240,15 +1258,21 @@ class ConversationViewModel
             return false
         }
 
+        @Suppress("CyclomaticComplexMethod")
         private fun handleCloudStreamingSttEvent(
             event: TranslationStreamingSttEvent,
             finalText: StringBuilder,
+            startDelay: CompletableDeferred<Long?>,
             resultDelay: CompletableDeferred<Long>,
         ) {
             when (event) {
                 TranslationStreamingSttEvent.Started,
                 TranslationStreamingSttEvent.Configured,
-                -> Unit
+                -> {
+                    if (!startDelay.isCompleted) {
+                        startDelay.complete(null)
+                    }
+                }
                 is TranslationStreamingSttEvent.Partial -> {
                     val displayText =
                         buildStreamingDisplayText(
@@ -1272,16 +1296,22 @@ class ConversationViewModel
                 is TranslationStreamingSttEvent.Error -> {
                     if (!resultDelay.isCompleted) {
                         val cause = event.cause ?: RuntimeException(event.message)
-                        resultDelay.complete(
-                            handleCloudStreamingFailure(cause),
-                        )
+                        val restartDelay = handleCloudStreamingFailure(cause)
+                        if (!startDelay.isCompleted) {
+                            startDelay.complete(restartDelay)
+                        }
+                        resultDelay.complete(restartDelay)
                     }
                 }
                 TranslationStreamingSttEvent.Closed -> {
                     cloudStreamingConnection?.close()
                     cloudStreamingConnection = null
                     if (!resultDelay.isCompleted) {
-                        resultDelay.complete(handleCloudStreamingClosed(finalText.toString()))
+                        val restartDelay = handleCloudStreamingClosed(finalText.toString())
+                        if (!startDelay.isCompleted) {
+                            startDelay.complete(restartDelay)
+                        }
+                        resultDelay.complete(restartDelay)
                     }
                 }
             }
@@ -1738,6 +1768,7 @@ class ConversationViewModel
             private const val CLOUD_STT_STOP_REASON_CANCELLED = "cancelled"
             private const val CLOUD_STT_ANALYZING_MESSAGE = "대화 내용을 분석 중입니다..."
             private const val CLOUD_STT_AUDIO_MIME_TYPE = "audio/wav"
+            private const val CLOUD_STREAMING_START_TIMEOUT_MS = 5_000L
             private const val CLOUD_STREAMING_RESULT_TIMEOUT_MS = 35_000L
             private const val APP_SPEECH_ECHO_FILTER_MS = 5000L
             private val goRestaurantRule =

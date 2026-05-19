@@ -36,7 +36,7 @@ public class TranslationStreamingSttWebSocketHandler extends AbstractWebSocketHa
   private static final String DEFAULT_LOCALE = "ko-KR";
   private static final long END_RESPONSE_TIMEOUT_SECONDS = 30;
 
-  private final ObjectMapper objectMapper;
+  private final ObjectMapper objectMapper = new ObjectMapper();
   private final ClovaSpeechStreamingClient clovaSpeechStreamingClient;
   private final StreamingSttResultService streamingSttResultService;
   private final ScheduledExecutorService endTimeoutExecutor =
@@ -48,10 +48,8 @@ public class TranslationStreamingSttWebSocketHandler extends AbstractWebSocketHa
           });
 
   public TranslationStreamingSttWebSocketHandler(
-      ObjectMapper objectMapper,
       ClovaSpeechStreamingClient clovaSpeechStreamingClient,
       StreamingSttResultService streamingSttResultService) {
-    this.objectMapper = objectMapper;
     this.clovaSpeechStreamingClient = clovaSpeechStreamingClient;
     this.streamingSttResultService = streamingSttResultService;
   }

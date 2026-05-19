@@ -260,6 +260,7 @@ class AndroidAudioRecorder
             while (isRecording) {
                 val bytesRead = recorder.read(buffer, 0, buffer.size)
                 if (bytesRead > 0) {
+                    @Suppress("TooGenericExceptionCaught")
                     try {
                         updateMaxAmplitude(buffer, bytesRead)
                         onAudioChunk(buffer.copyOf(bytesRead))

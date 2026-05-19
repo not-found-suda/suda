@@ -15,7 +15,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
-import okio.ByteString
+import okio.ByteString.Companion.toByteString
 
 @Singleton
 class OkHttpTranslationStreamingSttClient
@@ -153,7 +153,7 @@ class OkHttpTranslationStreamingSttClient
             private val webSocket: WebSocket,
         ) : TranslationStreamingSttConnection {
             override fun sendAudio(audioBytes: ByteArray): Boolean =
-                webSocket.send(ByteString.of(*audioBytes))
+                webSocket.send(audioBytes.toByteString())
 
             override fun end(): Boolean = webSocket.send(gson.toJson(EndMessage()))
 
