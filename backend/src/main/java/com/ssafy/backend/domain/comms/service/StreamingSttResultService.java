@@ -27,6 +27,17 @@ public class StreamingSttResultService {
     this.communicationMessageRepository = communicationMessageRepository;
   }
 
+  @Transactional(readOnly = true)
+  public boolean canSaveFinalResult(Long userId, Long sessionId) {
+    if (userId == null || sessionId == null) {
+      return false;
+    }
+
+    return communicationSessionRepository
+        .findByIdAndUserIdAndStatus(sessionId, userId, CommunicationSessionStatus.ACTIVE)
+        .isPresent();
+  }
+
   @Transactional
   public void saveFinalResult(Long userId, Long sessionId, String recognizedText, String locale) {
     if (userId == null || sessionId == null || recognizedText == null || recognizedText.isBlank()) {

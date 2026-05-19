@@ -72,7 +72,7 @@ public class TranslationStreamingSttWebSocketHandler extends AbstractWebSocketHa
 
   @Override
   public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-    StreamingSessionState state = getState(session);
+    StreamingSessionState state = removeState(session);
     if (state != null) {
       state.close();
     }
@@ -87,6 +87,21 @@ public class TranslationStreamingSttWebSocketHandler extends AbstractWebSocketHa
     Long sessionId = readLongOrNull(payload, "sessionId");
     String locale = payload.path("locale").asText(DEFAULT_LOCALE);
     Long userId = resolveUserId(session);
+
+    if (userId == null) {
+      sendError(session, "Authentication is required for streaming STT.");
+      return;
+    }
+
+    if (sessionId == null) {
+      sendError(session, "sessionId is required for streaming STT.");
+      return;
+    }
+
+    if (!streamingSttResultService.canSaveFinalResult(userId, sessionId)) {
+      sendError(session, "Active communication session is not found.");
+      return;
+    }
 
     StreamingSessionState state = new StreamingSessionState(userId, sessionId, locale);
     StreamingCall streamingCall =
@@ -172,6 +187,11 @@ public class TranslationStreamingSttWebSocketHandler extends AbstractWebSocketHa
       sendError(session, "CLOVA Speech streaming failed.");
     } catch (IOException e) {
       log.warn("[Streaming STT] Failed to send error message to websocket client.", e);
+    } finally {
+      StreamingSessionState state = removeState(session);
+      if (state != null) {
+        state.close();
+      }
     }
   }
 
@@ -185,6 +205,8 @@ public class TranslationStreamingSttWebSocketHandler extends AbstractWebSocketHa
       sendJson(session, Map.of("type", "closed"));
     } catch (IOException e) {
       log.warn("[Streaming STT] Failed to send close message to websocket client.", e);
+    } finally {
+      removeState(session);
     }
   }
 
@@ -226,6 +248,11 @@ public class TranslationStreamingSttWebSocketHandler extends AbstractWebSocketHa
 
   private StreamingSessionState getState(WebSocketSession session) {
     Object value = session.getAttributes().get(SESSION_STATE_ATTRIBUTE);
+    return value instanceof StreamingSessionState state ? state : null;
+  }
+
+  private StreamingSessionState removeState(WebSocketSession session) {
+    Object value = session.getAttributes().remove(SESSION_STATE_ATTRIBUTE);
     return value instanceof StreamingSessionState state ? state : null;
   }
 
