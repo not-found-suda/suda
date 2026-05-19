@@ -17,6 +17,7 @@ interface ReportRepository {
     suspend fun getCommunicationSummary(
         childId: Long,
         filter: ReportFilterState = ReportFilterState(),
+        sessionLimit: Int? = null,
     ): Result<ReportCommunicationSummary>
 
     suspend fun getWeakWords(

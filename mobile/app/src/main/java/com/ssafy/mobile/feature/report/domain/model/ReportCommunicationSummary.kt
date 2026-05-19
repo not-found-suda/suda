@@ -8,6 +8,16 @@ data class ReportCommunicationSummary(
     val averageSentenceLength: Double,
     val frequentWords: List<ReportCommunicationWordCount>,
     val expressionTypeCounts: ReportExpressionTypeCounts,
+    val communicationLevel: String,
+    val vocabularyDiversityLevel: String,
+    val sentenceExpansionLevel: String,
+    val strengths: List<String>,
+    val improvementPoints: List<String>,
+    val parentGuide: List<String>,
+    val recommendedActivities: List<String>,
+    val developmentReference: String,
+    val cautionLevel: String,
+    val consultationGuide: String,
     val recentSessions: List<ReportCommunicationSessionSummary>,
     val generatedAt: String?,
 ) {
@@ -25,10 +35,11 @@ data class ReportExpressionTypeCounts(
     val emotion: Int,
     val response: Int,
     val play: Int,
+    val question: Int,
     val other: Int,
 ) {
     val total: Int
-        get() = request + emotion + response + play + other
+        get() = request + emotion + response + play + question + other
 }
 
 data class ReportCommunicationSessionSummary(
@@ -36,7 +47,19 @@ data class ReportCommunicationSessionSummary(
     val startedAt: String?,
     val endedAt: String?,
     val utteranceCount: Int,
+    val averageSentenceLength: Double,
     val frequentWords: List<ReportCommunicationWordCount>,
+    val expressionTypeCounts: ReportExpressionTypeCounts,
+    val communicationLevel: String,
+    val vocabularyDiversityLevel: String,
+    val sentenceExpansionLevel: String,
+    val strengths: List<String>,
+    val improvementPoints: List<String>,
+    val parentGuide: List<String>,
+    val recommendedActivities: List<String>,
+    val developmentReference: String,
+    val cautionLevel: String,
+    val consultationGuide: String,
     val summary: String,
     val analysisStatus: ReportCommunicationAnalysisStatus,
     val analyzedAt: String?,

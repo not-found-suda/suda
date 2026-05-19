@@ -70,11 +70,13 @@ class RemoteReportRepository
         override suspend fun getCommunicationSummary(
             childId: Long,
             filter: ReportFilterState,
+            sessionLimit: Int?,
         ): Result<ReportCommunicationSummary> =
             try {
                 val response =
                     apiService.getCommunicationSummary(
                         childId = childId,
+                        sessionLimit = sessionLimit,
                         filters = filter.toDateQueryMap(),
                     )
 

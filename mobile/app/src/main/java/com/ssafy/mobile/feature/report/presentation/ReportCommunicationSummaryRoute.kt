@@ -461,6 +461,12 @@ private fun ReportCommunicationExpressionCard(counts: ReportExpressionTypeCounts
                     tone = ReportVisualTone.Success,
                 )
                 ReportExpressionMeter(
+                    title = "질문 표현",
+                    count = counts.question,
+                    total = counts.total,
+                    tone = ReportVisualTone.Secondary,
+                )
+                ReportExpressionMeter(
                     title = "기타",
                     count = counts.other,
                     total = counts.total,

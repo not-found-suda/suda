@@ -53,7 +53,7 @@ public class ReportService {
   private static final int DEFAULT_PAGE = 1;
   private static final int DEFAULT_MIN_ATTEMPT_COUNT = 1;
   private static final int SUMMARY_WEAK_WORD_LIMIT = 5;
-  private static final int RECENT_COMMUNICATION_SESSION_LIMIT = 5;
+  private static final int MAX_COMMUNICATION_SESSION_LIMIT = 50;
   private static final int REPORT_GUIDE_LIMIT = 5;
   private static final int MAX_SIZE = 100;
 
@@ -112,9 +112,10 @@ public class ReportService {
   }
 
   public ReportCommunicationSummaryResponse getCommunicationSummary(
-      Long userId, Long childId, String from, String to) {
+      Long userId, Long childId, String from, String to, int sessionLimit) {
     validatePositiveId(childId, "childId");
     validateChildProfileOwner(childId, userId);
+    int resolvedSessionLimit = resolveCommunicationSessionLimit(sessionLimit);
 
     LocalDateTime fromDateTime = parseFrom(from);
     LocalDateTime toDateTime = parseToExclusive(to);
@@ -237,7 +238,7 @@ public class ReportService {
             recommendedActivities, sessionRecommendedActivities, REPORT_GUIDE_LIMIT);
       }
 
-      if (recentSessions.size() < RECENT_COMMUNICATION_SESSION_LIMIT) {
+      if (recentSessions.size() < resolvedSessionLimit) {
         recentSessions.add(
             new ReportCommunicationSessionSummaryResponse(
                 row.sessionId(),
@@ -730,6 +731,14 @@ public class ReportService {
       throw new BusinessException(ValidationErrorCode.INVALID_INPUT, "size는 1 이상 100 이하여야 합니다.");
     }
     return size;
+  }
+
+  private int resolveCommunicationSessionLimit(int sessionLimit) {
+    if (sessionLimit < 1 || sessionLimit > MAX_COMMUNICATION_SESSION_LIMIT) {
+      throw new BusinessException(
+          ValidationErrorCode.INVALID_INPUT, "sessionLimit은 1 이상 50 이하여야 합니다.");
+    }
+    return sessionLimit;
   }
 
   private int resolveMinAttemptCount(Integer minAttemptCount) {

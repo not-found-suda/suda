@@ -22,6 +22,7 @@ interface ReportApiService {
     @GET("v1/children/{childId}/reports/communication-summary")
     suspend fun getCommunicationSummary(
         @Path("childId") childId: Long,
+        @Query("sessionLimit") sessionLimit: Int? = null,
         @QueryMap filters: Map<String, String> = emptyMap(),
     ): Response<ReportCommunicationSummaryResponseDto>
 
