@@ -43,9 +43,11 @@ fun ReportQuizSessionCard(
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        val diffColors = session.difficulty.toReportDifficultyBadgeColors()
                         AppBadge(
                             text = session.difficulty.toReportDifficultyLabel(),
-                            tone = AppBadgeTone.Primary,
+                            containerColor = diffColors.containerColor,
+                            contentColor = diffColors.contentColor,
                         )
                         AppBadge(
                             text = session.status.toReportSessionStatusLabel(),

@@ -21,14 +21,16 @@ fun AppBadge(
     modifier: Modifier = Modifier,
     tone: AppBadgeTone = AppBadgeTone.Neutral,
     contentPadding: PaddingValues = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+    containerColor: Color? = null,
+    contentColor: Color? = null,
 ) {
     val colors = tone.colors()
 
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(999.dp),
-        color = colors.container,
-        contentColor = colors.content,
+        color = containerColor ?: colors.container,
+        contentColor = contentColor ?: colors.content,
     ) {
         Text(
             text = text,

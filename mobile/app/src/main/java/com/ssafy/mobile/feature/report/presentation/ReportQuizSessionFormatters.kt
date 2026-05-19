@@ -1,7 +1,39 @@
+@file:Suppress("MagicNumber", "MatchingDeclarationName")
+
 package com.ssafy.mobile.feature.report.presentation
 
+import androidx.compose.ui.graphics.Color
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
 import com.ssafy.mobile.feature.report.domain.model.ReportQuizAnswer
+
+data class ReportDifficultyBadgeColors(
+    val containerColor: Color,
+    val contentColor: Color,
+)
+
+internal fun String.toReportDifficultyBadgeColors(): ReportDifficultyBadgeColors =
+    when (this) {
+        "EASY" ->
+            ReportDifficultyBadgeColors(
+                containerColor = Color(0xFFE3F2FD), // soft blue
+                contentColor = Color(0xFF1E88E5),
+            )
+        "NORMAL" ->
+            ReportDifficultyBadgeColors(
+                containerColor = Color(0xFFFFF9C4), // soft yellow
+                contentColor = Color(0xFFF57F17),
+            )
+        "HARD" ->
+            ReportDifficultyBadgeColors(
+                containerColor = Color(0xFFFFE0B2), // soft orange
+                contentColor = Color(0xFFE65100),
+            )
+        else ->
+            ReportDifficultyBadgeColors(
+                containerColor = Color(0xFFF5F5F5),
+                contentColor = Color(0xFF616161),
+            )
+    }
 
 internal fun String.toReportDifficultyLabel(): String =
     when (this) {
@@ -13,10 +45,10 @@ internal fun String.toReportDifficultyLabel(): String =
 
 internal fun String.toReportSessionStatusLabel(): String =
     when (this) {
-        "COMPLETED" -> "완료"
-        "IN_PROGRESS" -> "진행 중"
-        "STARTED" -> "진행 중"
-        "ABANDONED" -> "중단"
+        "COMPLETED" -> "✅ 완료"
+        "IN_PROGRESS" -> "⏳ 진행 중"
+        "STARTED" -> "⏳ 진행 중"
+        "ABANDONED" -> "🛑 중단"
         else -> this
     }
 

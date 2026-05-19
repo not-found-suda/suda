@@ -44,6 +44,12 @@ val sllmModelDownloadUrl: String =
         gradlePropertyKey = "sllm.model.download.url",
         defaultValue = defaultSllmModelDownloadUrl,
     )
+val reportUseFakeData: Boolean =
+    configValue(
+        key = "REPORT_USE_FAKE_DATA",
+        gradlePropertyKey = "report.use.fake.data",
+        defaultValue = "false",
+    ).toBooleanStrictOrNull() ?: false
 val qwenModelFileName =
     "Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm"
 val qwenDebugModelLocalPath: String =
@@ -86,6 +92,7 @@ android {
         buildConfigField("String", "NAVER_CLIENT_ID", "\"$naverClientId\"")
         buildConfigField("String", "NAVER_CLIENT_SECRET", "\"$naverClientSecret\"")
         buildConfigField("String", "NAVER_CLIENT_NAME", "\"$naverClientName\"")
+        buildConfigField("boolean", "REPORT_USE_FAKE_DATA", reportUseFakeData.toString())
         buildConfigField(
             "String",
             "SLLM_MODEL_DOWNLOAD_URL",

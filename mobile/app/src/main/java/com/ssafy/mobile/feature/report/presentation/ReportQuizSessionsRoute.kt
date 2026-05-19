@@ -1,13 +1,17 @@
 package com.ssafy.mobile.feature.report.presentation
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -22,6 +26,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -243,24 +248,34 @@ private fun ReportQuizSessionsIntro(
 ) {
     val selectedProfile = (activeChildState as? ActiveChildProfileState.Selected)?.profile
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text =
-                selectedProfile?.let { profile ->
-                    if (isResumeOnly) {
-                        "${profile.name}의 이어하기"
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text =
+                    selectedProfile?.let { profile ->
+                        if (isResumeOnly) {
+                            "${profile.name}의 이어하기"
+                        } else {
+                            "${profile.name}의 퀴즈 기록"
+                        }
+                    } ?: if (isResumeOnly) {
+                        "이어하기"
                     } else {
-                        "${profile.name}의 퀴즈 기록"
-                    }
-                } ?: if (isResumeOnly) {
-                    "이어하기"
-                } else {
-                    "퀴즈 기록"
-                },
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+                        "퀴즈 기록"
+                    },
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (selectedProfile != null) {
+                Spacer(modifier = Modifier.width(8.dp))
+                Image(
+                    painter = painterResource(id = com.ssafy.mobile.R.drawable.ic_report_boy),
+                    contentDescription = "아이 아이콘",
+                    modifier = Modifier.size(36.dp),
+                )
+            }
+        }
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             text =

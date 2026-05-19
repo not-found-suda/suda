@@ -1,4 +1,4 @@
-@file:Suppress("ComplexCondition", "MagicNumber", "TooManyFunctions")
+@file:Suppress("ComplexCondition", "MagicNumber", "MaxLineLength", "TooManyFunctions")
 
 package com.ssafy.mobile.feature.report.presentation
 
@@ -85,6 +85,15 @@ internal fun ReportFilterPanel(
 
 @Composable
 private fun ReportFilterHeader(state: ReportFilterUiState) {
+    val currentRange = state.input.selectedQuickDateRange()
+    val badgeText =
+        when (currentRange) {
+            ReportQuickDateRange.CurrentWeek -> "이번주"
+            ReportQuickDateRange.Recent30Days -> "이번달"
+            ReportQuickDateRange.All -> "전체"
+            null -> "직접 설정"
+        }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -95,7 +104,7 @@ private fun ReportFilterHeader(state: ReportFilterUiState) {
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
-                text = "조회 조건",
+                text = "조회 기간",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
@@ -111,8 +120,15 @@ private fun ReportFilterHeader(state: ReportFilterUiState) {
         }
         Spacer(modifier = Modifier.width(12.dp))
         AppBadge(
-            text = if (state.hasAppliedFilter) "적용됨" else "전체",
-            tone = if (state.hasAppliedFilter) AppBadgeTone.Primary else AppBadgeTone.Neutral,
+            text = badgeText,
+            tone =
+                if (state.hasAppliedFilter ||
+                    currentRange != ReportQuickDateRange.All
+                ) {
+                    AppBadgeTone.Primary
+                } else {
+                    AppBadgeTone.Neutral
+                },
         )
     }
 }

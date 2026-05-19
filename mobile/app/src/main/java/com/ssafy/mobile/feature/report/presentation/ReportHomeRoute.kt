@@ -1,7 +1,14 @@
-@file:Suppress("LongParameterList", "MagicNumber", "TooManyFunctions")
+@file:Suppress(
+    "LongMethod",
+    "LongParameterList",
+    "MagicNumber",
+    "MaxLineLength",
+    "TooManyFunctions",
+)
 
 package com.ssafy.mobile.feature.report.presentation
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,11 +33,17 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -39,8 +52,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.ssafy.mobile.core.ui.components.AppBadge
-import com.ssafy.mobile.core.ui.components.AppBadgeTone
 import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
@@ -49,7 +60,6 @@ import com.ssafy.mobile.core.ui.components.SudaStateView
 import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
 import com.ssafy.mobile.feature.childprofile.domain.model.ChildProfile
 import com.ssafy.mobile.feature.report.domain.model.ReportSummary
-import java.util.Locale
 
 @Composable
 @Suppress("LongParameterList")
@@ -139,11 +149,76 @@ private fun ReportHomeScreen(
             val isMenuEnabled = activeChildState is ActiveChildProfileState.Selected
 
             if (isMenuEnabled) {
-                ReportFilterPanel(
-                    state = filterUiState,
-                    config = ReportFilterPanelConfig(),
-                    actions = actions.filterActions,
-                )
+                var isFilterExpanded by rememberSaveable { mutableStateOf(false) }
+                var hasInitialized by rememberSaveable { mutableStateOf(false) }
+
+                LaunchedEffect(hasInitialized) {
+                    if (!hasInitialized) {
+                        val allInput =
+                            filterUiState.input.applyQuickDateRange(
+                                ReportQuickDateRange.All,
+                            )
+                        actions.filterActions.onInputChange(allInput)
+                        actions.filterActions.onApplyClick()
+                        hasInitialized = true
+                    }
+                }
+
+                val currentRange = filterUiState.input.selectedQuickDateRange()
+                val filterStatusText =
+                    when (currentRange) {
+                        ReportQuickDateRange.CurrentWeek -> "이번주 · 적용 중"
+                        ReportQuickDateRange.Recent30Days -> "이번달 · 적용 중"
+                        ReportQuickDateRange.All -> "전체 · 적용 중"
+                        null -> "직접 설정 · 적용 중"
+                    }
+
+                ReportGlassCard(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(24.dp))
+                            .clickable { isFilterExpanded = !isFilterExpanded },
+                    contentPadding = PaddingValues(16.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = if (isFilterExpanded) "조회 기간 ▲" else "조회 기간 ▼",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = filterStatusText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+
+                if (isFilterExpanded) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    ReportFilterPanel(
+                        state = filterUiState,
+                        config = ReportFilterPanelConfig(),
+                        actions =
+                            actions.filterActions.copy(
+                                onResetClick = {
+                                    val allInput =
+                                        filterUiState.input.applyQuickDateRange(
+                                            ReportQuickDateRange.All,
+                                        )
+                                    actions.filterActions.onInputChange(allInput)
+                                    actions.filterActions.onApplyClick()
+                                },
+                            ),
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(18.dp))
 
@@ -208,10 +283,10 @@ private fun ReportRecordSection(
             ReportSummaryUiState.Idle,
             ReportSummaryUiState.Loading,
             ->
-                ReportRecordLoadingList()
+                ReportRecordLoadingGrid()
 
             ReportSummaryUiState.Empty ->
-                ReportRecordList(
+                ReportRecordGrid(
                     actions = actions,
                     summary = null,
                     enabled = true,
@@ -221,7 +296,7 @@ private fun ReportRecordSection(
                 ReportHomeErrorCard(message = summaryState.message)
 
             is ReportSummaryUiState.Success ->
-                ReportRecordList(
+                ReportRecordGrid(
                     actions = actions,
                     summary = summaryState.summary,
                     enabled = true,
@@ -232,47 +307,84 @@ private fun ReportRecordSection(
 
 @Composable
 private fun ReportHealthSummaryCard(summary: ReportSummary) {
+    val accuracy = summary.performance.accuracyRate
+    val complimentText =
+        when {
+            accuracy < 30.0 -> "조금 더 분발해봐요!"
+            accuracy < 70.0 -> "잘하고 있어요!"
+            else -> "참 잘했어요!!"
+        }
+
     ReportGlassCard(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(16.dp),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)),
+        contentPadding = PaddingValues(18.dp),
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Row(
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Surface(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Bottom,
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "정답률",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                Row(
+                    modifier = Modifier.padding(20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column {
+                        Text(
+                            text = "🎯 전체 정답률",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = complimentText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                        )
+                    }
                     Text(
                         text = summary.performance.accuracyRate.toHomePercentLabel(),
-                        style = MaterialTheme.typography.displaySmall,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.displayMedium,
+                        fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
-                AppBadge(
-                    text = summary.performance.accuracyRate.toHomeGradeLabel(),
-                    tone = summary.performance.accuracyRate.toReportBadgeTone(),
-                )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ReportHealthMetricPill(
+                    icon = "",
                     label = "완료 퀴즈",
                     value = "${summary.participation.completedSessionCount}개",
                     modifier = Modifier.weight(1f),
                 )
                 ReportHealthMetricPill(
+                    icon = "",
                     label = "평균 별점",
-                    value = summary.performance.averageStar.toStarLabel(),
+                    value = "",
+                    modifier = Modifier.weight(1f),
+                    content = {
+                        ReportStarRating(
+                            rating = summary.performance.averageStar,
+                            showValue = true,
+                        )
+                    },
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ReportHealthMetricPill(
+                    icon = "",
+                    label = "취약 단어",
+                    value = "${summary.weakWords.size}개",
                     modifier = Modifier.weight(1f),
                 )
                 ReportHealthMetricPill(
-                    label = "취약 단어",
-                    value = "${summary.weakWords.size}개",
+                    icon = "",
+                    label = "학습 단어",
+                    value = "${summary.participation.totalQuestionCount}개",
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -283,7 +395,7 @@ private fun ReportHealthSummaryCard(summary: ReportSummary) {
 @Composable
 private fun ReportHealthSummaryLoadingCard() {
     ReportGlassCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)),
         contentPadding = PaddingValues(16.dp),
     ) {
         AppLoadingIndicator(
@@ -295,171 +407,199 @@ private fun ReportHealthSummaryLoadingCard() {
 
 @Composable
 private fun ReportHealthMetricPill(
+    icon: String,
     label: String,
     value: String,
     modifier: Modifier = Modifier,
+    content: (@Composable () -> Unit)? = null,
 ) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.56f),
         contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            val titleText = if (icon.isBlank()) label else "$icon $label"
             Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
+                text = titleText,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = value,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-@Composable
-private fun ReportRecordDivider() {
-    Box(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .height(1.dp)
-                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-    )
-}
-
-@Composable
-private fun ReportRecordList(
-    actions: ReportHomeActions,
-    summary: ReportSummary?,
-    enabled: Boolean,
-) {
-    ReportGlassCard(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(vertical = 4.dp),
-    ) {
-        ReportRecordRow(
-            title = "학습 요약 리포트",
-            description =
-                summary
-                    ?.latestActivity
-                    ?.categoryName
-                    ?.let { "최근 학습 · $it" }
-                    ?: "완료한 퀴즈 기준 성과를 정리했어요.",
-            badgeText = "요약",
-            badgeTone = AppBadgeTone.Primary,
-            valueText = summary?.performance?.accuracyRate?.toHomePercentLabel() ?: "-",
-            statusText = summary?.performance?.accuracyRate?.toHomeGradeLabel() ?: "대기",
-            onClick = actions.onNavigateToSummary,
-            enabled = enabled,
-        )
-        ReportRecordDivider()
-        ReportRecordRow(
-            title = "소통 분석",
-            description = "대화에서 자주 쓴 말과 표현 흐름을 정리해요.",
-            badgeText = "소통",
-            badgeTone = AppBadgeTone.Success,
-            valueText = "보기",
-            statusText = "연결됨",
-            onClick = actions.onNavigateToCommunication,
-            enabled = enabled,
-        )
-        ReportRecordDivider()
-        ReportRecordRow(
-            title = "자주 틀리는 단어",
-            description = "반복 학습이 필요한 단어를 모아봤어요.",
-            badgeText = "단어",
-            badgeTone = AppBadgeTone.Error,
-            valueText = summary?.weakWords?.size?.let { "${it}개" } ?: "-",
-            statusText = if (summary?.weakWords.isNullOrEmpty()) "양호" else "확인",
-            onClick = actions.onNavigateToWeakWords,
-            enabled = enabled,
-        )
-        ReportRecordDivider()
-        ReportRecordRow(
-            title = "카테고리별 학습 진행도",
-            description = "카테고리별 학습 흐름을 정리해드릴게요.",
-            badgeText = "진행",
-            badgeTone = AppBadgeTone.Secondary,
-            valueText = "${summary?.participation?.completedSessionCount ?: 0}회",
-            statusText = "퀴즈",
-            onClick = actions.onNavigateToCategoryProgress,
-            enabled = enabled,
-        )
-        ReportRecordDivider()
-        ReportRecordRow(
-            title = "퀴즈 기록",
-            description = "아이가 풀어본 퀴즈 기록을 최신순으로 볼 수 있어요.",
-            badgeText = "퀴즈",
-            badgeTone = AppBadgeTone.Tertiary,
-            valueText = "${summary?.participation?.totalQuestionCount ?: 0}문제",
-            statusText = "기록",
-            onClick = actions.onNavigateToQuizSessions,
-            enabled = enabled,
-        )
-    }
-}
-
-@Composable
-private fun ReportRecordLoadingList() {
-    ReportGlassCard(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(vertical = 4.dp),
-    ) {
-        repeat(HOME_PLACEHOLDER_CARD_COUNT) { index ->
-            ReportRecordLoadingRow()
-            if (index != HOME_PLACEHOLDER_CARD_COUNT - 1) {
-                ReportRecordDivider()
+            if (content != null) {
+                content()
+            } else {
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun ReportRecordLoadingRow() {
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .height(72.dp)
-                .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
+private fun ReportRecordGrid(
+    actions: ReportHomeActions,
+    summary: ReportSummary?,
+    enabled: Boolean,
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Surface(
-            modifier = Modifier.size(42.dp),
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f),
-        ) {}
-        Spacer(modifier = Modifier.width(14.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Box(
-                modifier =
-                    Modifier
-                        .width(140.dp)
-                        .height(12.dp)
-                        .clip(RoundedCornerShape(99.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            ReportRecordGridItem(
+                title = "학습 요약 리포트",
+                description =
+                    summary
+                        ?.latestActivity
+                        ?.categoryName
+                        ?.let { "최근 학습 · $it" }
+                        ?: "완료한 퀴즈 기준 성과를 정리했어요.",
+                valueText = summary?.performance?.accuracyRate?.toHomePercentLabel() ?: "-",
+                iconEmoji = "📊",
+                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                onClick = actions.onNavigateToSummary,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
             )
-            Box(
-                modifier =
-                    Modifier
-                        .width(210.dp)
-                        .height(10.dp)
-                        .clip(RoundedCornerShape(99.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)),
+            ReportRecordGridItem(
+                title = "자주 틀리는 단어\n반복 학습하기",
+                description = "반복 학습이 필요한 단어를 모아봤어요.",
+                valueText = summary?.weakWords?.size?.let { "${it}개" } ?: "-",
+                iconEmoji = "🤔",
+                containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+                onClick = actions.onNavigateToWeakWords,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+                iconDrawableRes = com.ssafy.mobile.R.drawable.ic_report_reading_boy,
             )
+        }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            ReportRecordGridItem(
+                title = "카테고리별\n학습 진행도",
+                description = "카테고리별 학습 흐름을 정리해드릴게요.",
+                valueText = "${summary?.participation?.completedSessionCount ?: 0}회",
+                iconEmoji = "🧩",
+                containerColor = Color(0xFFE8F5E9),
+                onClick = actions.onNavigateToCategoryProgress,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+            )
+            ReportRecordGridItem(
+                title = "퀴즈 기록",
+                description = "아이가 풀어본 퀴즈 기록을 최신순으로 볼 수 있어요.",
+                valueText = "${summary?.participation?.totalQuestionCount ?: 0}문제",
+                iconEmoji = "🏆",
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f),
+                onClick = actions.onNavigateToQuizSessions,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReportRecordLoadingGrid() {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        repeat(2) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                ReportRecordLoadingGridItem(modifier = Modifier.weight(1f))
+                ReportRecordLoadingGridItem(modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReportRecordLoadingGridItem(modifier: Modifier = Modifier) {
+    ReportGlassCard(
+        modifier = modifier,
+        contentPadding = PaddingValues(16.dp),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(
+                    modifier = Modifier.size(42.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f),
+                ) {}
+                Box(
+                    modifier =
+                        Modifier
+                            .width(48.dp)
+                            .height(24.dp)
+                            .clip(RoundedCornerShape(99.dp))
+                            .background(
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f),
+                            ),
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(
+                    modifier =
+                        Modifier
+                            .width(80.dp)
+                            .height(16.dp)
+                            .clip(RoundedCornerShape(99.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                )
+                Box(
+                    modifier =
+                        Modifier
+                            .width(100.dp)
+                            .height(12.dp)
+                            .clip(RoundedCornerShape(99.dp))
+                            .background(
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                            ),
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .width(40.dp)
+                            .height(20.dp)
+                            .clip(RoundedCornerShape(99.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                )
+            }
         }
     }
 }
@@ -645,85 +785,106 @@ private fun ActiveChildNotFoundContent(onSwitchClick: () -> Unit) {
 }
 
 private const val DISABLED_CARD_ALPHA = 0.5f
-private const val HOME_PLACEHOLDER_CARD_COUNT = 3
 
 @Composable
-private fun ReportRecordRow(
+private fun ReportRecordGridItem(
     title: String,
     description: String,
-    badgeText: String,
-    badgeTone: AppBadgeTone,
     valueText: String,
-    statusText: String,
+    iconEmoji: String,
+    containerColor: androidx.compose.ui.graphics.Color,
     onClick: () -> Unit,
     enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    iconDrawableRes: Int? = null,
 ) {
     val contentAlpha = if (enabled) 1f else DISABLED_CARD_ALPHA
 
-    Row(
+    Surface(
         modifier =
-            Modifier
-                .fillMaxWidth()
-                .heightIn(min = 76.dp)
+            modifier
+                .clip(RoundedCornerShape(24.dp))
                 .clickable(enabled = enabled, onClick = onClick)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
                 .alpha(contentAlpha),
-        verticalAlignment = Alignment.CenterVertically,
+        shape = RoundedCornerShape(24.dp),
+        color = containerColor,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border =
+            androidx.compose.foundation.BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+            ),
     ) {
-        ReportMenuIcon(
-            text = badgeText,
-            tone = badgeTone,
-        )
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Surface(
+                    modifier = Modifier.size(42.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        if (iconDrawableRes != null) {
+                            Image(
+                                painter = painterResource(id = iconDrawableRes),
+                                contentDescription = "아이콘",
+                                modifier = Modifier.size(30.dp),
+                            )
+                        } else {
+                            Text(
+                                text = iconEmoji,
+                                style = MaterialTheme.typography.headlineSmall,
+                            )
+                        }
+                    }
+                }
+            }
 
-        Spacer(modifier = Modifier.width(14.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(modifier = Modifier.height(3.dp))
             Text(
                 text = description,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.heightIn(min = 32.dp),
             )
-        }
 
-        Spacer(modifier = Modifier.width(12.dp))
-
-        Column(
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(5.dp),
-        ) {
-            AppBadge(
-                text = statusText,
-                tone = badgeTone,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 3.dp),
-            )
             Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
                     text = valueText,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                Spacer(modifier = Modifier.width(4.dp))
                 Text(
                     text = "›",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -731,72 +892,3 @@ private fun ReportRecordRow(
 }
 
 private fun Double.toHomePercentLabel(): String = "${coerceIn(0.0, 100.0).toInt()}%"
-
-private fun Double.toHomeGradeLabel(): String =
-    when {
-        this >= 85.0 -> "양호"
-        this >= 70.0 -> "보통"
-        else -> "확인"
-    }
-
-private fun Double.toReportBadgeTone(): AppBadgeTone =
-    when {
-        this >= 85.0 -> AppBadgeTone.Success
-        this >= 70.0 -> AppBadgeTone.Warning
-        else -> AppBadgeTone.Error
-    }
-
-private fun Double.toStarLabel(): String =
-    String.format(
-        Locale.KOREA,
-        "%.1f",
-        coerceIn(STAR_MIN_VALUE, STAR_MAX_VALUE),
-    )
-
-@Composable
-private fun ReportMenuIcon(
-    text: String,
-    tone: AppBadgeTone,
-) {
-    val colors =
-        when (tone) {
-            AppBadgeTone.Primary ->
-                MaterialTheme.colorScheme.primaryContainer to
-                    MaterialTheme.colorScheme.onPrimaryContainer
-            AppBadgeTone.Secondary ->
-                MaterialTheme.colorScheme.secondaryContainer to
-                    MaterialTheme.colorScheme.onSecondaryContainer
-            AppBadgeTone.Tertiary ->
-                MaterialTheme.colorScheme.tertiaryContainer to
-                    MaterialTheme.colorScheme.onTertiaryContainer
-            AppBadgeTone.Success ->
-                MaterialTheme.colorScheme.primaryContainer to
-                    MaterialTheme.colorScheme.onPrimaryContainer
-            AppBadgeTone.Error ->
-                MaterialTheme.colorScheme.errorContainer to
-                    MaterialTheme.colorScheme.onErrorContainer
-            else ->
-                MaterialTheme.colorScheme.surfaceVariant to
-                    MaterialTheme.colorScheme.onSurfaceVariant
-        }
-
-    Surface(
-        modifier = Modifier.size(52.dp),
-        shape = MaterialTheme.shapes.small,
-        color = colors.first,
-        contentColor = colors.second,
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(
-                text = text.take(2),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-private const val STAR_MIN_VALUE = 0.0
-private const val STAR_MAX_VALUE = 3.0

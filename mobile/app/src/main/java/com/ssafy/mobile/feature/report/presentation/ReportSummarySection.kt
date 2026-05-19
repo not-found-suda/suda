@@ -1,12 +1,21 @@
+@file:Suppress("MaxLineLength")
+
 package com.ssafy.mobile.feature.report.presentation
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -125,27 +134,46 @@ private fun SummaryMetricGrid(summary: ReportSummary) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            SummaryMetricCard(
+            CleanMetricCard(
                 title = "완료 퀴즈",
                 value = "${summary.participation.completedSessionCount}회",
-                tone = ReportVisualTone.Primary,
                 modifier = Modifier.weight(1f),
             )
-            SummaryMetricCard(
+            CleanMetricCard(
                 title = "정답률",
                 value = "$accuracyRateLabel%",
-                tone = ReportVisualTone.Success,
                 modifier = Modifier.weight(1f),
+                content = {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.height(36.dp).width(36.dp),
+                    ) {
+                        CircularProgressIndicator(
+                            progress = {
+                                (
+                                    summary.performance.accuracyRate.coerceIn(
+                                        PERCENT_MIN,
+                                        PERCENT_MAX,
+                                    ) /
+                                        100.0
+                                ).toFloat()
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.primaryContainer,
+                            strokeWidth = 4.dp,
+                        )
+                    }
+                },
             )
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            SummaryMetricCard(
+            CleanMetricCard(
                 title = "푼 문제",
                 value = "${summary.participation.totalQuestionCount}문제",
-                tone = ReportVisualTone.Tertiary,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -158,20 +186,44 @@ private fun SummaryMetricGrid(summary: ReportSummary) {
 }
 
 @Composable
-private fun SummaryMetricCard(
+private fun CleanMetricCard(
     title: String,
     value: String,
     modifier: Modifier = Modifier,
-    detail: String? = null,
-    tone: ReportVisualTone = ReportVisualTone.Primary,
+    content: (@Composable () -> Unit)? = null,
 ) {
-    ReportMetricTile(
-        title = title,
-        value = value,
+    ReportGlassCard(
         modifier = modifier,
-        detail = detail,
-        tone = tone,
-    )
+        contentPadding =
+            androidx.compose.foundation.layout
+                .PaddingValues(16.dp),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                if (content != null) {
+                    content()
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -181,8 +233,8 @@ private fun LatestActivityCard(summary: ReportSummary) {
     ) {
         Column {
             AppBadge(
-                text = "최근 학습",
-                tone = AppBadgeTone.Secondary,
+                text = "최근 학습 📅",
+                tone = AppBadgeTone.Primary,
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
@@ -211,14 +263,14 @@ private fun WeakWordsPreviewCard(weakWords: List<ReportWeakWord>) {
                 tone = AppBadgeTone.Error,
             )
             Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = if (weakWords.isEmpty()) "아직 자주 틀린 단어가 없어요." else "상위 단어",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
 
             if (weakWords.isEmpty()) {
+                Text(
+                    text = "아직 자주 틀린 단어가 없어요.",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "퀴즈를 더 풀면 이곳에 어려워하는 단어가 쌓여요.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -239,20 +291,37 @@ private fun WeakWordRow(word: ReportWeakWord) {
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(vertical = 6.dp),
+                .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier =
+                Modifier
+                    .size(40.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(12.dp),
+                    ),
+        ) {
+            Text(
+                text = getWordEmoji(word.displayText ?: word.word, word.categoryName),
+                style = MaterialTheme.typography.titleLarge,
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = word.displayText ?: word.word,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = word.categoryName,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -260,7 +329,7 @@ private fun WeakWordRow(word: ReportWeakWord) {
         }
         Text(
             text = "${word.wrongCount}/${word.attemptCount}",
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.error,
         )
     }
