@@ -449,7 +449,14 @@ private fun CommunicationInsightSessionList(
     selectedDate: LocalDate,
     toggleResetKey: Int,
 ) {
-    var expandedSessionId by remember(toggleResetKey, selectedDate, summary.recentSessions) {
+    val sessionPages =
+        remember(summary.recentSessions) {
+            summary.recentSessions.chunked(HOME_COMMUNICATION_SESSIONS_PER_PAGE)
+        }
+    var currentPage by remember(toggleResetKey, selectedDate, sessionPages) {
+        mutableStateOf(0)
+    }
+    var expandedSessionId by remember(toggleResetKey, selectedDate, currentPage, sessionPages) {
         mutableStateOf<Long?>(null)
     }
 
@@ -459,14 +466,22 @@ private fun CommunicationInsightSessionList(
             selectedDate = selectedDate,
         )
 
-        if (summary.recentSessions.isEmpty()) {
+        if (sessionPages.isEmpty()) {
             CommunicationInsightStatusCard(
                 mascot = SudaMascot.Empty,
                 title = "이 날짜에는 세션 분석이 없어요",
                 description = "다른 날짜를 눌러 저장된 대화를 확인해 보세요.",
             )
         } else {
-            summary.recentSessions.forEachIndexed { index, session ->
+            CommunicationSessionPageControls(
+                currentPage = currentPage,
+                totalPages = sessionPages.size,
+                onPreviousClick = { currentPage = (currentPage - 1).coerceAtLeast(0) },
+                onNextClick = {
+                    currentPage = (currentPage + 1).coerceAtMost(sessionPages.lastIndex)
+                },
+            )
+            sessionPages[currentPage].forEach { session ->
                 CommunicationSessionAnalysisCard(
                     session = session,
                     expanded = expandedSessionId == session.sessionId,
@@ -479,6 +494,50 @@ private fun CommunicationInsightSessionList(
                             }
                     },
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommunicationSessionPageControls(
+    currentPage: Int,
+    totalPages: Int,
+    onPreviousClick: () -> Unit,
+    onNextClick: () -> Unit,
+) {
+    if (totalPages <= 1) {
+        return
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(
+                onClick = onPreviousClick,
+                enabled = currentPage > 0,
+            ) {
+                Text(text = "이전")
+            }
+            Text(
+                text = "${currentPage + 1} / $totalPages",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+            )
+            TextButton(
+                onClick = onNextClick,
+                enabled = currentPage < totalPages - 1,
+            ) {
+                Text(text = "다음")
             }
         }
     }
@@ -1369,6 +1428,7 @@ private const val DAYS_IN_WEEK = 7
 private const val ISO_DATE_LENGTH = 10
 private const val ISO_DATE_TIME_SEPARATOR_INDEX = 11
 private const val ISO_TIME_LENGTH = 5
+private const val HOME_COMMUNICATION_SESSIONS_PER_PAGE = 3
 private const val HOME_COMMUNICATION_TEXT_COUNT = 5
 private const val HOME_COMMUNICATION_WORD_BAR_COUNT = 5
 private const val LOW_LEVEL_PROGRESS = 0.34f

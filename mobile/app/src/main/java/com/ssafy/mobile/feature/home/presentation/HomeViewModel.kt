@@ -16,6 +16,8 @@ import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -89,6 +91,7 @@ class HomeViewModel
     ) : ViewModel() {
         private val _uiState = MutableStateFlow(HomeUiState())
         val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+        private var communicationInsightPollingJob: Job? = null
 
         init {
             loadActiveChildProfile()
@@ -107,6 +110,7 @@ class HomeViewModel
                         _uiState.value.communicationInsightToggleResetKey + 1,
                     communicationInsightState = HomeCommunicationInsightState.Loading,
                 )
+            communicationInsightPollingJob?.cancel()
 
             val childState =
                 _uiState.value.activeChildState as? ActiveChildProfileState.Selected
@@ -243,6 +247,11 @@ class HomeViewModel
                         result.communicationInsightResult.toCommunicationInsightState(),
                     resumeQuizState = result.resumeQuizResult.toResumeQuizState(),
                 )
+            startCommunicationInsightPollingIfNeeded(
+                childId = childId,
+                selectedDate = result.selectedCommunicationDate,
+                result = result.communicationInsightResult,
+            )
         }
 
         private fun loadCommunicationInsight(
@@ -272,7 +281,68 @@ class HomeViewModel
                     _uiState.value.copy(
                         communicationInsightState = result.toCommunicationInsightState(),
                     )
+                startCommunicationInsightPollingIfNeeded(
+                    childId = childId,
+                    selectedDate = selectedDate,
+                    result = result,
+                )
             }
+        }
+
+        private fun startCommunicationInsightPollingIfNeeded(
+            childId: Long,
+            selectedDate: LocalDate,
+            result: Result<ReportCommunicationSummary>,
+        ) {
+            val status = result.getOrNull()?.analysisStatus
+            if (
+                status != ReportCommunicationAnalysisStatus.Pending &&
+                status != ReportCommunicationAnalysisStatus.Processing
+            ) {
+                communicationInsightPollingJob?.cancel()
+                communicationInsightPollingJob = null
+                return
+            }
+
+            communicationInsightPollingJob?.cancel()
+            communicationInsightPollingJob =
+                viewModelScope.launch {
+                    repeat(COMMUNICATION_ANALYSIS_POLLING_ATTEMPTS) {
+                        delay(COMMUNICATION_ANALYSIS_POLLING_INTERVAL_MS)
+
+                        val currentState = _uiState.value.activeChildState
+                        if (
+                            currentState !is ActiveChildProfileState.Selected ||
+                            currentState.profile.childId != childId ||
+                            _uiState.value.selectedCommunicationDate != selectedDate
+                        ) {
+                            return@launch
+                        }
+
+                        val refreshedResult =
+                            withContext(Dispatchers.IO) {
+                                reportRepository.getCommunicationSummary(
+                                    childId = childId,
+                                    filter = selectedDate.toSingleDateReportFilter(),
+                                    sessionLimit = HOME_COMMUNICATION_SESSION_LIMIT,
+                                )
+                            }
+
+                        _uiState.value =
+                            _uiState.value.copy(
+                                communicationInsightState =
+                                    refreshedResult.toCommunicationInsightState(),
+                            )
+
+                        val refreshedStatus = refreshedResult.getOrNull()?.analysisStatus
+                        if (
+                            refreshedStatus != ReportCommunicationAnalysisStatus.Pending &&
+                            refreshedStatus != ReportCommunicationAnalysisStatus.Processing
+                        ) {
+                            return@launch
+                        }
+                    }
+                }
         }
     }
 
@@ -402,3 +472,5 @@ private const val LATEST_COMMUNICATION_SESSION_LIMIT = 1
 private const val HOME_COMMUNICATION_SESSION_LIMIT = 20
 private const val REPORT_DATE_LENGTH = 10
 private const val QUIZ_STATUS_IN_PROGRESS = "IN_PROGRESS"
+private const val COMMUNICATION_ANALYSIS_POLLING_INTERVAL_MS = 3000L
+private const val COMMUNICATION_ANALYSIS_POLLING_ATTEMPTS = 5

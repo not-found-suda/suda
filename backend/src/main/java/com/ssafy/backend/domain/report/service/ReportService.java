@@ -131,9 +131,8 @@ public class ReportService {
 
     List<ReportCommunicationAnalysisQueryRow> rows =
         communicationSessionAnalysisRepository.findCommunicationAnalysisRows(
-            childId, fromDateTime, toDateTime);
+            childId, fromDateTime, toDateTime, CommunicationAnalysisStatus.EMPTY);
 
-    long totalSessionCount = rows.size();
     long totalUtteranceCount = 0;
     double sentenceLengthSum = 0.0;
     long completedCount = 0;
@@ -192,7 +191,15 @@ public class ReportService {
       List<String> sessionParentGuide = readStringList(summary, "parentGuide");
       List<String> sessionRecommendedActivities = readStringList(summary, "recommendedActivities");
 
-      if (row.analysisStatus() == CommunicationAnalysisStatus.COMPLETED) {
+      if (row.analysisStatus() == CommunicationAnalysisStatus.COMPLETED && utteranceCount > 0) {
+        sessionStrengths = withFallbackStrengths(sessionStrengths, sessionSummary);
+        sessionImprovementPoints = withFallbackImprovementPoints(sessionImprovementPoints);
+        sessionParentGuide = withFallbackParentGuide(sessionParentGuide);
+        sessionRecommendedActivities =
+            withFallbackRecommendedActivities(sessionRecommendedActivities);
+      }
+
+      if (row.analysisStatus() == CommunicationAnalysisStatus.COMPLETED && utteranceCount > 0) {
         completedCount++;
         totalUtteranceCount += utteranceCount;
         sentenceLengthSum += averageSentenceLength;
@@ -236,31 +243,31 @@ public class ReportService {
         addDistinctUntilLimit(parentGuide, sessionParentGuide, REPORT_GUIDE_LIMIT);
         addDistinctUntilLimit(
             recommendedActivities, sessionRecommendedActivities, REPORT_GUIDE_LIMIT);
-      }
 
-      if (recentSessions.size() < resolvedSessionLimit) {
-        recentSessions.add(
-            new ReportCommunicationSessionSummaryResponse(
-                row.sessionId(),
-                row.startedAt(),
-                row.endedAt(),
-                utteranceCount,
-                averageSentenceLength,
-                toTopWordResponses(summary.path("frequentWords"), 5),
-                sessionExpressionTypeCounts,
-                sessionCommunicationLevel,
-                sessionVocabularyDiversityLevel,
-                sessionSentenceExpansionLevel,
-                sessionStrengths,
-                sessionImprovementPoints,
-                sessionParentGuide,
-                sessionRecommendedActivities,
-                sessionDevelopmentReference,
-                sessionCautionLevel,
-                sessionConsultationGuide,
-                sessionSummary,
-                row.analysisStatus(),
-                row.analyzedAt()));
+        if (recentSessions.size() < resolvedSessionLimit) {
+          recentSessions.add(
+              new ReportCommunicationSessionSummaryResponse(
+                  row.sessionId(),
+                  row.startedAt(),
+                  row.endedAt(),
+                  utteranceCount,
+                  averageSentenceLength,
+                  toTopWordResponses(summary.path("frequentWords"), 5),
+                  sessionExpressionTypeCounts,
+                  sessionCommunicationLevel,
+                  sessionVocabularyDiversityLevel,
+                  sessionSentenceExpansionLevel,
+                  sessionStrengths,
+                  sessionImprovementPoints,
+                  sessionParentGuide,
+                  sessionRecommendedActivities,
+                  sessionDevelopmentReference,
+                  sessionCautionLevel,
+                  sessionConsultationGuide,
+                  sessionSummary,
+                  row.analysisStatus(),
+                  row.analyzedAt()));
+        }
       }
     }
 
@@ -278,7 +285,7 @@ public class ReportService {
     return new ReportCommunicationSummaryResponse(
         childId,
         status,
-        totalSessionCount,
+        completedCount,
         totalUtteranceCount,
         averageSentenceLength,
         toTopWordResponses(wordCounts, 5),
@@ -639,6 +646,42 @@ public class ReportService {
 
       target.add(value);
     }
+  }
+
+  private List<String> withFallbackStrengths(List<String> values, String summary) {
+    if (!values.isEmpty()) {
+      return values;
+    }
+
+    if (summary != null && !summary.isBlank()) {
+      return List.of("아이의 발화를 기록하고 표현 흐름을 확인할 수 있었어요.");
+    }
+
+    return List.of("소통 상황에서 아이의 목소리 표현이 기록되었어요.");
+  }
+
+  private List<String> withFallbackImprovementPoints(List<String> values) {
+    if (!values.isEmpty()) {
+      return values;
+    }
+
+    return List.of("아이의 말을 한 번 더 확장해서 되말해 주면 표현을 넓히는 데 도움이 돼요.");
+  }
+
+  private List<String> withFallbackParentGuide(List<String> values) {
+    if (!values.isEmpty()) {
+      return values;
+    }
+
+    return List.of("아이의 말을 그대로 인정한 뒤 한 단어를 덧붙여 짧게 다시 말해 주세요.", "대답을 기다릴 수 있게 3초 정도 여유를 주세요.");
+  }
+
+  private List<String> withFallbackRecommendedActivities(List<String> values) {
+    if (!values.isEmpty()) {
+      return values;
+    }
+
+    return List.of("그림책을 보며 아이가 말한 단어를 문장으로 이어 말하기", "좋아하는 놀이 중 원하는 것을 말로 고르게 하기");
   }
 
   private void mergeFrequentWords(Map<String, Integer> wordCounts, JsonNode frequentWords) {
