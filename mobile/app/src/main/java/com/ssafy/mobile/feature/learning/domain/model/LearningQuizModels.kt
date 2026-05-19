@@ -10,6 +10,16 @@ data class LearningQuizSession(
     val currentQuestionNumber: Int,
     val status: String,
     val imageUrls: List<String> = emptyList(),
+    val questions: List<LearningQuizSessionQuestion> = emptyList(),
+)
+
+data class LearningQuizSessionQuestion(
+    val questionId: Long,
+    val questionNumber: Int,
+    val targetText: String,
+    val wordId: Long? = null,
+    val imageUrl: String? = null,
+    val audioUrl: String? = null,
 )
 
 data class LearningQuizQuestion(

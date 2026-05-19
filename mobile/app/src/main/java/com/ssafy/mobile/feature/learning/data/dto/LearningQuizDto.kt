@@ -6,6 +6,7 @@ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizQuestion
 import com.ssafy.mobile.feature.learning.domain.model.LearningQuizResult
 import com.ssafy.mobile.feature.learning.domain.model.LearningQuizResultAnswer
 import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSession
+import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSessionQuestion
 import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSessionStatus
 
 data class LearningQuizSessionRequestDto(
@@ -23,27 +24,55 @@ data class LearningQuizSessionResponseDto(
     @SerializedName("sessionId")
     val sessionId: Long,
     @SerializedName("categoryId")
-    val categoryId: Long,
+    val categoryId: Long? = null,
     @SerializedName("difficulty")
-    val difficulty: String,
+    val difficulty: String? = null,
     @SerializedName("totalQuestionCount")
-    val totalQuestionCount: Int,
+    val totalQuestionCount: Int? = null,
     @SerializedName("currentQuestionNumber")
-    val currentQuestionNumber: Int,
+    val currentQuestionNumber: Int? = null,
     @SerializedName("status")
-    val status: String,
+    val status: String? = null,
     @SerializedName("imageUrls")
     val imageUrls: List<String>? = null,
+    @SerializedName("questions")
+    val questions: List<LearningQuizSessionQuestionDto>? = null,
 ) {
     fun toDomain(): LearningQuizSession =
         LearningQuizSession(
             sessionId = sessionId,
-            categoryId = categoryId,
-            difficulty = difficulty,
-            totalQuestionCount = totalQuestionCount,
-            currentQuestionNumber = currentQuestionNumber,
-            status = status,
+            categoryId = categoryId ?: 0L,
+            difficulty = difficulty.orEmpty(),
+            totalQuestionCount = totalQuestionCount ?: questions?.size ?: 0,
+            currentQuestionNumber = currentQuestionNumber ?: DEFAULT_QUESTION_NUMBER,
+            status = status.orEmpty(),
             imageUrls = imageUrls.orEmpty(),
+            questions = questions.orEmpty().map { it.toDomain() },
+        )
+}
+
+data class LearningQuizSessionQuestionDto(
+    @SerializedName("questionId")
+    val questionId: Long,
+    @SerializedName("questionNumber")
+    val questionNumber: Int,
+    @SerializedName("targetText")
+    val targetText: String? = null,
+    @SerializedName("wordId")
+    val wordId: Long? = null,
+    @SerializedName("imageUrl")
+    val imageUrl: String? = null,
+    @SerializedName("audioUrl")
+    val audioUrl: String? = null,
+) {
+    fun toDomain(): LearningQuizSessionQuestion =
+        LearningQuizSessionQuestion(
+            questionId = questionId,
+            questionNumber = questionNumber,
+            targetText = targetText.orEmpty(),
+            wordId = wordId,
+            imageUrl = imageUrl,
+            audioUrl = audioUrl,
         )
 }
 
@@ -84,37 +113,40 @@ data class LearningQuizCurrentQuestionResponseDto(
 
 data class LearningQuizAnswerResponseDto(
     @SerializedName("sessionId")
-    val sessionId: Long,
+    val sessionId: Long? = null,
     @SerializedName("questionId")
-    val questionId: Long,
+    val questionId: Long? = null,
     @SerializedName("wordId")
-    val wordId: Long,
+    val wordId: Long? = null,
     @SerializedName("targetText")
-    val targetText: String,
+    val targetText: String? = null,
     @SerializedName("recognizedText")
-    val recognizedText: String,
+    val recognizedText: String? = null,
     @SerializedName("isCorrect")
-    val isCorrect: Boolean,
+    val isCorrect: Boolean? = null,
     @SerializedName("star")
-    val star: Int,
+    val star: Int? = null,
     @SerializedName("feedback")
     val feedback: String? = null,
     @SerializedName("hasNext")
-    val hasNext: Boolean,
+    val hasNext: Boolean? = null,
     @SerializedName("nextQuestionNumber")
     val nextQuestionNumber: Int? = null,
 ) {
-    fun toDomain(): LearningQuizAnswerResult =
+    fun toDomain(
+        fallbackSessionId: Long,
+        fallbackQuestionId: Long,
+    ): LearningQuizAnswerResult =
         LearningQuizAnswerResult(
-            sessionId = sessionId,
-            questionId = questionId,
-            wordId = wordId,
-            targetText = targetText,
-            recognizedText = recognizedText,
-            isCorrect = isCorrect,
-            star = star,
+            sessionId = sessionId ?: fallbackSessionId,
+            questionId = questionId ?: fallbackQuestionId,
+            wordId = wordId ?: UNKNOWN_WORD_ID,
+            targetText = targetText.orEmpty(),
+            recognizedText = recognizedText.orEmpty(),
+            isCorrect = isCorrect ?: false,
+            star = star ?: MIN_QUIZ_STAR,
             feedback = feedback,
-            hasNext = hasNext,
+            hasNext = hasNext ?: false,
             nextQuestionNumber = nextQuestionNumber,
         )
 }
@@ -189,3 +221,7 @@ data class LearningQuizResultAnswerDto(
             feedback = feedback,
         )
 }
+
+private const val DEFAULT_QUESTION_NUMBER = 1
+private const val UNKNOWN_WORD_ID = -1L
+private const val MIN_QUIZ_STAR = 1

@@ -20,8 +20,8 @@ interface LearningQuizRepository {
     suspend fun submitAnswer(
         sessionId: Long,
         questionId: Long,
-        audioFile: File,
-        audioMimeType: String,
+        audioFile: File?,
+        audioMimeType: String?,
     ): Result<LearningQuizAnswerResult>
 
     suspend fun completeSession(sessionId: Long): Result<LearningQuizSessionStatus>

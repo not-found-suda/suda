@@ -16,6 +16,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.Response
 
 private const val QUIZ_TAG = "RemoteLearningQuizRepo"
@@ -63,22 +64,48 @@ class RemoteLearningQuizRepository
         override suspend fun submitAnswer(
             sessionId: Long,
             questionId: Long,
-            audioFile: File,
-            audioMimeType: String,
+            audioFile: File?,
+            audioMimeType: String?,
         ): Result<LearningQuizAnswerResult> =
-            if (!audioFile.isUsableAudioFile()) {
-                Result.failure(IllegalStateException("녹음 파일이 비어 있습니다. 다시 말해 주세요."))
-            } else {
-                runCatchingNetwork("Failed to submit quiz answer") {
-                    apiService
-                        .submitAnswer(
-                            sessionId = sessionId,
-                            questionId = questionId,
-                            audioFile = audioFile.toMultipartAudioPart(audioMimeType),
-                        ).toResult { response ->
-                            response.toDomain()
-                        }
-                }
+            when {
+                audioFile == null && audioMimeType == null ->
+                    runCatchingNetwork("Failed to submit quiz answer") {
+                        apiService
+                            .submitAnswer(
+                                sessionId = sessionId,
+                                questionId = questionId,
+                                audioFile = null,
+                                recognizedText =
+                                    EMPTY_RECOGNIZED_TEXT.toRequestBody(
+                                        MULTIPART_TEXT_MEDIA_TYPE,
+                                    ),
+                            ).toResult { response ->
+                                response.toDomain(
+                                    fallbackSessionId = sessionId,
+                                    fallbackQuestionId = questionId,
+                                )
+                            }
+                    }
+
+                audioFile == null ||
+                    audioMimeType == null ||
+                    !audioFile.isUsableAudioFile() ->
+                    Result.failure(IllegalStateException("녹음 파일이 비어 있습니다. 다시 말해 주세요."))
+
+                else ->
+                    runCatchingNetwork("Failed to submit quiz answer") {
+                        apiService
+                            .submitAnswer(
+                                sessionId = sessionId,
+                                questionId = questionId,
+                                audioFile = audioFile.toMultipartAudioPart(audioMimeType),
+                            ).toResult { response ->
+                                response.toDomain(
+                                    fallbackSessionId = sessionId,
+                                    fallbackQuestionId = questionId,
+                                )
+                            }
+                    }
             }
 
         override suspend fun completeSession(sessionId: Long): Result<LearningQuizSessionStatus> =
@@ -163,3 +190,5 @@ class RemoteLearningQuizRepository
 
 private const val AUDIO_FILE_PART_NAME = "audioFile"
 private const val MIN_VALID_WAV_FILE_BYTES = 44L
+private const val EMPTY_RECOGNIZED_TEXT = ""
+private val MULTIPART_TEXT_MEDIA_TYPE = "text/plain".toMediaTypeOrNull()

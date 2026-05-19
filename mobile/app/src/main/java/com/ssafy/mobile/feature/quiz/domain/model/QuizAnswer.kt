@@ -8,6 +8,8 @@ data class QuizAnswer(
     val star: Int? = null,
     val attemptCount: Int,
     val isCorrect: Boolean? = star?.let { it >= PASSING_STAR },
+    val hasNextQuestion: Boolean? = null,
+    val nextQuestionNumber: Int? = null,
     val feedback: String? = null,
     val audioFile: File? = null,
     val audioMimeType: String? = null,
