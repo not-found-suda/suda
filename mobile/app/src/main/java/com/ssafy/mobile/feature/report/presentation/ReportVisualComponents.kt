@@ -42,29 +42,25 @@ import kotlin.math.roundToInt
 internal fun ReportGlassCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(8.dp),
     contentPadding: PaddingValues = PaddingValues(16.dp),
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val shape = RoundedCornerShape(8.dp)
-    val cardModifier =
-        modifier
-            .border(
-                border =
-                    BorderStroke(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.54f),
-                    ),
-                shape = shape,
-            )
+    val borderStroke =
+        BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.54f),
+        )
 
     if (onClick == null) {
         Surface(
-            modifier = cardModifier,
+            modifier = modifier,
             shape = shape,
             color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
             tonalElevation = 1.dp,
             shadowElevation = 1.dp,
+            border = borderStroke,
         ) {
             Column(
                 modifier = Modifier.padding(contentPadding),
@@ -74,12 +70,13 @@ internal fun ReportGlassCard(
     } else {
         Surface(
             onClick = onClick,
-            modifier = cardModifier,
+            modifier = modifier,
             shape = shape,
             color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
             tonalElevation = 1.dp,
             shadowElevation = 1.dp,
+            border = borderStroke,
         ) {
             Column(
                 modifier = Modifier.padding(contentPadding),
@@ -247,40 +244,19 @@ internal fun ReportStarMetricTile(
 internal fun ReportStarRating(
     rating: Double,
     modifier: Modifier = Modifier,
-    showValue: Boolean = true,
 ) {
     val filledCount = rating.roundToInt().coerceIn(STAR_MIN, STAR_MAX)
-    val safeRating =
-        rating.coerceIn(
-            STAR_MIN.toDouble(),
-            STAR_MAX.toDouble(),
-        )
-    val label = String.format(Locale.KOREA, "%.1f", safeRating)
 
-    Column(
+    Row(
         modifier = modifier,
-        horizontalAlignment = Alignment.Start,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            repeat(STAR_MAX) { index ->
-                Text(
-                    text = "⭐",
-                    style = MaterialTheme.typography.headlineSmall,
-                    modifier = if (index < filledCount) Modifier else Modifier.alpha(0.3f),
-                )
-            }
-        }
-        if (showValue) {
-            Spacer(modifier = Modifier.height(2.dp))
+        repeat(STAR_MAX) { index ->
             Text(
-                text = "$label/3",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
+                text = "⭐",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = if (index < filledCount) Modifier else Modifier.alpha(0.3f),
             )
         }
     }

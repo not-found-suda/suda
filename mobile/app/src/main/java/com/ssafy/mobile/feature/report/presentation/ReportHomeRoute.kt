@@ -10,7 +10,6 @@ package com.ssafy.mobile.feature.report.presentation
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -174,11 +173,9 @@ private fun ReportHomeScreen(
                     }
 
                 ReportGlassCard(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(24.dp))
-                            .clickable { isFilterExpanded = !isFilterExpanded },
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { isFilterExpanded = !isFilterExpanded },
+                    shape = RoundedCornerShape(24.dp),
                     contentPadding = PaddingValues(16.dp),
                 ) {
                     Row(
@@ -316,7 +313,8 @@ private fun ReportHealthSummaryCard(summary: ReportSummary) {
         }
 
     ReportGlassCard(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
         contentPadding = PaddingValues(18.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -369,7 +367,6 @@ private fun ReportHealthSummaryCard(summary: ReportSummary) {
                     content = {
                         ReportStarRating(
                             rating = summary.performance.averageStar,
-                            showValue = true,
                         )
                     },
                 )
@@ -395,7 +392,8 @@ private fun ReportHealthSummaryCard(summary: ReportSummary) {
 @Composable
 private fun ReportHealthSummaryLoadingCard() {
     ReportGlassCard(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
         contentPadding = PaddingValues(16.dp),
     ) {
         AppLoadingIndicator(
@@ -457,62 +455,52 @@ private fun ReportRecordGrid(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ReportRecordGridItem(
+            title = "학습 요약 리포트",
+            description =
+                summary
+                    ?.latestActivity
+                    ?.categoryName
+                    ?.let { "최근 학습 · $it" }
+                    ?: "완료한 퀴즈 기준 성과를 정리했어요.",
+            valueText = summary?.performance?.accuracyRate?.toHomePercentLabel() ?: "-",
+            iconEmoji = "📊",
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+            onClick = actions.onNavigateToSummary,
+            enabled = enabled,
             modifier = Modifier.fillMaxWidth(),
-        ) {
-            ReportRecordGridItem(
-                title = "학습 요약 리포트",
-                description =
-                    summary
-                        ?.latestActivity
-                        ?.categoryName
-                        ?.let { "최근 학습 · $it" }
-                        ?: "완료한 퀴즈 기준 성과를 정리했어요.",
-                valueText = summary?.performance?.accuracyRate?.toHomePercentLabel() ?: "-",
-                iconEmoji = "📊",
-                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
-                onClick = actions.onNavigateToSummary,
-                enabled = enabled,
-                modifier = Modifier.weight(1f),
-            )
-            ReportRecordGridItem(
-                title = "자주 틀리는 단어\n반복 학습하기",
-                description = "반복 학습이 필요한 단어를 모아봤어요.",
-                valueText = summary?.weakWords?.size?.let { "${it}개" } ?: "-",
-                iconEmoji = "🤔",
-                containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
-                onClick = actions.onNavigateToWeakWords,
-                enabled = enabled,
-                modifier = Modifier.weight(1f),
-                iconDrawableRes = com.ssafy.mobile.R.drawable.ic_report_reading_boy,
-            )
-        }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        )
+        ReportRecordGridItem(
+            title = "자주 틀리는 단어 반복 학습하기",
+            description = "반복 학습이 필요한 단어를 모아봤어요.",
+            valueText = summary?.weakWords?.size?.let { "${it}개" } ?: "-",
+            iconEmoji = "🤔",
+            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+            onClick = actions.onNavigateToWeakWords,
+            enabled = enabled,
             modifier = Modifier.fillMaxWidth(),
-        ) {
-            ReportRecordGridItem(
-                title = "카테고리별\n학습 진행도",
-                description = "카테고리별 학습 흐름을 정리해드릴게요.",
-                valueText = "${summary?.participation?.completedSessionCount ?: 0}회",
-                iconEmoji = "🧩",
-                containerColor = Color(0xFFE8F5E9),
-                onClick = actions.onNavigateToCategoryProgress,
-                enabled = enabled,
-                modifier = Modifier.weight(1f),
-            )
-            ReportRecordGridItem(
-                title = "퀴즈 기록",
-                description = "아이가 풀어본 퀴즈 기록을 최신순으로 볼 수 있어요.",
-                valueText = "${summary?.participation?.totalQuestionCount ?: 0}문제",
-                iconEmoji = "🏆",
-                containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f),
-                onClick = actions.onNavigateToQuizSessions,
-                enabled = enabled,
-                modifier = Modifier.weight(1f),
-            )
-        }
+            iconDrawableRes = com.ssafy.mobile.R.drawable.ic_report_reading_boy,
+        )
+        ReportRecordGridItem(
+            title = "카테고리별 학습 진행도",
+            description = "카테고리별 학습 흐름을 정리해드릴게요.",
+            valueText = "${summary?.participation?.completedSessionCount ?: 0}회",
+            iconEmoji = "🧩",
+            containerColor = Color(0xFFE8F5E9),
+            onClick = actions.onNavigateToCategoryProgress,
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        ReportRecordGridItem(
+            title = "퀴즈 기록",
+            description = "아이가 풀어본 퀴즈 기록을 최신순으로 볼 수 있어요.",
+            valueText = "${summary?.participation?.totalQuestionCount ?: 0}문제",
+            iconEmoji = "🏆",
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f),
+            onClick = actions.onNavigateToQuizSessions,
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
@@ -522,14 +510,8 @@ private fun ReportRecordLoadingGrid() {
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        repeat(2) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                ReportRecordLoadingGridItem(modifier = Modifier.weight(1f))
-                ReportRecordLoadingGridItem(modifier = Modifier.weight(1f))
-            }
+        repeat(4) {
+            ReportRecordLoadingGridItem(modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -801,11 +783,9 @@ private fun ReportRecordGridItem(
     val contentAlpha = if (enabled) 1f else DISABLED_CARD_ALPHA
 
     Surface(
-        modifier =
-            modifier
-                .clip(RoundedCornerShape(24.dp))
-                .clickable(enabled = enabled, onClick = onClick)
-                .alpha(contentAlpha),
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.alpha(contentAlpha),
         shape = RoundedCornerShape(24.dp),
         color = containerColor,
         contentColor = MaterialTheme.colorScheme.onSurface,
@@ -829,11 +809,10 @@ private fun ReportRecordGridItem(
             ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+                    maxLines = 4,
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Surface(
