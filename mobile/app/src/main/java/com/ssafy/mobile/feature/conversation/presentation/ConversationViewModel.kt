@@ -229,10 +229,76 @@ class ConversationViewModel
         ) {
             translationJob?.cancel()
             _signInputPhase.value = SignInputPhase.Translating
-            performOnDeviceTranslation(
-                words = words,
-                sentenceType = sentenceType,
+            if (applyDemoTranslationIfMatched(words, sentenceType)) {
+                return
+            }
+
+            when (_translationMode.value) {
+                TranslationMode.AUTO ->
+                    if (_isOnline.value) {
+                        performCloudTranslation(
+                            words = words,
+                            sentenceType = sentenceType,
+                            fallbackOnFailure = true,
+                        )
+                    } else {
+                        performOnDeviceTranslation(
+                            words = words,
+                            sentenceType = sentenceType,
+                            notice = NOTICE_AUTO_OFFLINE_FALLBACK,
+                        )
+                    }
+
+                TranslationMode.SERVER ->
+                    if (_isOnline.value) {
+                        performCloudTranslation(
+                            words = words,
+                            sentenceType = sentenceType,
+                            fallbackOnFailure = false,
+                        )
+                    } else {
+                        showServerOnlyUnavailableMessage(
+                            affectsSign = true,
+                            affectsSpeech = false,
+                        )
+                    }
+
+                TranslationMode.ON_DEVICE ->
+                    performOnDeviceTranslation(
+                        words = words,
+                        sentenceType = sentenceType,
+                    )
+            }
+        }
+
+        private fun applyDemoTranslationIfMatched(
+            words: List<String>,
+            sentenceType: String?,
+        ): Boolean {
+            val normalizedWords = normalizeOnDeviceGlosses(words)
+            val demoSentence =
+                generateDemoSentenceOrNull(
+                    words = normalizedWords,
+                    sentenceType = sentenceType,
+                ) ?: return false
+
+            Log.d(
+                TAG,
+                "Demo translation rule applied before mode routing. " +
+                    "mode=${_translationMode.value}, online=${_isOnline.value}, " +
+                    "sentenceType=$sentenceType, gloss=${normalizedWords.joinToString(" ")}",
             )
+            _translationModeNotice.value = null
+            _translatedText.value = demoSentence
+            addOrUpdateMessage(
+                text = demoSentence,
+                isFinal = true,
+                senderType = SenderType.PARENT,
+                isFeedbackAvailable = true,
+            )
+            speakTranslatedTextWithDeviceTts(demoSentence)
+            _lastGlosses.value = emptyList()
+            return true
         }
 
         private fun performCloudTranslation(
@@ -266,18 +332,22 @@ class ConversationViewModel
 
                     result.fold(
                         onSuccess = { response ->
+                            val correctedText = adaptCaregiverLabelForDemo(response.correctedText)
                             _translationModeNotice.value = null
-                            _translatedText.value = response.correctedText
+                            _translatedText.value = correctedText
                             addOrUpdateMessage(
-                                text = response.correctedText,
+                                text = correctedText,
                                 isFinal = true,
                                 senderType = SenderType.PARENT,
                                 isFeedbackAvailable = true,
                             )
 
                             val audioBase64 = response.audioBase64
-                            if (audioBase64.isNullOrBlank()) {
-                                speakTranslatedTextWithDeviceTts(response.correctedText)
+                            if (
+                                audioBase64.isNullOrBlank() ||
+                                correctedText != response.correctedText
+                            ) {
+                                speakTranslatedTextWithDeviceTts(correctedText)
                             } else {
                                 handleTtsSuccess(audioBase64)
                             }
@@ -343,20 +413,21 @@ class ConversationViewModel
                             words = words,
                             sentenceType = sentenceType,
                         )
-                    _translatedText.value = fallbackText
+                    val translatedText = adaptCaregiverLabelForDemo(fallbackText)
+                    _translatedText.value = translatedText
 
                     // 오프라인이므로 즉시 최종 메시지로 추가
                     addOrUpdateMessage(
-                        text = fallbackText,
+                        text = translatedText,
                         isFinal = true,
                         senderType = SenderType.PARENT,
                         isFeedbackAvailable = true,
                     )
 
                     // 시스템 TTS로 재생
-                    markAppSpeech(fallbackText)
+                    markAppSpeech(translatedText)
                     ttsPlayer.speak(
-                        text = fallbackText,
+                        text = translatedText,
                         onComplete = {},
                         onError = {},
                     )
@@ -375,7 +446,7 @@ class ConversationViewModel
                 return ""
             }
 
-            generateDemoSentenceOrNull(normalizedWords)?.let { return it }
+            generateDemoSentenceOrNull(normalizedWords, sentenceType)?.let { return it }
 
             localSignSentenceGenerator
                 .generateKnownPatternOrNull(
@@ -387,8 +458,15 @@ class ConversationViewModel
             val glossText = normalizedWords.joinToString(" ").trim()
 
             return runCatching {
+                val translatedText =
+                    onDeviceTranslationEngine
+                        .translate(
+                            glossText = glossText,
+                            sentenceType = sentenceType,
+                        ).koreanText
+
                 normalizeTranslatedSentence(
-                    text = onDeviceTranslationEngine.translate(glossText).koreanText,
+                    text = translatedText,
                     sentenceType = sentenceType,
                 )
             }.getOrElse { throwable ->
@@ -417,11 +495,25 @@ class ConversationViewModel
                     if (result.lastOrNull() == word) result else result + word
                 }
 
-        private fun generateDemoSentenceOrNull(words: List<String>): String? {
+        private fun generateDemoSentenceOrNull(
+            words: List<String>,
+            sentenceType: String?,
+        ): String? {
             val compact = words.joinToString(" ")
-            return exactStableDemoRules[compact]
-                ?: stableSetDemoRules[words.toSet()]
-                ?: exactHoldDemoRules[compact]
+            val rule =
+                exactStableDemoRules[compact]
+                    ?: stableSetDemoRules[words.toSet()]
+                    ?: generateContextualDemoRuleOrNull(words)
+                    ?: exactHoldDemoRules[compact]
+            return rule?.resolve(isQuestionSentenceType(sentenceType))
+        }
+
+        private fun generateContextualDemoRuleOrNull(words: List<String>): DemoSentenceRule? {
+            val wordSet = words.toSet()
+            return when {
+                wordSet.containsAll(setOf("비", "조심", "아프다")) -> carefulRainWalkRule
+                else -> null
+            }
         }
 
         private fun normalizeTranslatedSentence(
@@ -446,6 +538,8 @@ class ConversationViewModel
         private fun isQuestionSentenceType(sentenceType: String?): Boolean =
             sentenceType?.contains("의문") == true ||
                 sentenceType.equals("question", ignoreCase = true)
+
+        private fun adaptCaregiverLabelForDemo(text: String): String = text.replace("엄마", "아빠")
 
         private fun preloadOnDeviceTranslationEngine() {
             viewModelScope.launch {
@@ -1290,6 +1384,13 @@ class ConversationViewModel
             val reason: TranslationFeedbackReason,
         )
 
+        private data class DemoSentenceRule(
+            val statement: String,
+            val question: String,
+        ) {
+            fun resolve(isQuestion: Boolean): String = if (isQuestion) question else statement
+        }
+
         companion object {
             private const val TAG = "ConversationViewModel"
             private const val SIGN_TRANSLATION_TIMEOUT_MS = 6000L
@@ -1316,28 +1417,109 @@ class ConversationViewModel
             private const val CLOUD_STT_ANALYZING_MESSAGE = "대화 내용을 분석 중입니다..."
             private const val CLOUD_STT_AUDIO_MIME_TYPE = "audio/wav"
             private const val APP_SPEECH_ECHO_FILTER_MS = 5000L
+            private val goRestaurantRule =
+                DemoSentenceRule(
+                    statement = "배고프면 아빠랑 식당에 가자.",
+                    question = "배고프면 아빠랑 식당에 갈까?",
+                )
+            private val comfortScaredRule =
+                DemoSentenceRule(
+                    statement = "무서우면 아빠가 안아줄게.",
+                    question = "무서우면 아빠가 안아줄까?",
+                )
+            private val treatPainRule =
+                DemoSentenceRule(
+                    statement = "아프면 아빠가 치료해줄게.",
+                    question = "아프면 아빠가 치료해줄까?",
+                )
+            private val carefulHandRule =
+                DemoSentenceRule(
+                    statement = "손 조심해, 다치면 아파.",
+                    question = "손 조심할까? 다치면 아파.",
+                )
+            private val sleepBlanketRule =
+                DemoSentenceRule(
+                    statement = "이불 덮고 자자.",
+                    question = "이불 덮고 잘까?",
+                )
+            private val coverBlanketRule =
+                DemoSentenceRule(
+                    statement = "잘 때 아빠가 이불 덮어줄게.",
+                    question = "잘 때 아빠가 이불 덮어줄까?",
+                )
+            private val helpUnknownRule =
+                DemoSentenceRule(
+                    statement = "모르면 아빠가 도와줄게.",
+                    question = "모르면 아빠가 도와줄까?",
+                )
+            private val comfortSadRule =
+                DemoSentenceRule(
+                    statement = "슬프면 아빠가 안아줄게.",
+                    question = "슬프면 아빠가 안아줄까?",
+                )
+            private val carefulWalkRule =
+                DemoSentenceRule(
+                    statement = "조심해서 걸어, 다치면 아파.",
+                    question = "조심해서 걸을까? 다치면 아파.",
+                )
+            private val carefulRainWalkRule =
+                DemoSentenceRule(
+                    statement = "비 오니까 조심해, 다치면 아파.",
+                    question = "비 오니까 조심할까? 다치면 아파.",
+                )
+            private val carefulRainRule =
+                DemoSentenceRule(
+                    statement = "비 오니까 조심하자.",
+                    question = "비 오니까 조심할까?",
+                )
+            private val comfortWindRule =
+                DemoSentenceRule(
+                    statement = "바람이 무서우면 아빠가 안아줄게.",
+                    question = "바람이 무서우면 아빠가 안아줄까?",
+                )
+            private val comfortMistakeRule =
+                DemoSentenceRule(
+                    statement = "실수해도 괜찮아, 아빠가 있어.",
+                    question = "실수해도 괜찮아, 아빠가 있을까?",
+                )
             private val exactStableDemoRules =
                 mapOf(
-                    "엄마 아프다 치료" to "엄마가 아파서 치료가 필요해요.",
-                    "시험 모르다 위로" to "시험을 몰라서 위로가 필요해요.",
-                    "엄마 서점 독서" to "엄마가 서점에서 독서해요.",
-                    "서점 독서 좋다" to "서점에서 독서하는 게 좋아요.",
+                    "배고프다 식당 엄마 가다" to goRestaurantRule,
+                    "배고프다 엄마 식당" to goRestaurantRule,
+                    "무섭다 엄마 위로" to comfortScaredRule,
+                    "아프다 엄마 치료" to treatPainRule,
+                    "손 조심 아프다" to carefulHandRule,
+                    "이불 자다" to sleepBlanketRule,
+                    "자다 엄마 이불" to coverBlanketRule,
+                    "모르다 엄마 돕다" to helpUnknownRule,
+                    "슬프다 엄마 위로" to comfortSadRule,
+                    "비 조심 걷다 아프다" to carefulRainWalkRule,
+                    "비 조심 아프다" to carefulRainWalkRule,
+                    "조심 걷다 아프다" to carefulWalkRule,
+                    "비 조심" to carefulRainRule,
+                    "바람 무섭다 엄마 위로" to comfortWindRule,
+                    "실수 괜찮다 엄마 위로" to comfortMistakeRule,
                 )
             private val stableSetDemoRules =
                 mapOf(
-                    setOf("엄마", "아프다", "치료") to "엄마가 아파서 치료가 필요해요.",
-                    setOf("시험", "모르다", "위로") to "시험을 몰라서 위로가 필요해요.",
-                    setOf("엄마", "서점", "독서") to "엄마가 서점에서 독서해요.",
+                    setOf("배고프다", "식당", "엄마", "가다") to goRestaurantRule,
+                    setOf("배고프다", "엄마", "식당") to goRestaurantRule,
+                    setOf("무섭다", "엄마", "위로") to comfortScaredRule,
+                    setOf("아프다", "엄마", "치료") to treatPainRule,
+                    setOf("손", "조심", "아프다") to carefulHandRule,
+                    setOf("이불", "자다") to sleepBlanketRule,
+                    setOf("자다", "엄마", "이불") to coverBlanketRule,
+                    setOf("모르다", "엄마", "돕다") to helpUnknownRule,
+                    setOf("슬프다", "엄마", "위로") to comfortSadRule,
+                    setOf("비", "조심", "걷다", "아프다") to carefulRainWalkRule,
+                    setOf("비", "조심", "아프다") to carefulRainWalkRule,
+                    setOf("조심", "걷다", "아프다") to carefulWalkRule,
+                    setOf("비", "조심") to carefulRainRule,
+                    setOf("바람", "무섭다", "엄마", "위로") to comfortWindRule,
+                    setOf("실수", "괜찮다", "엄마", "위로") to comfortMistakeRule,
                 )
             private val exactHoldDemoRules =
-                mapOf(
-                    "엄마 아프다 의사" to "엄마가 아파서 의사를 만나야 해요.",
-                    "의사 치료 위로" to "의사가 치료하고 위로해 줘요.",
-                    "서점 가다 독서" to "서점에 가서 독서해요.",
-                    "엄마 병원 가다" to "엄마가 병원에 가요.",
-                    "병원 치료 받다" to "병원에서 치료를 받아요.",
-                    "우유 주다 감사" to "우유를 줘서 감사해요.",
-                )
+                emptyMap<String, DemoSentenceRule>()
             private const val NOTICE_AUTO_OFFLINE_FALLBACK =
                 "자동 모드: 네트워크가 없어 기기 내 처리로 전환했어요."
             private const val NOTICE_AUTO_SERVER_FALLBACK =

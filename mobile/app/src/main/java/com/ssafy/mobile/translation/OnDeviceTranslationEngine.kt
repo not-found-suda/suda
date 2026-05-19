@@ -10,7 +10,10 @@ interface OnDeviceTranslationEngine {
 
     suspend fun load()
 
-    suspend fun translate(glossText: String): TranslationResult
+    suspend fun translate(
+        glossText: String,
+        sentenceType: String? = null,
+    ): TranslationResult
 
     fun close()
 }
