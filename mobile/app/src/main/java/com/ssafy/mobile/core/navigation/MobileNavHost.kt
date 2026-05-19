@@ -86,6 +86,11 @@ fun MobileNavHost(
                 onNavigateToSignup = {
                     navController.navigate(Screen.Signup.route)
                 },
+                onNavigateToConversation = {
+                    navController.navigate(Screen.GuestConversation.route) {
+                        launchSingleTop = true
+                    }
+                },
                 modifier = Modifier.fillMaxSize(),
             )
         }

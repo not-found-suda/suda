@@ -90,6 +90,15 @@ fun quizQuestionRoute(
         recordingViewModel.consumeRecordedAudio()
     }
 
+    LaunchedEffect(recordingStatus) {
+        if (
+            recordingStatus == QuizRecordingStatus.NoSpeech ||
+            recordingStatus == QuizRecordingStatus.Timeout
+        ) {
+            quizViewModel.submitFallbackIncorrectAnswer(recordingStatus)
+        }
+    }
+
     LaunchedEffect(quizState.isFinished) {
         if (quizState.isFinished) {
             val sessionId = quizState.sessionId
@@ -136,13 +145,16 @@ private fun QuizQuestionScreen(
     modifier: Modifier = Modifier,
 ) {
     val imagesReady = rememberNetworkImagesPreloaded(state.preloadImageUrls)
+    val shouldKeepQuestionVisible =
+        answerSubmitState is QuizAnswerSubmitState.TimedOut ||
+            answerSubmitState is QuizAnswerSubmitState.SaveFailed
 
     Surface(
         modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
     ) {
         when {
-            state.isLoading -> {
+            state.isLoading && !shouldKeepQuestionVisible -> {
                 QuizMessageState(
                     title = "퀴즈 그림을 저장하고 있어요",
                     description = "5개 이미지를 모두 준비한 뒤 시작할게요.",
@@ -160,7 +172,7 @@ private fun QuizQuestionScreen(
                 )
             }
 
-            state.errorMessage != null -> {
+            state.errorMessage != null && !shouldKeepQuestionVisible -> {
                 QuizMessageState(
                     title = "퀴즈를 불러오지 못했어요",
                     description = state.errorMessage,
@@ -410,6 +422,7 @@ private fun QuizActionArea(
             recordingStatus == QuizRecordingStatus.FallbackRecording
     val isProcessing = recordingStatus == QuizRecordingStatus.Processing
     val isSubmitting = answerSubmitState == QuizAnswerSubmitState.Submitting
+    val isTimedOut = answerSubmitState is QuizAnswerSubmitState.TimedOut
     val isCompletionPending = answerSubmitState is QuizAnswerSubmitState.CompletionPending
     val isSaveFailed = answerSubmitState is QuizAnswerSubmitState.SaveFailed
     val canSkipQuestion = false
@@ -419,6 +432,7 @@ private fun QuizActionArea(
     val canRecordAnswer =
         !isProcessing &&
             !isSubmitting &&
+            !isTimedOut &&
             !isCompletionPending &&
             !hasSuccessfulAnswer &&
             !retryLimitReached
@@ -430,7 +444,8 @@ private fun QuizActionArea(
         ) &&
             !isRecording &&
             !isProcessing &&
-            !isSubmitting
+            !isSubmitting &&
+            !isTimedOut
     val actionState =
         quizActionUiState(
             answer = answer,

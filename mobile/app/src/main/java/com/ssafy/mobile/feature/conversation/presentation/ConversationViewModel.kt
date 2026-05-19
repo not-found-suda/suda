@@ -24,7 +24,6 @@ import com.ssafy.mobile.feature.conversation.domain.model.SenderType
 import com.ssafy.mobile.feature.conversation.domain.model.TranslationFeedbackReason
 import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
 import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
-import com.ssafy.mobile.feature.conversation.domain.repository.TranslationModeRepository
 import com.ssafy.mobile.translation.OnDeviceTranslationEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
@@ -67,14 +66,13 @@ enum class SpeechInputPhase {
     Error,
 }
 
-@Suppress("LargeClass", "LongParameterList", "TooManyFunctions")
+@Suppress("LargeClass", "LongParameterList", "TooManyFunctions", "UnusedPrivateMember")
 @HiltViewModel
 class ConversationViewModel
     @Inject
     constructor(
         private val signRecognitionEngine: SignRecognitionEngine,
         private val translateRepository: TranslateRepository,
-        private val translationModeRepository: TranslationModeRepository,
         private val audioPlayer: AudioPlayer,
         private val ttsPlayer: TtsPlayer,
         private val sttEngine: SttEngine,
@@ -97,7 +95,7 @@ class ConversationViewModel
         private val _isOnline = MutableStateFlow(true)
         val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
 
-        private val _translationMode = MutableStateFlow(TranslationMode.DEFAULT)
+        private val _translationMode = MutableStateFlow(TranslationMode.ON_DEVICE)
         val translationMode: StateFlow<TranslationMode> = _translationMode.asStateFlow()
 
         private val _translationModeNotice = MutableStateFlow<String?>(null)
@@ -147,27 +145,6 @@ class ConversationViewModel
         private val onDeviceSpeechStyle = LocalSignSentenceGenerator.SpeechStyle.Polite
 
         init {
-            viewModelScope.launch {
-                translationModeRepository.translationMode.collect { mode ->
-                    val previousMode = _translationMode.value
-                    _translationMode.value = mode
-                    if (mode == TranslationMode.ON_DEVICE) {
-                        preloadOnDeviceTranslationEngine()
-                    }
-                    if (previousMode != mode) {
-                        resetCloudSttFailures()
-                        _translationModeNotice.value = null
-                        if (
-                            _sessionState.value == SessionState.Active &&
-                            sessionRuntimeStarted
-                        ) {
-                            stopRecordingForStt()
-                            startRecordingForStt()
-                        }
-                    }
-                }
-            }
-
             // 네트워크 상태 모니터링
             viewModelScope.launch {
                 networkMonitor.isOnline.collect { online ->
@@ -252,42 +229,10 @@ class ConversationViewModel
         ) {
             translationJob?.cancel()
             _signInputPhase.value = SignInputPhase.Translating
-            when (_translationMode.value) {
-                TranslationMode.AUTO ->
-                    if (_isOnline.value) {
-                        performCloudTranslation(
-                            words = words,
-                            sentenceType = sentenceType,
-                            fallbackOnFailure = true,
-                        )
-                    } else {
-                        performOnDeviceTranslation(
-                            words = words,
-                            sentenceType = sentenceType,
-                            notice = NOTICE_AUTO_OFFLINE_FALLBACK,
-                        )
-                    }
-
-                TranslationMode.SERVER ->
-                    if (_isOnline.value) {
-                        performCloudTranslation(
-                            words = words,
-                            sentenceType = sentenceType,
-                            fallbackOnFailure = false,
-                        )
-                    } else {
-                        showServerOnlyUnavailableMessage(
-                            affectsSign = true,
-                            affectsSpeech = false,
-                        )
-                    }
-
-                TranslationMode.ON_DEVICE ->
-                    performOnDeviceTranslation(
-                        words = words,
-                        sentenceType = sentenceType,
-                    )
-            }
+            performOnDeviceTranslation(
+                words = words,
+                sentenceType = sentenceType,
+            )
         }
 
         private fun performCloudTranslation(
@@ -521,15 +466,7 @@ class ConversationViewModel
             isResultsReceived = false
             isStoppedReceived = false
 
-            when {
-                shouldUseCloudStt() -> startCloudRecordingLoop()
-                shouldUseLocalStt() -> startLocalSttListening()
-                else ->
-                    showServerOnlyUnavailableMessage(
-                        affectsSign = false,
-                        affectsSpeech = true,
-                    )
-            }
+            startLocalSttListening()
         }
 
         private fun startLocalSttListening() {
@@ -1122,11 +1059,9 @@ class ConversationViewModel
             )
         }
 
-        fun updateTranslationMode(mode: TranslationMode) {
-            viewModelScope.launch {
-                translationModeRepository.saveTranslationMode(mode)
-            }
-        }
+        fun updateTranslationMode(
+            @Suppress("UNUSED_PARAMETER") mode: TranslationMode,
+        ) = Unit
 
         fun submitTranslationFeedback(
             message: ChatMessage,

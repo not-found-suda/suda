@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ssafy.mobile.core.auth.AuthSessionManager
+import com.ssafy.mobile.core.auth.AuthState
 import com.ssafy.mobile.core.session.ActiveChildStorage
 import com.ssafy.mobile.feature.childprofile.domain.repository.ChildProfileRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -94,6 +95,9 @@ class ChildProfileSelectViewModel
                 try {
                     withContext(Dispatchers.IO) {
                         activeChildStorage.saveActiveChildId(childId)
+                        authSessionManager.updateAuthState(
+                            AuthState.AuthenticatedWithChild(childId),
+                        )
                     }
                     _navigationEvent.emit(ChildProfileSelectNavigationEvent.NavigateToHome)
                 } catch (e: CancellationException) {

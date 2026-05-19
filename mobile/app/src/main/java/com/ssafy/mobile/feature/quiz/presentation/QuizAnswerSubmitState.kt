@@ -5,6 +5,10 @@ sealed interface QuizAnswerSubmitState {
 
     data object Submitting : QuizAnswerSubmitState
 
+    data class TimedOut(
+        val message: String,
+    ) : QuizAnswerSubmitState
+
     data object Success : QuizAnswerSubmitState
 
     data class CompletionPending(

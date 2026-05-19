@@ -51,6 +51,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.navercorp.nid.NaverIdLoginSDK
 import com.ssafy.mobile.R
 import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.core.ui.components.AuthMessageCard
 import com.ssafy.mobile.core.ui.components.AuthMessageType
 import com.ssafy.mobile.core.ui.components.AuthTextField
@@ -60,6 +61,7 @@ import com.ssafy.mobile.core.ui.theme.SudaFriendlyFontFamily
 fun LoginRoute(
     onNavigateToHome: () -> Unit,
     onNavigateToSignup: () -> Unit,
+    onNavigateToConversation: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: LoginViewModel = hiltViewModel(),
 ) {
@@ -109,6 +111,7 @@ fun LoginRoute(
         onPasswordChanged = viewModel::onPasswordChanged,
         onLoginClick = viewModel::login,
         onSignupClick = onNavigateToSignup,
+        onConversationClick = onNavigateToConversation,
         onNaverLoginClick = {
             if (viewModel.isNaverConfigValid()) {
                 NaverIdLoginSDK.authenticate(context, naverLoginLauncher)
@@ -133,6 +136,7 @@ private fun LoginScreen(
     onPasswordChanged: (String) -> Unit,
     onLoginClick: () -> Unit,
     onSignupClick: () -> Unit,
+    onConversationClick: () -> Unit,
     onNaverLoginClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -197,6 +201,15 @@ private fun LoginScreen(
                 NaverLoginButton(
                     onClick = onNaverLoginClick,
                     enabled = !isLoading && isNaverLoginEnabled,
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                AppSecondaryButton(
+                    text = "\uAC8C\uC2A4\uD2B8 \uBAA8\uB4DC",
+                    onClick = onConversationClick,
+                    enabled = !isLoading,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
 

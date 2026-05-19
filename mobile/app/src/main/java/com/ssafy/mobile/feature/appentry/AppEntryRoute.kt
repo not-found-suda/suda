@@ -42,7 +42,7 @@ fun AppEntryRoute(
         when (authState) {
             is AuthState.Restoring -> Unit
             is AuthState.RestoreFailed -> Unit
-            is AuthState.Unauthenticated -> onNavigateToConversation()
+            is AuthState.Unauthenticated -> onNavigateToLogin()
             is AuthState.AuthenticatedWithoutChild -> onNavigateToHome()
             is AuthState.AuthenticatedWithChild -> onNavigateToHome()
         }
