@@ -61,3 +61,7 @@ app:
   asset:
     cloud-front-domain: ${ASSET_CLOUDFRONT_DOMAIN:https://d14zyw67949hvk.cloudfront.net}
 
+translation:
+  stt:
+    mode: ${TRANSLATION_STT_MODE:REST}
+
