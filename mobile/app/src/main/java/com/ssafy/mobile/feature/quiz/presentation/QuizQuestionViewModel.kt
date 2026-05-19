@@ -6,7 +6,6 @@ import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.ssafy.mobile.core.audio.WavFileHeader
 import com.ssafy.mobile.core.session.ActiveChildStorage
 import com.ssafy.mobile.feature.learning.domain.model.DEFAULT_LEARNING_DIFFICULTY
 import com.ssafy.mobile.feature.learning.domain.model.DEFAULT_QUIZ_QUESTION_COUNT
@@ -23,7 +22,6 @@ import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
-import java.io.FileOutputStream
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -164,19 +162,17 @@ class QuizQuestionViewModel
                 }
             if (previousAnswer?.isScored == true) return
 
-            val silentAudioFile = createSilentAudioFile(question.id)
             val fallbackAnswer =
                 QuizAnswer(
                     questionId = question.id,
                     sttText = "",
                     attemptCount = (previousAnswer?.attemptCount ?: 0) + 1,
-                    audioFile = silentAudioFile,
-                    audioMimeType = silentAudioFile?.let { QUIZ_AUDIO_MIME_TYPE },
+                    audioFile = null,
+                    audioMimeType = null,
                 )
 
             previousAnswer
                 ?.audioFile
-                ?.takeIf { it != silentAudioFile }
                 ?.delete()
             _quizState.value =
                 state.copy(
@@ -207,10 +203,19 @@ class QuizQuestionViewModel
             }
 
             transitionToFailedAnswer(
-                sessionId = sessionId,
-                question = question,
                 answer = answer,
                 feedback = QUIZ_SUBMIT_FAILED_FEEDBACK,
+            )
+            viewModelScope.launch {
+                submitFallbackIncorrectAnswerToServer(
+                    sessionId = sessionId,
+                    question = question,
+                )
+            }
+            scheduleAutoAdvanceAfterIncorrectAnswer(
+                sessionId = sessionId,
+                questionId = question.id,
+                expectedSubmitState = QuizAnswerSubmitState.TimedOut::class.java,
             )
         }
 
@@ -691,11 +696,41 @@ class QuizQuestionViewModel
                             )
                         }
                     }.onFailure { throwable ->
-                        _answerSubmitState.value =
-                            QuizAnswerSubmitState.SaveFailed(
-                                throwable.message ?: "답변 저장에 실패했습니다. 다시 시도해주세요.",
-                            )
+                        transitionToFailedAnswer(
+                            answer = answer,
+                            feedback = throwable.message ?: QUIZ_SUBMIT_FAILED_FEEDBACK,
+                            message = QUIZ_SUBMIT_FAILED_MESSAGE,
+                        )
+                        submitFallbackIncorrectAnswerToServer(
+                            sessionId = sessionId,
+                            question = question,
+                        )
+                        scheduleAutoAdvanceAfterIncorrectAnswer(
+                            sessionId = sessionId,
+                            questionId = question.id,
+                            expectedSubmitState = QuizAnswerSubmitState.TimedOut::class.java,
+                        )
                     }
+            }
+        }
+
+        private suspend fun submitFallbackIncorrectAnswerToServer(
+            sessionId: Long,
+            question: QuizQuestion,
+        ) {
+            val fallbackResult =
+                withContext(Dispatchers.IO) {
+                    quizRepository.submitAnswer(
+                        sessionId = sessionId,
+                        questionId = question.id,
+                        audioFile = null,
+                        audioMimeType = null,
+                    )
+                }
+
+            fallbackResult.onSuccess { answerResult ->
+                applyAnswerResult(answerResult)
+                _answerSubmitState.value = QuizAnswerSubmitState.TimedOut(QUIZ_SUBMIT_FAILED_MESSAGE)
             }
         }
 
@@ -709,8 +744,6 @@ class QuizQuestionViewModel
             timeoutFeedback: String,
         ) {
             transitionToFailedAnswer(
-                sessionId = sessionId,
-                question = question,
                 answer = answer,
                 feedback = timeoutFeedback,
                 message = timeoutMessage,
@@ -726,8 +759,6 @@ class QuizQuestionViewModel
         }
 
         private fun transitionToFailedAnswer(
-            sessionId: Long,
-            question: QuizQuestion,
             answer: QuizAnswer,
             feedback: String,
             message: String = QUIZ_SUBMIT_FAILED_MESSAGE,
@@ -740,11 +771,6 @@ class QuizQuestionViewModel
             )
             _quizState.value = _quizState.value.copy(errorMessage = null)
             _answerSubmitState.value = QuizAnswerSubmitState.TimedOut(message)
-            scheduleAutoAdvanceAfterIncorrectAnswer(
-                sessionId = sessionId,
-                questionId = question.id,
-                expectedSubmitState = QuizAnswerSubmitState.TimedOut::class.java,
-            )
         }
 
         @Suppress("ComplexCondition")
@@ -784,69 +810,11 @@ class QuizQuestionViewModel
                     currentAnswer.nextQuestionNumber
                         ?: state.localNextQuestionNumber(questionId)
                         ?: state.currentQuestionNumber + 1
-                val hasLocalNextQuestion =
-                    state.resolveNextQuestionIndex(
-                        currentQuestionId = questionId,
-                        nextQuestionNumber = nextQuestionNumber,
-                    ) != null
-
-                if (
-                    expectedSubmitState == QuizAnswerSubmitState.TimedOut::class.java &&
-                    !hasLocalNextQuestion &&
-                    !state.hasCompletePrefetchedQuestionSet()
-                ) {
-                    requestNextQuestionAfterTimeout(
-                        sessionId = sessionId,
-                        timedOutQuestionId = questionId,
-                        immediate = true,
-                    )
-                    return@launch
-                }
-
                 advanceToNextQuestion(
                     sessionId = sessionId,
                     currentQuestionId = questionId,
                     nextQuestionNumber = nextQuestionNumber,
                 )
-            }
-        }
-
-        private fun requestNextQuestionAfterTimeout(
-            sessionId: Long,
-            timedOutQuestionId: Long,
-            immediate: Boolean = false,
-        ) {
-            viewModelScope.launch {
-                if (!immediate) {
-                    delay(QUIZ_TIMEOUT_FEEDBACK_DELAY_MS)
-                }
-
-                if (_answerSubmitState.value !is QuizAnswerSubmitState.TimedOut) {
-                    return@launch
-                }
-
-                _quizState.value =
-                    _quizState.value.copy(
-                        errorMessage = null,
-                    )
-
-                repeat(QUIZ_NEXT_QUESTION_POLL_ATTEMPTS) {
-                    val result =
-                        withContext(Dispatchers.IO) {
-                            quizRepository.getCurrentQuestion(sessionId)
-                        }
-                    val nextQuestion = result.getOrNull()
-                    if (nextQuestion != null && nextQuestion.questionId != timedOutQuestionId) {
-                        applyCurrentQuestion(nextQuestion)
-                        return@launch
-                    }
-                    delay(QUIZ_NEXT_QUESTION_POLL_DELAY_MS)
-                }
-
-                if (_answerSubmitState.value is QuizAnswerSubmitState.TimedOut) {
-                    _answerSubmitState.value =
-                        QuizAnswerSubmitState.TimedOut(QUIZ_NEXT_QUESTION_DELAY_MESSAGE)
-                }
             }
         }
 
@@ -884,25 +852,11 @@ class QuizQuestionViewModel
                                 answerResult.nextQuestionNumber
                                     ?: state.localNextQuestionNumber(questionId)
                                     ?: state.currentQuestionNumber + 1
-                            val hasLocalNextQuestion =
-                                state.resolveNextQuestionIndex(
-                                    currentQuestionId = questionId,
-                                    nextQuestionNumber = nextQuestionNumber,
-                                ) != null
-
-                            if (hasLocalNextQuestion || state.hasCompletePrefetchedQuestionSet()) {
-                                advanceToNextQuestion(
-                                    sessionId = sessionId,
-                                    currentQuestionId = questionId,
-                                    nextQuestionNumber = nextQuestionNumber,
-                                )
-                            } else {
-                                requestNextQuestionAfterTimeout(
-                                    sessionId = sessionId,
-                                    timedOutQuestionId = questionId,
-                                    immediate = true,
-                                )
-                            }
+                            advanceToNextQuestion(
+                                sessionId = sessionId,
+                                currentQuestionId = questionId,
+                                nextQuestionNumber = nextQuestionNumber,
+                            )
                         } else {
                             _answerSubmitState.value = QuizAnswerSubmitState.Submitting
                             isCompletionPending = true
@@ -948,28 +902,6 @@ class QuizQuestionViewModel
                     retryCount = (timedOutAnswer.attemptCount - 1).coerceAtLeast(0),
                 )
         }
-
-        private fun createSilentAudioFile(questionId: Long): File? =
-            runCatching {
-                File
-                    .createTempFile(
-                        "$QUIZ_SILENT_AUDIO_PREFIX$questionId",
-                        QUIZ_SILENT_AUDIO_SUFFIX,
-                        appContext.cacheDir,
-                    ).apply {
-                        FileOutputStream(this).use { outputStream ->
-                            outputStream.write(
-                                WavFileHeader.create(
-                                    pcmDataSize = QUIZ_SILENT_PCM_SIZE_BYTES.toLong(),
-                                    sampleRate = QUIZ_AUDIO_SAMPLE_RATE,
-                                    channelCount = QUIZ_AUDIO_CHANNEL_COUNT,
-                                    bitsPerSample = QUIZ_AUDIO_BITS_PER_SAMPLE,
-                                ),
-                            )
-                            outputStream.write(ByteArray(QUIZ_SILENT_PCM_SIZE_BYTES))
-                        }
-                    }
-            }.getOrNull()
 
         private suspend fun completeSession(sessionId: Long) {
             val result =
@@ -1135,18 +1067,10 @@ private const val RESUME_SESSION_ID_NONE = -1L
 private const val UNKNOWN_QUIZ_WORD_ID = -1L
 private const val QUIZ_SUBMIT_TIMEOUT_MS = 5_000L
 private const val QUIZ_FAILED_ANSWER_DISPLAY_MS = 700L
-private const val QUIZ_TIMEOUT_FEEDBACK_DELAY_MS = 450L
 private const val QUIZ_NEXT_QUESTION_POLL_DELAY_MS = 350L
 private const val QUIZ_NEXT_QUESTION_POLL_ATTEMPTS = 18
 private const val QUIZ_NEXT_QUESTION_LOAD_FAILED_MESSAGE =
     "다음 문제를 준비하지 못했습니다. 다시 시도해 주세요."
-private const val QUIZ_AUDIO_SAMPLE_RATE = 16_000
-private const val QUIZ_AUDIO_CHANNEL_COUNT = 1
-private const val QUIZ_AUDIO_BITS_PER_SAMPLE = 16
-private const val QUIZ_SILENT_PCM_SIZE_BYTES = 32_000
-private const val QUIZ_AUDIO_MIME_TYPE = "audio/wav"
-private const val QUIZ_SILENT_AUDIO_PREFIX = "quiz_silence_"
-private const val QUIZ_SILENT_AUDIO_SUFFIX = ".wav"
 private const val QUIZ_SUBMIT_FAILED_MESSAGE = "실패!"
 private const val QUIZ_SUBMIT_FAILED_FEEDBACK = "틀렸어요."
 private const val QUIZ_SUBMIT_TIMEOUT_MESSAGE =

@@ -98,6 +98,13 @@ class QuizServiceFlowTest {
               setId(session, SESSION_ID);
               return session;
             });
+    when(quizQuestionRepository.save(any(QuizQuestion.class)))
+        .thenAnswer(
+            invocation -> {
+              QuizQuestion question = invocation.getArgument(0);
+              setId(question, QUESTION_ID + question.getQuestionNumber() - 1);
+              return question;
+            });
 
     QuizSessionCreateResponse response = quizService.createSession(USER_ID, request);
 
@@ -161,7 +168,7 @@ class QuizServiceFlowTest {
     givenOwnedSession(session);
 
     assertBusinessError(
-        () -> quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile()),
+        () -> quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile(), null),
         QuizErrorCode.SESSION_ALREADY_COMPLETED);
     verifyNoInteractions(quizQuestionRepository, quizAnswerRepository, clovaSttClient);
   }
@@ -178,7 +185,7 @@ class QuizServiceFlowTest {
     when(quizQuestionRepository.findById(QUESTION_ID)).thenReturn(Optional.of(question));
 
     assertBusinessError(
-        () -> quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile()),
+        () -> quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile(), null),
         QuizErrorCode.QUESTION_NOT_IN_SESSION);
     verifyNoInteractions(clovaSttClient, quizGradingService);
   }
@@ -194,7 +201,7 @@ class QuizServiceFlowTest {
     when(quizQuestionRepository.findById(QUESTION_ID)).thenReturn(Optional.of(question));
 
     assertBusinessError(
-        () -> quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile()),
+        () -> quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile(), null),
         QuizErrorCode.QUESTION_ALREADY_ANSWERED);
     verifyNoInteractions(clovaSttClient, quizGradingService);
   }
@@ -215,7 +222,7 @@ class QuizServiceFlowTest {
         .thenReturn(Optional.of(currentQuestion));
 
     assertBusinessError(
-        () -> quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile()),
+        () -> quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile(), null),
         QuizErrorCode.NOT_CURRENT_QUESTION);
     verifyNoInteractions(clovaSttClient, quizGradingService);
   }
@@ -241,7 +248,7 @@ class QuizServiceFlowTest {
     when(quizQuestionRepository.existsBySessionIdAndAnsweredFalse(SESSION_ID)).thenReturn(true);
 
     QuizAnswerResponse response =
-        quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile());
+        quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile(), null);
 
     assertThat(response.hasNext()).isTrue();
     assertThat(response.nextQuestionNumber()).isEqualTo(2);
@@ -283,7 +290,7 @@ class QuizServiceFlowTest {
     when(quizQuestionRepository.existsBySessionIdAndAnsweredFalse(SESSION_ID)).thenReturn(false);
 
     QuizAnswerResponse response =
-        quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile());
+        quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile(), null);
 
     assertThat(response.hasNext()).isFalse();
     assertThat(response.nextQuestionNumber()).isNull();
@@ -303,7 +310,7 @@ class QuizServiceFlowTest {
 
   @Test
   @DisplayName("음성 인식 실패 시 답변 제출을 실패 처리한다")
-  void submitAnswerRejectsSttFailure() {
+  void submitAnswerSavesEmptyRecognizedTextWhenSttFails() {
     QuizSession session = quizSession(1);
     QuizQuestion question = question(session, learn(WORD_ID, "사과"), 1);
     setId(question, QUESTION_ID);
@@ -315,12 +322,27 @@ class QuizServiceFlowTest {
         .thenReturn(Optional.of(question));
     when(clovaSttClient.transcribe(any(MultipartFile.class), eq("ko-KR"), eq("audio/wav")))
         .thenThrow(new RuntimeException("stt failed"));
+    when(quizGradingService.grade(any(String.class), eq("")))
+        .thenReturn(new QuizGrade(false, 1, "틀렸어요.", "인식 결과 없음", 0.0));
+    when(quizQuestionRepository.existsBySessionIdAndAnsweredFalse(SESSION_ID)).thenReturn(false);
 
-    assertBusinessError(
-        () -> quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile()),
-        QuizErrorCode.STT_FAILED);
-    verify(quizAnswerRepository, never()).save(any());
-    verifyNoInteractions(quizGradingService);
+    QuizAnswerResponse response =
+        quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile(), null);
+
+    assertThat(response.recognizedText()).isEmpty();
+    assertThat(response.isCorrect()).isFalse();
+    assertThat(response.star()).isEqualTo(1);
+    assertThat(response.hasNext()).isFalse();
+    assertThat(question.isAnswered()).isTrue();
+    assertThat(session.getCorrectCount()).isZero();
+    assertThat(session.getTotalStar()).isEqualTo(1);
+    assertThat(session.getStatus()).isEqualTo(QuizSessionStatus.COMPLETED);
+
+    verify(quizGradingService).grade(any(String.class), eq(""));
+    QuizAnswer savedAnswer = captureSavedAnswer();
+    assertThat(savedAnswer.getRecognizedText()).isEmpty();
+    assertThat(savedAnswer.isCorrect()).isFalse();
+    assertThat(savedAnswer.getStar()).isEqualTo(1);
   }
 
   @Test

@@ -142,7 +142,11 @@ public class QuizService {
 
   @Transactional
   public QuizAnswerResponse submitAnswer(
-      Long userId, Long sessionId, Long questionId, MultipartFile audioFile) {
+      Long userId,
+      Long sessionId,
+      Long questionId,
+      MultipartFile audioFile,
+      String submittedRecognizedText) {
     QuizSession session = getOwnedSession(sessionId, userId);
 
     if (session.isCompleted()) {
@@ -165,7 +169,7 @@ public class QuizService {
     Learn word = question.getWord();
     String targetText = word.getDisplayText();
 
-    String recognizedText = transcribeOrEmpty(audioFile);
+    String recognizedText = transcribeOrEmpty(audioFile, submittedRecognizedText);
     QuizGrade grade = quizGradingService.grade(targetText, recognizedText);
 
     QuizAnswer answer =
@@ -290,7 +294,11 @@ public class QuizService {
     }
   }
 
-  private String transcribeOrEmpty(MultipartFile audioFile) {
+  private String transcribeOrEmpty(MultipartFile audioFile, String submittedRecognizedText) {
+    if (submittedRecognizedText != null) {
+      return submittedRecognizedText.strip();
+    }
+
     if (audioFile == null || audioFile.isEmpty()) {
       return "";
     }
