@@ -7,7 +7,7 @@ enum class TranslationMode {
     ;
 
     companion object {
-        val DEFAULT = AUTO
+        val DEFAULT = ON_DEVICE
 
         fun fromStorageValue(value: String?): TranslationMode =
             entries.firstOrNull { mode -> mode.name == value } ?: DEFAULT

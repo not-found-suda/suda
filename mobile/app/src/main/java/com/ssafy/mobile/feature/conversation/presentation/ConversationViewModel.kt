@@ -103,7 +103,7 @@ class ConversationViewModel
         private val _isOnline = MutableStateFlow(true)
         val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
 
-        private val _translationMode = MutableStateFlow(TranslationMode.DEFAULT)
+        private val _translationMode = MutableStateFlow(TranslationMode.ON_DEVICE)
         val translationMode: StateFlow<TranslationMode> = _translationMode.asStateFlow()
 
         private val _translationModeNotice = MutableStateFlow<String?>(null)
