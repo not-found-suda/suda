@@ -93,7 +93,6 @@ data class ConversationUiState(
 @Composable
 fun conversationRoute(
     modifier: Modifier = Modifier,
-    onOpenSignDebug: (() -> Unit)? = null,
     onNavigateToLogin: (() -> Unit)? = null,
     viewModel: ConversationViewModel = hiltViewModel(),
 ) {
@@ -158,7 +157,6 @@ fun conversationRoute(
                 onLandmarkFrame = viewModel::onLandmarkFrame,
                 onFeedbackReasonConfirmed = viewModel::submitTranslationFeedback,
                 onFeedbackDismissed = viewModel::clearTranslationFeedbackSubmitState,
-                onOpenSignDebug = onOpenSignDebug,
                 onNavigateToLogin = onNavigateToLogin,
             ),
         modifier = modifier,
@@ -171,7 +169,6 @@ private data class ConversationActions(
     val onLandmarkFrame: (LandmarkFrameResult) -> Unit,
     val onFeedbackReasonConfirmed: (ChatMessage, TranslationFeedbackReason) -> Unit,
     val onFeedbackDismissed: () -> Unit,
-    val onOpenSignDebug: (() -> Unit)?,
     val onNavigateToLogin: (() -> Unit)?,
 )
 
@@ -200,16 +197,6 @@ private fun ConversationScreen(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = Color.Transparent,
-        topBar = {
-            ConversationHeroHeader(
-                sessionState = uiState.sessionState,
-                signInputPhase = uiState.signInputPhase,
-                speechInputPhase = uiState.speechInputPhase,
-                onOpenSignDebug = actions.onOpenSignDebug,
-                onNavigateToLogin = actions.onNavigateToLogin,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-        },
         bottomBar = {
             ConversationSessionControls(
                 signInputPhase = uiState.signInputPhase,
@@ -217,6 +204,7 @@ private fun ConversationScreen(
                 sessionState = uiState.sessionState,
                 onStartSession = actions.onStartSession,
                 onStopSession = actions.onStopSession,
+                onNavigateToLogin = actions.onNavigateToLogin,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         },
@@ -233,7 +221,7 @@ private fun ConversationScreen(
                 modifier =
                     Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 12.dp),
+                        .padding(start = 12.dp, top = 12.dp, end = 12.dp),
             ) {
                 ConversationStageCard(
                     sessionState = uiState.sessionState,
@@ -794,6 +782,7 @@ private fun ConversationSessionControls(
     sessionState: SessionState,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
+    onNavigateToLogin: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val hapticFeedback = LocalHapticFeedback.current
@@ -826,6 +815,14 @@ private fun ConversationSessionControls(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                 )
+                onNavigateToLogin?.let { navigateToLogin ->
+                    ConversationActionChip(
+                        text = "\uB85C\uADF8\uC778",
+                        onClick = navigateToLogin,
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
             }
 
             if (sessionState == SessionState.Idle) {

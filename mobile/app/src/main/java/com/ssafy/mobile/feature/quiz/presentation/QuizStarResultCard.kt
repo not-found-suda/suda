@@ -265,9 +265,13 @@ private fun QuizAnswer.toRewardDescription(remainingRetryCount: Int): String =
         star == null -> "\uBAA9\uC18C\uB9AC\uB97C \uB4E3\uACE0 \uBCC4\uC744 \uC138\uACE0 \uC788\uC5B4\uC694."
         normalizedStarCount() == MAX_STAR -> "\uBCC4\uC744 \uBA4B\uC9C0\uAC8C \uBAA8\uC558\uC5B4\uC694."
         normalizedStarCount() == 2 && remainingRetryCount > 0 ->
-            "\uBCC4 2\uAC1C\uC608\uC694. \uD55C \uBC88 \uB354 \uB9D0\uD574\uBCF4\uBA74 3\uAC1C\uAE4C\uC9C0 \uBC1B\uC744 \uC218 \uC788\uC5B4\uC694."
+            "\uBCC4 2\uAC1C\uC608\uC694. " +
+                "\uD55C \uBC88 \uB354 \uB9D0\uD574\uBCF4\uBA74 " +
+                "3\uAC1C\uAE4C\uC9C0 \uBC1B\uC744 \uC218 \uC788\uC5B4\uC694."
         normalizedStarCount() == 1 && remainingRetryCount > 0 ->
-            "\uBCC4 1\uAC1C\uC608\uC694. \uD55C \uBC88 \uB354 \uB9D0\uD574\uBCF4\uBA74 \uB354 \uB9CE\uC740 \uBCC4\uC744 \uBC1B\uC744 \uC218 \uC788\uC5B4\uC694."
+            "\uBCC4 1\uAC1C\uC608\uC694. " +
+                "\uD55C \uBC88 \uB354 \uB9D0\uD574\uBCF4\uBA74 " +
+                "\uB354 \uB9CE\uC740 \uBCC4\uC744 \uBC1B\uC744 \uC218 \uC788\uC5B4\uC694."
         hasEarnedStar() -> "${earnedStarText()}\uB97C \uBC1B\uC558\uC5B4\uC694."
         remainingRetryCount > 0 ->
             "\uB2E4\uC2DC \uB9D0\uD574\uBCF4\uAC70\uB098 " +

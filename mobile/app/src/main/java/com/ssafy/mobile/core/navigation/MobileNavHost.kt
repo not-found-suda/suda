@@ -10,7 +10,6 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
-import com.ssafy.mobile.BuildConfig
 import com.ssafy.mobile.feature.appentry.AppEntryRoute
 import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileEditRoute
 import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileSelectRoute
@@ -33,7 +32,6 @@ import com.ssafy.mobile.feature.report.presentation.ReportQuizSessionDetailRoute
 import com.ssafy.mobile.feature.report.presentation.ReportQuizSessionsRoute
 import com.ssafy.mobile.feature.report.presentation.ReportSummaryRoute
 import com.ssafy.mobile.feature.report.presentation.ReportWeakWordsRoute
-import com.ssafy.mobile.feature.sign.presentation.SignDebugRoute
 import com.ssafy.mobile.feature.signup.presentation.SignupRoute
 
 @Composable
@@ -269,15 +267,7 @@ fun MobileNavHost(
         }
 
         composable(Screen.Conversation.route) {
-            val onOpenSignDebug: (() -> Unit)? =
-                if (BuildConfig.DEBUG) {
-                    { navController.navigate(Screen.Sign.route) }
-                } else {
-                    null
-                }
-
             conversationRoute(
-                onOpenSignDebug = onOpenSignDebug,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -338,17 +328,6 @@ fun MobileNavHost(
                 onNavigateBack = { navController.popBackStack() },
                 modifier = Modifier.fillMaxSize(),
             )
-        }
-
-        if (BuildConfig.DEBUG) {
-            composable(Screen.Sign.route) {
-                SignDebugRoute(
-                    onBackToMain = {
-                        navController.popBackStack()
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
         }
 
         composable(Screen.LearningCategory.route) {
