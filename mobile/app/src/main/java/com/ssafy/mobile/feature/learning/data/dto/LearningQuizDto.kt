@@ -139,6 +139,7 @@ data class LearningQuizAnswerResponseDto(
     ): LearningQuizAnswerResult {
         val normalizedScore =
             normalizeQuizAnswerScore(
+                targetText = targetText,
                 recognizedText = recognizedText,
                 isCorrect = isCorrect,
                 star = star,
@@ -224,6 +225,7 @@ data class LearningQuizResultAnswerDto(
     fun toDomain(): LearningQuizResultAnswer {
         val normalizedScore =
             normalizeQuizAnswerScore(
+                targetText = targetText,
                 recognizedText = recognizedText,
                 isCorrect = isCorrect,
                 star = star,
@@ -244,7 +246,10 @@ data class LearningQuizResultAnswerDto(
 private const val DEFAULT_QUESTION_NUMBER = 1
 private const val UNKNOWN_WORD_ID = -1L
 private const val DEFAULT_QUIZ_STAR = 1
-private const val NO_SPEECH_QUIZ_STAR = 0
+private const val FAILURE_QUIZ_STAR = 0
+private const val CLEAR_MISMATCH_OVERLAP_COUNT = 0
+private const val CLEAR_MISMATCH_EDIT_DISTANCE_DIVISOR = 2
+private const val CLEAR_MISMATCH_MIN_EDIT_DISTANCE = 2
 
 private data class NormalizedQuizAnswerScore(
     val recognizedText: String,
@@ -253,6 +258,7 @@ private data class NormalizedQuizAnswerScore(
 )
 
 private fun normalizeQuizAnswerScore(
+    targetText: String?,
     recognizedText: String?,
     isCorrect: Boolean?,
     star: Int?,
@@ -262,13 +268,71 @@ private fun normalizeQuizAnswerScore(
         return NormalizedQuizAnswerScore(
             recognizedText = "",
             isCorrect = false,
-            star = NO_SPEECH_QUIZ_STAR,
+            star = FAILURE_QUIZ_STAR,
         )
     }
 
+    val normalizedStar = star ?: DEFAULT_QUIZ_STAR
+    val shouldTreatAsFailure =
+        normalizedStar == DEFAULT_QUIZ_STAR &&
+            targetText.orEmpty().isClearlyUnrelatedTo(normalizedRecognizedText)
+
     return NormalizedQuizAnswerScore(
         recognizedText = normalizedRecognizedText,
-        isCorrect = isCorrect ?: false,
-        star = star ?: DEFAULT_QUIZ_STAR,
+        isCorrect = if (shouldTreatAsFailure) false else isCorrect ?: false,
+        star = if (shouldTreatAsFailure) FAILURE_QUIZ_STAR else normalizedStar,
     )
 }
+
+private fun String.isClearlyUnrelatedTo(recognizedText: String): Boolean {
+    val normalizedTarget = normalizedQuizText()
+    val normalizedRecognized = recognizedText.normalizedQuizText()
+    val shouldKeepStarReward =
+        normalizedTarget.isBlank() ||
+            normalizedRecognized.isBlank() ||
+            normalizedTarget == normalizedRecognized ||
+            normalizedRecognized.contains(normalizedTarget) ||
+            normalizedTarget.contains(normalizedRecognized)
+    if (shouldKeepStarReward) return false
+
+    val overlapCount =
+        normalizedTarget.toSet().count { character ->
+            character in normalizedRecognized
+        }
+    val clearMismatchEditDistanceThreshold =
+        maxOf(
+            CLEAR_MISMATCH_MIN_EDIT_DISTANCE,
+            normalizedTarget.length / CLEAR_MISMATCH_EDIT_DISTANCE_DIVISOR,
+        )
+
+    return overlapCount == CLEAR_MISMATCH_OVERLAP_COUNT &&
+        normalizedTarget.editDistanceTo(normalizedRecognized) > clearMismatchEditDistanceThreshold
+}
+
+private fun String.normalizedQuizText(): String =
+    trim()
+        .lowercase()
+        .filterNot { character -> character.isWhitespace() || character in IGNORED_QUIZ_CHARACTERS }
+
+private fun String.editDistanceTo(other: String): Int {
+    val previous = IntArray(other.length + 1) { index -> index }
+    val current = IntArray(other.length + 1)
+
+    for (index in indices) {
+        current[0] = index + 1
+        for (otherIndex in other.indices) {
+            val substitutionCost = if (this[index] == other[otherIndex]) 0 else 1
+            current[otherIndex + 1] =
+                minOf(
+                    current[otherIndex] + 1,
+                    previous[otherIndex + 1] + 1,
+                    previous[otherIndex] + substitutionCost,
+                )
+        }
+        current.copyInto(previous)
+    }
+
+    return previous[other.length]
+}
+
+private val IGNORED_QUIZ_CHARACTERS = setOf('.', ',', '!', '?', '~')

@@ -10,6 +10,7 @@ class LearningQuizDtoTest {
     fun answerResponseWithBlankRecognizedTextBecomesFailedZeroStar() {
         val result =
             LearningQuizAnswerResponseDto(
+                targetText = "apple",
                 recognizedText = "",
                 isCorrect = false,
                 star = 1,
@@ -27,6 +28,7 @@ class LearningQuizDtoTest {
     fun answerResponseWithRecognizedTextKeepsReturnedScore() {
         val result =
             LearningQuizAnswerResponseDto(
+                targetText = "apple",
                 recognizedText = "apple",
                 isCorrect = true,
                 star = 2,
@@ -41,13 +43,31 @@ class LearningQuizDtoTest {
     }
 
     @Test
+    fun answerResponseWithClearlyUnrelatedRecognizedTextBecomesFailedZeroStar() {
+        val result =
+            LearningQuizAnswerResponseDto(
+                targetText = "apple",
+                recognizedText = "bus",
+                isCorrect = false,
+                star = 1,
+            ).toDomain(
+                fallbackSessionId = SESSION_ID,
+                fallbackQuestionId = QUESTION_ID,
+            )
+
+        assertEquals("bus", result.recognizedText)
+        assertFalse(result.isCorrect)
+        assertEquals(0, result.star)
+    }
+
+    @Test
     fun resultResponseRecalculatesSummaryFromNormalizedAnswers() {
         val result =
             LearningQuizResultResponseDto(
                 sessionId = SESSION_ID,
-                totalQuestionCount = 2,
-                correctCount = 2,
-                totalStar = 4,
+                totalQuestionCount = 3,
+                correctCount = 3,
+                totalStar = 5,
                 answers =
                     listOf(
                         LearningQuizResultAnswerDto(
@@ -66,6 +86,14 @@ class LearningQuizDtoTest {
                             isCorrect = true,
                             star = 3,
                         ),
+                        LearningQuizResultAnswerDto(
+                            questionId = 3L,
+                            wordId = 103L,
+                            targetText = "apple",
+                            recognizedText = "bus",
+                            isCorrect = false,
+                            star = 1,
+                        ),
                     ),
             ).toDomain()
 
@@ -73,6 +101,7 @@ class LearningQuizDtoTest {
         assertEquals(3, result.totalStar)
         assertEquals(0, result.answers.first().star)
         assertFalse(result.answers.first().isCorrect)
+        assertEquals(0, result.answers.last().star)
     }
 }
 
