@@ -14,9 +14,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -71,6 +75,7 @@ internal fun QuizStarResultCard(
                 mascot = answer.toFeedbackMascot(),
                 title = answer.toRewardTitle(),
                 description = answer.toRewardDescription(remainingRetryCount),
+                recognizedText = answer.normalizedRecognizedText(),
             )
         }
     }
@@ -81,34 +86,78 @@ private fun QuizFeedbackMascotMessage(
     mascot: SudaMascot,
     title: String,
     description: String,
+    recognizedText: String,
 ) {
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        SudaMascotImage(
-            mascot = mascot,
-            contentDescription = null,
-            modifier = Modifier.size(58.dp),
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            SudaMascotImage(
+                mascot = mascot,
+                contentDescription = null,
+                modifier = Modifier.size(58.dp),
+            )
+            Column(
+                horizontalAlignment = Alignment.Start,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Black,
+                    textAlign = TextAlign.Start,
+                )
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Start,
+                )
+            }
+        }
+
+        if (recognizedText.isNotBlank()) {
+            RecognizedSpeechCard(
+                recognizedText = recognizedText,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RecognizedSpeechCard(
+    recognizedText: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.48f),
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+    ) {
         Column(
-            horizontalAlignment = Alignment.Start,
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
-                text = title,
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.Black,
-                textAlign = TextAlign.Start,
+                text = "내가 말한 말",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.84f),
+                fontWeight = FontWeight.ExtraBold,
             )
             Text(
-                text = description,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = recognizedText,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
                 fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Start,
             )
         }
     }
@@ -120,7 +169,7 @@ private fun FailureRewardBurst(modifier: Modifier = Modifier) {
         modifier =
             modifier
                 .fillMaxWidth()
-                .size(REWARD_BURST_SIZE.dp),
+                .height(REWARD_BURST_HEIGHT.dp),
         contentAlignment = Alignment.Center,
     ) {
         SudaMascotImage(
@@ -129,7 +178,7 @@ private fun FailureRewardBurst(modifier: Modifier = Modifier) {
             modifier =
                 Modifier
                     .size(FAILURE_MASCOT_SIZE.dp)
-                    .offset(y = (-8).dp),
+                    .offset(y = (-4).dp),
         )
         AppBadge(
             text = "\uC544\uC26C\uC6CC\uC694",
@@ -199,7 +248,7 @@ private fun StarRewardBurstContent(
         modifier =
             modifier
                 .fillMaxWidth()
-                .size(REWARD_BURST_SIZE.dp),
+                .height(REWARD_BURST_HEIGHT.dp),
         contentAlignment = Alignment.Center,
     ) {
         LargeStarRow(
@@ -236,6 +285,8 @@ private fun LargeStarRow(
 }
 
 private fun QuizAnswer.normalizedStarCount(): Int = star?.coerceIn(MIN_STAR, MAX_STAR) ?: MIN_STAR
+
+private fun QuizAnswer.normalizedRecognizedText(): String = sttText.trim()
 
 private fun QuizAnswer.isFailureResult(): Boolean =
     star != null &&
@@ -304,7 +355,7 @@ private fun QuizAnswer.toFeedbackCue(): QuizFeedbackCue? =
 
 private const val MIN_STAR = 0
 private const val MAX_STAR = 3
-private const val REWARD_BURST_SIZE = 152
-private const val BIG_STAR_SIZE = 46
-private const val BIG_STAR_SPACING = 6
-private const val FAILURE_MASCOT_SIZE = 112
+private const val REWARD_BURST_HEIGHT = 124
+private const val BIG_STAR_SIZE = 62
+private const val BIG_STAR_SPACING = 8
+private const val FAILURE_MASCOT_SIZE = 98

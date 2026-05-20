@@ -17,3 +17,13 @@ data class AccountUpdateResult(
     val role: String,
     val updatedAt: String?,
 )
+
+data class TtsSpeakerOption(
+    val code: String,
+    val label: String,
+)
+
+data class TtsSpeakerUpdateResult(
+    val userId: Long,
+    val ttsSpeaker: String,
+)
