@@ -108,7 +108,8 @@ public class ReportService {
             ? new ReportLatestCategoryResponse(
                 latestCategory.categoryId(), latestCategory.categoryName())
             : null,
-        weakWords);
+        weakWords,
+        LocalDateTime.now());
   }
 
   public ReportCommunicationSummaryResponse getCommunicationSummary(
@@ -131,7 +132,7 @@ public class ReportService {
 
     List<ReportCommunicationAnalysisQueryRow> rows =
         communicationSessionAnalysisRepository.findCommunicationAnalysisRows(
-            childId, fromDateTime, toDateTime, CommunicationAnalysisStatus.EMPTY);
+            childId, fromDateTime, toDateTime, CommunicationAnalysisStatus.COMPLETED);
 
     long totalUtteranceCount = 0;
     double sentenceLengthSum = 0.0;
@@ -271,7 +272,10 @@ public class ReportService {
       }
     }
 
-    CommunicationAnalysisStatus status = resolveOverallAnalysisStatus(rows);
+    CommunicationAnalysisStatus status =
+        completedCount == 0
+            ? CommunicationAnalysisStatus.EMPTY
+            : CommunicationAnalysisStatus.COMPLETED;
     double averageSentenceLength =
         completedCount == 0 ? 0.0 : roundOneDecimal(sentenceLengthSum / completedCount);
 
@@ -484,41 +488,6 @@ public class ReportService {
         calculateAccuracyRate(row.correctCount(), row.totalQuestionCount()),
         calculateAverageStar(row.totalStar(), row.totalQuestionCount()),
         row.latestSessionAt());
-  }
-
-  private CommunicationAnalysisStatus resolveOverallAnalysisStatus(
-      List<ReportCommunicationAnalysisQueryRow> rows) {
-    if (rows.isEmpty()) {
-      return CommunicationAnalysisStatus.EMPTY;
-    }
-
-    boolean hasProcessing =
-        rows.stream()
-            .anyMatch(
-                row ->
-                    row.analysisStatus() == CommunicationAnalysisStatus.PENDING
-                        || row.analysisStatus() == CommunicationAnalysisStatus.PROCESSING);
-
-    if (hasProcessing) {
-      return CommunicationAnalysisStatus.PROCESSING;
-    }
-
-    boolean hasCompleted =
-        rows.stream()
-            .anyMatch(row -> row.analysisStatus() == CommunicationAnalysisStatus.COMPLETED);
-
-    if (hasCompleted) {
-      return CommunicationAnalysisStatus.COMPLETED;
-    }
-
-    boolean allEmpty =
-        rows.stream().allMatch(row -> row.analysisStatus() == CommunicationAnalysisStatus.EMPTY);
-
-    if (allEmpty) {
-      return CommunicationAnalysisStatus.EMPTY;
-    }
-
-    return CommunicationAnalysisStatus.FAILED;
   }
 
   private JsonNode parseSummaryJson(String summaryJson) {

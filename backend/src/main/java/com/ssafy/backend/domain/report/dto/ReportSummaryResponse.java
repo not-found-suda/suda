@@ -12,4 +12,5 @@ public record ReportSummaryResponse(
     Double averageStar,
     LocalDateTime latestSessionAt,
     ReportLatestCategoryResponse latestCategory,
-    List<ReportWeakWordResponse> weakWords) {}
+    List<ReportWeakWordResponse> weakWords,
+    LocalDateTime generatedAt) {}

@@ -33,12 +33,12 @@ public interface CommunicationSessionAnalysisRepository
     where s.childProfile.id = :childId
       and s.startedAt >= :from
       and s.startedAt < :to
-      and a.analysisStatus <> :excludedStatus
+      and a.analysisStatus = :analysisStatus
     order by s.startedAt desc
     """)
   List<ReportCommunicationAnalysisQueryRow> findCommunicationAnalysisRows(
       @Param("childId") Long childId,
       @Param("from") LocalDateTime from,
       @Param("to") LocalDateTime to,
-      @Param("excludedStatus") CommunicationAnalysisStatus excludedStatus);
+      @Param("analysisStatus") CommunicationAnalysisStatus analysisStatus);
 }

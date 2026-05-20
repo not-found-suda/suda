@@ -156,6 +156,7 @@ private fun ReportHomeScreen(
                         val allInput =
                             filterUiState.input.applyQuickDateRange(
                                 ReportQuickDateRange.All,
+                                filterUiState.anchorDate,
                             )
                         actions.filterActions.onInputChange(allInput)
                         actions.filterActions.onApplyClick()
@@ -163,7 +164,10 @@ private fun ReportHomeScreen(
                     }
                 }
 
-                val currentRange = filterUiState.input.selectedQuickDateRange()
+                val currentRange =
+                    filterUiState.input.selectedQuickDateRange(
+                        filterUiState.anchorDate,
+                    )
                 val filterStatusText =
                     when (currentRange) {
                         ReportQuickDateRange.CurrentWeek -> "이번주 · 적용 중"
@@ -209,6 +213,7 @@ private fun ReportHomeScreen(
                                     val allInput =
                                         filterUiState.input.applyQuickDateRange(
                                             ReportQuickDateRange.All,
+                                            filterUiState.anchorDate,
                                         )
                                     actions.filterActions.onInputChange(allInput)
                                     actions.filterActions.onApplyClick()

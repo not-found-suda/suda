@@ -27,6 +27,8 @@ data class ReportSummaryResponseDto(
     val latestCategory: ReportLatestCategoryDto? = null,
     @SerializedName("weakWords")
     val weakWords: List<ReportWeakWordDto> = emptyList(),
+    @SerializedName("generatedAt")
+    val generatedAt: String? = null,
 )
 
 data class ReportLatestCategoryDto(
@@ -95,6 +97,7 @@ fun ReportSummaryResponseDto.toDomain(): ReportSummary =
                 )
             },
         weakWords = weakWords.map { it.toDomain() },
+        generatedAt = generatedAt,
     )
 
 fun ReportWeakWordListResponseDto.toDomain(): ReportWeakWordPage =

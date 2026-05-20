@@ -73,6 +73,7 @@ class ReportQuizSessionsViewModel
                     filterUiState =
                         ReportFilterUiState(
                             input = initialFilterInput,
+                            anchorDate = filterSelectionStore.currentAnchorDate(),
                             hasAppliedFilter = true,
                         ),
                 ),
@@ -86,7 +87,7 @@ class ReportQuizSessionsViewModel
             initialFilterInput
                 .toQuizSessionsFilter()
                 .getOrDefault(
-                    defaultReportFilterState(),
+                    defaultReportFilterState(filterSelectionStore.currentAnchorDate()),
                 )
 
         init {
@@ -293,7 +294,7 @@ class ReportQuizSessionsViewModel
         }
 
         fun resetFilter() {
-            appliedFilter = defaultReportFilterState()
+            appliedFilter = defaultReportFilterState(filterSelectionStore.currentAnchorDate())
             _uiState.value =
                 _uiState.value.copy(
                     filterUiState =

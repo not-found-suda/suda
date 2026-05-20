@@ -1,3 +1,5 @@
+@file:Suppress("ComplexCondition", "MagicNumber")
+
 package com.ssafy.mobile.feature.home.presentation
 
 import androidx.lifecycle.ViewModel
@@ -28,7 +30,7 @@ data class HomeUiState(
     val activeChildState: ActiveChildProfileState = ActiveChildProfileState.Loading,
     val weeklyActivityState: HomeWeeklyActivityState = HomeWeeklyActivityState.Idle,
     val selectedCommunicationDate: LocalDate = LocalDate.now(),
-    val hasManualCommunicationDateSelection: Boolean = false,
+    val selectedCommunicationPeriod: HomeCommunicationPeriod = HomeCommunicationPeriod.Daily,
     val communicationInsightToggleResetKey: Int = 0,
     val communicationInsightState: HomeCommunicationInsightState =
         HomeCommunicationInsightState.Idle,
@@ -63,6 +65,15 @@ sealed interface HomeCommunicationInsightState {
     data class Error(
         val message: String,
     ) : HomeCommunicationInsightState
+}
+
+enum class HomeCommunicationPeriod(
+    val label: String,
+) {
+    Daily("일간"),
+    Weekly("주간"),
+    Monthly("월간"),
+    Total("종합 리포트"),
 }
 
 sealed interface HomeResumeQuizState {
@@ -105,7 +116,6 @@ class HomeViewModel
             _uiState.value =
                 _uiState.value.copy(
                     selectedCommunicationDate = date,
-                    hasManualCommunicationDateSelection = true,
                     communicationInsightToggleResetKey =
                         _uiState.value.communicationInsightToggleResetKey + 1,
                     communicationInsightState = HomeCommunicationInsightState.Loading,
@@ -117,7 +127,32 @@ class HomeViewModel
                     ?: return
             loadCommunicationInsight(
                 childId = childState.profile.childId,
-                selectedDate = date,
+                anchorDate = date,
+                period = _uiState.value.selectedCommunicationPeriod,
+            )
+        }
+
+        fun selectCommunicationPeriod(period: HomeCommunicationPeriod) {
+            if (_uiState.value.selectedCommunicationPeriod == period) {
+                return
+            }
+
+            _uiState.value =
+                _uiState.value.copy(
+                    selectedCommunicationPeriod = period,
+                    communicationInsightToggleResetKey =
+                        _uiState.value.communicationInsightToggleResetKey + 1,
+                    communicationInsightState = HomeCommunicationInsightState.Loading,
+                )
+            communicationInsightPollingJob?.cancel()
+
+            val childState =
+                _uiState.value.activeChildState as? ActiveChildProfileState.Selected
+                    ?: return
+            loadCommunicationInsight(
+                childId = childState.profile.childId,
+                anchorDate = _uiState.value.selectedCommunicationDate,
+                period = period,
             )
         }
 
@@ -127,6 +162,7 @@ class HomeViewModel
                     _uiState.value =
                         _uiState.value.copy(
                             activeChildState = ActiveChildProfileState.Loading,
+                            selectedCommunicationPeriod = HomeCommunicationPeriod.Daily,
                             weeklyActivityState = HomeWeeklyActivityState.Idle,
                             communicationInsightToggleResetKey =
                                 _uiState.value.communicationInsightToggleResetKey + 1,
@@ -188,30 +224,28 @@ class HomeViewModel
         private suspend fun loadHomeLearningState(childId: Long) {
             val result =
                 withContext(Dispatchers.IO) {
+                    val communicationAnchorResult =
+                        reportRepository.getCommunicationSummary(
+                            childId = childId,
+                            sessionLimit = LATEST_COMMUNICATION_SESSION_LIMIT,
+                        )
+                    val selectedDate =
+                        communicationAnchorResult
+                            .getOrNull()
+                            ?.preferredAnchorDateOrNull()
+                            ?: _uiState.value.selectedCommunicationDate
                     val weeklyActivityResult =
                         reportRepository.getQuizSessions(
                             childId = childId,
                             page = FIRST_PAGE,
                             size = WEEKLY_ACTIVITY_PAGE_SIZE,
-                            filter = currentWeekReportFilter(),
+                            filter = selectedDate.toCurrentWeekReportFilter(),
                         )
-                    val latestCommunicationDate =
-                        if (_uiState.value.hasManualCommunicationDateSelection) {
-                            null
-                        } else {
-                            reportRepository
-                                .getCommunicationSummary(
-                                    childId = childId,
-                                    sessionLimit = LATEST_COMMUNICATION_SESSION_LIMIT,
-                                ).getOrNull()
-                                ?.preferredInitialCommunicationDateOrNull()
-                        }
-                    val selectedDate =
-                        latestCommunicationDate ?: _uiState.value.selectedCommunicationDate
+                    val selectedPeriod = _uiState.value.selectedCommunicationPeriod
                     val communicationInsightResult =
                         reportRepository.getCommunicationSummary(
                             childId = childId,
-                            filter = selectedDate.toSingleDateReportFilter(),
+                            filter = selectedPeriod.toReportFilter(anchorDate = selectedDate),
                             sessionLimit = HOME_COMMUNICATION_SESSION_LIMIT,
                         )
                     val resumeQuizResult =
@@ -224,6 +258,7 @@ class HomeViewModel
                     HomeLearningResult(
                         weeklyActivityResult = weeklyActivityResult,
                         selectedCommunicationDate = selectedDate,
+                        selectedCommunicationPeriod = selectedPeriod,
                         communicationInsightResult = communicationInsightResult,
                         resumeQuizResult = resumeQuizResult,
                     )
@@ -249,21 +284,23 @@ class HomeViewModel
                 )
             startCommunicationInsightPollingIfNeeded(
                 childId = childId,
-                selectedDate = result.selectedCommunicationDate,
+                anchorDate = result.selectedCommunicationDate,
+                period = result.selectedCommunicationPeriod,
                 result = result.communicationInsightResult,
             )
         }
 
         private fun loadCommunicationInsight(
             childId: Long,
-            selectedDate: LocalDate,
+            anchorDate: LocalDate,
+            period: HomeCommunicationPeriod,
         ) {
             viewModelScope.launch {
                 val result =
                     withContext(Dispatchers.IO) {
                         reportRepository.getCommunicationSummary(
                             childId = childId,
-                            filter = selectedDate.toSingleDateReportFilter(),
+                            filter = period.toReportFilter(anchorDate = anchorDate),
                             sessionLimit = HOME_COMMUNICATION_SESSION_LIMIT,
                         )
                     }
@@ -272,7 +309,8 @@ class HomeViewModel
                 if (
                     currentState !is ActiveChildProfileState.Selected ||
                     currentState.profile.childId != childId ||
-                    _uiState.value.selectedCommunicationDate != selectedDate
+                    _uiState.value.selectedCommunicationDate != anchorDate ||
+                    _uiState.value.selectedCommunicationPeriod != period
                 ) {
                     return@launch
                 }
@@ -283,7 +321,8 @@ class HomeViewModel
                     )
                 startCommunicationInsightPollingIfNeeded(
                     childId = childId,
-                    selectedDate = selectedDate,
+                    anchorDate = anchorDate,
+                    period = period,
                     result = result,
                 )
             }
@@ -291,7 +330,8 @@ class HomeViewModel
 
         private fun startCommunicationInsightPollingIfNeeded(
             childId: Long,
-            selectedDate: LocalDate,
+            anchorDate: LocalDate,
+            period: HomeCommunicationPeriod,
             result: Result<ReportCommunicationSummary>,
         ) {
             val status = result.getOrNull()?.analysisStatus
@@ -314,7 +354,8 @@ class HomeViewModel
                         if (
                             currentState !is ActiveChildProfileState.Selected ||
                             currentState.profile.childId != childId ||
-                            _uiState.value.selectedCommunicationDate != selectedDate
+                            _uiState.value.selectedCommunicationDate != anchorDate ||
+                            _uiState.value.selectedCommunicationPeriod != period
                         ) {
                             return@launch
                         }
@@ -323,7 +364,7 @@ class HomeViewModel
                             withContext(Dispatchers.IO) {
                                 reportRepository.getCommunicationSummary(
                                     childId = childId,
-                                    filter = selectedDate.toSingleDateReportFilter(),
+                                    filter = period.toReportFilter(anchorDate = anchorDate),
                                     sessionLimit = HOME_COMMUNICATION_SESSION_LIMIT,
                                 )
                             }
@@ -349,6 +390,7 @@ class HomeViewModel
 private data class HomeLearningResult(
     val weeklyActivityResult: Result<ReportQuizSessionPage>,
     val selectedCommunicationDate: LocalDate,
+    val selectedCommunicationPeriod: HomeCommunicationPeriod,
     val communicationInsightResult: Result<ReportCommunicationSummary>,
     val resumeQuizResult: Result<ReportQuizSessionPage>,
 )
@@ -415,7 +457,7 @@ private fun ReportCommunicationSummary.hasCompletedCommunicationInsight(): Boole
         developmentReference.isNotBlank() ||
         recentSessions.any { session -> session.summary.isNotBlank() }
 
-private fun ReportCommunicationSummary.preferredInitialCommunicationDateOrNull(): LocalDate? =
+private fun ReportCommunicationSummary.preferredAnchorDateOrNull(): LocalDate? =
     recentSessions
         .firstOrNull()
         ?.startedAt
@@ -444,19 +486,34 @@ private fun Result<ReportQuizSessionPage>.toResumeQuizState(): HomeResumeQuizSta
         },
     )
 
-private fun currentWeekReportFilter(): ReportFilterState {
-    val today = LocalDate.now()
-    return ReportFilterState(
-        from = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).toString(),
-        to = today.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY)).toString(),
-    )
-}
-
-private fun LocalDate.toSingleDateReportFilter(): ReportFilterState =
+private fun LocalDate.toCurrentWeekReportFilter(): ReportFilterState =
     ReportFilterState(
-        from = toString(),
-        to = toString(),
+        from = with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).toString(),
+        to = with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY)).toString(),
     )
+
+private fun HomeCommunicationPeriod.toReportFilter(anchorDate: LocalDate): ReportFilterState =
+    when (this) {
+        HomeCommunicationPeriod.Daily ->
+            ReportFilterState(
+                from = anchorDate.toString(),
+                to = anchorDate.toString(),
+            )
+
+        HomeCommunicationPeriod.Weekly ->
+            ReportFilterState(
+                from = anchorDate.minusDays(6).toString(),
+                to = anchorDate.toString(),
+            )
+
+        HomeCommunicationPeriod.Monthly ->
+            ReportFilterState(
+                from = anchorDate.minusDays(29).toString(),
+                to = anchorDate.toString(),
+            )
+
+        HomeCommunicationPeriod.Total -> ReportFilterState()
+    }
 
 private fun String.toReportDateOrNull(): LocalDate? =
     runCatching {

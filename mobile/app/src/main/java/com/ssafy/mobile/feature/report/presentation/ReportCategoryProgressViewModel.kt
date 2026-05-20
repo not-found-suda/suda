@@ -53,6 +53,7 @@ class ReportCategoryProgressViewModel
                     filterUiState =
                         ReportFilterUiState(
                             input = filterSelectionStore.currentInput(),
+                            anchorDate = filterSelectionStore.currentAnchorDate(),
                             hasAppliedFilter = true,
                         ),
                 ),
@@ -65,7 +66,7 @@ class ReportCategoryProgressViewModel
                 .currentInput()
                 .toDateFilter()
                 .getOrDefault(
-                    defaultReportFilterState(),
+                    defaultReportFilterState(filterSelectionStore.currentAnchorDate()),
                 )
 
         init {
@@ -156,10 +157,17 @@ class ReportCategoryProgressViewModel
         }
 
         fun resetFilter() {
-            appliedFilter = defaultReportFilterState()
+            appliedFilter = defaultReportFilterState(filterSelectionStore.currentAnchorDate())
             _uiState.value =
                 _uiState.value.copy(
-                    filterUiState = ReportFilterUiState(),
+                    filterUiState =
+                        ReportFilterUiState(
+                            input =
+                                defaultReportFilterInputState(
+                                    filterSelectionStore.currentAnchorDate(),
+                                ),
+                            anchorDate = filterSelectionStore.currentAnchorDate(),
+                        ),
                 )
             reloadCategoryProgressWithCurrentChild()
         }

@@ -61,6 +61,7 @@ internal fun ReportFilterPanel(
             ReportFilterHeader(state = state)
             ReportDateRangePicker(
                 input = state.input,
+                anchorDate = state.anchorDate,
                 isError = state.errorMessage != null,
                 onInputChange = actions.onInputChange,
             )
@@ -85,7 +86,7 @@ internal fun ReportFilterPanel(
 
 @Composable
 private fun ReportFilterHeader(state: ReportFilterUiState) {
-    val currentRange = state.input.selectedQuickDateRange()
+    val currentRange = state.input.selectedQuickDateRange(state.anchorDate)
     val badgeText =
         when (currentRange) {
             ReportQuickDateRange.CurrentWeek -> "이번주"
@@ -199,6 +200,7 @@ private fun ReportFilterOptionSection(
 @Composable
 private fun ReportDateRangePicker(
     input: ReportFilterInputState,
+    anchorDate: LocalDate,
     isError: Boolean,
     onInputChange: (ReportFilterInputState) -> Unit,
 ) {
@@ -225,6 +227,7 @@ private fun ReportDateRangePicker(
             )
             ReportQuickPeriodRows(
                 input = input,
+                anchorDate = anchorDate,
                 onInputChange = onInputChange,
             )
             Row(
@@ -234,6 +237,7 @@ private fun ReportDateRangePicker(
                 ReportDateField(
                     label = "시작일",
                     value = input.from,
+                    anchorDate = anchorDate,
                     isError = isError,
                     onDateSelected = { selectedDate ->
                         onInputChange(input.copy(from = selectedDate))
@@ -243,6 +247,7 @@ private fun ReportDateRangePicker(
                 ReportDateField(
                     label = "종료일",
                     value = input.to,
+                    anchorDate = anchorDate,
                     isError = isError,
                     onDateSelected = { selectedDate ->
                         onInputChange(input.copy(to = selectedDate))
@@ -257,9 +262,10 @@ private fun ReportDateRangePicker(
 @Composable
 private fun ReportQuickPeriodRows(
     input: ReportFilterInputState,
+    anchorDate: LocalDate,
     onInputChange: (ReportFilterInputState) -> Unit,
 ) {
-    val selectedRange = input.selectedQuickDateRange()
+    val selectedRange = input.selectedQuickDateRange(anchorDate)
     val ranges = ReportQuickDateRange.entries
 
     Row(
@@ -270,7 +276,14 @@ private fun ReportQuickPeriodRows(
             ReportQuickPeriodButton(
                 text = range.label,
                 selected = selectedRange == range,
-                onClick = { onInputChange(input.applyQuickDateRange(range)) },
+                onClick = {
+                    onInputChange(
+                        input.applyQuickDateRange(
+                            range = range,
+                            anchorDate = anchorDate,
+                        ),
+                    )
+                },
                 modifier = Modifier.weight(1f),
             )
         }
@@ -281,6 +294,7 @@ private fun ReportQuickPeriodRows(
 private fun ReportDateField(
     label: String,
     value: String,
+    anchorDate: LocalDate,
     isError: Boolean,
     onDateSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -326,7 +340,7 @@ private fun ReportDateField(
     if (isCalendarOpen) {
         ReportCalendarDialog(
             title = "$label 선택",
-            initialDate = value.toReportDateOrNull() ?: LocalDate.now(),
+            initialDate = value.toReportDateOrNull() ?: anchorDate,
             onDismiss = { isCalendarOpen = false },
             onDateSelected = { selectedDate ->
                 isCalendarOpen = false
