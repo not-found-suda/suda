@@ -24,6 +24,13 @@ import retrofit2.Response
 /**
  * TranslateRepository의 실제 구현체
  */
+class TranslationApiException(
+    val httpStatus: Int,
+    val errorCode: String?,
+    val errorTitle: String?,
+    override val message: String,
+) : IOException(message)
+
 @Suppress("TooManyFunctions")
 class DefaultTranslateRepository
     @Inject
@@ -159,8 +166,11 @@ class DefaultTranslateRepository
                     ?.takeIf { it.isNotBlank() }
                     ?: "body=${errorBody.take(ERROR_BODY_PREVIEW_LENGTH)}"
 
-            return IOException(
-                "$ERROR_API_PREFIX status=${code()}, message=${message()}, $diagnostic",
+            return TranslationApiException(
+                httpStatus = problemDetails?.status ?: code(),
+                errorCode = problemDetails?.code,
+                errorTitle = problemDetails?.title,
+                message = "$ERROR_API_PREFIX status=${code()}, message=${message()}, $diagnostic",
             )
         }
 

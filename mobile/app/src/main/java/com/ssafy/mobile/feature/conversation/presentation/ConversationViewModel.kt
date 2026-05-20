@@ -18,6 +18,7 @@ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
 import com.ssafy.mobile.feature.conversation.data.remote.model.SpeechToTextResponse
 import com.ssafy.mobile.feature.conversation.data.remote.model.TranslationSttModeDto
 import com.ssafy.mobile.feature.conversation.data.repository.CommsSessionRepository
+import com.ssafy.mobile.feature.conversation.data.repository.TranslationApiException
 import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
 import com.ssafy.mobile.feature.conversation.domain.model.LocalSignSentenceGenerator
 import com.ssafy.mobile.feature.conversation.domain.model.MessageStatus
@@ -745,6 +746,7 @@ class ConversationViewModel
                         peakAmplitude = peakAmplitude,
                         recordingDuration = recordingDuration,
                         voiceFrameCount = voiceFrameCount,
+                        maxConsecutiveVoiceFrameCount = maxConsecutiveVoiceFrameCount,
                     )
                 } == true
             return if (shouldUpload) {
@@ -836,10 +838,12 @@ class ConversationViewModel
             peakAmplitude: Int,
             recordingDuration: Long,
             voiceFrameCount: Int,
+            maxConsecutiveVoiceFrameCount: Int,
         ): Boolean =
             isValidCloudAudioFile(file) &&
                 recordingDuration >= CLOUD_STT_MIN_UPLOAD_RECORDING_MS &&
                 voiceFrameCount >= CLOUD_STT_MIN_VOICE_FRAME_COUNT &&
+                maxConsecutiveVoiceFrameCount >= CLOUD_STT_MIN_CONSECUTIVE_VOICE_FRAME_COUNT &&
                 (speechDetected || peakAmplitude >= CLOUD_STT_FALLBACK_VOICE_THRESHOLD)
 
         private suspend fun checkAndRestartStt() {
@@ -1085,10 +1089,16 @@ class ConversationViewModel
                         "size=${audioFile.length()}, mime=$CLOUD_STT_AUDIO_MIME_TYPE",
                 )
                 val sessionId = ensureCommsSessionForServerStorage()
-                val result =
+                val sessionResult =
                     translateRepository.translateSpeechToText(
                         audioFile = audioFile,
                         mimeType = CLOUD_STT_AUDIO_MIME_TYPE,
+                        sessionId = sessionId,
+                    )
+                val result =
+                    recoverCloudSttSessionFailure(
+                        result = sessionResult,
+                        audioFile = audioFile,
                         sessionId = sessionId,
                     )
 
@@ -1203,6 +1213,8 @@ class ConversationViewModel
             var lastVoiceAt = startedAt
             var peakAmplitude = 0
             var voiceFrameCount = 0
+            var consecutiveVoiceFrameCount = 0
+            var maxConsecutiveVoiceFrameCount = 0
 
             while (currentCoroutineContext().isActive && canUseCloudStt()) {
                 delay(CLOUD_STT_POLL_INTERVAL_MS)
@@ -1215,8 +1227,13 @@ class ConversationViewModel
                 val recordingDuration = now - startedAt
                 if (amplitude >= CLOUD_STT_VOICE_THRESHOLD) {
                     voiceFrameCount++
+                    consecutiveVoiceFrameCount++
+                    maxConsecutiveVoiceFrameCount =
+                        maxOf(maxConsecutiveVoiceFrameCount, consecutiveVoiceFrameCount)
                     speechDetected = voiceFrameCount >= CLOUD_STT_MIN_VOICE_FRAME_COUNT
                     lastVoiceAt = now
+                } else {
+                    consecutiveVoiceFrameCount = 0
                 }
 
                 val stopReason =
@@ -1234,6 +1251,8 @@ class ConversationViewModel
                     )
                     return recordingDuration >= CLOUD_STT_MIN_UPLOAD_RECORDING_MS &&
                         voiceFrameCount >= CLOUD_STT_MIN_VOICE_FRAME_COUNT &&
+                        maxConsecutiveVoiceFrameCount >=
+                        CLOUD_STT_MIN_CONSECUTIVE_VOICE_FRAME_COUNT &&
                         (
                             speechDetected ||
                                 peakAmplitude >= CLOUD_STT_FALLBACK_VOICE_THRESHOLD
@@ -1361,6 +1380,37 @@ class ConversationViewModel
             return handleCloudSttFailure(throwable)
         }
 
+        private suspend fun recoverCloudSttSessionFailure(
+            result: Result<SpeechToTextResponse>,
+            audioFile: File,
+            sessionId: Long?,
+        ): Result<SpeechToTextResponse> {
+            val throwable = result.exceptionOrNull()
+            if (sessionId == null || throwable?.isCommsSessionNotFound() != true) {
+                return result
+            }
+
+            invalidateCommsSessionIfMatches(sessionId)
+            Log.w(
+                TAG,
+                "Cloud STT session was not found. Retrying without sessionId: sessionId=$sessionId",
+                throwable,
+            )
+            return translateRepository.translateSpeechToText(
+                audioFile = audioFile,
+                mimeType = CLOUD_STT_AUDIO_MIME_TYPE,
+                sessionId = null,
+            )
+        }
+
+        private suspend fun invalidateCommsSessionIfMatches(sessionId: Long) {
+            commsSessionMutex.withLock {
+                if (commsSessionId == sessionId) {
+                    commsSessionId = null
+                }
+            }
+        }
+
         @Suppress("ReturnCount")
         private fun handleCloudSttSuccess(response: SpeechToTextResponse): Long? {
             cloudSttFailureCount = 0
@@ -1397,6 +1447,14 @@ class ConversationViewModel
         }
 
         private fun handleCloudSttFailure(throwable: Throwable): Long {
+            if (throwable.isUnrecognizableCloudSttFailure()) {
+                cloudSttFailureCount = 0
+                removePendingChildMessage()
+                _speechInputPhase.value = SpeechInputPhase.Unrecognized
+                Log.w(TAG, "Cloud STT audio was not recognized.", throwable)
+                return STT_UNRECOGNIZED_NOTICE_MS
+            }
+
             cloudSttFailureCount++
             val restartDelayMs = getCloudSttFailureRetryDelay()
             removePendingChildMessage()
@@ -1429,6 +1487,15 @@ class ConversationViewModel
             val normalizedRecognized = recognizedText.trim()
             val normalizedCorrected = correctedText.trim()
             return normalizedRecognized.ifBlank { normalizedCorrected }
+        }
+
+        private fun Throwable.isCommsSessionNotFound(): Boolean =
+            (this as? TranslationApiException)
+                ?.errorCode == ERROR_CODE_COMMS_SESSION_NOT_FOUND
+
+        private fun Throwable.isUnrecognizableCloudSttFailure(): Boolean {
+            val apiException = this as? TranslationApiException ?: return false
+            return apiException.errorCode in UNRECOGNIZABLE_STT_ERROR_CODES
         }
 
         private fun SttEvent.Error.shouldKeepListening(): Boolean =
@@ -1747,7 +1814,8 @@ class ConversationViewModel
             private const val CLOUD_STT_MAX_FAILURE_RETRY_DELAY_MS = 5000L
             private const val CLOUD_STT_VOICE_THRESHOLD = 2000
             private const val CLOUD_STT_FALLBACK_VOICE_THRESHOLD = 1500
-            private const val CLOUD_STT_MIN_VOICE_FRAME_COUNT = 2
+            private const val CLOUD_STT_MIN_VOICE_FRAME_COUNT = 4
+            private const val CLOUD_STT_MIN_CONSECUTIVE_VOICE_FRAME_COUNT = 3
             private const val CLOUD_STT_MIN_FILE_BYTES = 1024L
             private const val CLOUD_STT_STOP_REASON_SILENCE = "silence"
             private const val CLOUD_STT_STOP_REASON_MAX_DURATION = "max_duration"
@@ -1755,9 +1823,19 @@ class ConversationViewModel
             private const val CLOUD_STT_STOP_REASON_CANCELLED = "cancelled"
             private const val CLOUD_STT_ANALYZING_MESSAGE = "대화 내용을 분석 중입니다..."
             private const val CLOUD_STT_AUDIO_MIME_TYPE = "audio/wav"
+            private const val ERROR_CODE_COMMS_SESSION_NOT_FOUND = "COMMUNICATION_SESSION_NOT_FOUND"
+            private const val ERROR_CODE_STT_RECOGNITION_FAILED =
+                "TRANSLATION_SPEECH_RECOGNITION_FAILED"
+            private const val ERROR_CODE_STT_UNRECOGNIZABLE_AUDIO =
+                "TRANSLATION_UNRECOGNIZABLE_AUDIO"
             private const val CLOUD_STREAMING_START_TIMEOUT_MS = 5_000L
             private const val CLOUD_STREAMING_RESULT_TIMEOUT_MS = 35_000L
             private const val APP_SPEECH_ECHO_FILTER_MS = 5000L
+            private val UNRECOGNIZABLE_STT_ERROR_CODES =
+                setOf(
+                    ERROR_CODE_STT_RECOGNITION_FAILED,
+                    ERROR_CODE_STT_UNRECOGNIZABLE_AUDIO,
+                )
             private val goRestaurantRule =
                 DemoSentenceRule(
                     statement = "배고프면 아빠랑 식당에 가자.",
