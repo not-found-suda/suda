@@ -1,0 +1,696 @@
+# SUDA 포팅 메뉴얼
+
+이 문서는 SUDA 프로젝트를 새로운 개발 PC, 테스트 서버, 배포 서버로 옮겨 실행하기 위한 절차를 정리한 문서입니다.
+
+## 1. 프로젝트 개요
+
+SUDA는 Android 모바일 앱, Spring Boot 백엔드, FastAPI 기반 수어 AI 서버로 구성됩니다.
+
+| 영역 | 경로 | 주요 기술 | 역할 |
+| --- | --- | --- | --- |
+| Mobile | `mobile/` | Android, Kotlin, Jetpack Compose, CameraX, MediaPipe, TFLite, LiteRT-LM | 수어 인식, 음성/문장 변환 UI, 학습/퀴즈/리포트 화면 |
+| Backend | `backend/` | Java 21, Spring Boot 4, JPA, Redis, Flyway, WebSocket, gRPC | 인증, 학습/퀴즈/리포트 API, Gemini/Clova 연동, AI 서버 프록시 |
+| AI Server | `ai/ai-server/` | Python 3.12, FastAPI, PyTorch | 서버 사이드 수어 추론 API |
+| Database | Docker Compose | PostgreSQL 16, Redis 7 | 영속 데이터, 토큰/캐시 |
+
+기본 통신 흐름은 다음과 같습니다.
+
+1. 모바일 앱이 Spring Boot API를 호출합니다.
+2. Spring Boot는 PostgreSQL/Redis를 사용하고, 필요 시 Gemini GMS와 Clova API를 호출합니다.
+3. 서버 사이드 수어 추론이 필요한 경우 Spring Boot가 FastAPI AI 서버의 `/internal/sign/predict`를 호출합니다.
+4. 모바일 앱 내부에서는 MediaPipe, TFLite, LiteRT-LM 기반 온디바이스 모델도 사용합니다.
+
+## 2. 사전 준비
+
+### 2.1 공통 설치 항목
+
+| 항목 | 권장 버전 | 비고 |
+| --- | --- | --- |
+| Git | 최신 안정 버전 | 소스 코드 클론 |
+| Docker Desktop 또는 Docker Engine | Compose V2 지원 버전 | PostgreSQL, Redis, Backend, AI Server 실행 |
+| Java JDK | 21 | 백엔드와 Android Gradle 빌드에 필요 |
+| Android Studio | 최신 안정 버전 | 모바일 앱 빌드 및 디바이스 설치 |
+| Android SDK | compileSdk 35, targetSdk 35 | `mobile/app/build.gradle.kts` 기준 |
+| Python | 3.12 권장 | AI 서버 로컬 실행 시 필요 |
+| NVIDIA Container Toolkit | GPU 서버 배포 시 | `docker-compose.ai.yml`의 `gpus: all` 사용 시 필요 |
+
+Windows 환경에서는 PowerShell 기준으로 명령어를 실행할 수 있습니다. Linux/macOS에서는 `gradlew.bat` 대신 `./gradlew`를 사용합니다.
+
+### 2.2 포트
+
+| 서비스 | 기본 포트 | 설명 |
+| --- | --- | --- |
+| Backend | `8080` | Spring Boot API |
+| PostgreSQL | `5432` | Docker Compose DB |
+| Redis | `6379` | Docker Compose Redis |
+| AI Server | `8000` | FastAPI 수어 추론 서버 |
+
+운영 서버에서는 외부에 Backend만 공개하고, PostgreSQL/Redis/AI Server는 내부 네트워크 또는 보안 그룹으로 제한하는 구성을 권장합니다.
+
+## 3. 소스 코드 준비
+
+```bash
+git clone <repository-url>
+cd S14P31A404
+```
+
+이미 소스가 있는 경우 최신 브랜치를 내려받습니다.
+
+```bash
+git pull
+```
+
+프로젝트 루트 기준 주요 파일은 다음과 같습니다.
+
+```text
+S14P31A404/
+  docker-compose.yml
+  docker-compose.ai.yml
+  .env.example
+  backend/
+  mobile/
+  ai/
+  docs/
+```
+
+## 4. 환경 변수 설정
+
+루트의 `.env.example`을 복사해 `.env`를 만듭니다.
+
+```bash
+copy .env.example .env
+```
+
+Linux/macOS:
+
+```bash
+cp .env.example .env
+```
+
+민감 정보는 저장소에 커밋하지 않습니다. 실제 운영/시연 서버에서는 `.env` 값을 서버 환경에 맞게 교체해야 합니다.
+
+### 4.1 인프라 및 백엔드 필수 값
+
+| 키 | 예시 | 설명 |
+| --- | --- | --- |
+| `SPRING_PROFILES_ACTIVE` | `dev` 또는 `prod` | Spring 프로파일 |
+| `POSTGRES_DB` | `appdb` | PostgreSQL DB 이름 |
+| `POSTGRES_PORT` | `5432` | 호스트에 노출할 DB 포트 |
+| `DB_URL` | `jdbc:postgresql://localhost:5432/appdb` | 로컬 직접 실행용 DB URL |
+| `DB_USERNAME` | `appuser` | DB 사용자 |
+| `DB_PASSWORD` | `apppassword` | DB 비밀번호 |
+| `REDIS_HOST` | `localhost` | 로컬 직접 실행용 Redis 호스트 |
+| `REDIS_PORT` | `6379` | Redis 포트 |
+| `REDIS_PASSWORD` | `redispassword` | Redis 비밀번호 |
+| `BACKEND_PORT` | `8080` | Docker Compose에서 노출할 백엔드 포트 |
+| `SPRING_FLYWAY_ENABLED` | `true` | Flyway 마이그레이션 활성화 여부 |
+
+Docker Compose로 백엔드까지 실행할 때는 Compose 파일에서 `DB_URL` 기본값을 `jdbc:postgresql://db:5432/appdb`, `REDIS_HOST` 기본값을 `redis`로 보정합니다. 로컬에서 Gradle로 백엔드를 직접 실행할 때는 `.env`의 `DB_URL`, `REDIS_HOST`가 로컬 접속 가능한 값이어야 합니다.
+
+### 4.2 JWT 및 보안
+
+| 키 | 설명 |
+| --- | --- |
+| `AUTH_JWT_SECRET` | 최소 32바이트 이상의 JWT 서명 키 |
+| `AUTH_JWT_ISSUER` | 토큰 발급자 식별자 |
+| `AUTH_ACCESS_TOKEN_TTL_SECONDS` | Access Token 만료 시간 |
+| `AUTH_REFRESH_TOKEN_TTL_SECONDS` | Refresh Token 만료 시간 |
+| `AUTH_REFRESH_COOKIE_NAME` | Refresh Cookie 이름 |
+| `AUTH_REFRESH_COOKIE_SECURE` | HTTPS 운영 환경에서는 `true` 권장 |
+| `AUTH_REFRESH_COOKIE_SAME_SITE` | `Lax`, `Strict`, `None` 중 환경에 맞게 설정 |
+| `AUTH_REFRESH_COOKIE_PATH` | Refresh Cookie path |
+| `SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS` | 허용할 Origin 패턴 |
+
+운영 환경에서는 `AUTH_JWT_SECRET`, DB/Redis 비밀번호, 외부 API 키를 반드시 개발값과 다르게 설정합니다.
+
+### 4.3 외부 AI 및 음성 API
+
+| 키 | 설명 |
+| --- | --- |
+| `GMS_KEY` | Gemini GMS API 키 |
+| `GEMINI_MODEL` | 기본값 `gemini-2.5-flash-lite` |
+| `GEMINI_BASE_URL` | SSAFY GMS Gemini API base URL |
+| `CLOVA_CLIENT_ID` | Naver Clova API Client ID |
+| `CLOVA_CLIENT_SECRET` | Naver Clova API Client Secret |
+| `CLOVA_TTS_URL` | Clova TTS URL |
+| `CLOVA_TTS_SPEAKER` | TTS 화자 |
+| `CLOVA_TTS_FORMAT` | TTS 포맷, 기본 `mp3` |
+| `CLOVA_STT_URL` | Clova STT URL |
+| `CLOVA_STT_LANGUAGE` | STT 언어, 기본 `Kor` |
+| `CLOVA_SPEECH_GRPC_ENDPOINT` | Clova Speech Streaming gRPC endpoint |
+| `CLOVA_SPEECH_SECRET_KEY` | Clova Speech secret key |
+| `TRANSLATION_STT_MODE` | `REST`, `STREAMING`, `AUTO` |
+
+### 4.4 수어 AI 서버 설정
+
+| 키 | 설명 |
+| --- | --- |
+| `SIGN_AI_BASE_URL` | 로컬에서 Spring Boot를 직접 실행할 때 사용할 AI 서버 URL |
+| `BACKEND_SIGN_AI_BASE_URL` | Docker Compose 백엔드 컨테이너에 주입할 AI 서버 URL |
+| `SIGN_AI_CONNECT_TIMEOUT` | AI 서버 연결 타임아웃 |
+| `SIGN_AI_READ_TIMEOUT` | AI 서버 응답 타임아웃 |
+| `SIGN_MODEL_ARTIFACT_PATH` | Docker에서 `/models`로 마운트할 호스트 모델 디렉터리 |
+| `SIGN_MODEL_CONTAINER_PATH` | 컨테이너 내부 모델 파일 경로 |
+| `SIGN_TRAIN_CONFIG_CONTAINER_PATH` | 컨테이너 내부 학습 설정 파일 경로 |
+| `SIGN_LABEL_MAP_CONTAINER_PATH` | 컨테이너 내부 라벨맵 파일 경로 |
+| `SIGN_MODEL_MODULE_CONTAINER_PATH` | 컨테이너 내부 `model.py` 경로 |
+| `SIGN_CONFIDENCE_THRESHOLD` | 추론 승인 confidence 기준 |
+| `SIGN_NONE_LABEL` | none 라벨명 |
+| `SIGN_MODEL_VERSION` | 모델 버전 식별자 |
+
+AI 서버 모델 artifact 디렉터리에는 기본적으로 다음 파일이 필요합니다.
+
+```text
+best_sign_model_v6.pt
+train_config_v6.json
+label_map_v6.json
+model.py
+```
+
+현재 저장소에는 모바일 온디바이스용 TFLite 모델은 포함되어 있지만, 서버용 PyTorch 모델 artifact는 별도 준비가 필요합니다.
+
+### 4.5 모바일 빌드 설정
+
+모바일 Gradle 빌드는 루트 `.env`와 `mobile/local.properties`를 함께 읽습니다.
+
+| 키 | 위치 | 설명 |
+| --- | --- | --- |
+| `MOBILE_API_BASE_URL` | `.env` 또는 `mobile/local.properties` | Android 앱이 호출할 Backend API URL |
+| `NAVER_CLIENT_ID` | `.env` 또는 `mobile/local.properties` | Naver OAuth Client ID |
+| `NAVER_CLIENT_SECRET` | `.env` 또는 `mobile/local.properties` | Naver OAuth Client Secret |
+| `NAVER_CLIENT_NAME` | `.env` 또는 `mobile/local.properties` | Naver OAuth 앱 이름 |
+| `SLLM_MODEL_DOWNLOAD_URL` | `.env` 또는 Gradle property | 앱에서 내려받을 LiteRT-LM 모델 URL |
+| `REPORT_USE_FAKE_DATA` | `.env` 또는 Gradle property | 리포트 화면 fake data 사용 여부 |
+| `QWEN_MODEL_LOCAL_PATH` | `mobile/local.properties` | Debug APK에 포함할 로컬 Qwen 모델 경로 |
+
+Android Emulator에서 로컬 PC의 백엔드를 호출할 경우 다음 값을 사용합니다.
+
+```properties
+MOBILE_API_BASE_URL=http://10.0.2.2:8080/api/
+```
+
+실기기에서 개발 PC의 백엔드를 호출할 경우 PC와 휴대폰이 같은 네트워크에 있어야 하며, PC LAN IP를 사용합니다.
+
+```properties
+MOBILE_API_BASE_URL=http://<PC-LAN-IP>:8080/api/
+```
+
+운영 서버를 바라보는 APK는 HTTPS 주소를 사용합니다.
+
+```properties
+MOBILE_API_BASE_URL=https://<domain>/api/
+```
+
+## 5. 백엔드 실행
+
+### 5.1 DB/Redis만 Docker로 실행하고 백엔드는 로컬 실행
+
+개발 중 가장 다루기 쉬운 방식입니다.
+
+```bash
+docker compose up -d db redis
+```
+
+백엔드를 실행합니다.
+
+Windows:
+
+```bash
+cd backend
+.\gradlew.bat bootRun
+```
+
+Linux/macOS:
+
+```bash
+cd backend
+./gradlew bootRun
+```
+
+정상 실행 후 확인합니다.
+
+```bash
+curl http://localhost:8080/health
+```
+
+Swagger/OpenAPI UI는 SpringDoc 설정에 따라 다음 주소에서 확인할 수 있습니다.
+
+```text
+http://localhost:8080/swagger-ui/index.html
+```
+
+### 5.2 백엔드 Docker 이미지 빌드 및 실행
+
+백엔드까지 Compose로 실행합니다.
+
+```bash
+docker compose up -d --build db redis backend
+```
+
+로그 확인:
+
+```bash
+docker compose logs -f backend
+```
+
+서비스 중지:
+
+```bash
+docker compose down
+```
+
+볼륨까지 삭제해 DB/Redis 데이터를 초기화해야 할 때만 다음 명령을 사용합니다.
+
+```bash
+docker compose down -v
+```
+
+## 6. AI 서버 실행
+
+### 6.1 로컬 Python 실행
+
+서버용 모델 artifact를 준비한 뒤 환경 변수를 지정합니다.
+
+Windows PowerShell:
+
+```powershell
+cd ai\ai-server
+$env:SIGN_MODEL_PATH="C:\path\to\sign-model-artifact\best_sign_model_v6.pt"
+$env:SIGN_TRAIN_CONFIG_PATH="C:\path\to\sign-model-artifact\train_config_v6.json"
+$env:SIGN_LABEL_MAP_PATH="C:\path\to\sign-model-artifact\label_map_v6.json"
+$env:SIGN_MODEL_MODULE_PATH="C:\path\to\sign-model-artifact\model.py"
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+상태 확인:
+
+```bash
+curl http://localhost:8000/health
+```
+
+모델이 정상 로드되면 HTTP 200과 `modelLoaded: true`가 반환됩니다. 모델 로드 전 또는 실패 시 HTTP 503이 반환될 수 있습니다.
+
+### 6.2 같은 Docker Compose에서 AI 서버 함께 실행
+
+`local-ai` profile을 켜면 `docker-compose.yml` 안의 AI 서버가 함께 실행됩니다.
+
+```bash
+docker compose --profile local-ai up -d --build db redis ai-server backend
+```
+
+이 방식에서는 백엔드 컨테이너가 Docker 네트워크 내부의 `http://ai-server:8000`으로 AI 서버를 호출합니다. `.env`의 `BACKEND_SIGN_AI_BASE_URL`은 다음처럼 설정합니다.
+
+```properties
+BACKEND_SIGN_AI_BASE_URL=http://ai-server:8000
+```
+
+### 6.3 GPU 서버에 AI 서버 단독 배포
+
+GPU 서버에서는 `docker-compose.ai.yml`을 사용합니다.
+
+```bash
+docker compose -f docker-compose.ai.yml up -d --build
+```
+
+외부 백엔드 서버에서 접근해야 한다면 다음 값을 설정합니다.
+
+```properties
+AI_SERVER_BIND_HOST=0.0.0.0
+AI_SERVER_PORT=8000
+SIGN_MODEL_ARTIFACT_PATH=/srv/sign-ai/models/v6_24words_tcn
+```
+
+백엔드 서버의 `.env`에는 AI 서버 주소를 지정합니다.
+
+```properties
+BACKEND_SIGN_AI_BASE_URL=http://<gpu-private-ip>:8000
+```
+
+보안상 `8000` 포트는 백엔드 서버에서만 접근 가능하도록 제한합니다.
+
+## 7. 모바일 앱 포팅
+
+### 7.1 Android SDK 설정
+
+`mobile/local.properties`에 Android SDK 경로를 설정합니다.
+
+Windows 예시:
+
+```properties
+sdk.dir=C:/Users/<user>/AppData/Local/Android/Sdk
+```
+
+Android Studio에서 프로젝트를 열면 일반적으로 자동 생성됩니다.
+
+### 7.2 필수 모델 파일 배치
+
+MediaPipe Holistic landmark 모델은 저장소에 포함되어 있지 않으므로 직접 내려받아 배치해야 합니다.
+
+배치 경로:
+
+```text
+mobile/app/src/main/assets/models/holistic_landmarker.task
+```
+
+다운로드 URL:
+
+```text
+https://storage.googleapis.com/mediapipe-models/holistic_landmarker/holistic_landmarker/float16/1/holistic_landmarker.task
+```
+
+파일이 없으면 카메라 기반 landmark 추출과 수어 인식 기능이 정상 동작하지 않습니다.
+
+### 7.3 온디바이스 수어 모델
+
+다음 TFLite 모델과 설정 파일은 저장소의 모바일 assets에 포함되어 있습니다.
+
+```text
+mobile/app/src/main/assets/models/best_sign_model_v7_float16.tflite
+mobile/app/src/main/assets/models/sign_model_v6_float16.tflite
+mobile/app/src/main/assets/models/sign_model_v6_float32.tflite
+mobile/app/src/main/assets/models/label_map_v7.json
+mobile/app/src/main/assets/models/label_map_v6.json
+mobile/app/src/main/assets/models/train_config_v7.json
+mobile/app/src/main/assets/models/train_config_v6.json
+```
+
+### 7.4 Qwen LiteRT-LM 모델
+
+Qwen LiteRT-LM 모델은 용량 문제로 저장소에 포함하지 않습니다. 앱의 마이페이지 모델 다운로드 흐름에서 `SLLM_MODEL_DOWNLOAD_URL`을 통해 받을 수 있습니다.
+
+Debug APK에 모델을 미리 포함하려면 `mobile/local.properties`에 다음 값을 추가합니다.
+
+```properties
+QWEN_MODEL_LOCAL_PATH=C:/path/to/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm
+```
+
+또는 기본 위치에 파일을 둡니다.
+
+```text
+mobile/local-models/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm
+```
+
+파일이 있으면 `mergeDebugAssets` 단계에서 Debug assets로 자동 복사됩니다. 파일이 없어도 빌드는 계속 진행됩니다.
+
+### 7.5 모바일 빌드 및 설치
+
+Windows:
+
+```powershell
+cd mobile
+.\gradlew.bat assembleDebug
+.\gradlew.bat installDebug
+```
+
+Linux/macOS:
+
+```bash
+cd mobile
+./gradlew assembleDebug
+./gradlew installDebug
+```
+
+검증용 전체 명령:
+
+```bash
+./gradlew ktlintCheck detekt lintDebug testDebugUnitTest assembleDebug --no-daemon
+```
+
+USB 디바이스가 인식되지 않으면 다음을 먼저 확인합니다.
+
+```bash
+adb devices
+```
+
+실기기 테스트 시 휴대폰과 백엔드 서버가 같은 네트워크에 있거나, 운영 서버 HTTPS 주소를 바라보도록 `MOBILE_API_BASE_URL`을 설정해야 합니다.
+
+## 8. 전체 서비스 Docker 배포 절차
+
+### 8.1 단일 서버 배포
+
+단일 서버에서 PostgreSQL, Redis, Backend, AI Server를 모두 실행하는 절차입니다.
+
+1. 서버에 Docker와 Docker Compose를 설치합니다.
+2. 프로젝트를 서버에 클론합니다.
+3. `.env.example`을 `.env`로 복사하고 운영 값을 입력합니다.
+4. 서버용 AI 모델 artifact 디렉터리를 준비합니다.
+5. `SIGN_MODEL_ARTIFACT_PATH`를 artifact 디렉터리로 설정합니다.
+6. 다음 명령으로 실행합니다.
+
+```bash
+docker compose --profile local-ai up -d --build
+```
+
+상태 확인:
+
+```bash
+docker compose ps
+docker compose logs -f backend
+docker compose logs -f ai-server
+```
+
+### 8.2 Backend와 AI 서버 분리 배포
+
+AI 서버를 GPU 서버에 두고 Backend를 별도 서버에 두는 운영 권장 구성입니다.
+
+GPU 서버:
+
+```bash
+docker compose -f docker-compose.ai.yml up -d --build
+```
+
+Backend 서버:
+
+```bash
+docker compose up -d --build db redis backend
+```
+
+Backend 서버 `.env`:
+
+```properties
+BACKEND_SIGN_AI_BASE_URL=http://<gpu-private-ip>:8000
+```
+
+이 구성에서는 `local-ai` profile을 켜지 않습니다.
+
+## 9. DB 마이그레이션
+
+백엔드는 Flyway를 사용하며 migration 파일은 다음 경로에 있습니다.
+
+```text
+backend/src/main/resources/db/migration/
+```
+
+마이그레이션을 백엔드 시작 시 자동 적용하려면 다음 값을 설정합니다.
+
+```properties
+SPRING_FLYWAY_ENABLED=true
+```
+
+개발 프로파일에서는 `out-of-order: true`, 운영 프로파일에서는 `out-of-order: false`로 설정되어 있습니다.
+
+초기 데이터가 꼬였거나 개발 DB를 완전히 초기화해야 하는 경우에만 Docker 볼륨을 삭제합니다.
+
+```bash
+docker compose down -v
+docker compose up -d db redis
+```
+
+운영 DB에서는 볼륨 삭제 명령을 사용하지 않습니다.
+
+## 10. API 및 동작 확인
+
+### 10.1 Backend health check
+
+```bash
+curl http://localhost:8080/health
+```
+
+### 10.2 AI Server health check
+
+```bash
+curl http://localhost:8000/health
+```
+
+### 10.3 Swagger 확인
+
+```text
+http://localhost:8080/swagger-ui/index.html
+```
+
+### 10.4 모바일 앱 확인 항목
+
+1. 앱 실행 후 로그인/회원가입 화면이 정상 표시되는지 확인합니다.
+2. Naver OAuth를 사용하는 경우 Client ID, Secret, Client Name이 주입되었는지 확인합니다.
+3. 학습 카테고리/단어 목록 API가 정상 호출되는지 확인합니다.
+4. 카메라 권한 허용 후 수어 인식 화면에서 landmark 모델 오류가 없는지 확인합니다.
+5. 마이페이지에서 Qwen 모델 다운로드 URL이 정상 동작하는지 확인합니다.
+6. 실기기에서는 `MOBILE_API_BASE_URL`이 실제 접근 가능한 서버 주소인지 확인합니다.
+
+## 11. 품질 검증 명령
+
+### 11.1 Backend
+
+```bash
+cd backend
+./gradlew spotlessCheck --no-daemon
+./gradlew test --no-daemon
+./gradlew build -x test --no-daemon
+```
+
+Windows:
+
+```powershell
+cd backend
+.\gradlew.bat spotlessCheck --no-daemon
+.\gradlew.bat test --no-daemon
+.\gradlew.bat build -x test --no-daemon
+```
+
+### 11.2 Mobile
+
+```bash
+cd mobile
+./gradlew ktlintCheck detekt lintDebug testDebugUnitTest assembleDebug --no-daemon
+```
+
+Windows:
+
+```powershell
+cd mobile
+.\gradlew.bat ktlintCheck detekt lintDebug testDebugUnitTest assembleDebug --no-daemon
+```
+
+### 11.3 AI Server
+
+```bash
+cd ai/ai-server
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+curl http://localhost:8000/health
+```
+
+## 12. 운영 배포 체크리스트
+
+배포 전 다음 항목을 확인합니다.
+
+| 항목 | 확인 내용 |
+| --- | --- |
+| 환경 변수 | `.env`가 운영 값으로 교체되었는지 확인 |
+| Secret | JWT, DB, Redis, GMS, Clova, Naver OAuth 키가 개발값이 아닌지 확인 |
+| HTTPS | 모바일 앱의 `MOBILE_API_BASE_URL`이 HTTPS 운영 주소인지 확인 |
+| CORS | 운영 도메인이 `SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS`에 포함되었는지 확인 |
+| DB | 운영 DB 볼륨 또는 외부 DB 백업 정책 확인 |
+| Flyway | `SPRING_FLYWAY_ENABLED=true` 여부와 migration 순서 확인 |
+| Redis | 비밀번호 설정 및 외부 노출 차단 |
+| AI Server | 모델 artifact 경로, GPU 런타임, health check 확인 |
+| Mobile assets | `holistic_landmarker.task` 포함 여부 확인 |
+| OAuth | Naver OAuth redirect/package 설정 확인 |
+| 로그 | Backend와 AI 서버 로그에 민감 정보가 출력되지 않는지 확인 |
+
+## 13. 자주 발생하는 문제
+
+### 13.1 Backend가 DB에 연결하지 못함
+
+증상:
+
+```text
+Connection refused
+FATAL: password authentication failed
+```
+
+확인:
+
+1. `docker compose ps`로 `db`가 healthy 상태인지 확인합니다.
+2. 로컬 직접 실행이면 `DB_URL=jdbc:postgresql://localhost:5432/appdb`인지 확인합니다.
+3. Docker 백엔드 실행이면 컨테이너 내부에서 `db` 호스트를 사용해야 합니다.
+4. `DB_USERNAME`, `DB_PASSWORD`, `POSTGRES_DB`가 DB 생성 값과 일치하는지 확인합니다.
+
+### 13.2 Redis 인증 오류
+
+증상:
+
+```text
+NOAUTH Authentication required
+```
+
+확인:
+
+1. `.env`의 `REDIS_PASSWORD`와 Docker Compose의 Redis password가 일치하는지 확인합니다.
+2. 로컬 직접 실행이면 `REDIS_HOST=localhost`인지 확인합니다.
+3. Docker 백엔드 실행이면 `REDIS_HOST=redis`가 주입되는지 확인합니다.
+
+### 13.3 AI 서버 health check가 503을 반환함
+
+원인:
+
+1. 모델 파일 경로가 잘못되었습니다.
+2. `train_config_v6.json`, `label_map_v6.json`, `model.py` 중 일부가 없습니다.
+3. PyTorch 모델과 `model.py` 구조가 일치하지 않습니다.
+
+확인:
+
+```bash
+docker compose logs -f ai-server
+```
+
+`SIGN_MODEL_ARTIFACT_PATH`와 컨테이너 내부 `/models` 경로가 맞는지 확인합니다.
+
+### 13.4 모바일 앱이 로컬 서버에 접근하지 못함
+
+확인:
+
+1. Emulator는 `localhost`가 아니라 `10.0.2.2`를 사용합니다.
+2. 실기기는 PC의 LAN IP를 사용합니다.
+3. PC 방화벽에서 `8080` 포트를 허용합니다.
+4. `MOBILE_API_BASE_URL` 끝에 `/api/`가 포함되어 있는지 확인합니다.
+
+예시:
+
+```properties
+MOBILE_API_BASE_URL=http://10.0.2.2:8080/api/
+```
+
+### 13.5 모바일 수어 인식 화면에서 모델 오류 발생
+
+확인:
+
+1. `mobile/app/src/main/assets/models/holistic_landmarker.task` 파일이 있는지 확인합니다.
+2. TFLite 모델과 `label_map`, `train_config` 파일이 assets에 있는지 확인합니다.
+3. 카메라 권한이 허용되었는지 확인합니다.
+
+### 13.6 Qwen 모델 다운로드 오류
+
+확인:
+
+1. `SLLM_MODEL_DOWNLOAD_URL`이 접근 가능한 HTTPS URL인지 확인합니다.
+2. 네트워크가 대용량 파일 다운로드를 허용하는지 확인합니다.
+3. Debug APK에 직접 포함하려면 `QWEN_MODEL_LOCAL_PATH` 파일이 실제 존재하는지 확인합니다.
+
+### 13.7 Gradle 빌드 실패
+
+확인:
+
+1. Java 21이 사용 중인지 확인합니다.
+2. Android SDK 35가 설치되어 있는지 확인합니다.
+3. Windows에서는 `gradlew.bat`, Linux/macOS에서는 `./gradlew`를 사용합니다.
+4. 최초 빌드는 의존성 다운로드 때문에 시간이 오래 걸릴 수 있습니다.
+
+## 14. 참고 파일
+
+| 파일 | 설명 |
+| --- | --- |
+| `README.md` | 프로젝트 공통 검증 명령 |
+| `.env.example` | 환경 변수 템플릿 |
+| `docker-compose.yml` | DB, Redis, Backend, local AI 통합 실행 |
+| `docker-compose.ai.yml` | GPU AI 서버 단독 실행 |
+| `backend/src/main/resources/application.yml` | 백엔드 공통 설정 |
+| `backend/src/main/resources/application-dev.yml` | 개발 프로파일 설정 |
+| `backend/src/main/resources/application-prod.yml` | 운영 프로파일 설정 |
+| `backend/src/main/resources/db/migration/` | Flyway migration |
+| `mobile/README.md` | 모바일 모델 파일 및 빌드 설명 |
+| `mobile/app/build.gradle.kts` | 모바일 빌드 설정 및 BuildConfig 주입 |
+| `ai/ai-server/README.md` | AI 서버 실행 설명 |
+| `ai/ai-server/app/main.py` | AI 서버 endpoint |
+
