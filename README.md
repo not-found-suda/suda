@@ -1,10 +1,133 @@
-# S14P31A404
+# SUDA
 
-## 필수 버전
+청각장애 아동과 보호자의 의사소통 및 학습을 지원하는 Android 기반 수어 학습/번역 서비스입니다.
+
+## 프로젝트 구성
+
+```text
+.
+├── backend/              # Spring Boot API 서버
+├── mobile/               # Android 앱
+├── ai/                   # 수어 인식 AI 서버 및 학습/추론 코드
+├── docs/                 # API, ERD, 아키텍처, 요구사항 문서
+├── docker-compose.yml    # Backend, DB, Redis, AI 서버 통합 실행
+├── docker-compose.ai.yml # AI 서버 단독 배포용 Compose
+└── exec/                 # 제출용 포팅 매뉴얼, DB 덤프, 시연 시나리오
+```
+
+## 기술 스택
+
+### Backend
 
 - Java 21
+- Spring Boot 4.0.5
+- Gradle 9.4.1
+- PostgreSQL 16
+- Redis 7
+- Flyway
+- Docker
 
-## 백엔드 점검
+### Mobile
+
+- Android
+- Kotlin 2.3.20
+- Android Gradle Plugin 9.1.1
+- Jetpack Compose
+- Hilt
+- Room
+- Retrofit / OkHttp
+- MediaPipe
+- TensorFlow Lite / LiteRT
+
+### AI
+
+- Python 3.12
+- FastAPI
+- PyTorch
+- MediaPipe
+- Docker
+
+## 사전 준비
+
+### 공통
+
+- Java 21
+- Docker / Docker Compose
+- Git
+
+### Android
+
+- Android Studio
+- Android SDK 35
+- USB 디버깅이 가능한 Android 기기 또는 Emulator
+
+### 외부 파일
+
+아래 파일은 용량, 라이선스, 보안 문제로 Git에 포함하지 않습니다.
+
+#### MediaPipe Holistic 모델
+
+```text
+mobile/app/src/main/assets/models/holistic_landmarker.task
+```
+
+다운로드:
+
+```text
+https://storage.googleapis.com/mediapipe-models/holistic_landmarker/holistic_landmarker/float16/1/holistic_landmarker.task
+```
+
+#### AI 모델 파일
+
+AI 서버 실행 시 별도 artifact 디렉터리에 아래 파일을 배치해야 합니다.
+
+```text
+best_sign_model_v6.pt
+train_config_v6.json
+label_map_v6.json
+model.py
+```
+
+#### Qwen LiteRT-LM 모델
+
+온디바이스 문장 변환용 Qwen 모델은 Git에 포함하지 않습니다.
+앱 내 모델 다운로드 기능을 사용하거나 `mobile/local.properties`에 로컬 모델 경로를 지정합니다.
+
+```properties
+QWEN_MODEL_LOCAL_PATH=C:/path/to/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm
+```
+
+## 환경변수
+
+루트의 `.env.example`을 복사해 `.env`를 생성합니다.
+
+```bash
+cp .env.example .env
+```
+
+실제 secret 값은 Git에 커밋하지 않습니다.
+
+주요 환경변수:
+
+```text
+POSTGRES_DB
+DB_URL
+DB_USERNAME
+DB_PASSWORD
+REDIS_PASSWORD
+AUTH_JWT_SECRET
+GMS_KEY
+CLOVA_CLIENT_ID
+CLOVA_CLIENT_SECRET
+CLOVA_SPEECH_SECRET_KEY
+NAVER_CLIENT_ID
+NAVER_CLIENT_SECRET
+SIGN_AI_BASE_URL
+BACKEND_SIGN_AI_BASE_URL
+SLLM_MODEL_DOWNLOAD_URL
+```
+
+## Backend 빌드 및 검증
 
 ```bash
 cd backend
@@ -12,9 +135,70 @@ cd backend
 ./gradlew build -x test --no-daemon
 ```
 
-## 모바일 점검
+## Mobile 빌드 및 검증
 
 ```bash
 cd mobile
 ./gradlew ktlintCheck detekt lintDebug testDebugUnitTest assembleDebug --no-daemon
 ```
+
+Debug APK 빌드:
+
+```bash
+cd mobile
+./gradlew assembleDebug
+```
+
+디바이스 설치:
+
+```bash
+./gradlew installDebug
+```
+
+## Docker Compose 실행
+
+DB, Redis, Backend를 실행합니다.
+
+```bash
+docker compose up -d --build
+```
+
+로컬 AI 서버까지 함께 실행할 경우:
+
+```bash
+docker compose --profile local-ai up -d --build
+```
+
+AI 서버를 GPU 서버에 단독 배포할 경우:
+
+```bash
+docker compose -f docker-compose.ai.yml up -d --build
+```
+
+## 주요 문서
+
+- API 명세: `docs/api/api-spec.md`
+- ERD: `docs/architecture/erd.md`
+- 시스템 흐름: `docs/architecture/system-flow.md`
+- 모바일 실행 가이드: `mobile/README.md`
+- AI 서버 실행 가이드: `ai/ai-server/README.md`
+- 제출용 포팅 매뉴얼: `exec/README.md`
+
+## 제출 관련 주의사항
+
+Git에 포함하지 않는 파일:
+
+```text
+.env
+*.pem
+*.key
+*.pt
+*.pth
+ai/model-artifacts/
+local.properties
+keystore.properties
+secrets.xml
+```
+
+secret, API key, 비밀번호, 개인 로컬 경로는 커밋하지 않습니다.
+제출용 실행/배포 상세 문서는 `exec/` 폴더에 정리합니다.
