@@ -42,6 +42,35 @@ services:
       - app-network
     restart: unless-stopped
 
+  ai-server:
+    profiles:
+      - local-ai
+    build:
+      context: ./ai
+      dockerfile: ai-server/Dockerfile
+    container_name: ai-server
+    environment:
+      TZ: Asia/Seoul
+      SIGN_MODEL_PATH: ${SIGN_MODEL_CONTAINER_PATH:-/models/best_sign_model_v6.pt}
+      SIGN_TRAIN_CONFIG_PATH: ${SIGN_TRAIN_CONFIG_CONTAINER_PATH:-/models/train_config_v6.json}
+      SIGN_LABEL_MAP_PATH: ${SIGN_LABEL_MAP_CONTAINER_PATH:-/models/label_map_v6.json}
+      SIGN_MODEL_MODULE_PATH: ${SIGN_MODEL_MODULE_CONTAINER_PATH:-/models/model.py}
+      SIGN_CONFIDENCE_THRESHOLD: ${SIGN_CONFIDENCE_THRESHOLD:-0.80}
+      SIGN_NONE_LABEL: ${SIGN_NONE_LABEL:-none}
+      SIGN_MODEL_VERSION: ${SIGN_MODEL_VERSION:-}
+    volumes:
+      - ${SIGN_MODEL_ARTIFACT_PATH:-./ai/model-artifacts}:/models:ro
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import json, sys, urllib.request; data=json.load(urllib.request.urlopen('http://localhost:8000/health', timeout=2)); sys.exit(0 if data.get('modelLoaded') is True else 1)\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - app-network
+    restart: unless-stopped
+
   backend:
     build:
       context: ./backend
@@ -81,6 +110,16 @@ services:
       CLOVA_TTS_FORMAT: ${CLOVA_TTS_FORMAT:-mp3}
       CLOVA_STT_URL: ${CLOVA_STT_URL:-https://naveropenapi.apigw.ntruss.com/recog/v1/stt}
       CLOVA_STT_LANGUAGE: ${CLOVA_STT_LANGUAGE:-Kor}
+      CLOVA_SPEECH_GRPC_ENDPOINT: ${CLOVA_SPEECH_GRPC_ENDPOINT:-clovaspeech-gw.ncloud.com:50051}
+      CLOVA_SPEECH_SECRET_KEY: ${CLOVA_SPEECH_SECRET_KEY:-}
+      CLOVA_SPEECH_LANGUAGE: ${CLOVA_SPEECH_LANGUAGE:-ko}
+      CLOVA_SPEECH_POC_ENABLED: ${CLOVA_SPEECH_POC_ENABLED:-false}
+      CLOVA_SPEECH_POC_AUDIO_PATH: ${CLOVA_SPEECH_POC_AUDIO_PATH:-}
+      CLOVA_SPEECH_POC_SKIP_WAV_HEADER: ${CLOVA_SPEECH_POC_SKIP_WAV_HEADER:-false}
+      TRANSLATION_STT_MODE: ${TRANSLATION_STT_MODE:-REST}
+      SIGN_AI_BASE_URL: ${BACKEND_SIGN_AI_BASE_URL:-http://ai-server:8000}
+      SIGN_AI_CONNECT_TIMEOUT: ${SIGN_AI_CONNECT_TIMEOUT:-1s}
+      SIGN_AI_READ_TIMEOUT: ${SIGN_AI_READ_TIMEOUT:-1s}
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     networks:

@@ -85,43 +85,28 @@ class SignPredictionStabilizer(
         recentPredictions.addLast(result)
     }
 
-    private fun findStableCandidate(): StableSignPrediction? =
-        recentPredictions
-            .withIndex()
-            .groupBy { (_, prediction) -> prediction.gloss }
-            .mapValues { (_, indexedPredictions) ->
-                val predictions = indexedPredictions.map { (_, prediction) -> prediction }
-                PredictionVote(
-                    gloss = predictions.first().gloss,
-                    count = predictions.size,
-                    lastIndex = indexedPredictions.maxOf { (index, _) -> index },
-                    confidence =
-                        predictions
-                            .map { prediction -> prediction.confidence }
-                            .average()
-                            .toFloat(),
-                )
-            }.values
-            .filter { vote -> vote.count >= requiredVotes }
-            .filter { vote -> vote.lastIndex == recentPredictions.lastIndex }
-            .maxWithOrNull(
-                compareBy<PredictionVote> { vote -> vote.count }
-                    .thenBy { vote -> vote.lastIndex }
-                    .thenBy { vote -> vote.confidence },
-            )?.takeIf { vote -> vote.gloss.trim().lowercase() !in ignoredGlosses }
-            ?.let { vote ->
-                StableSignPrediction(
-                    gloss = vote.gloss,
-                    confidence = vote.confidence,
-                )
-            }
+    private fun findStableCandidate(): StableSignPrediction? {
+        val tailPredictions = recentPredictions.toList().takeLast(requiredVotes)
+        val candidateGloss = tailPredictions.lastOrNull()?.gloss
+        val isStable =
+            candidateGloss != null &&
+                tailPredictions.size == requiredVotes &&
+                tailPredictions.all { prediction -> prediction.gloss == candidateGloss } &&
+                candidateGloss.trim().lowercase() !in ignoredGlosses
 
-    private data class PredictionVote(
-        val gloss: String,
-        val count: Int,
-        val lastIndex: Int,
-        val confidence: Float,
-    )
+        return if (isStable && candidateGloss != null) {
+            StableSignPrediction(
+                gloss = candidateGloss,
+                confidence =
+                    tailPredictions
+                        .map { prediction -> prediction.confidence }
+                        .average()
+                        .toFloat(),
+            )
+        } else {
+            null
+        }
+    }
 
     companion object {
         const val DEFAULT_WINDOW_SIZE = 5
@@ -133,9 +118,6 @@ class SignPredictionStabilizer(
         val DEFAULT_IGNORED_GLOSSES = setOf("none", "unknown", "<none>", "<unknown>")
     }
 }
-
-private val <T> ArrayDeque<T>.lastIndex: Int
-    get() = size - 1
 
 data class StableSignPrediction(
     val gloss: String,

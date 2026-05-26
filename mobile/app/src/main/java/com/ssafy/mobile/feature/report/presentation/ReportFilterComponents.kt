@@ -1,4 +1,4 @@
-@file:Suppress("ComplexCondition", "MagicNumber", "TooManyFunctions")
+@file:Suppress("ComplexCondition", "MagicNumber", "MaxLineLength", "TooManyFunctions")
 
 package com.ssafy.mobile.feature.report.presentation
 
@@ -61,6 +61,7 @@ internal fun ReportFilterPanel(
             ReportFilterHeader(state = state)
             ReportDateRangePicker(
                 input = state.input,
+                anchorDate = state.anchorDate,
                 isError = state.errorMessage != null,
                 onInputChange = actions.onInputChange,
             )
@@ -85,6 +86,15 @@ internal fun ReportFilterPanel(
 
 @Composable
 private fun ReportFilterHeader(state: ReportFilterUiState) {
+    val currentRange = state.input.selectedQuickDateRange(state.anchorDate)
+    val badgeText =
+        when (currentRange) {
+            ReportQuickDateRange.CurrentWeek -> "이번주"
+            ReportQuickDateRange.Recent30Days -> "이번달"
+            ReportQuickDateRange.All -> "전체"
+            null -> "직접 설정"
+        }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -95,7 +105,7 @@ private fun ReportFilterHeader(state: ReportFilterUiState) {
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
-                text = "조회 조건",
+                text = "조회 기간",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
@@ -111,8 +121,15 @@ private fun ReportFilterHeader(state: ReportFilterUiState) {
         }
         Spacer(modifier = Modifier.width(12.dp))
         AppBadge(
-            text = if (state.hasAppliedFilter) "적용됨" else "전체",
-            tone = if (state.hasAppliedFilter) AppBadgeTone.Primary else AppBadgeTone.Neutral,
+            text = badgeText,
+            tone =
+                if (state.hasAppliedFilter ||
+                    currentRange != ReportQuickDateRange.All
+                ) {
+                    AppBadgeTone.Primary
+                } else {
+                    AppBadgeTone.Neutral
+                },
         )
     }
 }
@@ -183,6 +200,7 @@ private fun ReportFilterOptionSection(
 @Composable
 private fun ReportDateRangePicker(
     input: ReportFilterInputState,
+    anchorDate: LocalDate,
     isError: Boolean,
     onInputChange: (ReportFilterInputState) -> Unit,
 ) {
@@ -209,6 +227,7 @@ private fun ReportDateRangePicker(
             )
             ReportQuickPeriodRows(
                 input = input,
+                anchorDate = anchorDate,
                 onInputChange = onInputChange,
             )
             Row(
@@ -218,6 +237,7 @@ private fun ReportDateRangePicker(
                 ReportDateField(
                     label = "시작일",
                     value = input.from,
+                    anchorDate = anchorDate,
                     isError = isError,
                     onDateSelected = { selectedDate ->
                         onInputChange(input.copy(from = selectedDate))
@@ -227,6 +247,7 @@ private fun ReportDateRangePicker(
                 ReportDateField(
                     label = "종료일",
                     value = input.to,
+                    anchorDate = anchorDate,
                     isError = isError,
                     onDateSelected = { selectedDate ->
                         onInputChange(input.copy(to = selectedDate))
@@ -241,9 +262,10 @@ private fun ReportDateRangePicker(
 @Composable
 private fun ReportQuickPeriodRows(
     input: ReportFilterInputState,
+    anchorDate: LocalDate,
     onInputChange: (ReportFilterInputState) -> Unit,
 ) {
-    val selectedRange = input.selectedQuickDateRange()
+    val selectedRange = input.selectedQuickDateRange(anchorDate)
     val ranges = ReportQuickDateRange.entries
 
     Row(
@@ -254,7 +276,14 @@ private fun ReportQuickPeriodRows(
             ReportQuickPeriodButton(
                 text = range.label,
                 selected = selectedRange == range,
-                onClick = { onInputChange(input.applyQuickDateRange(range)) },
+                onClick = {
+                    onInputChange(
+                        input.applyQuickDateRange(
+                            range = range,
+                            anchorDate = anchorDate,
+                        ),
+                    )
+                },
                 modifier = Modifier.weight(1f),
             )
         }
@@ -265,6 +294,7 @@ private fun ReportQuickPeriodRows(
 private fun ReportDateField(
     label: String,
     value: String,
+    anchorDate: LocalDate,
     isError: Boolean,
     onDateSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -310,7 +340,7 @@ private fun ReportDateField(
     if (isCalendarOpen) {
         ReportCalendarDialog(
             title = "$label 선택",
-            initialDate = value.toReportDateOrNull() ?: LocalDate.now(),
+            initialDate = value.toReportDateOrNull() ?: anchorDate,
             onDismiss = { isCalendarOpen = false },
             onDateSelected = { selectedDate ->
                 isCalendarOpen = false

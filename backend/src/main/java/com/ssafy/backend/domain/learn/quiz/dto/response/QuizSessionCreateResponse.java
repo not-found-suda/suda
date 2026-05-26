@@ -2,6 +2,7 @@ package com.ssafy.backend.domain.learn.quiz.dto.response;
 
 import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
 import com.ssafy.backend.domain.learn.quiz.entity.QuizSessionStatus;
+import java.util.List;
 
 public record QuizSessionCreateResponse(
     Long sessionId,
@@ -9,4 +10,9 @@ public record QuizSessionCreateResponse(
     LearnDifficulty difficulty,
     Integer totalQuestionCount,
     Integer currentQuestionNumber,
-    QuizSessionStatus status) {}
+    QuizSessionStatus status,
+    List<QuestionItem> questions) {
+
+  public record QuestionItem(
+      Long questionId, Long wordId, Integer questionNumber, String targetText, String imageUrl) {}
+}

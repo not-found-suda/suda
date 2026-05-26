@@ -1,16 +1,18 @@
 """
-V100 training example:
+V100 training example (v7 - 117 classes):
 
-V6_DATA_DIR=./train_npy_v6 \
-V6_MODEL_DIR_NAME=v6_24words_tcn \
+V6_DATA_DIR=./processed_npy_v7 \
+V6_MODEL_DIR_NAME=v7_117words_tcn_balanced80 \
 V6_MODEL_TYPE=tcn \
 V6_EPOCHS=120 \
 V6_BATCH_SIZE=16 \
 V6_LR=0.001 \
 V6_WEIGHT_DECAY=0.0 \
-V6_BALANCED_SAMPLER=0 \
+V6_MAX_FILES_PER_CLASS=80 \
+V6_MAX_FILES_EXEMPT_CLASSES=병원,엄마,none \
+V6_BALANCED_SAMPLER=1 \
 V6_USE_AUGMENTATION=1 \
-V6_NORMALIZE_MODE=shoulder \
+V6_NORMALIZE_MODE=none \
 V6_TARGET_SAMPLES_PER_CLASS=120 \
 V6_EARLY_STOPPING=1 \
 V6_EARLY_STOPPING_PATIENCE=25 \
@@ -23,6 +25,7 @@ import copy
 import inspect
 import json
 import os
+import sys
 from collections import Counter
 
 import numpy as np
@@ -34,17 +37,38 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from dataset import create_dataloaders_v6
 from model import build_ksl_model_v6
-from target_words_v6 import TARGET_WORDS
+from target_words_v7 import TARGET_WORDS
+
+
+class TeeLogger:
+    """stdout/stderr를 터미널과 로그 파일에 동시에 출력."""
+
+    def __init__(self, stream, log_file):
+        self._stream = stream
+        self._log = log_file
+
+    def write(self, data):
+        self._stream.write(data)
+        self._stream.flush()
+        self._log.write(data)
+        self._log.flush()
+
+    def flush(self):
+        self._stream.flush()
+        self._log.flush()
+
+    def fileno(self):
+        return self._stream.fileno()
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.environ.get("V6_DATA_DIR", os.path.join(SCRIPT_DIR, "processed_npy_v6"))
+DATA_DIR = os.environ.get("V6_DATA_DIR", os.path.join(SCRIPT_DIR, "processed_npy_v7"))
 MODELS_ROOT = os.path.join(SCRIPT_DIR, "models")
-MODEL_DIR_NAME = os.environ.get("V6_MODEL_DIR_NAME", "v6_24words_tcn")
+MODEL_DIR_NAME = os.environ.get("V6_MODEL_DIR_NAME", "v7_117words_tcn_balanced80")
 MODEL_TYPE = os.environ.get("V6_MODEL_TYPE", "tcn").strip().lower()
-MODEL_FILE_BASENAME = "best_sign_model_v6"
-LABEL_MAP_BASENAME = "label_map_v6"
-CONFIG_BASENAME = "train_config_v6"
+MODEL_FILE_BASENAME = "best_sign_model_v7"
+LABEL_MAP_BASENAME = "label_map_v7"
+CONFIG_BASENAME = "train_config_v7"
 KEY_CLASSES = TARGET_WORDS
 
 
@@ -65,7 +89,7 @@ USE_CLASS_WEIGHTS = env_value("V6_USE_CLASS_WEIGHTS", "0", "V5_USE_CLASS_WEIGHTS
 USE_SCHEDULER = env_value("V6_USE_SCHEDULER", "0", "V5_USE_SCHEDULER") == "1"
 SCHEDULER_FACTOR = float(env_value("V6_SCHEDULER_FACTOR", "0.5", "V5_SCHEDULER_FACTOR"))
 SCHEDULER_PATIENCE = int(env_value("V6_SCHEDULER_PATIENCE", "12", "V5_SCHEDULER_PATIENCE"))
-USE_BALANCED_SAMPLER = env_value("V6_BALANCED_SAMPLER", "0", "V5_BALANCED_SAMPLER") == "1"
+USE_BALANCED_SAMPLER = env_value("V6_BALANCED_SAMPLER", "1", "V5_BALANCED_SAMPLER") == "1"
 SINGLE_BATCH_CHECK_STEPS = int(env_value("V6_SINGLE_BATCH_STEPS", "200", "V5_SINGLE_BATCH_STEPS"))
 USE_EARLY_STOPPING = env_value("V6_EARLY_STOPPING", "1", "V5_EARLY_STOPPING") == "1"
 EARLY_STOPPING_PATIENCE = int(env_value("V6_EARLY_STOPPING_PATIENCE", "25", "V5_EARLY_STOPPING_PATIENCE"))
@@ -94,13 +118,17 @@ def build_model(num_classes):
 
 def make_unique_model_dir(models_root, base_name):
     os.makedirs(models_root, exist_ok=True)
-    run_idx = 1
-    while True:
-        model_dir = os.path.join(models_root, f"{base_name}_{run_idx}")
-        if not os.path.exists(model_dir):
-            os.makedirs(model_dir, exist_ok=True)
-            return model_dir, run_idx
-        run_idx += 1
+    existing_indices = []
+    prefix = f"{base_name}_"
+    for entry in os.scandir(models_root):
+        if entry.is_dir() and entry.name.startswith(prefix):
+            suffix = entry.name[len(prefix):]
+            if suffix.isdigit():
+                existing_indices.append(int(suffix))
+    run_idx = max(existing_indices) + 1 if existing_indices else 1
+    model_dir = os.path.join(models_root, f"{base_name}_{run_idx}")
+    os.makedirs(model_dir, exist_ok=True)
+    return model_dir, run_idx
 
 
 def make_run_paths(model_dir):
@@ -132,6 +160,7 @@ def print_dataset_debug_info(classes, stats, class_weights):
     print(f"- val class counts: {stats['val_class_counts']}")
     print(f"- target variants: {stats['target_variants']}")
     print(f"- max files per class: {stats['max_files_per_class']}")
+    print(f"- max files exempt classes: {stats['max_files_exempt_classes']}")
     print(f"- file sample seed: {stats['file_sample_seed']}")
     print(f"- use augmentation: {stats['use_augmentation']}")
     print(f"- normalize mode: {stats['normalize_mode']}")
@@ -193,6 +222,7 @@ def save_train_config(config_path, classes, stats, run_idx):
             "val_class_counts": stats["val_class_counts"],
             "target_variants": stats["target_variants"],
             "max_files_per_class": stats["max_files_per_class"],
+            "max_files_exempt_classes": stats["max_files_exempt_classes"],
             "file_sample_seed": stats["file_sample_seed"],
             "total_size": stats["total_size"],
             "original_total_size": stats["original_total_size"],
@@ -220,7 +250,6 @@ def class_recall(cm, class_idx):
     if row_sum == 0:
         return 0.0
     return float(cm[class_idx][class_idx] / row_sum)
-
 
 
 def print_key_metrics(classes, cm):
@@ -354,7 +383,7 @@ def run_single_batch_overfit_check(model, criterion, optimizer, train_loader, de
 
 def train():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Start V6 24-word TCN training. device={device}")
+    print(f"Start V7 117-class TCN training. device={device}")
 
     if not os.path.exists(DATA_DIR):
         print(f"Data directory not found: {DATA_DIR}")
@@ -362,8 +391,16 @@ def train():
 
     model_dir, run_idx = make_unique_model_dir(MODELS_ROOT, MODEL_DIR_NAME)
     model_save_path, label_map_path, config_path = make_run_paths(model_dir)
+
+    # ── 로그 파일 설정: 터미널 + 모델 폴더 내 train.log 동시 출력 ──
+    log_path = os.path.join(model_dir, "train.log")
+    _log_file = open(log_path, "w", encoding="utf-8", buffering=1)
+    sys.stdout = TeeLogger(sys.stdout, _log_file)
+    sys.stderr = TeeLogger(sys.stderr, _log_file)
+
     print(f"Model output directory: {model_dir}")
     print(f"Run directory suffix: _{run_idx}")
+    print(f"Training log: {log_path}")
 
     train_loader, val_loader, classes, class_weights, stats = create_v6_dataloaders(device)
 
@@ -554,7 +591,7 @@ def train():
         )
 
     print(
-        f"\nV6 training complete! Best F1: {best_f1:.4f} | "
+        f"\nV7 training complete! Best F1: {best_f1:.4f} | "
         f"Val Acc@BestF1: {best_val_acc_at_best_f1:.2f}% | "
         f"Best Train Acc: {best_train_acc:.2f}%"
     )

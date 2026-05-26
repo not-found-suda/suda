@@ -15,8 +15,8 @@ import mediapipe as mp
 import numpy as np
 
 
-DEFAULT_MAPPING = "AI_Hub_Video_Mapping_v6.json"
-DEFAULT_OUTPUT_DIR = "processed_npy_v6"
+DEFAULT_MAPPING = "AI_Hub_Video_Mapping_v7.json"
+DEFAULT_OUTPUT_DIR = "processed_npy_v7"
 DEFAULT_MAX_WORKERS = 2
 DEFAULT_BATCH_SIZE = 4
 DEFAULT_TASKS_PER_CHILD = 1
@@ -289,7 +289,7 @@ def parse_args():
     parser.add_argument("--filekey-range", help="Inclusive range, e.g. 39547:39577.")
     parser.add_argument("--aihubshell", default="./aihubshell", help="Path to aihubshell.")
     parser.add_argument("--aihub-api-key", default=os.environ.get("AIHUB_API_KEY"))
-    parser.add_argument("--download-dir", default="./aihub_downloads_v6")
+    parser.add_argument("--download-dir", default="./aihub_downloads_v7")
     parser.add_argument("--mapping", default=DEFAULT_MAPPING)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--overwrite", action="store_true")

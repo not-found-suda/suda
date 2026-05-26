@@ -5,6 +5,8 @@ import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechReque
 import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechResponse
 import com.ssafy.mobile.feature.conversation.data.remote.model.SpeechToTextResponse
 import com.ssafy.mobile.feature.conversation.data.remote.model.TranslationFeedbackRequest
+import com.ssafy.mobile.feature.conversation.data.remote.model.TranslationSttConfigResponse
+import com.ssafy.mobile.feature.conversation.data.remote.model.TranslationSttModeDto
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
@@ -100,6 +102,9 @@ class DefaultTranslateRepositoryTest {
             ),
     ) : TranslateApiService {
         var speechToTextCallCount = 0
+
+        override suspend fun getSttConfig(): Response<TranslationSttConfigResponse> =
+            Response.success(TranslationSttConfigResponse(mode = TranslationSttModeDto.REST))
 
         override suspend fun translateSignToSpeech(
             request: SignToSpeechRequest,

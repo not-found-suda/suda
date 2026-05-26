@@ -4,13 +4,13 @@ object SignModelContract {
     const val BATCH_SIZE = 1
     const val SEQUENCE_LENGTH = 30
     const val FEATURE_DIMENSION = 332
-    const val CLASS_COUNT = 23
+    const val CLASS_COUNT = 117
     const val CONFIDENCE_THRESHOLD = 0.80f
     const val MARGIN_THRESHOLD = 0.0f
     const val FLOAT_BYTE_SIZE = 4
     const val FLAT_SEQUENCE_INPUT_SIZE = SEQUENCE_LENGTH * FEATURE_DIMENSION
     val MODEL_ASSET_PATH = SignModelVariant.DEFAULT.modelAssetPath
-    const val LABEL_MAP_ASSET_PATH = "models/label_map_v6.json"
+    const val LABEL_MAP_ASSET_PATH = "models/label_map_v7.json"
     const val UNKNOWN_GLOSS = "unknown"
     val inputShape: IntArray = intArrayOf(BATCH_SIZE, SEQUENCE_LENGTH, FEATURE_DIMENSION)
     val outputShape: IntArray = intArrayOf(BATCH_SIZE, CLASS_COUNT)

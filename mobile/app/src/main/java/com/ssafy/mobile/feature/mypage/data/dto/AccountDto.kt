@@ -2,6 +2,8 @@ package com.ssafy.mobile.feature.mypage.data.dto
 
 import com.ssafy.mobile.feature.mypage.domain.model.AccountInfo
 import com.ssafy.mobile.feature.mypage.domain.model.AccountUpdateResult
+import com.ssafy.mobile.feature.mypage.domain.model.TtsSpeakerOption
+import com.ssafy.mobile.feature.mypage.domain.model.TtsSpeakerUpdateResult
 
 data class AccountInfoResponseDto(
     val userId: Long,
@@ -42,5 +44,35 @@ data class AccountUpdateResponseDto(
             active = active,
             role = role,
             updatedAt = updatedAt,
+        )
+}
+
+data class TtsSpeakerOptionResponseDto(
+    val code: String,
+    val label: String,
+) {
+    fun toDomain(): TtsSpeakerOption =
+        TtsSpeakerOption(
+            code = code,
+            label = label,
+        )
+}
+
+data class TtsSpeakerOptionsResponseDto(
+    val speakers: List<TtsSpeakerOptionResponseDto>,
+)
+
+data class TtsSpeakerUpdateRequestDto(
+    val ttsSpeaker: String,
+)
+
+data class TtsSpeakerUpdateResponseDto(
+    val userId: Long,
+    val ttsSpeaker: String,
+) {
+    fun toDomain(): TtsSpeakerUpdateResult =
+        TtsSpeakerUpdateResult(
+            userId = userId,
+            ttsSpeaker = ttsSpeaker,
         )
 }

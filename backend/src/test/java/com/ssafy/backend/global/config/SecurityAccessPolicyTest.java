@@ -79,6 +79,7 @@ class SecurityAccessPolicyTest {
   void translationApisArePublic() throws Exception {
     mockMvc.perform(post("/api/v1/translation/sign-to-speech")).andExpect(status().isOk());
     mockMvc.perform(post("/api/v1/translation/speech-to-text")).andExpect(status().isOk());
+    mockMvc.perform(get("/api/v1/translation/stt-config")).andExpect(status().isOk());
   }
 
   @Test
@@ -202,6 +203,7 @@ class SecurityAccessPolicyTest {
       "/api/v1/auth/status",
       "/api/v1/users/me",
       "/api/v1/children",
+      "/api/v1/translation/stt-config",
       "/api/v1/health",
       "/v3/api-docs",
       "/swagger-ui/index.html",

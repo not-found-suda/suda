@@ -26,12 +26,7 @@ from model import build_ksl_model_v6
 SCRIPT_DIR = Path(__file__).resolve().parent
 MODELS_ROOT = SCRIPT_DIR / "models"
 DEFAULT_MODEL_DIR_NAMES = [
-    "v6_24words_mlp_1",
-    "v6_24words_mlp",
-    "v6_24words_transformer_1",
-    "v6_24words_transformer",
-    "v6_24words_transformer_baseline",
-    "attempt1_v6_24words_baseline",
+    "v7_117words_tcn_2",
 ]
 DEFAULT_MODEL_DIR = MODELS_ROOT / DEFAULT_MODEL_DIR_NAMES[0]
 
@@ -75,7 +70,7 @@ def resolve_model_dir(model_dir=None):
             return candidate
 
     numbered_dirs = [
-        path for path in MODELS_ROOT.glob("v6_24words_*_*")
+        path for path in MODELS_ROOT.glob("v7_117words_*_*")
         if path.is_dir() and path.name.rsplit("_", 1)[-1].isdigit()
     ]
     if numbered_dirs:
@@ -88,8 +83,7 @@ def find_latest_numbered_pair(model_dir):
     pairs = []
 
     for model_prefix, label_prefix, config_prefix in (
-        ("best_sign_model_v6_", "label_map_v6_", "train_config_v6_"),
-        ("best_sign_model_v5_", "label_map_v5_", "train_config_v5_"),
+        ("best_sign_model_v7_", "label_map_v7_", "train_config_v7_"),
     ):
         for model_path in model_dir.glob(f"{model_prefix}*.pt"):
             suffix = model_path.stem.replace(model_prefix, "")
@@ -106,8 +100,7 @@ def find_latest_numbered_pair(model_dir):
                 pairs.append((int(suffix), model_path, config_path))
 
     for legacy_model_name, legacy_label_name in (
-        ("best_sign_model_v6.pt", "label_map_v6.json"),
-        ("best_sign_model_v5.pt", "label_map_v5.json"),
+        ("best_sign_model_v7.pt", "label_map_v7.json"),
     ):
         legacy_model_path = model_dir / legacy_model_name
         legacy_label_map_path = model_dir / legacy_label_name
@@ -122,7 +115,7 @@ def find_latest_numbered_pair(model_dir):
 
 
 def load_train_config(model_path):
-    config_path = model_path.parent / "train_config_v6.json"
+    config_path = model_path.parent / "train_config_v7.json"
     if not config_path.exists():
         return {}
     with config_path.open("r", encoding="utf-8") as f:
@@ -333,10 +326,10 @@ def convert_pt_to_tflite(
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Convert V6 PyTorch model to TFLite.")
-    parser.add_argument("--model-dir", default=None, help="Model directory name/path. Defaults to the V6 24-word model.")
-    parser.add_argument("--model", default=None, help="Path to .pt model. Defaults to latest numbered V6 model.")
-    parser.add_argument("--label-map", default=None, help="Path to label_map_v6_*.json. Defaults to matching latest model.")
+    parser = argparse.ArgumentParser(description="Convert V7 PyTorch model to TFLite.")
+    parser.add_argument("--model-dir", default=None, help="Model directory name/path. Defaults to the V7 117-class model.")
+    parser.add_argument("--model", default=None, help="Path to .pt model. Defaults to latest numbered V7 model.")
+    parser.add_argument("--label-map", default=None, help="Path to label_map_v7_*.json. Defaults to matching latest model.")
     parser.add_argument("--onnx", default=None, help="Output .onnx path")
     parser.add_argument("--tflite", default=None, help="Output .tflite base path")
     parser.add_argument(
@@ -358,10 +351,10 @@ if __name__ == "__main__":
     label_map_path = Path(args.label_map) if args.label_map else latest_label_map_path
 
     if model_path is None or label_map_path is None:
-        model_path = model_dir / "best_sign_model_v6.pt"
-        label_map_path = model_dir / "label_map_v6.json"
+        model_path = model_dir / "best_sign_model_v7.pt"
+        label_map_path = model_dir / "label_map_v7.json"
 
-    output_stem = model_path.stem if model_path is not None else "best_sign_model_v6"
+    output_stem = model_path.stem if model_path is not None else "best_sign_model_v7"
     onnx_path = Path(args.onnx) if args.onnx else model_dir / f"{output_stem}.onnx"
     tflite_path = Path(args.tflite) if args.tflite else model_dir / f"{output_stem}.tflite"
 

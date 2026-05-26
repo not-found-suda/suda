@@ -80,17 +80,44 @@ class QwenLiteRtTranslationEngine(
             }
         }
 
-    override suspend fun translate(glossText: String): TranslationResult =
+    override suspend fun translate(
+        glossText: String,
+        sentenceType: String?,
+    ): TranslationResult =
         withContext(Dispatchers.Default) {
             val normalizedGloss = normalizeGloss(glossText)
             val start = System.currentTimeMillis()
+            childDirectedOverride(
+                glossText = normalizedGloss,
+                sentenceType = sentenceType,
+            )?.let { overriddenText ->
+                logDebug {
+                    "Qwen translate skipped by child-directed override. " +
+                        "gloss=${normalizedGloss.toLogPreview()}, " +
+                        "sentenceType=$sentenceType, " +
+                        "resolved=${overriddenText.toLogPreview()}"
+                }
+                return@withContext TranslationResult(
+                    glossText = glossText,
+                    koreanText = overriddenText,
+                    rawText = overriddenText,
+                    usedRuleBased = true,
+                    elapsedMs = System.currentTimeMillis() - start,
+                )
+            }
+
             if (!loaded) {
                 load()
             }
 
-            val prompt = buildUserPrompt(normalizedGloss)
+            val prompt =
+                buildUserPrompt(
+                    glossText = normalizedGloss,
+                    sentenceType = sentenceType,
+                )
             logDebug {
                 "Qwen translate start. gloss=${normalizedGloss.toLogPreview()}, " +
+                    "sentenceType=$sentenceType, " +
                     "promptChars=${prompt.length}"
             }
 
@@ -189,14 +216,36 @@ class QwenLiteRtTranslationEngine(
                 ),
         )
 
-    private fun buildUserPrompt(glossText: String): String =
+    private fun buildUserPrompt(
+        glossText: String,
+        sentenceType: String?,
+    ): String =
         """
-        다음 수어 gloss를 자연스러운 한국어 한 문장으로 바꿔.
+        다음 수어 gloss를 5세 이하 아이에게 말하듯 자연스러운 한국어 한 문장으로 바꿔.
 
         gloss: $glossText
+        문장유형: ${sentenceType.orEmpty().ifBlank { "미상" }}
 
         출력:
         """.trimIndent()
+
+    private fun childDirectedOverride(
+        glossText: String,
+        sentenceType: String?,
+    ): String? {
+        val normalizedTokens =
+            glossText
+                .split(' ')
+                .filter { token -> token.isNotBlank() && token != NONE_GLOSS }
+
+        val normalizedKey = normalizedTokens.joinToString(" ")
+        val override = CHILD_DIRECTED_SENTENCE_OVERRIDES[normalizedKey] ?: return null
+        return override.resolve(isQuestionSentenceType(sentenceType))
+    }
+
+    private fun isQuestionSentenceType(sentenceType: String?): Boolean =
+        sentenceType?.contains("의문") == true ||
+            sentenceType.equals("question", ignoreCase = true)
 
     private fun extractText(message: Message): String {
         val textFromContents =
@@ -335,6 +384,13 @@ class QwenLiteRtTranslationEngine(
         val backendName: String,
     )
 
+    private data class ChildDirectedSentenceOverride(
+        val statement: String,
+        val question: String,
+    ) {
+        fun resolve(isQuestion: Boolean): String = if (isQuestion) question else statement
+    }
+
     private fun resolveModelFile(): File {
         val externalModelFile =
             context
@@ -413,6 +469,90 @@ class QwenLiteRtTranslationEngine(
         private val HANGUL_END: Char = HANGUL_END_CODE.toChar()
         private val NEGATIVE_TOKENS = setOf("아니다", "없다", "못", "안")
         private val TIME_TOKENS = setOf("어제", "오늘", "내일", "지금")
+        private const val NONE_GLOSS = "none"
+        private val goRestaurantOverride =
+            ChildDirectedSentenceOverride(
+                statement = "배고프면 아빠랑 식당에 가자.",
+                question = "배고프면 아빠랑 식당에 갈까?",
+            )
+        private val comfortScaredOverride =
+            ChildDirectedSentenceOverride(
+                statement = "무서우면 아빠가 안아줄게.",
+                question = "무서우면 아빠가 안아줄까?",
+            )
+        private val treatPainOverride =
+            ChildDirectedSentenceOverride(
+                statement = "아프면 아빠가 치료해줄게.",
+                question = "아프면 아빠가 치료해줄까?",
+            )
+        private val carefulHandOverride =
+            ChildDirectedSentenceOverride(
+                statement = "손 조심해, 다치면 아파.",
+                question = "손 조심할까? 다치면 아파.",
+            )
+        private val sleepBlanketOverride =
+            ChildDirectedSentenceOverride(
+                statement = "이불 덮고 자자.",
+                question = "이불 덮고 잘까?",
+            )
+        private val coverBlanketOverride =
+            ChildDirectedSentenceOverride(
+                statement = "잘 때 아빠가 이불 덮어줄게.",
+                question = "잘 때 아빠가 이불 덮어줄까?",
+            )
+        private val helpUnknownOverride =
+            ChildDirectedSentenceOverride(
+                statement = "모르면 아빠가 도와줄게.",
+                question = "모르면 아빠가 도와줄까?",
+            )
+        private val comfortSadOverride =
+            ChildDirectedSentenceOverride(
+                statement = "슬프면 아빠가 안아줄게.",
+                question = "슬프면 아빠가 안아줄까?",
+            )
+        private val carefulRainWalkOverride =
+            ChildDirectedSentenceOverride(
+                statement = "비 오니까 조심해, 다치면 아파.",
+                question = "비 오니까 조심할까? 다치면 아파.",
+            )
+        private val carefulWalkOverride =
+            ChildDirectedSentenceOverride(
+                statement = "조심해서 걸어, 다치면 아파.",
+                question = "조심해서 걸을까? 다치면 아파.",
+            )
+        private val carefulRainOverride =
+            ChildDirectedSentenceOverride(
+                statement = "비 오니까 조심하자.",
+                question = "비 오니까 조심할까?",
+            )
+        private val comfortWindOverride =
+            ChildDirectedSentenceOverride(
+                statement = "바람이 무서우면 아빠가 안아줄게.",
+                question = "바람이 무서우면 아빠가 안아줄까?",
+            )
+        private val comfortMistakeOverride =
+            ChildDirectedSentenceOverride(
+                statement = "실수해도 괜찮아, 아빠가 있어.",
+                question = "실수해도 괜찮아, 아빠가 있을까?",
+            )
+        private val CHILD_DIRECTED_SENTENCE_OVERRIDES =
+            mapOf(
+                "배고프다 식당 엄마 가다" to goRestaurantOverride,
+                "배고프다 엄마 식당" to goRestaurantOverride,
+                "무섭다 엄마 위로" to comfortScaredOverride,
+                "아프다 엄마 치료" to treatPainOverride,
+                "손 조심 아프다" to carefulHandOverride,
+                "이불 자다" to sleepBlanketOverride,
+                "자다 엄마 이불" to coverBlanketOverride,
+                "모르다 엄마 돕다" to helpUnknownOverride,
+                "슬프다 엄마 위로" to comfortSadOverride,
+                "비 조심 걷다 아프다" to carefulRainWalkOverride,
+                "비 조심 아프다" to carefulRainWalkOverride,
+                "조심 걷다 아프다" to carefulWalkOverride,
+                "비 조심" to carefulRainOverride,
+                "바람 무섭다 엄마 위로" to comfortWindOverride,
+                "실수 괜찮다 엄마 위로" to comfortMistakeOverride,
+            )
         private val NEGATIVE_PREDICATES =
             mapOf(
                 "가다" to "가지 않습니다",
@@ -439,17 +579,80 @@ class QwenLiteRtTranslationEngine(
         private val SYSTEM_INSTRUCTION =
             """
             너는 한국 수어 gloss를 자연스러운 한국어 한 문장으로 바꾸는 변환기다.
+
+            상황:
+            - 말하는 사람은 농인 부모 또는 보호자이고, 듣는 사람은 5세 이하 아이다.
+            - 부모가 아이에게 직접 말하는 짧고 따뜻한 구어체 문장으로 만든다.
+            - 현재 모델에는 `아빠` 라벨이 없으므로, `엄마`가 있으면 아빠 또는 보호자가 아이에게 말하는 상황으로 해석한다.
+            - 출력에서 보호자 호칭이 필요하면 `엄마` 대신 `아빠`를 사용한다.
+            - 직접 말투가 더 자연스러우면 보호자 호칭은 생략할 수 있다.
+            - 수어 동작의 방향성은 항상 부모 또는 보호자가 아이에게 향하는 것으로 해석한다.
+            - `주다`, `받다`, `돕다`, `위로`, `치료`는 부모가 아이에게 해 주는 말이나 행동으로 바꾼다.
+
             규칙:
-            - 출력은 변환된 한국어 문장 하나만 쓴다.
-            - 설명, 영어, 따옴표, 번호, 후보 문장을 쓰지 않는다.
-            - 입력 gloss에 없는 사람, 장소, 시간, 감정, 이유를 새로 만들지 않는다.
-            - "none"은 무시한다.
-            - 같은 단어가 반복되면 한 번만 반영한다.
+            - 한국어 문장 하나만 출력한다.
+            - 설명, 영어, 따옴표, 번호, 후보 문장은 쓰지 않는다.
+            - 입력 gloss에 없는 사람, 장소, 시간, 감정, 이유는 새로 만들지 않는다.
+            - `none`은 무시하고, 반복 단어는 한 번만 반영한다.
             - 단어 순서가 어색하면 의미를 유지한 채 자연스러운 한국어 어순으로만 바꾼다.
             - 의학적 진단, 원인, 처방은 추측하지 않는다.
-            - 의미가 애매하면 짧고 안전한 문장으로 만든다.
-            - 명사만 있으면 "~입니다." 형태로 답한다.
-            - 싫다, 없다, 모르다 같은 표현은 의미가 바뀌지 않게 반영한다.
+            - 의미가 애매하면 아이에게 말해도 안전한 짧은 문장으로 만든다.
+            - 예시처럼 짧고 다정한 보호자 말투를 우선 사용한다.
+            - 문장 유형이 평서문이면 제안이나 약속 형태로 말한다.
+            - 문장 유형이 의문문이면 아이에게 묻는 형태로 말한다.
+
+            예시:
+            gloss: 배고프다 식당 엄마 가다
+            문장유형: 평서문
+            출력: 배고프면 아빠랑 식당에 가자.
+
+            gloss: 배고프다 엄마 식당
+            문장유형: 의문문
+            출력: 배고프면 아빠랑 식당에 갈까?
+
+            gloss: 무섭다 엄마 위로
+            문장유형: 평서문
+            출력: 무서우면 아빠가 안아줄게.
+
+            gloss: 무섭다 엄마 위로
+            문장유형: 의문문
+            출력: 무서우면 아빠가 안아줄까?
+
+            gloss: 아프다 엄마 치료
+            문장유형: 평서문
+            출력: 아프면 아빠가 치료해줄게.
+
+            gloss: 아프다 엄마 치료
+            문장유형: 의문문
+            출력: 아프면 아빠가 치료해줄까?
+
+            gloss: 손 조심 아프다
+            문장유형: 평서문
+            출력: 손 조심해, 다치면 아파.
+
+            gloss: 비 조심 걷다 아프다
+            문장유형: 평서문
+            출력: 비 오니까 조심해, 다치면 아파.
+
+            gloss: 비 조심 아프다
+            문장유형: 평서문
+            출력: 비 오니까 조심해, 다치면 아파.
+
+            gloss: 실수 괜찮다 엄마 위로
+            문장유형: 평서문
+            출력: 실수해도 괜찮아, 아빠가 있어.
+
+            gloss: 이불 자다
+            문장유형: 평서문
+            출력: 이불 덮고 자자.
+
+            gloss: 모르다 엄마 돕다
+            문장유형: 평서문
+            출력: 모르면 아빠가 도와줄게.
+
+            gloss: 비 조심
+            문장유형: 평서문
+            출력: 비 오니까 조심하자.
             """.trimIndent()
     }
 }

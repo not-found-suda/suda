@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber", "TooManyFunctions")
+@file:Suppress("CyclomaticComplexMethod", "MagicNumber", "MaxLineLength", "TooManyFunctions")
 
 package com.ssafy.mobile.feature.report.presentation
 
@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -34,7 +35,6 @@ import com.ssafy.mobile.core.ui.theme.SudaHomeAccent
 import com.ssafy.mobile.core.ui.theme.SudaInfo
 import com.ssafy.mobile.core.ui.theme.SudaReportAccent
 import com.ssafy.mobile.core.ui.theme.SudaSuccess
-import com.ssafy.mobile.core.ui.theme.SudaWarning
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -42,29 +42,25 @@ import kotlin.math.roundToInt
 internal fun ReportGlassCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(8.dp),
     contentPadding: PaddingValues = PaddingValues(16.dp),
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val shape = RoundedCornerShape(8.dp)
-    val cardModifier =
-        modifier
-            .border(
-                border =
-                    BorderStroke(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.54f),
-                    ),
-                shape = shape,
-            )
+    val borderStroke =
+        BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.54f),
+        )
 
     if (onClick == null) {
         Surface(
-            modifier = cardModifier,
+            modifier = modifier,
             shape = shape,
             color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
             tonalElevation = 1.dp,
             shadowElevation = 1.dp,
+            border = borderStroke,
         ) {
             Column(
                 modifier = Modifier.padding(contentPadding),
@@ -74,12 +70,13 @@ internal fun ReportGlassCard(
     } else {
         Surface(
             onClick = onClick,
-            modifier = cardModifier,
+            modifier = modifier,
             shape = shape,
             color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
             tonalElevation = 1.dp,
             shadowElevation = 1.dp,
+            border = borderStroke,
         ) {
             Column(
                 modifier = Modifier.padding(contentPadding),
@@ -99,7 +96,7 @@ internal fun ReportSectionTitle(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top,
     ) {
-        ReportSectionMarker()
+        ReportSectionMarker(title = title)
         Spacer(modifier = Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -121,20 +118,23 @@ internal fun ReportSectionTitle(
 }
 
 @Composable
-private fun ReportSectionMarker() {
+private fun ReportSectionMarker(title: String) {
+    val (iconText, bgColor) =
+        when (title) {
+            "기록" -> "📝" to MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.58f)
+            "이번 기간 요약" -> "📊" to MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.58f)
+            else -> "✨" to MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.58f)
+        }
+
     Surface(
-        modifier = Modifier.size(28.dp),
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.58f),
-        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        modifier = Modifier.size(36.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = bgColor,
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Box(
-                modifier =
-                    Modifier
-                        .size(9.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(SudaReportAccent),
+            Text(
+                text = iconText,
+                style = MaterialTheme.typography.titleMedium,
             )
         }
     }
@@ -244,41 +244,19 @@ internal fun ReportStarMetricTile(
 internal fun ReportStarRating(
     rating: Double,
     modifier: Modifier = Modifier,
-    showValue: Boolean = true,
 ) {
     val filledCount = rating.roundToInt().coerceIn(STAR_MIN, STAR_MAX)
-    val safeRating =
-        rating.coerceIn(
-            STAR_MIN.toDouble(),
-            STAR_MAX.toDouble(),
-        )
-    val label = String.format(Locale.KOREA, "%.1f", safeRating)
 
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         repeat(STAR_MAX) { index ->
             Text(
-                text = if (index < filledCount) "★" else "☆",
+                text = "⭐",
                 style = MaterialTheme.typography.titleSmall,
-                color =
-                    if (index < filledCount) {
-                        SudaWarning
-                    } else {
-                        MaterialTheme.colorScheme.outline
-                    },
-            )
-        }
-        if (showValue) {
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = "$label/3",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
+                modifier = if (index < filledCount) Modifier else Modifier.alpha(0.3f),
             )
         }
     }
@@ -471,3 +449,95 @@ private const val STAR_MIN = 0
 private const val STAR_MAX = 3
 private const val PERCENT_MIN = 0.0
 private const val PERCENT_MAX = 100.0
+
+internal fun getWordEmoji(
+    word: String,
+    categoryName: String,
+): String {
+    val cleanWord = word.trim()
+    return when {
+        // --- 1. 동물/새 ---
+        cleanWord.contains("강아지") -> "🐶"
+        cleanWord.contains("기린") -> "🦒"
+        cleanWord.contains("곰") -> "🐻"
+        cleanWord.contains("소") && !cleanWord.contains("소방차") && !cleanWord.contains("코뿔소") -> "🐮"
+        cleanWord.contains("말") -> "🐴"
+        cleanWord.contains("새") && !cleanWord.contains("우주선") -> "🐦"
+        cleanWord.contains("토끼") -> "🐰"
+        cleanWord.contains("사자") -> "🦁"
+        cleanWord.contains("악어") -> "🐊"
+        cleanWord.contains("오리") -> "🦆"
+        cleanWord.contains("하마") -> "🦛"
+        cleanWord.contains("코뿔소") -> "🦏"
+        cleanWord.contains("원숭이") -> "🐵"
+        cleanWord.contains("다람쥐") -> "🐿️"
+        cleanWord.contains("캥거루") -> "🦘"
+
+        // --- 2. 음식 ---
+        cleanWord.contains("사과") -> "🍎"
+        cleanWord.contains("우유") -> "🥛"
+        cleanWord.contains("밥") -> "🍚"
+        cleanWord.contains("빵") -> "🍞"
+        cleanWord.contains("딸기") -> "🍓"
+        cleanWord.contains("옥수수") -> "🌽"
+        cleanWord.contains("요구르트") -> "🧃"
+        cleanWord.contains("샌드위치") -> "🥪"
+        cleanWord.contains("스파게티") -> "🍝"
+        cleanWord.contains("브로콜리") -> "🥦"
+        cleanWord.contains("당근") -> "🥕"
+        cleanWord.contains("치즈") -> "🧀"
+        cleanWord.contains("계란") -> "🥚"
+        cleanWord.contains("고기") -> "🥩"
+        cleanWord.contains("포도") -> "🍇"
+
+        // --- 3. 가족/인물 ---
+        cleanWord.contains("할아버지") -> "👴"
+        cleanWord.contains("할머니") -> "👵"
+        cleanWord.contains("나") && (cleanWord.length == 1 || cleanWord == "나") -> "👶"
+        cleanWord.contains("엄마") -> "👩"
+        cleanWord.contains("아빠") -> "👨"
+
+        // --- 4. 색깔 ---
+        cleanWord.contains("검정") -> "⚫"
+        cleanWord.contains("하양") -> "⚪"
+        cleanWord.contains("하늘색") -> "🩵"
+        cleanWord.contains("남색") -> "🔵"
+        cleanWord.contains("파랑") -> "🔵"
+        cleanWord.contains("노랑") -> "🟡"
+        cleanWord.contains("빨강") -> "🔴"
+        cleanWord.contains("금색") -> "✨"
+        cleanWord.contains("연두색") -> "🌱"
+        cleanWord.contains("무지개색") -> "🌈"
+        cleanWord.contains("갈색") -> "🤎"
+        cleanWord.contains("회색") -> "🩶"
+        cleanWord.contains("주황") -> "🟠"
+        cleanWord.contains("초록") -> "🟢"
+        cleanWord.contains("보라") -> "🟣"
+
+        // --- 5. 탈것 ---
+        cleanWord.contains("경찰차") -> "🚓"
+        cleanWord.contains("구급차") -> "🚑"
+        cleanWord.contains("소방차") -> "🚒"
+        cleanWord.contains("자동차") -> "🚗"
+        cleanWord.contains("택시") -> "🚕"
+        cleanWord.contains("버스") -> "🚌"
+        cleanWord.contains("기차") -> "🚂"
+        cleanWord.contains("배") &&
+            (cleanWord == "배" || categoryName.contains("탈것") || categoryName.contains("교통")) -> "🚢"
+        cleanWord.contains("포크레인") -> "🚜"
+        cleanWord.contains("우주선") -> "🚀"
+        cleanWord.contains("잠수함") -> "⚓"
+        cleanWord.contains("헬리콥터") -> "🚁"
+        cleanWord.contains("오토바이") -> "🏍️"
+        cleanWord.contains("비행기") -> "✈️"
+        cleanWord.contains("자전거") -> "🚲"
+
+        // --- 6. 카테고리 폴백 ---
+        categoryName.contains("음식") || categoryName.contains("과일") -> "🍽️"
+        categoryName.contains("동물") || categoryName.contains("곤충") -> "🐾"
+        categoryName.contains("가족") || categoryName.contains("사람") -> "👨‍👩‍👧"
+        categoryName.contains("탈것") || categoryName.contains("교통") -> "🚗"
+        categoryName.contains("색깔") || categoryName.contains("색상") -> "🎨"
+        else -> "💡"
+    }
+}

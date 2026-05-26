@@ -117,7 +117,7 @@ class ChildOwnershipServiceTest {
     assertChildNotFoundAndVerifyOwnership(
         () ->
             childProfileService.updateChild(
-                USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto("수정", null)));
+                USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto("수정", null, null)));
   }
 
   @Test
@@ -156,7 +156,7 @@ class ChildOwnershipServiceTest {
     givenSessionOfUnownedOrInactiveChild();
 
     assertChildNotFoundAndVerifyOwnership(
-        () -> quizService.submitAnswer(USER_ID, SESSION_ID, 1L, null));
+        () -> quizService.submitAnswer(USER_ID, SESSION_ID, 1L, null, null));
     verify(quizSessionRepository).findById(SESSION_ID);
     verifyNoInteractions(quizQuestionRepository, quizAnswerRepository);
   }
@@ -272,7 +272,8 @@ class ChildOwnershipServiceTest {
     return ChildProfile.create(
         User.create("guardian@example.com", "encoded-password", "보호자"),
         "민준",
-        LocalDate.now().minusYears(6));
+        LocalDate.now().minusYears(6),
+        "purple_diamond");
   }
 
   private void assertChildNotFound(ThrowingCall call) {

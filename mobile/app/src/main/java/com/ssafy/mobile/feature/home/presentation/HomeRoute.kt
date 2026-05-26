@@ -1,7 +1,14 @@
-@file:Suppress("MagicNumber", "TooManyFunctions")
+@file:Suppress(
+    "LongMethod",
+    "MagicNumber",
+    "TooManyFunctions",
+    "UnusedParameter",
+    "UnusedPrivateMember",
+)
 
 package com.ssafy.mobile.feature.home.presentation
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,8 +34,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -50,10 +61,15 @@ import com.ssafy.mobile.core.ui.components.SudaStateView
 import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
 import com.ssafy.mobile.feature.childprofile.domain.model.ChildProfile
 import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileAvatars
+import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationAnalysisStatus
+import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationSessionSummary
+import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationSummary
+import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationWordCount
 import com.ssafy.mobile.feature.report.domain.model.ReportQuizSession
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
+import java.util.Locale
 
 @Composable
 fun HomeRoute(
@@ -114,6 +130,15 @@ fun HomeRoute(
                 WeeklyLearningNoteCard(
                     profile = selectedProfile,
                     state = uiState.weeklyActivityState,
+                    selectedDate = uiState.selectedCommunicationDate,
+                    onDateSelected = viewModel::selectCommunicationDate,
+                )
+
+                CommunicationInsightSection(
+                    state = uiState.communicationInsightState,
+                    selectedPeriod = uiState.selectedCommunicationPeriod,
+                    toggleResetKey = uiState.communicationInsightToggleResetKey,
+                    onPeriodSelected = viewModel::selectCommunicationPeriod,
                 )
 
                 ResumeQuizSection(
@@ -155,6 +180,8 @@ private fun HomeLogoHeader(modifier: Modifier = Modifier) {
 private fun WeeklyLearningNoteCard(
     profile: ChildProfile,
     state: HomeWeeklyActivityState,
+    selectedDate: LocalDate,
+    onDateSelected: (LocalDate) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     AppCard(
@@ -168,13 +195,34 @@ private fun WeeklyLearningNoteCard(
             ChildProfileAvatar(profile = profile)
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "이번 주 학습 기록",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "이번 주 학습 기록",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(99.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f),
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ) {
+                        Text(
+                            text = selectedDate.toKoreanDateLabel(),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
                 Text(
                     text = profile.age?.let { "${profile.name} ${it}세" } ?: profile.name,
                     style = MaterialTheme.typography.bodyMedium,
@@ -194,7 +242,11 @@ private fun WeeklyLearningNoteCard(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        HomeWeekDateStrip(state = state)
+        HomeWeekDateStrip(
+            state = state,
+            selectedDate = selectedDate,
+            onDateSelected = onDateSelected,
+        )
 
         Spacer(modifier = Modifier.height(12.dp))
 
@@ -264,10 +316,12 @@ private fun ChildProfileAvatar(
 }
 
 @Composable
-private fun HomeWeekDateStrip(state: HomeWeeklyActivityState) {
-    val dates = currentWeekDates()
-    val today = LocalDate.now()
-
+private fun HomeWeekDateStrip(
+    state: HomeWeeklyActivityState,
+    selectedDate: LocalDate,
+    onDateSelected: (LocalDate) -> Unit,
+) {
+    val dates = currentWeekDates(anchorDate = selectedDate)
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
@@ -281,7 +335,8 @@ private fun HomeWeekDateStrip(state: HomeWeeklyActivityState) {
             dates.forEach { date ->
                 HomeWeekDateCell(
                     date = date,
-                    status = date.toHomeWeekDateStatus(today = today, state = state),
+                    selected = date == selectedDate,
+                    onClick = { onDateSelected(date) },
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -292,26 +347,28 @@ private fun HomeWeekDateStrip(state: HomeWeeklyActivityState) {
 @Composable
 private fun HomeWeekDateCell(
     date: LocalDate,
-    status: HomeWeekDateStatus,
+    selected: Boolean,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
     val containerColor =
-        when (status) {
-            HomeWeekDateStatus.Completed -> colors.primary
-            HomeWeekDateStatus.Missed -> colors.errorContainer
-            HomeWeekDateStatus.Neutral -> colors.surface
+        if (selected) {
+            colors.primary
+        } else {
+            colors.surface
         }
     val contentColor =
-        when (status) {
-            HomeWeekDateStatus.Completed -> colors.onPrimary
-            HomeWeekDateStatus.Missed -> colors.onErrorContainer
-            HomeWeekDateStatus.Neutral -> colors.onSurfaceVariant
+        if (selected) {
+            colors.onPrimary
+        } else {
+            colors.onSurfaceVariant
         }
 
     Surface(
+        onClick = onClick,
         modifier = modifier.height(54.dp),
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(if (selected) 18.dp else 10.dp),
         color = containerColor,
         contentColor = contentColor,
     ) {
@@ -331,6 +388,1077 @@ private fun HomeWeekDateCell(
                 maxLines = 1,
             )
         }
+    }
+}
+
+@Composable
+private fun CommunicationInsightSection(
+    state: HomeCommunicationInsightState,
+    selectedPeriod: HomeCommunicationPeriod,
+    toggleResetKey: Int,
+    onPeriodSelected: (HomeCommunicationPeriod) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            text = "소통 분석",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+
+        CommunicationPeriodToggle(
+            selectedPeriod = selectedPeriod,
+            onPeriodSelected = onPeriodSelected,
+        )
+
+        when (state) {
+            HomeCommunicationInsightState.Idle,
+            HomeCommunicationInsightState.Loading,
+            ->
+                CommunicationInsightStatusCard(
+                    mascot = SudaMascot.Loading,
+                    title = "소통 분석을 확인하고 있어요",
+                )
+
+            HomeCommunicationInsightState.Empty ->
+                CommunicationInsightStatusCard(
+                    mascot = SudaMascot.Empty,
+                    title = "${selectedPeriod.label}에 분석 완료된 발화가 없어요",
+                    description = "완성된 소통 분석 결과만 이곳에 보여드려요.",
+                )
+
+            HomeCommunicationInsightState.Processing ->
+                CommunicationInsightStatusCard(
+                    mascot = SudaMascot.Icon,
+                    title = "최근 대화를 분석 중이에요",
+                    description = "세션이 끝난 뒤 잠시 지나면 결과가 채워져요.",
+                )
+
+            is HomeCommunicationInsightState.Error ->
+                CommunicationInsightStatusCard(
+                    mascot = SudaMascot.ErrorNetwork,
+                    title = "소통 분석을 불러오지 못했어요",
+                    description = state.message,
+                )
+
+            is HomeCommunicationInsightState.Success ->
+                CommunicationIntegratedInsight(
+                    summary = state.summary,
+                    selectedPeriod = selectedPeriod,
+                    toggleResetKey = toggleResetKey,
+                )
+        }
+    }
+}
+
+@Composable
+private fun CommunicationPeriodToggle(
+    selectedPeriod: HomeCommunicationPeriod,
+    onPeriodSelected: (HomeCommunicationPeriod) -> Unit,
+) {
+    AppCard(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(12.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = "기간 조회",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            HomeCommunicationPeriod.entries
+                .chunked(HOME_COMMUNICATION_PERIOD_COLUMNS)
+                .forEach { row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        row.forEach { period ->
+                            CommunicationPeriodButton(
+                                period = period,
+                                selected = selectedPeriod == period,
+                                onClick = { onPeriodSelected(period) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        repeat(HOME_COMMUNICATION_PERIOD_COLUMNS - row.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+        }
+    }
+}
+
+@Composable
+private fun CommunicationPeriodButton(
+    period: HomeCommunicationPeriod,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(36.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) colors.primary else colors.surfaceVariant.copy(alpha = 0.52f),
+        contentColor = if (selected) colors.onPrimary else colors.onSurfaceVariant,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = period.label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CommunicationIntegratedInsight(
+    summary: ReportCommunicationSummary,
+    selectedPeriod: HomeCommunicationPeriod,
+    toggleResetKey: Int,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        CommunicationInsightOverviewCard(
+            summary = summary,
+            selectedPeriod = selectedPeriod,
+        )
+        CommunicationSummaryAnalysisCard(
+            summary = summary,
+            selectedPeriod = selectedPeriod,
+            toggleResetKey = toggleResetKey,
+        )
+    }
+}
+
+@Composable
+private fun CommunicationSummaryAnalysisCard(
+    summary: ReportCommunicationSummary,
+    selectedPeriod: HomeCommunicationPeriod,
+    toggleResetKey: Int,
+) {
+    var expanded by remember(toggleResetKey, selectedPeriod) { mutableStateOf(false) }
+
+    AppCard(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(16.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "통합 분석",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Surface(
+                    onClick = { expanded = !expanded },
+                    shape = RoundedCornerShape(99.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.62f),
+                    contentColor = MaterialTheme.colorScheme.primary,
+                ) {
+                    Text(
+                        text = if (expanded) "닫기" else "열기",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
+                }
+            }
+
+            if (!expanded) {
+                return@Column
+            }
+
+            CommunicationInsightDigest(summary = summary)
+            AnalysisPanel(title = "발화 성장 지표") {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CommunicationMeterRow(
+                        title = "표현 흐름",
+                        label = summary.communicationLevel.toHomeLevelLabel(),
+                        progress = summary.communicationLevel.toLevelProgress(),
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    CommunicationMeterRow(
+                        title = "단어 다양성",
+                        label = summary.vocabularyDiversityLevel.toHomeLevelLabel(),
+                        progress = summary.vocabularyDiversityLevel.toLevelProgress(),
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                    CommunicationMeterRow(
+                        title = "문장 확장",
+                        label = summary.sentenceExpansionLevel.toHomeLevelLabel(),
+                        progress = summary.sentenceExpansionLevel.toLevelProgress(),
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                }
+            }
+            CommunicationExpressionSummaryChart(summary = summary)
+            CommunicationWordChart(words = summary.frequentWords)
+            CommunicationGuidanceSection(summary = summary)
+        }
+    }
+}
+
+@Composable
+private fun CommunicationInsightDigest(summary: ReportCommunicationSummary) {
+    AnalysisPanel(title = "오늘의 핵심") {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                text = summary.toDigestSentence(),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                CommunicationDigestChip(
+                    label = "흐름",
+                    value = summary.communicationLevel.toHomeLevelLabel(),
+                    modifier = Modifier.weight(1f),
+                )
+                CommunicationDigestChip(
+                    label = "단어",
+                    value = summary.vocabularyDiversityLevel.toHomeLevelLabel(),
+                    modifier = Modifier.weight(1f),
+                )
+                CommunicationDigestChip(
+                    label = "문장",
+                    value = summary.sentenceExpansionLevel.toHomeLevelLabel(),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommunicationDigestChip(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.heightIn(min = 46.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.36f),
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CommunicationGuidanceSection(summary: ReportCommunicationSummary) {
+    val groups =
+        listOf(
+            CommunicationGuidanceGroup(
+                title = "잘한 점",
+                badge = "강점",
+                values = summary.strengths,
+                color = MaterialTheme.colorScheme.primary,
+            ),
+            CommunicationGuidanceGroup(
+                title = "연습할 점",
+                badge = "연습",
+                values = summary.improvementPoints,
+                color = MaterialTheme.colorScheme.secondary,
+            ),
+            CommunicationGuidanceGroup(
+                title = "대화 팁",
+                badge = "가이드",
+                values = summary.parentGuide,
+                color = MaterialTheme.colorScheme.tertiary,
+            ),
+            CommunicationGuidanceGroup(
+                title = "놀이 추천",
+                badge = "오늘 해보기",
+                values = summary.recommendedActivities,
+                color = MaterialTheme.colorScheme.primary,
+            ),
+        ).filter { it.values.isNotEmpty() }
+
+    if (groups.isEmpty()) {
+        return
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        groups.forEach { group ->
+            CommunicationGuidanceCard(group = group)
+        }
+    }
+}
+
+@Composable
+private fun CommunicationGuidanceCard(group: CommunicationGuidanceGroup) {
+    var expanded by remember(group.title, group.values) { mutableStateOf(false) }
+    val previewCount = HOME_COMMUNICATION_GUIDANCE_PREVIEW_COUNT
+    val visibleValues =
+        if (expanded) {
+            group.values.take(HOME_COMMUNICATION_TEXT_COUNT)
+        } else {
+            group.values.take(previewCount)
+        }
+    val hiddenCount = group.values.size - previewCount
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = group.color.copy(alpha = 0.08f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border =
+            BorderStroke(
+                width = 1.dp,
+                color = group.color.copy(alpha = 0.18f),
+            ),
+    ) {
+        Column(
+            modifier = Modifier.padding(13.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = group.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(99.dp),
+                    color = group.color.copy(alpha = 0.14f),
+                    contentColor = group.color,
+                ) {
+                    Text(
+                        text = group.badge,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
+                }
+            }
+
+            visibleValues.forEachIndexed { index, value ->
+                CommunicationGuidanceItem(
+                    index = index + 1,
+                    text = value,
+                    color = group.color,
+                )
+            }
+
+            if (hiddenCount > 0) {
+                Surface(
+                    onClick = { expanded = !expanded },
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                    contentColor = group.color,
+                ) {
+                    Text(
+                        text = if (expanded) "접기" else "${hiddenCount}개 더 보기",
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommunicationGuidanceItem(
+    index: Int,
+    text: String,
+    color: Color,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Surface(
+            modifier = Modifier.size(22.dp),
+            shape = RoundedCornerShape(99.dp),
+            color = color.copy(alpha = 0.16f),
+            contentColor = color,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = index.toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
+            }
+        }
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+private data class CommunicationGuidanceGroup(
+    val title: String,
+    val badge: String,
+    val values: List<String>,
+    val color: Color,
+)
+
+@Composable
+private fun CommunicationExpressionSummaryChart(summary: ReportCommunicationSummary) {
+    val counts = summary.expressionTypeCounts
+    val entries =
+        listOf(
+            AnalysisChartEntry("요구", counts.request, MaterialTheme.colorScheme.primary),
+            AnalysisChartEntry("감정", counts.emotion, MaterialTheme.colorScheme.secondary),
+            AnalysisChartEntry("응답", counts.response, MaterialTheme.colorScheme.tertiary),
+            AnalysisChartEntry("놀이", counts.play, MaterialTheme.colorScheme.primary),
+            AnalysisChartEntry("질문", counts.question, MaterialTheme.colorScheme.secondary),
+            AnalysisChartEntry("기타", counts.other, MaterialTheme.colorScheme.outline),
+        )
+    val total = counts.total
+
+    AnalysisPanel(title = "표현 유형 그래프") {
+        if (total <= 0) {
+            EmptyAnalysisText(text = "분류된 표현 유형이 아직 없어요.")
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                entries.forEach { entry ->
+                    CommunicationBarRow(
+                        title = entry.title,
+                        valueText = "${entry.count}회",
+                        progress = entry.count.toFloat() / total.toFloat(),
+                        color = entry.color,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommunicationSessionPageControls(
+    currentPage: Int,
+    totalPages: Int,
+    onPreviousClick: () -> Unit,
+    onNextClick: () -> Unit,
+) {
+    if (totalPages <= 1) {
+        return
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(
+                onClick = onPreviousClick,
+                enabled = currentPage > 0,
+            ) {
+                Text(text = "이전")
+            }
+            Text(
+                text = "${currentPage + 1} / $totalPages",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+            )
+            TextButton(
+                onClick = onNextClick,
+                enabled = currentPage < totalPages - 1,
+            ) {
+                Text(text = "다음")
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommunicationInsightOverviewCard(
+    summary: ReportCommunicationSummary,
+    selectedPeriod: HomeCommunicationPeriod,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(26.dp),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.64f),
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        border =
+            BorderStroke(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
+            ),
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                modifier = Modifier.size(58.dp),
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+                contentColor = MaterialTheme.colorScheme.primary,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    SudaMascotImage(
+                        mascot = SudaMascot.Microphone,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "${selectedPeriod.label} 소통",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AppBadge(
+                        text = "평균 ${summary.averageSentenceLength.toOneDecimal()}단어",
+                        tone = AppBadgeTone.Tertiary,
+                    )
+                    AppBadge(
+                        text = "세션 ${summary.totalSessionCount}개",
+                        tone = AppBadgeTone.Secondary,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommunicationSessionAnalysisCard(
+    session: ReportCommunicationSessionSummary,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    AppCard(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onToggle,
+        contentPadding = PaddingValues(16.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                modifier = Modifier.size(44.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = session.analysisStatus.toSoftContainerColor(),
+                contentColor = session.analysisStatus.toSoftContentColor(),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_report_boy),
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .padding(5.dp),
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = session.toTimeRangeLabel(),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text =
+                        "아이 발화 ${session.utteranceCount}회 · " +
+                            "평균 ${session.averageSentenceLength.toOneDecimal()}단어",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Column(horizontalAlignment = Alignment.End) {
+                AppBadge(
+                    text = session.analysisStatus.toHomeStatusLabel(),
+                    tone = session.analysisStatus.toHomeBadgeTone(),
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = if (expanded) "접기" else "보기",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+
+        if (session.summary.isNotBlank() && !expanded) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = session.summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        if (expanded) {
+            Spacer(modifier = Modifier.height(14.dp))
+            CommunicationSessionExpandedContent(session = session)
+        }
+    }
+}
+
+@Composable
+private fun CommunicationSessionExpandedContent(session: ReportCommunicationSessionSummary) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (session.summary.isNotBlank()) {
+            CommunicationDetailBubble(
+                title = "요약",
+                body = session.summary,
+            )
+        }
+
+        CommunicationLevelDashboard(session = session)
+        CommunicationExpressionChart(session = session)
+        CommunicationWordChart(words = session.frequentWords)
+        CommunicationTextList(title = "잘하고 있는 점", values = session.strengths)
+        CommunicationTextList(title = "도와주면 좋은 점", values = session.improvementPoints)
+        CommunicationTextList(title = "부모 대화 가이드", values = session.parentGuide)
+        CommunicationTextList(title = "추천 놀이", values = session.recommendedActivities)
+
+        if (session.developmentReference.isNotBlank()) {
+            CommunicationDetailBubble(
+                title = "발화 참고",
+                body = session.developmentReference,
+            )
+        }
+
+        if (session.consultationGuide.isNotBlank()) {
+            CommunicationDetailBubble(
+                title = "상담 참고",
+                body = session.consultationGuide,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CommunicationLevelDashboard(session: ReportCommunicationSessionSummary) {
+    AnalysisPanel(title = "발화 성장 지표") {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            CommunicationMeterRow(
+                title = "표현 흐름",
+                label = session.communicationLevel.toHomeLevelLabel(),
+                progress = session.communicationLevel.toLevelProgress(),
+                color = MaterialTheme.colorScheme.primary,
+            )
+            CommunicationMeterRow(
+                title = "단어 다양성",
+                label = session.vocabularyDiversityLevel.toHomeLevelLabel(),
+                progress = session.vocabularyDiversityLevel.toLevelProgress(),
+                color = MaterialTheme.colorScheme.tertiary,
+            )
+            CommunicationMeterRow(
+                title = "문장 확장",
+                label = session.sentenceExpansionLevel.toHomeLevelLabel(),
+                progress = session.sentenceExpansionLevel.toLevelProgress(),
+                color = MaterialTheme.colorScheme.secondary,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                CommunicationInsightMetric(
+                    title = "아이 발화",
+                    value = "${session.utteranceCount}회",
+                    modifier = Modifier.weight(1f),
+                )
+                CommunicationInsightMetric(
+                    title = "주의 신호",
+                    value = session.cautionLevel.toCautionLabel(),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommunicationExpressionChart(session: ReportCommunicationSessionSummary) {
+    val counts = session.expressionTypeCounts
+    val entries =
+        listOf(
+            AnalysisChartEntry("요구", counts.request, MaterialTheme.colorScheme.primary),
+            AnalysisChartEntry("감정", counts.emotion, MaterialTheme.colorScheme.secondary),
+            AnalysisChartEntry("응답", counts.response, MaterialTheme.colorScheme.tertiary),
+            AnalysisChartEntry("놀이", counts.play, MaterialTheme.colorScheme.primary),
+            AnalysisChartEntry("질문", counts.question, MaterialTheme.colorScheme.secondary),
+            AnalysisChartEntry("기타", counts.other, MaterialTheme.colorScheme.outline),
+        )
+    val total = counts.total
+
+    AnalysisPanel(title = "표현 유형 그래프") {
+        if (total <= 0) {
+            EmptyAnalysisText(text = "분류된 표현 유형이 아직 없어요.")
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                entries.forEach { entry ->
+                    CommunicationBarRow(
+                        title = entry.title,
+                        valueText = "${entry.count}회",
+                        progress = entry.count.toFloat() / total.toFloat(),
+                        color = entry.color,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommunicationWordChart(words: List<ReportCommunicationWordCount>) {
+    val maxCount = words.maxOfOrNull { it.count } ?: 0
+
+    AnalysisPanel(title = "자주 말한 단어") {
+        if (words.isEmpty() || maxCount <= 0) {
+            EmptyAnalysisText(text = "아직 자주 등장한 단어가 없어요.")
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                words.take(HOME_COMMUNICATION_WORD_BAR_COUNT).forEach { word ->
+                    CommunicationBarRow(
+                        title = word.word,
+                        valueText = "${word.count}회",
+                        progress = word.count.toFloat() / maxCount.toFloat(),
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AnalysisPanel(
+    title: String,
+    content: @Composable () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border =
+            BorderStroke(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f),
+            ),
+    ) {
+        Column(
+            modifier = Modifier.padding(13.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            content()
+        }
+    }
+}
+
+@Composable
+private fun CommunicationMeterRow(
+    title: String,
+    label: String,
+    progress: Float,
+    color: Color,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = color,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        CommunicationProgressBar(
+            progress = progress,
+            color = color,
+        )
+    }
+}
+
+@Composable
+private fun CommunicationBarRow(
+    title: String,
+    valueText: String,
+    progress: Float,
+    color: Color,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.width(58.dp),
+        )
+        CommunicationProgressBar(
+            progress = progress,
+            color = color,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = valueText,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun CommunicationProgressBar(
+    progress: Float,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .height(10.dp),
+        shape = RoundedCornerShape(999.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.68f),
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Surface(
+                modifier =
+                    Modifier
+                        .fillMaxWidth(progress.coerceIn(0f, 1f))
+                        .height(10.dp),
+                shape = RoundedCornerShape(999.dp),
+                color = color,
+                content = {},
+            )
+        }
+    }
+}
+
+@Composable
+private fun EmptyAnalysisText(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+private data class AnalysisChartEntry(
+    val title: String,
+    val count: Int,
+    val color: Color,
+)
+
+@Composable
+private fun CommunicationInsightMetric(
+    title: String,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.heightIn(min = 58.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CommunicationTextList(
+    title: String,
+    values: List<String>,
+) {
+    if (values.isEmpty()) {
+        return
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+        )
+        values.take(HOME_COMMUNICATION_TEXT_COUNT).forEach { value ->
+            Text(
+                text = "• $value",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CommunicationDetailBubble(
+    title: String,
+    body: String,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.42f),
+        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = body,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CommunicationInsightStatusCard(
+    mascot: SudaMascot,
+    title: String,
+    description: String? = null,
+) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
+        SudaStateView(
+            mascot = mascot,
+            title = title,
+            description = description,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(116.dp),
+            compact = true,
+        )
     }
 }
 
@@ -513,35 +1641,10 @@ private fun HomeWeeklyActivityState.toWeeklyGuideMessage(): String =
             }
     }
 
-private fun currentWeekDates(): List<LocalDate> {
-    val weekStart = LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+private fun currentWeekDates(anchorDate: LocalDate): List<LocalDate> {
+    val weekStart = anchorDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
     return (0 until DAYS_IN_WEEK).map { offset ->
         weekStart.plusDays(offset.toLong())
-    }
-}
-
-private enum class HomeWeekDateStatus {
-    Completed,
-    Missed,
-    Neutral,
-}
-
-private fun LocalDate.toHomeWeekDateStatus(
-    today: LocalDate,
-    state: HomeWeeklyActivityState,
-): HomeWeekDateStatus {
-    if (isAfter(today)) {
-        return HomeWeekDateStatus.Neutral
-    }
-
-    return when (state) {
-        is HomeWeeklyActivityState.Success ->
-            if (this in state.activityDates) {
-                HomeWeekDateStatus.Completed
-            } else {
-                HomeWeekDateStatus.Missed
-            }
-        else -> HomeWeekDateStatus.Neutral
     }
 }
 
@@ -573,6 +1676,110 @@ private fun HomeWeeklyActivityState.toLearningNoteSentence(childName: String): S
         }
     }
 
+private fun ReportCommunicationAnalysisStatus.toHomeStatusLabel(): String =
+    when (this) {
+        ReportCommunicationAnalysisStatus.Pending -> "대기"
+        ReportCommunicationAnalysisStatus.Processing -> "분석 중"
+        ReportCommunicationAnalysisStatus.Completed -> "분석 완료"
+        ReportCommunicationAnalysisStatus.Failed -> "실패"
+        ReportCommunicationAnalysisStatus.Empty -> "기록 없음"
+        ReportCommunicationAnalysisStatus.Unknown -> "확인"
+    }
+
+private fun ReportCommunicationAnalysisStatus.toHomeBadgeTone(): AppBadgeTone =
+    when (this) {
+        ReportCommunicationAnalysisStatus.Pending -> AppBadgeTone.Warning
+        ReportCommunicationAnalysisStatus.Processing -> AppBadgeTone.Primary
+        ReportCommunicationAnalysisStatus.Completed -> AppBadgeTone.Success
+        ReportCommunicationAnalysisStatus.Failed -> AppBadgeTone.Error
+        ReportCommunicationAnalysisStatus.Empty,
+        ReportCommunicationAnalysisStatus.Unknown,
+        -> AppBadgeTone.Neutral
+    }
+
+private fun String.toHomeLevelLabel(): String =
+    when (uppercase(Locale.ROOT)) {
+        "LOW" -> "차근차근"
+        "NORMAL" -> "안정적"
+        "HIGH" -> "활발함"
+        else -> "확인 중"
+    }
+
+private fun String.toLevelProgress(): Float =
+    when (uppercase(Locale.ROOT)) {
+        "LOW" -> LOW_LEVEL_PROGRESS
+        "NORMAL" -> NORMAL_LEVEL_PROGRESS
+        "HIGH" -> HIGH_LEVEL_PROGRESS
+        else -> UNKNOWN_LEVEL_PROGRESS
+    }
+
+private fun String.toCautionLabel(): String =
+    when (uppercase(Locale.ROOT)) {
+        "WATCH" -> "관찰"
+        "CONSULT" -> "상담 참고"
+        else -> "없음"
+    }
+
+private fun ReportCommunicationSummary.toDigestSentence(): String =
+    strengths.firstOrNull()
+        ?: improvementPoints.firstOrNull()
+        ?: parentGuide.firstOrNull()
+        ?: recommendedActivities.firstOrNull()
+        ?: "완료된 소통 분석을 바탕으로 아이의 표현 흐름을 정리했어요."
+
+private fun LocalDate.toCommunicationDateLabel(): String =
+    "${monthValue}월 ${dayOfMonth}일 ${toWeekdayLabel()}요일 소통"
+
+private fun LocalDate.toKoreanDateLabel(): String = "${year}년 ${monthValue}월 ${dayOfMonth}일"
+
+private fun Double.toOneDecimal(): String = String.format(Locale.KOREA, "%.1f", this)
+
+private fun ReportCommunicationSessionSummary.toTimeRangeLabel(): String {
+    val start = startedAt.toTimeLabel() ?: "시간 정보 없음"
+    val end = endedAt.toTimeLabel()
+    return if (end == null) {
+        start
+    } else {
+        "$start ~ $end"
+    }
+}
+
+private fun String?.toTimeLabel(): String? =
+    takeUnless { it.isNullOrBlank() }
+        ?.drop(ISO_DATE_TIME_SEPARATOR_INDEX)
+        ?.take(ISO_TIME_LENGTH)
+        ?.takeIf { it.length == ISO_TIME_LENGTH }
+
+@Composable
+private fun ReportCommunicationAnalysisStatus.toSoftContainerColor(): Color =
+    when (this) {
+        ReportCommunicationAnalysisStatus.Completed ->
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.82f)
+        ReportCommunicationAnalysisStatus.Processing,
+        ReportCommunicationAnalysisStatus.Pending,
+        -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.82f)
+        ReportCommunicationAnalysisStatus.Failed ->
+            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.82f)
+        ReportCommunicationAnalysisStatus.Empty,
+        ReportCommunicationAnalysisStatus.Unknown,
+        -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.82f)
+    }
+
+@Composable
+private fun ReportCommunicationAnalysisStatus.toSoftContentColor(): Color =
+    when (this) {
+        ReportCommunicationAnalysisStatus.Completed ->
+            MaterialTheme.colorScheme.onPrimaryContainer
+        ReportCommunicationAnalysisStatus.Processing,
+        ReportCommunicationAnalysisStatus.Pending,
+        -> MaterialTheme.colorScheme.onSecondaryContainer
+        ReportCommunicationAnalysisStatus.Failed ->
+            MaterialTheme.colorScheme.onErrorContainer
+        ReportCommunicationAnalysisStatus.Empty,
+        ReportCommunicationAnalysisStatus.Unknown,
+        -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
 private fun String.toHomeDifficultyLabel(): String =
     when (this) {
         "EASY" -> "쉬움"
@@ -592,3 +1799,14 @@ private val HomeResumeQuizState.Success.hasHiddenSessions: Boolean
 
 private const val DAYS_IN_WEEK = 7
 private const val ISO_DATE_LENGTH = 10
+private const val ISO_DATE_TIME_SEPARATOR_INDEX = 11
+private const val ISO_TIME_LENGTH = 5
+private const val HOME_COMMUNICATION_SESSIONS_PER_PAGE = 3
+private const val HOME_COMMUNICATION_PERIOD_COLUMNS = 2
+private const val HOME_COMMUNICATION_TEXT_COUNT = 5
+private const val HOME_COMMUNICATION_GUIDANCE_PREVIEW_COUNT = 2
+private const val HOME_COMMUNICATION_WORD_BAR_COUNT = 5
+private const val LOW_LEVEL_PROGRESS = 0.34f
+private const val NORMAL_LEVEL_PROGRESS = 0.67f
+private const val HIGH_LEVEL_PROGRESS = 1f
+private const val UNKNOWN_LEVEL_PROGRESS = 0f

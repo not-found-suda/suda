@@ -11,6 +11,7 @@ data class SignRecognitionConfig(
     val smoothingWindowSize: Int = SignPredictionStabilizer.DEFAULT_WINDOW_SIZE,
     val smoothingRequiredVotes: Int = SignPredictionStabilizer.DEFAULT_REQUIRED_VOTES,
     val emitCooldownMs: Long = SignPredictionStabilizer.DEFAULT_EMIT_COOLDOWN_MS,
+    val noHandsDetectionDelayMs: Long = NoHandsDetectionTracker.DEFAULT_DETECTION_DELAY_MS,
 ) {
     init {
         require(sequenceLength == SignModelContract.SEQUENCE_LENGTH) {
@@ -33,6 +34,9 @@ data class SignRecognitionConfig(
         }
         require(emitCooldownMs >= 0L) {
             "Emit cooldown must be 0 or greater."
+        }
+        require(noHandsDetectionDelayMs >= 0L) {
+            "No-hands detection delay must be 0 or greater."
         }
     }
 

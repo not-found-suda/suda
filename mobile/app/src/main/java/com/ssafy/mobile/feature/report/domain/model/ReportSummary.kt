@@ -6,6 +6,7 @@ data class ReportSummary(
     val performance: ReportPerformanceSummary,
     val latestActivity: ReportLatestActivity?,
     val weakWords: List<ReportWeakWord>,
+    val generatedAt: String?,
 ) {
     val hasCompletedRecords: Boolean
         get() = participation.completedSessionCount > 0

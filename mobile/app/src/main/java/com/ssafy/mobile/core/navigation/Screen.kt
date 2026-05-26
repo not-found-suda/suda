@@ -58,8 +58,6 @@ sealed class Screen(
 
     data object AiModelSettings : Screen("ai_model_settings_route")
 
-    data object Sign : Screen("sign_route")
-
     data object LearningCategory : Screen("learning_category_route")
 
     data object WordList :

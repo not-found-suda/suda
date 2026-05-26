@@ -56,17 +56,22 @@ public class CommunicationSessionAnalysis extends BaseEntity {
     this.analysisErrorCode = null;
   }
 
-  public void complete(String summaryJson, String modelName) {
+  public void complete(
+      String summaryJson, String modelName, String analysisVersion, String promptVersion) {
     this.analysisStatus = CommunicationAnalysisStatus.COMPLETED;
     this.summaryJson = summaryJson;
     this.modelName = modelName;
+    this.analysisVersion = analysisVersion;
+    this.promptVersion = promptVersion;
     this.analyzedAt = LocalDateTime.now();
     this.analysisErrorCode = null;
   }
 
-  public void empty() {
+  public void empty(String analysisVersion, String promptVersion) {
     this.analysisStatus = CommunicationAnalysisStatus.EMPTY;
     this.summaryJson = null;
+    this.analysisVersion = analysisVersion;
+    this.promptVersion = promptVersion;
     this.analyzedAt = LocalDateTime.now();
     this.analysisErrorCode = null;
   }

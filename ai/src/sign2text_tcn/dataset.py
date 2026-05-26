@@ -7,13 +7,22 @@ import torch
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
-from target_words_v6 import TARGET_WORDS
+from target_words_v7 import TARGET_WORDS
 
 TARGET_CLASSES = TARGET_WORDS
 TARGET_VARIANTS = {}
-MAX_FILES_PER_CLASS_VALUE = int(os.environ.get("V6_MAX_FILES_PER_CLASS", "0"))
+MAX_FILES_PER_CLASS_VALUE = int(os.environ.get("V6_MAX_FILES_PER_CLASS", "80"))
+MAX_FILES_EXEMPT_CLASSES = {
+    class_name.strip()
+    for class_name in os.environ.get("V6_MAX_FILES_EXEMPT_CLASSES", "병원,엄마,none").split(",")
+    if class_name.strip()
+}
 MAX_FILES_PER_CLASS = (
-    {class_name: MAX_FILES_PER_CLASS_VALUE for class_name in TARGET_CLASSES}
+    {
+        class_name: MAX_FILES_PER_CLASS_VALUE
+        for class_name in TARGET_CLASSES
+        if class_name not in MAX_FILES_EXEMPT_CLASSES
+    }
     if MAX_FILES_PER_CLASS_VALUE > 0
     else {}
 )
@@ -212,7 +221,7 @@ class KSLDatasetV6(Dataset):
         return np.array(padded, dtype=np.float32), self.max_len
 
 
-# Backward-compatible alias for older helper scripts. New V6 training uses KSLDatasetV6.
+# Backward-compatible alias for older helper scripts.
 KSLDatasetV5 = KSLDatasetV6
 
 
@@ -463,6 +472,7 @@ def create_dataloaders_v6(
         "balanced_sampling": balanced_sampling,
         "target_variants": target_variants,
         "max_files_per_class": MAX_FILES_PER_CLASS,
+        "max_files_exempt_classes": sorted(MAX_FILES_EXEMPT_CLASSES),
         "file_sample_seed": FILE_SAMPLE_SEED,
         "use_augmentation": USE_AUGMENTATION,
         "normalize_mode": NORMALIZE_MODE,
@@ -484,5 +494,5 @@ def create_dataloaders_v6(
     return train_loader, val_loader, classes, class_weights_tensor, stats
 
 
-# Backward-compatible alias for older scripts. Prefer create_dataloaders_v6 in new code.
+# Backward-compatible alias for older scripts.
 create_dataloaders_v5 = create_dataloaders_v6

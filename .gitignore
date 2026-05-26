@@ -4,6 +4,9 @@
 .env
 *.pem
 *.key
+*.pt
+*.pth
+ai/model-artifacts/
 local.properties
 keystore.properties
 secrets.xml

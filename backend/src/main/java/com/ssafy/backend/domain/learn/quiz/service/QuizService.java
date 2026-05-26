@@ -80,10 +80,30 @@ public class QuizService {
 
     quizSessionRepository.save(session);
 
-    for (int i = 0; i < words.size(); i++) {
-      QuizQuestion question = QuizQuestion.create(session, words.get(i), i + 1);
-      quizQuestionRepository.save(question);
-    }
+    List<QuizQuestion> questions =
+        words.stream()
+            .map(
+                word -> {
+                  int questionNumber = words.indexOf(word) + 1;
+                  QuizQuestion question = QuizQuestion.create(session, word, questionNumber);
+                  return quizQuestionRepository.save(question);
+                })
+            .toList();
+
+    List<QuizSessionCreateResponse.QuestionItem> questionItems =
+        questions.stream()
+            .map(
+                question -> {
+                  Learn word = question.getWord();
+
+                  return new QuizSessionCreateResponse.QuestionItem(
+                      question.getId(),
+                      word.getId(),
+                      question.getQuestionNumber(),
+                      word.getDisplayText(),
+                      assetUrlResolver.toUrl(word.getImageUrl()));
+                })
+            .toList();
 
     return new QuizSessionCreateResponse(
         session.getId(),
@@ -91,7 +111,8 @@ public class QuizService {
         session.getDifficulty(),
         session.getTotalQuestionCount(),
         1,
-        session.getStatus());
+        session.getStatus(),
+        questionItems);
   }
 
   @Transactional(readOnly = true)
@@ -121,7 +142,11 @@ public class QuizService {
 
   @Transactional
   public QuizAnswerResponse submitAnswer(
-      Long userId, Long sessionId, Long questionId, MultipartFile audioFile) {
+      Long userId,
+      Long sessionId,
+      Long questionId,
+      MultipartFile audioFile,
+      String submittedRecognizedText) {
     QuizSession session = getOwnedSession(sessionId, userId);
 
     if (session.isCompleted()) {
@@ -141,11 +166,10 @@ public class QuizService {
 
     validateCurrentQuestion(question, sessionId);
 
-    String recognizedText = transcribe(audioFile);
-
     Learn word = question.getWord();
     String targetText = word.getDisplayText();
 
+    String recognizedText = transcribeOrEmpty(audioFile, submittedRecognizedText);
     QuizGrade grade = quizGradingService.grade(targetText, recognizedText);
 
     QuizAnswer answer =
@@ -172,7 +196,6 @@ public class QuizService {
     session.addStar(grade.star());
 
     boolean hasNext = quizQuestionRepository.existsBySessionIdAndAnsweredFalse(sessionId);
-
     Integer nextQuestionNumber = hasNext ? getNextQuestionNumber(sessionId) : null;
 
     if (!hasNext) {
@@ -271,13 +294,26 @@ public class QuizService {
     }
   }
 
-  private String transcribe(MultipartFile audioFile) {
+  private String transcribeOrEmpty(MultipartFile audioFile, String submittedRecognizedText) {
+    if (submittedRecognizedText != null) {
+      return submittedRecognizedText.strip();
+    }
+
+    if (audioFile == null || audioFile.isEmpty()) {
+      return "";
+    }
+
     try {
       String audioMimeType = resolveAudioMimeType(audioFile);
+      String recognizedText = clovaSttClient.transcribe(audioFile, DEFAULT_LOCALE, audioMimeType);
 
-      return clovaSttClient.transcribe(audioFile, DEFAULT_LOCALE, audioMimeType);
+      if (recognizedText == null || recognizedText.isBlank()) {
+        return "";
+      }
+
+      return recognizedText;
     } catch (RuntimeException e) {
-      throw new BusinessException(QuizErrorCode.STT_FAILED);
+      return "";
     }
   }
 

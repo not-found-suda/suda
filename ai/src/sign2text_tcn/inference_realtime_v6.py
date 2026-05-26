@@ -1,4 +1,4 @@
-import argparse
+﻿import argparse
 import json
 import os
 import time
@@ -163,15 +163,15 @@ def get_normalized_eyebrow_gap(results):
 
 def classify_sentence_type(current_gap, neutral_gaps):
     if current_gap is None or len(neutral_gaps) < MIN_NEUTRAL_FACE_SAMPLES:
-        return "평서문", 0.0, None
+        return "?됱꽌臾?, 0.0, None
 
     neutral_gap = float(np.median(neutral_gaps))
     eyebrow_delta = current_gap - neutral_gap
 
     if eyebrow_delta >= QUESTION_EYEBROW_DELTA_THRESHOLD:
-        return "의문문", eyebrow_delta, neutral_gap
+        return "?섎Ц臾?, eyebrow_delta, neutral_gap
 
-    return "평서문", eyebrow_delta, neutral_gap
+    return "?됱꽌臾?, eyebrow_delta, neutral_gap
 
 def has_visible_hand(results):
     return results.left_hand_landmarks is not None or results.right_hand_landmarks is not None
@@ -237,7 +237,7 @@ def main():
 
     with open(config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
-    
+
     with open(label_map_path, "r", encoding="utf-8") as f:
         label_map_raw = json.load(f)
         label_map = {int(k): v for k, v in label_map_raw.items()}
@@ -262,20 +262,20 @@ def main():
 
     frame_window = deque(maxlen=MAX_LEN)
     prediction_window = deque(maxlen=PREDICTION_SMOOTHING)
-    
+
     current_action = "none"
     current_confidence = 0.0
     last_pose = None
     last_face = None
 
-    # 최종 확정된 단어와 타임스탬프 (2초 유지용)
+    # 理쒖쥌 ?뺤젙???⑥뼱? ??꾩뒪?ы봽 (2珥??좎???
     locked_action = "none"
     locked_time = 0.0
     last_logged_action = None
-    
+
     missing_hand_frames = 0
-    sentence_buffer = [] # 문장 누적용 버퍼
-    
+    sentence_buffer = [] # 臾몄옣 ?꾩쟻??踰꾪띁
+
     neutral_gaps = deque(maxlen=NEUTRAL_FACE_WINDOW)
     sentence_is_question = False
 
@@ -302,15 +302,15 @@ def main():
                 current_sentence_type, current_eyebrow_delta, current_neutral_gap = classify_sentence_type(
                     eyebrow_gap, neutral_gaps
                 )
-                if current_sentence_type == "의문문":
+                if current_sentence_type == "?섎Ц臾?:
                     sentence_is_question = True
 
-            # 손이 15프레임(약 0.5초) 이상 연속으로 안 보일 때만 초기화
+            # ?먯씠 15?꾨젅????0.5珥? ?댁긽 ?곗냽?쇰줈 ??蹂댁씪 ?뚮쭔 珥덇린??
             if missing_hand_frames > 15:
-                # 손이 사라지면 지금까지 모은 단어들을 문장으로 출력
+                # ?먯씠 ?щ씪吏硫?吏湲덇퉴吏 紐⑥? ?⑥뼱?ㅼ쓣 臾몄옣?쇰줈 異쒕젰
                 if sentence_buffer:
-                    final_type = "의문문" if sentence_is_question else "평서문"
-                    print(f"\n✨ === 최종 문장: {' '.join(sentence_buffer)} ({final_type}) === ✨\n")
+                    final_type = "?섎Ц臾? if sentence_is_question else "?됱꽌臾?
+                    print(f"\n??=== 理쒖쥌 臾몄옣: {' '.join(sentence_buffer)} ({final_type}) === ??n")
                     sentence_buffer.clear()
                     sentence_is_question = False
 
@@ -322,19 +322,19 @@ def main():
                 last_face = None
                 last_logged_action = None
             else:
-                # 손이 잠깐 안 보여도 빈 좌표(0)로 채워서 큐의 흐름을 유지함
+                # ?먯씠 ?좉퉸 ??蹂댁뿬??鍮?醫뚰몴(0)濡?梨꾩썙???먯쓽 ?먮쫫???좎???
                 keypoints, last_pose, last_face = extract_keypoints(results, last_pose, last_face, normalize_mode)
                 frame_window.append(keypoints)
 
-            # 30프레임을 다 기다리지 않고 15프레임(0.5초)만 모여도 바로 보간(upsample)하여 추론 시작
+            # 30?꾨젅?꾩쓣 ??湲곕떎由ъ? ?딄퀬 15?꾨젅??0.5珥?留?紐⑥뿬??諛붾줈 蹂닿컙(upsample)?섏뿬 異붾줎 ?쒖옉
             if len(frame_window) >= 15:
                 input_array = pad_sequence(frame_window)
                 input_tensor = torch.tensor(input_array, dtype=torch.float32).unsqueeze(0).to(device)
-                
+
                 with torch.no_grad():
                     outputs = model(input_tensor, return_probs=True)
                     probs = outputs[0].cpu().numpy()
-                
+
                 max_idx = np.argmax(probs)
                 predicted_label = label_map[max_idx]
                 current_confidence = probs[max_idx]
@@ -350,21 +350,21 @@ def main():
                     if candidate == "none" or count >= STABLE_MIN_COUNT:
                         current_action = candidate
 
-                        # none이 아닌 새로운 단어가 확정되었을 때
+                        # none???꾨땶 ?덈줈???⑥뼱媛 ?뺤젙?섏뿀????
                         if current_action != "none":
                             if current_action != last_logged_action:
-                                print(f"👉 Detected: {current_action} (Confidence: {current_confidence:.3f})")
+                                print(f"?몛 Detected: {current_action} (Confidence: {current_confidence:.3f})")
                                 locked_action = current_action
                                 locked_time = time.time()
                                 last_logged_action = current_action
-                                
-                                # 문장 버퍼에 단어 추가 (중복 방지)
+
+                                # 臾몄옣 踰꾪띁???⑥뼱 異붽? (以묐났 諛⑹?)
                                 if not sentence_buffer or sentence_buffer[-1] != current_action:
                                     sentence_buffer.append(current_action)
                         else:
                             last_logged_action = None
 
-            # 2초가 지나면 띄워주던 단어를 지움
+            # 2珥덇? 吏?섎㈃ ?꾩썙二쇰뜕 ?⑥뼱瑜?吏?
             if time.time() - locked_time > 2.0:
                 locked_action = "none"
 

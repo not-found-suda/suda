@@ -1,16 +1,23 @@
+@file:Suppress("MagicNumber", "TooManyFunctions")
+
 package com.ssafy.mobile.feature.report.presentation
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -34,9 +41,11 @@ internal fun ReportQuizSessionSummaryCard(detail: ReportQuizSessionDetail) {
             )
             Spacer(modifier = Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                val diffColors = detail.difficulty.toReportDifficultyBadgeColors()
                 AppBadge(
                     text = detail.difficulty.toReportDifficultyLabel(),
-                    tone = AppBadgeTone.Primary,
+                    containerColor = diffColors.containerColor,
+                    contentColor = diffColors.contentColor,
                 )
                 AppBadge(
                     text = detail.status.toReportSessionStatusLabel(),
@@ -73,21 +82,10 @@ private fun ReportQuizSessionSummaryMetricGrid(detail: ReportQuizSessionDetail) 
                 modifier = Modifier.weight(1f),
             )
             ReportQuizSessionDetailMetric(
-                title = "문제 수",
-                value = "${detail.totalQuestionCount}문제",
-                tone = ReportVisualTone.Tertiary,
-                modifier = Modifier.weight(1f),
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            ReportQuizSessionDetailMetric(
                 title = "총 별점",
                 value = detail.totalStar?.let { "${it}점" } ?: "정보 없음",
                 tone = ReportVisualTone.Warning,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.weight(1f),
             )
         }
         ReportInlineStarMetric(
@@ -100,17 +98,36 @@ private fun ReportQuizSessionSummaryMetricGrid(detail: ReportQuizSessionDetail) 
 
 @Composable
 private fun ReportQuizSessionDateSection(detail: ReportQuizSessionDetail) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            text = "시작 ${detail.startedAt.toReportQuizSessionDateTimeLabel()}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = "완료 ${detail.endedAt.toReportQuizSessionDateTimeLabel()}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "⏱️",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(end = 12.dp),
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "시작: ${detail.startedAt.toReportQuizSessionDateTimeLabel()}",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "완료: ${detail.endedAt.toReportQuizSessionDateTimeLabel()}",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 
@@ -144,21 +161,72 @@ internal fun ReportQuizAnswerCard(answer: ReportQuizAnswer) {
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
             ReportQuizAnswerMetricRow(answer = answer)
-            Spacer(modifier = Modifier.height(12.dp))
-            ReportQuizAnswerTextRow(
+
+            Spacer(modifier = Modifier.height(14.dp))
+            ReportAnswerDetailBox(
+                icon = "🎙️",
                 title = "인식 결과",
                 value = answer.recognizedText.toDisplayText("인식 결과가 없어요."),
+                backgroundColor = Color(0xFFE8F5E9).copy(alpha = 0.8f),
             )
-            ReportQuizAnswerTextRow(
+
+            Spacer(modifier = Modifier.height(8.dp))
+            ReportAnswerDetailBox(
+                icon = "✨",
                 title = "피드백",
                 value = answer.feedback.toDisplayText("피드백이 없어요."),
+                backgroundColor = Color(0xFFE8F5E9).copy(alpha = 0.8f),
             )
+
+            Spacer(modifier = Modifier.height(8.dp))
+            ReportAnswerDetailBox(
+                icon = "📅",
+                title = "답변 시각",
+                value = answer.answeredAt.toReportQuizSessionDateTimeLabel(),
+                backgroundColor = Color(0xFFE8F5E9).copy(alpha = 0.8f),
+                valueStyle = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReportAnswerDetailBox(
+    icon: String,
+    title: String,
+    value: String,
+    backgroundColor: Color,
+    modifier: Modifier = Modifier,
+    valueStyle: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyMedium,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = backgroundColor,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f)),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = icon,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(end = 6.dp),
+                )
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "답변 ${answer.answeredAt.toReportQuizSessionDateTimeLabel()}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = value,
+                style = valueStyle,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Medium,
             )
         }
     }
@@ -179,18 +247,6 @@ private fun ReportQuizAnswerMetricRow(answer: ReportQuizAnswer) {
             modifier = Modifier.fillMaxWidth(),
         )
     }
-}
-
-@Composable
-private fun ReportQuizAnswerTextRow(
-    title: String,
-    value: String,
-) {
-    Text(
-        text = "$title: $value",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 }
 
 @Composable

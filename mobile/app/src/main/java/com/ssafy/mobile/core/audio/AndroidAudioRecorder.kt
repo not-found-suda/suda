@@ -66,6 +66,70 @@ class AndroidAudioRecorder
             }
         }
 
+        fun startPcmStream(onAudioChunk: (ByteArray) -> Unit): Boolean {
+            if (audioRecord != null) stop()
+
+            return if (!hasRecordAudioPermission()) {
+                Log.w(TAG, "Missing RECORD_AUDIO permission")
+                false
+            } else {
+                val minBufferSize =
+                    AudioRecord.getMinBufferSize(
+                        SAMPLE_RATE,
+                        CHANNEL_CONFIG,
+                        AUDIO_FORMAT,
+                    )
+
+                if (minBufferSize <= 0) {
+                    Log.w(TAG, "Invalid AudioRecord min buffer size: $minBufferSize")
+                    false
+                } else {
+                    startPcmStreaming(minBufferSize, onAudioChunk)
+                }
+            }
+        }
+
+        @Suppress("TooGenericExceptionCaught")
+        private fun startPcmStreaming(
+            minBufferSize: Int,
+            onAudioChunk: (ByteArray) -> Unit,
+        ): Boolean {
+            val bufferSize = maxOf(minBufferSize, MIN_RECORDING_BUFFER_BYTES)
+            var recorder: AudioRecord? = null
+
+            val isStarted =
+                try {
+                    val activeRecorder = createAudioRecord(bufferSize)
+                    recorder = activeRecorder
+                    if (activeRecorder.state != AudioRecord.STATE_INITIALIZED) {
+                        Log.w(TAG, "AudioRecord is not initialized")
+                        false
+                    } else {
+                        activeRecorder.startRecording()
+
+                        audioRecord = activeRecorder
+                        outputFile = null
+                        outputStream = null
+                        isRecording = true
+                        maxAmplitude.set(0)
+                        recordingThread =
+                            Thread(
+                                {
+                                    streamPcmAudio(activeRecorder, bufferSize, onAudioChunk)
+                                },
+                                STREAMING_THREAD_NAME,
+                            ).also { it.start() }
+                        true
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to start PCM audio streaming", e)
+                    false
+                }
+
+            if (!isStarted) cleanupFailedPcmStreamingStart(recorder)
+            return isStarted
+        }
+
         @Suppress("TooGenericExceptionCaught")
         private fun startWavRecording(
             fileName: String,
@@ -178,6 +242,30 @@ class AndroidAudioRecorder
                         updateMaxAmplitude(buffer, bytesRead)
                     } catch (e: IOException) {
                         Log.w(TAG, "Failed to write WAV audio data", e)
+                        isRecording = false
+                    }
+                } else if (bytesRead < 0) {
+                    Log.w(TAG, "AudioRecord read failed: $bytesRead")
+                    isRecording = false
+                }
+            }
+        }
+
+        private fun streamPcmAudio(
+            recorder: AudioRecord,
+            bufferSize: Int,
+            onAudioChunk: (ByteArray) -> Unit,
+        ) {
+            val buffer = ByteArray(bufferSize)
+            while (isRecording) {
+                val bytesRead = recorder.read(buffer, 0, buffer.size)
+                if (bytesRead > 0) {
+                    @Suppress("TooGenericExceptionCaught")
+                    try {
+                        updateMaxAmplitude(buffer, bytesRead)
+                        onAudioChunk(buffer.copyOf(bytesRead))
+                    } catch (e: RuntimeException) {
+                        Log.w(TAG, "Failed to stream PCM audio data", e)
                         isRecording = false
                     }
                 } else if (bytesRead < 0) {
@@ -334,6 +422,12 @@ class AndroidAudioRecorder
             clearRecordingState()
         }
 
+        private fun cleanupFailedPcmStreamingStart(recorder: AudioRecord?) {
+            isRecording = false
+            recorder?.release()
+            clearRecordingState()
+        }
+
         /**
          * 현재 생성된 파일 반환
          */
@@ -349,6 +443,7 @@ class AndroidAudioRecorder
         companion object {
             private const val TAG = "AndroidAudioRecorder"
             private const val RECORDING_THREAD_NAME = "CloudSttWavRecorder"
+            private const val STREAMING_THREAD_NAME = "CloudSttPcmStreamer"
             private const val SAMPLE_RATE = 16000
             private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
             private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT

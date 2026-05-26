@@ -8,6 +8,7 @@ import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechReque
 import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechResponse
 import com.ssafy.mobile.feature.conversation.data.remote.model.SpeechToTextResponse
 import com.ssafy.mobile.feature.conversation.data.remote.model.TranslationFeedbackRequest
+import com.ssafy.mobile.feature.conversation.data.remote.model.TranslationSttModeDto
 import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
 import com.ssafy.mobile.feature.conversation.domain.model.TranslationFeedbackReason
 import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
@@ -23,11 +24,29 @@ import retrofit2.Response
 /**
  * TranslateRepository의 실제 구현체
  */
+class TranslationApiException(
+    val httpStatus: Int,
+    val errorCode: String?,
+    val errorTitle: String?,
+    override val message: String,
+) : IOException(message)
+
+@Suppress("TooManyFunctions")
 class DefaultTranslateRepository
     @Inject
     constructor(
         private val apiService: TranslateApiService,
     ) : TranslateRepository {
+        override suspend fun getSttMode(): Result<TranslationSttModeDto> =
+            runCatching {
+                val response = apiService.getSttConfig()
+                if (response.isSuccessful) {
+                    response.body()?.mode ?: throw IllegalStateException(ERROR_EMPTY_BODY)
+                } else {
+                    throw response.toApiException()
+                }
+            }
+
         override suspend fun translateSignToSpeech(
             words: List<String>,
             sessionId: Long?,
@@ -147,8 +166,11 @@ class DefaultTranslateRepository
                     ?.takeIf { it.isNotBlank() }
                     ?: "body=${errorBody.take(ERROR_BODY_PREVIEW_LENGTH)}"
 
-            return IOException(
-                "$ERROR_API_PREFIX status=${code()}, message=${message()}, $diagnostic",
+            return TranslationApiException(
+                httpStatus = problemDetails?.status ?: code(),
+                errorCode = problemDetails?.code,
+                errorTitle = problemDetails?.title,
+                message = "$ERROR_API_PREFIX status=${code()}, message=${message()}, $diagnostic",
             )
         }
 

@@ -75,7 +75,7 @@ class SignSequenceBuffer(
 
     companion object {
         const val DEFAULT_SEQUENCE_LENGTH = SignModelContract.SEQUENCE_LENGTH
-        const val DEFAULT_MINIMUM_PREDICTION_FRAMES = 15
+        const val DEFAULT_MINIMUM_PREDICTION_FRAMES = 5
         const val DEFAULT_MINIMUM_HAND_FRAME_RATIO = 0f
         private const val MINIMUM_HAND_FRAMES = 1
         private const val MINIMUM_PREDICTION_FRAMES_LOWER_BOUND = 1

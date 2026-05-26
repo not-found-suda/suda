@@ -3,6 +3,7 @@
 package com.ssafy.mobile.feature.report.presentation
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,10 +14,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -40,7 +42,6 @@ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
 import com.ssafy.mobile.core.ui.components.AppSecondaryButton
 import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
 import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationAnalysisStatus
-import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationSessionSummary
 import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationSummary
 import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationWordCount
 import com.ssafy.mobile.feature.report.domain.model.ReportExpressionTypeCounts
@@ -96,15 +97,10 @@ fun ReportCommunicationSummaryRoute(
         ReportCommunicationSummaryContent(
             activeChildState = uiState.activeChildState,
             communicationSummaryState = uiState.communicationSummaryState,
-            filterUiState = uiState.filterUiState,
+            selectedPeriod = uiState.selectedPeriod,
+            onPeriodSelected = viewModel::selectPeriod,
             onRetryClick = viewModel::loadActiveChildProfile,
             onSwitchChild = onSwitchChild,
-            filterActions =
-                ReportFilterActions(
-                    onInputChange = viewModel::updateFilterInput,
-                    onApplyClick = viewModel::applyFilter,
-                    onResetClick = viewModel::resetFilter,
-                ),
             modifier =
                 Modifier
                     .fillMaxSize()
@@ -117,10 +113,10 @@ fun ReportCommunicationSummaryRoute(
 private fun ReportCommunicationSummaryContent(
     activeChildState: ActiveChildProfileState,
     communicationSummaryState: ReportCommunicationSummaryState,
-    filterUiState: ReportFilterUiState,
+    selectedPeriod: ReportCommunicationSummaryPeriod,
+    onPeriodSelected: (ReportCommunicationSummaryPeriod) -> Unit,
     onRetryClick: () -> Unit,
     onSwitchChild: () -> Unit,
-    filterActions: ReportFilterActions,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -141,8 +137,8 @@ private fun ReportCommunicationSummaryContent(
             is ActiveChildProfileState.Selected ->
                 communicationSummaryItems(
                     state = communicationSummaryState,
-                    filterUiState = filterUiState,
-                    filterActions = filterActions,
+                    selectedPeriod = selectedPeriod,
+                    onPeriodSelected = onPeriodSelected,
                     onRetryClick = onRetryClick,
                 )
 
@@ -177,15 +173,14 @@ private fun ReportCommunicationSummaryContent(
 
 private fun LazyListScope.communicationSummaryItems(
     state: ReportCommunicationSummaryState,
-    filterUiState: ReportFilterUiState,
-    filterActions: ReportFilterActions,
+    selectedPeriod: ReportCommunicationSummaryPeriod,
+    onPeriodSelected: (ReportCommunicationSummaryPeriod) -> Unit,
     onRetryClick: () -> Unit,
 ) {
     item {
-        ReportFilterPanel(
-            state = filterUiState,
-            config = ReportFilterPanelConfig(),
-            actions = filterActions,
+        ReportCommunicationPeriodToggle(
+            selectedPeriod = selectedPeriod,
+            onPeriodSelected = onPeriodSelected,
         )
     }
 
@@ -206,12 +201,9 @@ private fun LazyListScope.communicationSummaryItems(
             }
 
         is ReportCommunicationSummaryState.Success -> {
-            item {
-                ReportCommunicationOverviewCard(summary = state.summary)
-            }
             communicationSummaryBody(
                 summary = state.summary,
-                filterUiState = filterUiState,
+                selectedPeriod = selectedPeriod,
                 onRetryClick = onRetryClick,
             )
         }
@@ -220,7 +212,7 @@ private fun LazyListScope.communicationSummaryItems(
 
 private fun LazyListScope.communicationSummaryBody(
     summary: ReportCommunicationSummary,
-    filterUiState: ReportFilterUiState,
+    selectedPeriod: ReportCommunicationSummaryPeriod,
     onRetryClick: () -> Unit,
 ) {
     when (summary.analysisStatus) {
@@ -240,12 +232,7 @@ private fun LazyListScope.communicationSummaryBody(
         ReportCommunicationAnalysisStatus.Empty ->
             item {
                 ReportCommunicationStatusCard(
-                    message =
-                        if (filterUiState.hasAppliedFilter) {
-                            "선택한 기간에 분석할 아이 발화가 없어요."
-                        } else {
-                            "아직 분석할 아이 발화가 없어요.\n소통 화면에서 아이 음성을 기록하면 리포트가 채워져요."
-                        },
+                    message = "${selectedPeriod.label}에 분석 완료된 아이 발화가 없어요.",
                 )
             }
 
@@ -264,29 +251,80 @@ private fun LazyListScope.communicationSummaryBody(
         ReportCommunicationAnalysisStatus.Unknown,
         -> {
             item {
+                ReportCommunicationOverviewCard(summary = summary)
+            }
+            item {
                 ReportCommunicationFrequentWordsCard(words = summary.frequentWords)
             }
             item {
                 ReportCommunicationExpressionCard(counts = summary.expressionTypeCounts)
             }
-            if (summary.recentSessions.isEmpty()) {
-                item {
-                    ReportCommunicationStatusCard(message = "최근 소통 세션 요약이 아직 없어요.")
-                }
-            } else {
-                item {
-                    ReportSectionTitle(
-                        title = "최근 대화 요약",
-                        subtitle = "최근 세션 5개까지 최신순으로 보여드려요.",
-                    )
-                }
-                items(
-                    items = summary.recentSessions,
-                    key = { session -> session.sessionId },
-                ) { session ->
-                    ReportCommunicationSessionCard(session = session)
+            item {
+                ReportCommunicationInsightCard(summary = summary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReportCommunicationPeriodToggle(
+    selectedPeriod: ReportCommunicationSummaryPeriod,
+    onPeriodSelected: (ReportCommunicationSummaryPeriod) -> Unit,
+) {
+    ReportGlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(14.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            ReportSectionTitle(
+                title = "기간 조회",
+                subtitle = "선택한 기간의 모든 대화를 합쳐 분석해요.",
+            )
+            ReportCommunicationSummaryPeriod.entries.chunked(PERIOD_TOGGLE_COLUMNS).forEach { row ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    row.forEach { period ->
+                        ReportCommunicationPeriodButton(
+                            period = period,
+                            selected = selectedPeriod == period,
+                            onClick = { onPeriodSelected(period) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    repeat(PERIOD_TOGGLE_COLUMNS - row.size) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ReportCommunicationPeriodButton(
+    period: ReportCommunicationSummaryPeriod,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(38.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = if (selected) colors.primary else colors.surfaceVariant.copy(alpha = 0.58f),
+        contentColor = if (selected) colors.onPrimary else colors.onSurfaceVariant,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = period.label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -461,10 +499,112 @@ private fun ReportCommunicationExpressionCard(counts: ReportExpressionTypeCounts
                     tone = ReportVisualTone.Success,
                 )
                 ReportExpressionMeter(
+                    title = "질문 표현",
+                    count = counts.question,
+                    total = counts.total,
+                    tone = ReportVisualTone.Secondary,
+                )
+                ReportExpressionMeter(
                     title = "기타",
                     count = counts.other,
                     total = counts.total,
                     tone = ReportVisualTone.Neutral,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReportCommunicationInsightCard(summary: ReportCommunicationSummary) {
+    ReportGlassCard(modifier = Modifier.fillMaxWidth()) {
+        ReportSectionTitle(
+            title = "통합 분석",
+            subtitle = "기간 안의 완성된 분석 결과만 모아 정리했어요.",
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            ReportCommunicationLevelRow(
+                title = "소통 수준",
+                value = summary.communicationLevel.toCommunicationLevelLabel(),
+            )
+            ReportCommunicationLevelRow(
+                title = "어휘 다양성",
+                value = summary.vocabularyDiversityLevel.toCommunicationLevelLabel(),
+            )
+            ReportCommunicationLevelRow(
+                title = "문장 확장",
+                value = summary.sentenceExpansionLevel.toCommunicationLevelLabel(),
+            )
+            ReportCommunicationLevelRow(
+                title = "주의 단계",
+                value = summary.cautionLevel.toCautionLevelLabel(),
+            )
+            ReportCommunicationTextList(
+                title = "강점",
+                values = summary.strengths,
+            )
+            ReportCommunicationTextList(
+                title = "도움이 필요한 부분",
+                values = summary.improvementPoints,
+            )
+            ReportCommunicationTextList(
+                title = "보호자 가이드",
+                values = summary.parentGuide,
+            )
+            ReportCommunicationTextList(
+                title = "추천 활동",
+                values = summary.recommendedActivities,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReportCommunicationLevelRow(
+    title: String,
+    value: String,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        AppBadge(
+            text = value,
+            tone = AppBadgeTone.Secondary,
+        )
+    }
+}
+
+@Composable
+private fun ReportCommunicationTextList(
+    title: String,
+    values: List<String>,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+        )
+        if (values.isEmpty()) {
+            Text(
+                text = "아직 정리된 내용이 없어요.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            values.take(REPORT_TEXT_LIST_LIMIT).forEach { value ->
+                Text(
+                    text = "• $value",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
         }
@@ -490,56 +630,6 @@ private fun ReportExpressionMeter(
         detail = "${count}회",
         tone = tone,
     )
-}
-
-@Composable
-private fun ReportCommunicationSessionCard(session: ReportCommunicationSessionSummary) {
-    ReportGlassCard(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = session.toPeriodLabel(),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            AppBadge(
-                text = session.analysisStatus.toLabel(),
-                tone = session.analysisStatus.toBadgeTone(),
-            )
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Text(
-            text = "아이 발화 ${session.utteranceCount}회",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        if (session.summary.isNotBlank()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = session.summary,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
-
-        if (session.frequentWords.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                text = session.frequentWords.toWordSummary(),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
 }
 
 @Composable
@@ -648,28 +738,6 @@ private fun ReportCommunicationActionCard(
     }
 }
 
-private fun ReportCommunicationSessionSummary.toPeriodLabel(): String {
-    val start = startedAt.toReportQuizSessionDateTimeLabel()
-    val end = endedAt.toReportTimeLabel()
-    return if (end == null) {
-        start
-    } else {
-        "$start ~ $end"
-    }
-}
-
-private fun String?.toReportTimeLabel(): String? {
-    if (isNullOrBlank()) {
-        return null
-    }
-    val time = drop(ISO_DATE_TIME_SEPARATOR_INDEX).take(ISO_TIME_LENGTH)
-    return time.takeIf { it.length == ISO_TIME_LENGTH }
-}
-
-private fun List<ReportCommunicationWordCount>.toWordSummary(): String =
-    take(RECENT_SESSION_WORD_COUNT)
-        .joinToString(separator = ", ") { word -> "${word.word} ${word.count}회" }
-
 private fun ReportCommunicationAnalysisStatus.toLabel(): String =
     when (this) {
         ReportCommunicationAnalysisStatus.Pending -> "분석 대기"
@@ -678,6 +746,21 @@ private fun ReportCommunicationAnalysisStatus.toLabel(): String =
         ReportCommunicationAnalysisStatus.Failed -> "분석 실패"
         ReportCommunicationAnalysisStatus.Empty -> "기록 없음"
         ReportCommunicationAnalysisStatus.Unknown -> "상태 확인"
+    }
+
+private fun String.toCommunicationLevelLabel(): String =
+    when (uppercase(Locale.ROOT)) {
+        "LOW" -> "낮음"
+        "NORMAL" -> "보통"
+        "HIGH" -> "높음"
+        else -> "확인 중"
+    }
+
+private fun String.toCautionLevelLabel(): String =
+    when (uppercase(Locale.ROOT)) {
+        "WATCH" -> "관찰 필요"
+        "CONSULT" -> "상담 권장"
+        else -> "특이 없음"
     }
 
 private fun ReportCommunicationAnalysisStatus.toBadgeTone(): AppBadgeTone =
@@ -691,7 +774,6 @@ private fun ReportCommunicationAnalysisStatus.toBadgeTone(): AppBadgeTone =
     }
 
 private const val MAX_WORD_COUNT = 5
-private const val RECENT_SESSION_WORD_COUNT = 3
-private const val ISO_DATE_TIME_SEPARATOR_INDEX = 11
-private const val ISO_TIME_LENGTH = 5
+private const val REPORT_TEXT_LIST_LIMIT = 5
+private const val PERIOD_TOGGLE_COLUMNS = 2
 private const val PERCENT_MAX = 100.0

@@ -9,20 +9,19 @@ package com.ssafy.mobile.feature.quiz.presentation
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -34,6 +33,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -90,6 +91,15 @@ fun quizQuestionRoute(
         recordingViewModel.consumeRecordedAudio()
     }
 
+    LaunchedEffect(recordingStatus) {
+        if (
+            recordingStatus == QuizRecordingStatus.NoSpeech ||
+            recordingStatus == QuizRecordingStatus.Timeout
+        ) {
+            quizViewModel.submitFallbackIncorrectAnswer(recordingStatus)
+        }
+    }
+
     LaunchedEffect(quizState.isFinished) {
         if (quizState.isFinished) {
             val sessionId = quizState.sessionId
@@ -136,13 +146,16 @@ private fun QuizQuestionScreen(
     modifier: Modifier = Modifier,
 ) {
     val imagesReady = rememberNetworkImagesPreloaded(state.preloadImageUrls)
+    val shouldKeepQuestionVisible =
+        answerSubmitState is QuizAnswerSubmitState.TimedOut ||
+            answerSubmitState is QuizAnswerSubmitState.SaveFailed
 
     Surface(
         modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
     ) {
         when {
-            state.isLoading -> {
+            state.isLoading && !shouldKeepQuestionVisible -> {
                 QuizMessageState(
                     title = "퀴즈 그림을 저장하고 있어요",
                     description = "5개 이미지를 모두 준비한 뒤 시작할게요.",
@@ -160,7 +173,7 @@ private fun QuizQuestionScreen(
                 )
             }
 
-            state.errorMessage != null -> {
+            state.errorMessage != null && !shouldKeepQuestionVisible -> {
                 QuizMessageState(
                     title = "퀴즈를 불러오지 못했어요",
                     description = state.errorMessage,
@@ -214,9 +227,16 @@ private fun QuizQuestionContent(
     onNextClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val currentAnswer =
+        state.answers.firstOrNull {
+            it.questionId == question.id
+        }
+    val shouldCollapseQuestionCard = currentAnswer != null
+
     Column(
         modifier =
             modifier
+                .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
                         colors =
@@ -226,10 +246,9 @@ private fun QuizQuestionContent(
                                 Color(0xFFFDFDF9),
                             ),
                     ),
-                ).verticalScroll(rememberScrollState())
-                .padding(horizontal = 28.dp, vertical = 22.dp),
+                ).padding(horizontal = 28.dp, vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         QuizProgressHeader(
             currentQuestionNumber = state.currentQuestionNumber,
@@ -242,17 +261,17 @@ private fun QuizQuestionContent(
             label = "quizQuestionContent",
             modifier = Modifier.fillMaxWidth(),
         ) { currentQuestion ->
-            QuizQuestionCard(question = currentQuestion)
+            QuizQuestionCard(
+                question = currentQuestion,
+                isCollapsed = shouldCollapseQuestionCard,
+            )
         }
 
         QuizActionArea(
             isLastQuestion = state.isLastQuestion,
             recordingStatus = recordingStatus,
             answerSubmitState = answerSubmitState,
-            answer =
-                state.answers.firstOrNull {
-                    it.questionId == question.id
-                },
+            answer = currentAnswer,
             onAnswerClick = onAnswerClick,
             onNextClick = onNextClick,
         )
@@ -274,7 +293,7 @@ private fun QuizProgressHeader(
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
             text = "$currentQuestionNumber / $totalQuestionCount",
@@ -306,10 +325,35 @@ private fun QuizProgressHeader(
 @Composable
 private fun QuizQuestionCard(
     question: QuizQuestion,
+    isCollapsed: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val animatedCardOffsetY by animateDpAsState(
+        targetValue = if (isCollapsed) (-12).dp else 0.dp,
+        label = "quizQuestionCardOffset",
+    )
+    val animatedVerticalPadding by animateDpAsState(
+        targetValue = if (isCollapsed) 18.dp else 22.dp,
+        label = "quizQuestionCardPadding",
+    )
+    val animatedContentSpacing by animateDpAsState(
+        targetValue = if (isCollapsed) 12.dp else 16.dp,
+        label = "quizQuestionCardSpacing",
+    )
+    val animatedImageHeight by animateDpAsState(
+        targetValue = if (isCollapsed) 170.dp else 252.dp,
+        label = "quizQuestionImageHeight",
+    )
+    val animatedFoldRotation by animateFloatAsState(
+        targetValue = if (isCollapsed) 6f else 0f,
+        label = "quizQuestionFoldRotation",
+    )
+
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .offset(y = animatedCardOffsetY),
         shape = RoundedCornerShape(32.dp),
         color = Color.White.copy(alpha = 0.98f),
         contentColor = MaterialTheme.colorScheme.onSurface,
@@ -319,17 +363,20 @@ private fun QuizQuestionCard(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 28.dp),
+                    .padding(horizontal = 22.dp, vertical = animatedVerticalPadding),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+            verticalArrangement = Arrangement.spacedBy(animatedContentSpacing),
         ) {
             Box(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .aspectRatio(1.06f)
+                        .height(animatedImageHeight)
                         .clip(RoundedCornerShape(24.dp))
-                        .background(Color(0xFFF8FFFC)),
+                        .graphicsLayer {
+                            rotationX = animatedFoldRotation
+                            transformOrigin = TransformOrigin(0.5f, 0f)
+                        }.background(Color(0xFFF8FFFC)),
                 contentAlignment = Alignment.Center,
             ) {
                 AppNetworkImage(
@@ -410,6 +457,7 @@ private fun QuizActionArea(
             recordingStatus == QuizRecordingStatus.FallbackRecording
     val isProcessing = recordingStatus == QuizRecordingStatus.Processing
     val isSubmitting = answerSubmitState == QuizAnswerSubmitState.Submitting
+    val isTimedOut = answerSubmitState is QuizAnswerSubmitState.TimedOut
     val isCompletionPending = answerSubmitState is QuizAnswerSubmitState.CompletionPending
     val isSaveFailed = answerSubmitState is QuizAnswerSubmitState.SaveFailed
     val canSkipQuestion = false
@@ -419,6 +467,7 @@ private fun QuizActionArea(
     val canRecordAnswer =
         !isProcessing &&
             !isSubmitting &&
+            !isTimedOut &&
             !isCompletionPending &&
             !hasSuccessfulAnswer &&
             !retryLimitReached
@@ -430,7 +479,8 @@ private fun QuizActionArea(
         ) &&
             !isRecording &&
             !isProcessing &&
-            !isSubmitting
+            !isSubmitting &&
+            !isTimedOut
     val actionState =
         quizActionUiState(
             answer = answer,
@@ -457,7 +507,7 @@ private fun QuizActionArea(
                 .fillMaxWidth()
                 .animateContentSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (answer != null) {
             QuizStarResultCard(

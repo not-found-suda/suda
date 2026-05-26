@@ -63,6 +63,7 @@ class ReportWeakWordsViewModel
                     filterUiState =
                         ReportFilterUiState(
                             input = filterSelectionStore.currentInput(),
+                            anchorDate = filterSelectionStore.currentAnchorDate(),
                             hasAppliedFilter = true,
                         ),
                 ),
@@ -77,7 +78,7 @@ class ReportWeakWordsViewModel
                 .currentInput()
                 .toWeakWordsFilter()
                 .getOrDefault(
-                    defaultReportFilterState(),
+                    defaultReportFilterState(filterSelectionStore.currentAnchorDate()),
                 )
 
         init {
@@ -281,7 +282,7 @@ class ReportWeakWordsViewModel
         }
 
         fun resetFilter() {
-            appliedFilter = defaultReportFilterState()
+            appliedFilter = defaultReportFilterState(filterSelectionStore.currentAnchorDate())
             _uiState.value =
                 _uiState.value.copy(
                     filterUiState =

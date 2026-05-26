@@ -27,9 +27,8 @@ import com.ssafy.mobile.feature.conversation.domain.model.SenderType
 
 private const val PENDING_ALPHA = 0.6f
 private const val MAX_BUBBLE_WIDTH = 300
-
-// 후속 작업: 번역 신고/피드백 백엔드 미구현 상태라 임시 숨김 처리 (백엔드 연동 시 true로 변경)
 private const val IS_TRANSLATION_FEEDBACK_ENABLED = false
+private const val SYSTEM_BUBBLE_ALPHA = 0.52f
 
 @Composable
 fun SubtitleBubble(
@@ -59,19 +58,20 @@ fun SubtitleBubble(
                     Text(
                         text = message.senderType.senderLabel(),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = style.metaColor,
                         fontWeight = FontWeight.Bold,
                     )
                     if (message.status == MessageStatus.PENDING) {
                         Text(
                             text = "처리 중",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.tertiary,
+                            color = style.metaColor,
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
                 }
             }
+
             Box(
                 modifier =
                     Modifier
@@ -96,6 +96,7 @@ fun SubtitleBubble(
                     Text(
                         text = "신고",
                         style = MaterialTheme.typography.labelMedium,
+                        color = style.metaColor,
                     )
                 }
             }
@@ -109,8 +110,8 @@ private fun ChatMessage.canReportTranslation(): Boolean =
 private fun SenderType.senderLabel(): String =
     when (this) {
         SenderType.SYSTEM -> "안내"
-        SenderType.PARENT -> "나"
-        SenderType.CHILD -> "자녀"
+        SenderType.PARENT -> "보호자"
+        SenderType.CHILD -> "아이"
     }
 
 @Composable
@@ -120,24 +121,28 @@ private fun subtitleBubbleStyle(senderType: SenderType): SubtitleBubbleStyle =
             SubtitleBubbleStyle(
                 boxAlignment = Alignment.Center,
                 columnAlignment = Alignment.CenterHorizontally,
-                backgroundColor = MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                backgroundColor =
+                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = SYSTEM_BUBBLE_ALPHA),
+                contentColor = Color.White,
+                metaColor = Color.White.copy(alpha = 0.84f),
                 shape = RoundedCornerShape(8.dp),
             )
         SenderType.PARENT ->
             SubtitleBubbleStyle(
                 boxAlignment = Alignment.CenterEnd,
                 columnAlignment = Alignment.End,
-                backgroundColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                backgroundColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.52f),
+                contentColor = Color.White,
+                metaColor = Color.White.copy(alpha = 0.84f),
                 shape = RoundedCornerShape(18.dp, 4.dp, 18.dp, 18.dp),
             )
         SenderType.CHILD ->
             SubtitleBubbleStyle(
                 boxAlignment = Alignment.CenterStart,
                 columnAlignment = Alignment.Start,
-                backgroundColor = MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                backgroundColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.48f),
+                contentColor = Color.White,
+                metaColor = Color.White.copy(alpha = 0.84f),
                 shape = RoundedCornerShape(4.dp, 18.dp, 18.dp, 18.dp),
             )
     }
@@ -147,5 +152,6 @@ private data class SubtitleBubbleStyle(
     val columnAlignment: Alignment.Horizontal,
     val backgroundColor: Color,
     val contentColor: Color,
+    val metaColor: Color,
     val shape: Shape,
 )

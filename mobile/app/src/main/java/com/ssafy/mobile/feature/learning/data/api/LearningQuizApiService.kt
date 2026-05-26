@@ -7,6 +7,7 @@ import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionRequestDto
 import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionResponseDto
 import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionStatusResponseDto
 import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -33,7 +34,8 @@ interface LearningQuizApiService {
     suspend fun submitAnswer(
         @Path("sessionId") sessionId: Long,
         @Query("questionId") questionId: Long,
-        @Part audioFile: MultipartBody.Part,
+        @Part audioFile: MultipartBody.Part?,
+        @Part("recognizedText") recognizedText: RequestBody? = null,
     ): Response<LearningQuizAnswerResponseDto>
 
     @PATCH("v1/learn/quizzes/sessions/{sessionId}")

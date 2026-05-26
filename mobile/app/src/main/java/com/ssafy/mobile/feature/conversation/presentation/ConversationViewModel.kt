@@ -16,7 +16,9 @@ import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
 import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileManager
 import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
 import com.ssafy.mobile.feature.conversation.data.remote.model.SpeechToTextResponse
+import com.ssafy.mobile.feature.conversation.data.remote.model.TranslationSttModeDto
 import com.ssafy.mobile.feature.conversation.data.repository.CommsSessionRepository
+import com.ssafy.mobile.feature.conversation.data.repository.TranslationApiException
 import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
 import com.ssafy.mobile.feature.conversation.domain.model.LocalSignSentenceGenerator
 import com.ssafy.mobile.feature.conversation.domain.model.MessageStatus
@@ -25,10 +27,14 @@ import com.ssafy.mobile.feature.conversation.domain.model.TranslationFeedbackRea
 import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
 import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
 import com.ssafy.mobile.feature.conversation.domain.repository.TranslationModeRepository
+import com.ssafy.mobile.feature.conversation.domain.streaming.TranslationStreamingSttClient
+import com.ssafy.mobile.feature.conversation.domain.streaming.TranslationStreamingSttConnection
+import com.ssafy.mobile.feature.conversation.domain.streaming.TranslationStreamingSttEvent
 import com.ssafy.mobile.translation.OnDeviceTranslationEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import javax.inject.Inject
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -40,6 +46,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
 
 enum class SessionState {
     Idle,
@@ -66,14 +73,13 @@ enum class SpeechInputPhase {
     Error,
 }
 
-@Suppress("LargeClass", "LongParameterList", "TooManyFunctions")
+@Suppress("LargeClass", "LongParameterList", "TooManyFunctions", "UnusedPrivateMember")
 @HiltViewModel
 class ConversationViewModel
     @Inject
     constructor(
         private val signRecognitionEngine: SignRecognitionEngine,
         private val translateRepository: TranslateRepository,
-        private val translationModeRepository: TranslationModeRepository,
         private val audioPlayer: AudioPlayer,
         private val ttsPlayer: TtsPlayer,
         private val sttEngine: SttEngine,
@@ -83,6 +89,8 @@ class ConversationViewModel
         private val onDeviceTranslationEngine: OnDeviceTranslationEngine,
         private val activeChildProfileManager: ActiveChildProfileManager,
         private val commsSessionRepository: CommsSessionRepository,
+        private val streamingSttClient: TranslationStreamingSttClient,
+        private val translationModeRepository: TranslationModeRepository,
     ) : ViewModel() {
         private val _sessionState = MutableStateFlow(SessionState.Idle)
         val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
@@ -96,7 +104,7 @@ class ConversationViewModel
         private val _isOnline = MutableStateFlow(true)
         val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
 
-        private val _translationMode = MutableStateFlow(TranslationMode.DEFAULT)
+        private val _translationMode = MutableStateFlow(TranslationMode.ON_DEVICE)
         val translationMode: StateFlow<TranslationMode> = _translationMode.asStateFlow()
 
         private val _translationModeNotice = MutableStateFlow<String?>(null)
@@ -142,6 +150,9 @@ class ConversationViewModel
         private var isResultsReceived = false
         private var isStoppedReceived = false
         private var cloudSttFailureCount = 0
+        private var serverSttMode = TranslationSttModeDto.REST
+        private var streamingFallbackToRest = false
+        private var cloudStreamingConnection: TranslationStreamingSttConnection? = null
         private var pendingFeedbackRequest: TranslationFeedbackRequest? = null
         private val onDeviceSpeechStyle = LocalSignSentenceGenerator.SpeechStyle.Polite
 
@@ -150,19 +161,14 @@ class ConversationViewModel
                 translationModeRepository.translationMode.collect { mode ->
                     val previousMode = _translationMode.value
                     _translationMode.value = mode
-                    if (mode == TranslationMode.ON_DEVICE) {
-                        preloadOnDeviceTranslationEngine()
-                    }
-                    if (previousMode != mode) {
-                        resetCloudSttFailures()
-                        _translationModeNotice.value = null
-                        if (
-                            _sessionState.value == SessionState.Active &&
-                            sessionRuntimeStarted
-                        ) {
-                            stopRecordingForStt()
-                            startRecordingForStt()
-                        }
+                    if (
+                        previousMode != mode &&
+                        _sessionState.value == SessionState.Active &&
+                        sessionRuntimeStarted
+                    ) {
+                        stopRecordingForStt()
+                        prepareCommsSession()
+                        startRecordingForStt()
                     }
                 }
             }
@@ -220,8 +226,6 @@ class ConversationViewModel
             _lastGlosses.value = currentGlosses
             _signInputPhase.value = SignInputPhase.Collecting
             _predictionFeedbackToken.value = event.timestampMs
-
-            restartTranslationTimer(glosses = currentGlosses)
         }
 
         private fun handleUtterance(event: SignRecognitionEvent.Utterance) {
@@ -229,8 +233,9 @@ class ConversationViewModel
 
             _lastGlosses.value = event.glosses
             _signInputPhase.value = SignInputPhase.Collecting
-            restartTranslationTimer(
-                glosses = event.glosses,
+            completionTimerJob?.cancel()
+            requestTranslation(
+                words = event.glosses,
                 sentenceType = event.sentenceType,
             )
         }
@@ -246,29 +251,16 @@ class ConversationViewModel
             addSystemMessage(event.message)
         }
 
-        private fun restartTranslationTimer(
-            glosses: List<String>,
-            sentenceType: String? = null,
-        ) {
-            completionTimerJob?.cancel()
-            completionTimerJob =
-                viewModelScope.launch {
-                    delay(COMPLETION_THRESHOLD_MS)
-                    if (glosses.isNotEmpty()) {
-                        requestTranslation(
-                            words = glosses,
-                            sentenceType = sentenceType,
-                        )
-                    }
-                }
-        }
-
         private fun requestTranslation(
             words: List<String>,
             sentenceType: String? = null,
         ) {
             translationJob?.cancel()
             _signInputPhase.value = SignInputPhase.Translating
+            if (applyDemoTranslationIfMatched(words, sentenceType)) {
+                return
+            }
+
             when (_translationMode.value) {
                 TranslationMode.AUTO ->
                     if (_isOnline.value) {
@@ -307,6 +299,36 @@ class ConversationViewModel
             }
         }
 
+        private fun applyDemoTranslationIfMatched(
+            words: List<String>,
+            sentenceType: String?,
+        ): Boolean {
+            val normalizedWords = normalizeOnDeviceGlosses(words)
+            val demoSentence =
+                generateDemoSentenceOrNull(
+                    words = normalizedWords,
+                    sentenceType = sentenceType,
+                ) ?: return false
+
+            Log.d(
+                TAG,
+                "Demo translation rule applied before mode routing. " +
+                    "mode=${_translationMode.value}, online=${_isOnline.value}, " +
+                    "sentenceType=$sentenceType, gloss=${normalizedWords.joinToString(" ")}",
+            )
+            _translationModeNotice.value = null
+            _translatedText.value = demoSentence
+            addOrUpdateMessage(
+                text = demoSentence,
+                isFinal = true,
+                senderType = SenderType.PARENT,
+                isFeedbackAvailable = true,
+            )
+            speakTranslatedTextWithDeviceTts(demoSentence)
+            _lastGlosses.value = emptyList()
+            return true
+        }
+
         private fun performCloudTranslation(
             words: List<String>,
             sentenceType: String?,
@@ -325,26 +347,37 @@ class ConversationViewModel
                 viewModelScope.launch {
                     val sessionId = ensureCommsSessionForServerStorage()
                     val result =
-                        translateRepository.translateSignToSpeech(
-                            words = words,
-                            sessionId = sessionId,
-                        )
+                        runCatching {
+                            withTimeout(SIGN_TRANSLATION_TIMEOUT_MS) {
+                                translateRepository.translateSignToSpeech(
+                                    words = words,
+                                    sessionId = sessionId,
+                                )
+                            }
+                        }.getOrElse { throwable ->
+                            Result.failure(throwable)
+                        }
 
                     result.fold(
                         onSuccess = { response ->
+                            val correctedText = adaptCaregiverLabelForDemo(response.correctedText)
                             _translationModeNotice.value = null
-                            _translatedText.value = response.correctedText
+                            _translatedText.value = correctedText
                             addOrUpdateMessage(
-                                text = response.correctedText,
+                                text = correctedText,
                                 isFinal = true,
                                 senderType = SenderType.PARENT,
                                 isFeedbackAvailable = true,
                             )
 
-                            response.audioBase64?.let { base64Audio ->
-                                handleTtsSuccess(base64Audio)
-                            } ?: run {
-                                startRecordingForStt()
+                            val audioBase64 = response.audioBase64
+                            if (
+                                audioBase64.isNullOrBlank() ||
+                                correctedText != response.correctedText
+                            ) {
+                                speakTranslatedTextWithDeviceTts(correctedText)
+                            } else {
+                                handleTtsSuccess(audioBase64)
                             }
 
                             _lastGlosses.value = emptyList()
@@ -408,20 +441,21 @@ class ConversationViewModel
                             words = words,
                             sentenceType = sentenceType,
                         )
-                    _translatedText.value = fallbackText
+                    val translatedText = adaptCaregiverLabelForDemo(fallbackText)
+                    _translatedText.value = translatedText
 
                     // 오프라인이므로 즉시 최종 메시지로 추가
                     addOrUpdateMessage(
-                        text = fallbackText,
+                        text = translatedText,
                         isFinal = true,
                         senderType = SenderType.PARENT,
                         isFeedbackAvailable = true,
                     )
 
                     // 시스템 TTS로 재생
-                    markAppSpeech(fallbackText)
+                    markAppSpeech(translatedText)
                     ttsPlayer.speak(
-                        text = fallbackText,
+                        text = translatedText,
                         onComplete = {},
                         onError = {},
                     )
@@ -440,7 +474,7 @@ class ConversationViewModel
                 return ""
             }
 
-            generateDemoSentenceOrNull(normalizedWords)?.let { return it }
+            generateDemoSentenceOrNull(normalizedWords, sentenceType)?.let { return it }
 
             localSignSentenceGenerator
                 .generateKnownPatternOrNull(
@@ -452,8 +486,15 @@ class ConversationViewModel
             val glossText = normalizedWords.joinToString(" ").trim()
 
             return runCatching {
+                val translatedText =
+                    onDeviceTranslationEngine
+                        .translate(
+                            glossText = glossText,
+                            sentenceType = sentenceType,
+                        ).koreanText
+
                 normalizeTranslatedSentence(
-                    text = onDeviceTranslationEngine.translate(glossText).koreanText,
+                    text = translatedText,
                     sentenceType = sentenceType,
                 )
             }.getOrElse { throwable ->
@@ -482,11 +523,25 @@ class ConversationViewModel
                     if (result.lastOrNull() == word) result else result + word
                 }
 
-        private fun generateDemoSentenceOrNull(words: List<String>): String? {
+        private fun generateDemoSentenceOrNull(
+            words: List<String>,
+            sentenceType: String?,
+        ): String? {
             val compact = words.joinToString(" ")
-            return exactStableDemoRules[compact]
-                ?: stableSetDemoRules[words.toSet()]
-                ?: exactHoldDemoRules[compact]
+            val rule =
+                exactStableDemoRules[compact]
+                    ?: stableSetDemoRules[words.toSet()]
+                    ?: generateContextualDemoRuleOrNull(words)
+                    ?: exactHoldDemoRules[compact]
+            return rule?.resolve(isQuestionSentenceType(sentenceType))
+        }
+
+        private fun generateContextualDemoRuleOrNull(words: List<String>): DemoSentenceRule? {
+            val wordSet = words.toSet()
+            return when {
+                wordSet.containsAll(setOf("비", "조심", "아프다")) -> carefulRainWalkRule
+                else -> null
+            }
         }
 
         private fun normalizeTranslatedSentence(
@@ -512,6 +567,8 @@ class ConversationViewModel
             sentenceType?.contains("의문") == true ||
                 sentenceType.equals("question", ignoreCase = true)
 
+        private fun adaptCaregiverLabelForDemo(text: String): String = text.replace("엄마", "아빠")
+
         private fun preloadOnDeviceTranslationEngine() {
             viewModelScope.launch {
                 runCatching {
@@ -531,14 +588,13 @@ class ConversationViewModel
             isResultsReceived = false
             isStoppedReceived = false
 
-            when {
-                shouldUseCloudStt() -> startCloudRecordingLoop()
-                shouldUseLocalStt() -> startLocalSttListening()
-                else ->
-                    showServerOnlyUnavailableMessage(
-                        affectsSign = false,
-                        affectsSpeech = true,
-                    )
+            if (shouldUseCloudStt()) {
+                startCloudRecordingLoop()
+            } else {
+                sttEngine.stopListening()
+                androidAudioRecorder.stop()
+                _speechInputPhase.value = SpeechInputPhase.Error
+                _translationModeNotice.value = NOTICE_SERVER_OFFLINE
             }
         }
 
@@ -552,9 +608,19 @@ class ConversationViewModel
         }
 
         private fun startCloudRecordingLoop() {
+            if (shouldUseStreamingStt()) {
+                startCloudStreamingLoop()
+            } else {
+                startCloudRestRecordingLoop()
+            }
+        }
+
+        private fun startCloudRestRecordingLoop() {
             if (cloudSttJob?.isActive == true) return
 
             sttEngine.stopListening()
+            cloudStreamingConnection?.close()
+            cloudStreamingConnection = null
             _speechInputPhase.value = SpeechInputPhase.Listening
             currentSttSessionId = sttEngine.nextSessionId()
 
@@ -588,6 +654,32 @@ class ConversationViewModel
                         }
                     }
                     if (canStartLocalSttAfterCloudLoop()) {
+                        startLocalSttFromCloudLoop()
+                    }
+                }
+        }
+
+        private fun startCloudStreamingLoop() {
+            if (cloudSttJob?.isActive == true) return
+
+            sttEngine.stopListening()
+            androidAudioRecorder.stop()
+            _speechInputPhase.value = SpeechInputPhase.Listening
+            currentSttSessionId = sttEngine.nextSessionId()
+
+            cloudSttJob =
+                viewModelScope.launch {
+                    while (isActive && canUseCloudStt() && shouldUseStreamingStt()) {
+                        val restartDelayMs = performCloudStreamingStt()
+                        if (canUseCloudStt() && shouldUseStreamingStt()) {
+                            delay(restartDelayMs)
+                        }
+                    }
+
+                    if (canUseCloudStt() && !shouldUseStreamingStt()) {
+                        cloudSttJob = null
+                        startCloudRecordingLoop()
+                    } else if (canStartLocalSttAfterCloudLoop()) {
                         startLocalSttFromCloudLoop()
                     }
                 }
@@ -654,6 +746,7 @@ class ConversationViewModel
                         peakAmplitude = peakAmplitude,
                         recordingDuration = recordingDuration,
                         voiceFrameCount = voiceFrameCount,
+                        maxConsecutiveVoiceFrameCount = maxConsecutiveVoiceFrameCount,
                     )
                 } == true
             return if (shouldUpload) {
@@ -670,18 +763,13 @@ class ConversationViewModel
             }
         }
 
-        private fun shouldUseCloudStt(): Boolean =
-            when (_translationMode.value) {
-                TranslationMode.AUTO -> _isOnline.value
-                TranslationMode.SERVER -> _isOnline.value
-                TranslationMode.ON_DEVICE -> false
-            }
+        private fun shouldUseCloudStt(): Boolean = _isOnline.value
 
-        private fun shouldUseLocalStt(): Boolean =
-            when (_translationMode.value) {
-                TranslationMode.AUTO -> !_isOnline.value
-                TranslationMode.SERVER -> false
-                TranslationMode.ON_DEVICE -> true
+        private fun shouldUseStreamingStt(): Boolean =
+            when (serverSttMode) {
+                TranslationSttModeDto.REST -> false
+                TranslationSttModeDto.STREAMING -> true
+                TranslationSttModeDto.AUTO -> !streamingFallbackToRest
             }
 
         private fun canUseCloudStt(): Boolean =
@@ -692,12 +780,28 @@ class ConversationViewModel
         private fun canHandleLocalSttEvent(): Boolean =
             _sessionState.value == SessionState.Active &&
                 sessionRuntimeStarted &&
-                shouldUseLocalStt()
+                LOCAL_STT_ENABLED
 
         private fun canStartLocalSttAfterCloudLoop(): Boolean =
             _sessionState.value == SessionState.Active &&
                 sessionRuntimeStarted &&
-                shouldUseLocalStt()
+                LOCAL_STT_ENABLED
+
+        private suspend fun refreshServerSttMode() {
+            translateRepository
+                .getSttMode()
+                .onSuccess { mode ->
+                    serverSttMode = mode
+                    if (mode != TranslationSttModeDto.AUTO) {
+                        streamingFallbackToRest = false
+                    }
+                    Log.d(TAG, "Translation STT mode loaded: $mode")
+                }.onFailure { throwable ->
+                    serverSttMode = TranslationSttModeDto.REST
+                    streamingFallbackToRest = false
+                    Log.w(TAG, "Translation STT mode load failed. fallback to REST.", throwable)
+                }
+        }
 
         private fun startLocalSttFromCloudLoop() {
             cloudSttJob = null
@@ -734,10 +838,12 @@ class ConversationViewModel
             peakAmplitude: Int,
             recordingDuration: Long,
             voiceFrameCount: Int,
+            maxConsecutiveVoiceFrameCount: Int,
         ): Boolean =
             isValidCloudAudioFile(file) &&
                 recordingDuration >= CLOUD_STT_MIN_UPLOAD_RECORDING_MS &&
                 voiceFrameCount >= CLOUD_STT_MIN_VOICE_FRAME_COUNT &&
+                maxConsecutiveVoiceFrameCount >= CLOUD_STT_MIN_CONSECUTIVE_VOICE_FRAME_COUNT &&
                 (speechDetected || peakAmplitude >= CLOUD_STT_FALLBACK_VOICE_THRESHOLD)
 
         private suspend fun checkAndRestartStt() {
@@ -759,6 +865,8 @@ class ConversationViewModel
             cloudSttJob?.cancel()
             cloudSttJob = null
             sttEngine.stopListening()
+            cloudStreamingConnection?.close()
+            cloudStreamingConnection = null
             val file = androidAudioRecorder.stop()
             file?.let(::deleteCloudSttAudioFile)
             return file
@@ -783,6 +891,10 @@ class ConversationViewModel
         }
 
         private suspend fun prepareCommsSession() {
+            if (shouldUseCloudStt()) {
+                refreshServerSttMode()
+            }
+
             if (canCreateCommsSessionNow()) {
                 ensureCommsSessionForServerStorage()
             } else {
@@ -835,12 +947,7 @@ class ConversationViewModel
         private fun canCreateCommsSessionNow(): Boolean =
             _sessionState.value == SessionState.Active && shouldCreateCommsSession()
 
-        private fun shouldCreateCommsSession(): Boolean =
-            when (_translationMode.value) {
-                TranslationMode.AUTO -> _isOnline.value
-                TranslationMode.SERVER -> _isOnline.value
-                TranslationMode.ON_DEVICE -> false
-            }
+        private fun shouldCreateCommsSession(): Boolean = _isOnline.value
 
         private fun startSessionRuntimeIfActive() {
             if (_sessionState.value != SessionState.Active || sessionRuntimeStarted) return
@@ -908,7 +1015,7 @@ class ConversationViewModel
             if (_sessionState.value != SessionState.Active) return
 
             isStoppedReceived = true
-            if (shouldUseLocalStt()) {
+            if (LOCAL_STT_ENABLED) {
                 isResultsReceived = true // 오프라인은 결과 대기 불필요
             }
             checkAndRestartStt()
@@ -982,10 +1089,16 @@ class ConversationViewModel
                         "size=${audioFile.length()}, mime=$CLOUD_STT_AUDIO_MIME_TYPE",
                 )
                 val sessionId = ensureCommsSessionForServerStorage()
-                val result =
+                val sessionResult =
                     translateRepository.translateSpeechToText(
                         audioFile = audioFile,
                         mimeType = CLOUD_STT_AUDIO_MIME_TYPE,
+                        sessionId = sessionId,
+                    )
+                val result =
+                    recoverCloudSttSessionFailure(
+                        result = sessionResult,
+                        audioFile = audioFile,
                         sessionId = sessionId,
                     )
 
@@ -1003,6 +1116,299 @@ class ConversationViewModel
                 deleteCloudSttAudioFile(audioFile)
             }
             return restartDelayMs
+        }
+
+        @Suppress("ReturnCount")
+        private suspend fun performCloudStreamingStt(): Long {
+            val sessionId = ensureCommsSessionForServerStorage()
+            if (sessionId == null) {
+                Log.w(TAG, "Streaming STT skipped because comms session is not available.")
+                return handleCloudStreamingFailure(
+                    IllegalStateException("Comms session is not available."),
+                )
+            }
+
+            val resultDelay = CompletableDeferred<Long>()
+            val startDelay = CompletableDeferred<Long?>()
+            val finalText = StringBuilder()
+            val connection =
+                streamingSttClient.start(
+                    sessionId = sessionId,
+                    listener =
+                        object : TranslationStreamingSttClient.Listener {
+                            override fun onEvent(event: TranslationStreamingSttEvent) {
+                                viewModelScope.launch {
+                                    handleCloudStreamingSttEvent(
+                                        event = event,
+                                        finalText = finalText,
+                                        startDelay = startDelay,
+                                        resultDelay = resultDelay,
+                                    )
+                                }
+                            }
+                        },
+                )
+            cloudStreamingConnection = connection
+
+            val startFailureDelay =
+                runCatching {
+                    withTimeout(CLOUD_STREAMING_START_TIMEOUT_MS) {
+                        startDelay.await()
+                    }
+                }.getOrElse { throwable ->
+                    connection.close()
+                    cloudStreamingConnection = null
+                    return handleCloudStreamingFailure(throwable)
+                }
+
+            if (startFailureDelay != null) {
+                return startFailureDelay
+            }
+
+            val started =
+                androidAudioRecorder.startPcmStream { audioBytes ->
+                    if (!connection.sendAudio(audioBytes)) {
+                        Log.w(TAG, "Streaming STT audio chunk send failed.")
+                    }
+                }
+
+            if (!started) {
+                connection.close()
+                cloudStreamingConnection = null
+                return handleCloudStreamingFailure(
+                    IllegalStateException("Streaming STT recorder start failed."),
+                )
+            }
+
+            val shouldRequestResult = waitForCloudStreamingSpeechEnd()
+            androidAudioRecorder.stop()
+
+            if (!shouldRequestResult) {
+                connection.close()
+                cloudStreamingConnection = null
+                return CLOUD_STT_RETRY_DELAY_MS
+            }
+
+            _speechInputPhase.value = SpeechInputPhase.Analyzing
+            updateOrAddChildMessage(
+                text = CLOUD_STT_ANALYZING_MESSAGE,
+                isFinal = false,
+            )
+            connection.end()
+
+            return runCatching {
+                withTimeout(CLOUD_STREAMING_RESULT_TIMEOUT_MS) {
+                    resultDelay.await()
+                }
+            }.getOrElse { throwable ->
+                connection.close()
+                cloudStreamingConnection = null
+                handleCloudStreamingFailure(throwable)
+            }
+        }
+
+        private suspend fun waitForCloudStreamingSpeechEnd(): Boolean {
+            val startedAt = System.currentTimeMillis()
+            var speechDetected = false
+            var lastVoiceAt = startedAt
+            var peakAmplitude = 0
+            var voiceFrameCount = 0
+            var consecutiveVoiceFrameCount = 0
+            var maxConsecutiveVoiceFrameCount = 0
+
+            while (currentCoroutineContext().isActive && canUseCloudStt()) {
+                delay(CLOUD_STT_POLL_INTERVAL_MS)
+
+                val amplitude = androidAudioRecorder.getMaxAmplitude()
+                peakAmplitude = maxOf(peakAmplitude, amplitude)
+                _micVolume.value = amplitude.toFloat()
+
+                val now = System.currentTimeMillis()
+                val recordingDuration = now - startedAt
+                if (amplitude >= CLOUD_STT_VOICE_THRESHOLD) {
+                    voiceFrameCount++
+                    consecutiveVoiceFrameCount++
+                    maxConsecutiveVoiceFrameCount =
+                        maxOf(maxConsecutiveVoiceFrameCount, consecutiveVoiceFrameCount)
+                    speechDetected = voiceFrameCount >= CLOUD_STT_MIN_VOICE_FRAME_COUNT
+                    lastVoiceAt = now
+                } else {
+                    consecutiveVoiceFrameCount = 0
+                }
+
+                val stopReason =
+                    getCloudRecordingStopReason(
+                        speechDetected = speechDetected,
+                        recordingDuration = recordingDuration,
+                        silenceDuration = now - lastVoiceAt,
+                    )
+                if (stopReason != null) {
+                    Log.d(
+                        TAG,
+                        "Streaming STT recording stopped: speechDetected=$speechDetected, " +
+                            "peakAmplitude=$peakAmplitude, duration=$recordingDuration, " +
+                            "reason=$stopReason, voiceFrames=$voiceFrameCount",
+                    )
+                    return recordingDuration >= CLOUD_STT_MIN_UPLOAD_RECORDING_MS &&
+                        voiceFrameCount >= CLOUD_STT_MIN_VOICE_FRAME_COUNT &&
+                        maxConsecutiveVoiceFrameCount >=
+                        CLOUD_STT_MIN_CONSECUTIVE_VOICE_FRAME_COUNT &&
+                        (
+                            speechDetected ||
+                                peakAmplitude >= CLOUD_STT_FALLBACK_VOICE_THRESHOLD
+                        )
+                }
+            }
+
+            return false
+        }
+
+        @Suppress("CyclomaticComplexMethod")
+        private fun handleCloudStreamingSttEvent(
+            event: TranslationStreamingSttEvent,
+            finalText: StringBuilder,
+            startDelay: CompletableDeferred<Long?>,
+            resultDelay: CompletableDeferred<Long>,
+        ) {
+            when (event) {
+                TranslationStreamingSttEvent.Started,
+                TranslationStreamingSttEvent.Configured,
+                -> {
+                    if (!startDelay.isCompleted) {
+                        startDelay.complete(null)
+                    }
+                }
+                is TranslationStreamingSttEvent.Partial -> {
+                    val displayText =
+                        buildStreamingDisplayText(
+                            finalText = finalText.toString(),
+                            currentText = event.recognizedText.ifBlank { event.correctedText },
+                        )
+                    if (displayText.isNotBlank() && !shouldIgnoreOwnSpeech(displayText)) {
+                        updateOrAddChildMessage(displayText, isFinal = false)
+                    }
+                }
+                is TranslationStreamingSttEvent.Final -> {
+                    appendStreamingFinalText(
+                        finalText = finalText,
+                        text = event.recognizedText.ifBlank { event.correctedText },
+                    )
+                    val displayText = finalText.toString().trim()
+                    if (displayText.isNotBlank() && !shouldIgnoreOwnSpeech(displayText)) {
+                        updateOrAddChildMessage(displayText, isFinal = false)
+                    }
+                }
+                is TranslationStreamingSttEvent.Error -> {
+                    if (!resultDelay.isCompleted) {
+                        val cause = event.cause ?: RuntimeException(event.message)
+                        val restartDelay = handleCloudStreamingFailure(cause)
+                        if (!startDelay.isCompleted) {
+                            startDelay.complete(restartDelay)
+                        }
+                        resultDelay.complete(restartDelay)
+                    }
+                }
+                TranslationStreamingSttEvent.Closed -> {
+                    cloudStreamingConnection?.close()
+                    cloudStreamingConnection = null
+                    if (!resultDelay.isCompleted) {
+                        val restartDelay = handleCloudStreamingClosed(finalText.toString())
+                        if (!startDelay.isCompleted) {
+                            startDelay.complete(restartDelay)
+                        }
+                        resultDelay.complete(restartDelay)
+                    }
+                }
+            }
+        }
+
+        private fun appendStreamingFinalText(
+            finalText: StringBuilder,
+            text: String,
+        ) {
+            val normalizedText = text.trim()
+            if (normalizedText.isBlank()) return
+
+            if (
+                finalText.isNotEmpty() &&
+                !finalText.last().isWhitespace() &&
+                !normalizedText.first().isWhitespace()
+            ) {
+                finalText.append(' ')
+            }
+            finalText.append(normalizedText)
+        }
+
+        private fun buildStreamingDisplayText(
+            finalText: String,
+            currentText: String,
+        ): String =
+            listOf(finalText.trim(), currentText.trim())
+                .filter { it.isNotBlank() }
+                .joinToString(" ")
+
+        private fun handleCloudStreamingClosed(finalText: String): Long {
+            cloudSttFailureCount = 0
+            _speechInputPhase.value = SpeechInputPhase.Listening
+            val displayText = finalText.trim()
+            return when {
+                displayText.isBlank() -> {
+                    removePendingChildMessage()
+                    _speechInputPhase.value = SpeechInputPhase.Unrecognized
+                    STT_UNRECOGNIZED_NOTICE_MS
+                }
+                shouldIgnoreOwnSpeech(displayText) -> {
+                    removePendingChildMessage()
+                    STT_RESTART_DELAY_MS
+                }
+                else -> {
+                    updateOrAddChildMessage(displayText, isFinal = true)
+                    STT_RESTART_DELAY_MS
+                }
+            }
+        }
+
+        private fun handleCloudStreamingFailure(throwable: Throwable): Long {
+            if (serverSttMode == TranslationSttModeDto.AUTO) {
+                streamingFallbackToRest = true
+                Log.w(TAG, "Streaming STT failed. fallback to REST STT.", throwable)
+            } else {
+                Log.w(TAG, "Streaming STT failed.", throwable)
+            }
+            cloudStreamingConnection?.close()
+            cloudStreamingConnection = null
+            return handleCloudSttFailure(throwable)
+        }
+
+        private suspend fun recoverCloudSttSessionFailure(
+            result: Result<SpeechToTextResponse>,
+            audioFile: File,
+            sessionId: Long?,
+        ): Result<SpeechToTextResponse> {
+            val throwable = result.exceptionOrNull()
+            if (sessionId == null || throwable?.isCommsSessionNotFound() != true) {
+                return result
+            }
+
+            invalidateCommsSessionIfMatches(sessionId)
+            Log.w(
+                TAG,
+                "Cloud STT session was not found. Retrying without sessionId: sessionId=$sessionId",
+                throwable,
+            )
+            return translateRepository.translateSpeechToText(
+                audioFile = audioFile,
+                mimeType = CLOUD_STT_AUDIO_MIME_TYPE,
+                sessionId = null,
+            )
+        }
+
+        private suspend fun invalidateCommsSessionIfMatches(sessionId: Long) {
+            commsSessionMutex.withLock {
+                if (commsSessionId == sessionId) {
+                    commsSessionId = null
+                }
+            }
         }
 
         @Suppress("ReturnCount")
@@ -1041,6 +1447,14 @@ class ConversationViewModel
         }
 
         private fun handleCloudSttFailure(throwable: Throwable): Long {
+            if (throwable.isUnrecognizableCloudSttFailure()) {
+                cloudSttFailureCount = 0
+                removePendingChildMessage()
+                _speechInputPhase.value = SpeechInputPhase.Unrecognized
+                Log.w(TAG, "Cloud STT audio was not recognized.", throwable)
+                return STT_UNRECOGNIZED_NOTICE_MS
+            }
+
             cloudSttFailureCount++
             val restartDelayMs = getCloudSttFailureRetryDelay()
             removePendingChildMessage()
@@ -1073,6 +1487,15 @@ class ConversationViewModel
             val normalizedRecognized = recognizedText.trim()
             val normalizedCorrected = correctedText.trim()
             return normalizedRecognized.ifBlank { normalizedCorrected }
+        }
+
+        private fun Throwable.isCommsSessionNotFound(): Boolean =
+            (this as? TranslationApiException)
+                ?.errorCode == ERROR_CODE_COMMS_SESSION_NOT_FOUND
+
+        private fun Throwable.isUnrecognizableCloudSttFailure(): Boolean {
+            val apiException = this as? TranslationApiException ?: return false
+            return apiException.errorCode in UNRECOGNIZABLE_STT_ERROR_CODES
         }
 
         private fun SttEvent.Error.shouldKeepListening(): Boolean =
@@ -1115,6 +1538,20 @@ class ConversationViewModel
                 base64Data = base64Audio,
                 onComplete = {},
                 onError = {},
+            )
+        }
+
+        private fun speakTranslatedTextWithDeviceTts(text: String) {
+            if (text.isBlank()) {
+                startRecordingForStt()
+                return
+            }
+
+            markAppSpeech(text)
+            ttsPlayer.speak(
+                text = text,
+                onComplete = { startRecordingForStt() },
+                onError = { startRecordingForStt() },
             )
         }
 
@@ -1277,6 +1714,7 @@ class ConversationViewModel
 
         private fun resetCloudSttFailures() {
             cloudSttFailureCount = 0
+            streamingFallbackToRest = false
         }
 
         private fun showServerOnlyUnavailableMessage(
@@ -1351,12 +1789,20 @@ class ConversationViewModel
             val reason: TranslationFeedbackReason,
         )
 
+        private data class DemoSentenceRule(
+            val statement: String,
+            val question: String,
+        ) {
+            fun resolve(isQuestion: Boolean): String = if (isQuestion) question else statement
+        }
+
         companion object {
             private const val TAG = "ConversationViewModel"
+            private const val SIGN_TRANSLATION_TIMEOUT_MS = 6000L
             private const val NONE_GLOSS = "none"
-            private const val COMPLETION_THRESHOLD_MS = 2000L
             private const val STT_RESTART_DELAY_MS = 500L
             private const val STT_UNRECOGNIZED_NOTICE_MS = 1200L
+            private const val LOCAL_STT_ENABLED = false
             private const val CLOUD_STT_POLL_INTERVAL_MS = 150L
             private const val CLOUD_STT_MIN_RECORDING_MS = 500L
             private const val CLOUD_STT_MIN_UPLOAD_RECORDING_MS = 800L
@@ -1368,7 +1814,8 @@ class ConversationViewModel
             private const val CLOUD_STT_MAX_FAILURE_RETRY_DELAY_MS = 5000L
             private const val CLOUD_STT_VOICE_THRESHOLD = 2000
             private const val CLOUD_STT_FALLBACK_VOICE_THRESHOLD = 1500
-            private const val CLOUD_STT_MIN_VOICE_FRAME_COUNT = 2
+            private const val CLOUD_STT_MIN_VOICE_FRAME_COUNT = 4
+            private const val CLOUD_STT_MIN_CONSECUTIVE_VOICE_FRAME_COUNT = 3
             private const val CLOUD_STT_MIN_FILE_BYTES = 1024L
             private const val CLOUD_STT_STOP_REASON_SILENCE = "silence"
             private const val CLOUD_STT_STOP_REASON_MAX_DURATION = "max_duration"
@@ -1376,29 +1823,122 @@ class ConversationViewModel
             private const val CLOUD_STT_STOP_REASON_CANCELLED = "cancelled"
             private const val CLOUD_STT_ANALYZING_MESSAGE = "대화 내용을 분석 중입니다..."
             private const val CLOUD_STT_AUDIO_MIME_TYPE = "audio/wav"
+            private const val ERROR_CODE_COMMS_SESSION_NOT_FOUND = "COMMUNICATION_SESSION_NOT_FOUND"
+            private const val ERROR_CODE_STT_RECOGNITION_FAILED =
+                "TRANSLATION_SPEECH_RECOGNITION_FAILED"
+            private const val ERROR_CODE_STT_UNRECOGNIZABLE_AUDIO =
+                "TRANSLATION_UNRECOGNIZABLE_AUDIO"
+            private const val CLOUD_STREAMING_START_TIMEOUT_MS = 5_000L
+            private const val CLOUD_STREAMING_RESULT_TIMEOUT_MS = 35_000L
             private const val APP_SPEECH_ECHO_FILTER_MS = 5000L
+            private val UNRECOGNIZABLE_STT_ERROR_CODES =
+                setOf(
+                    ERROR_CODE_STT_RECOGNITION_FAILED,
+                    ERROR_CODE_STT_UNRECOGNIZABLE_AUDIO,
+                )
+            private val goRestaurantRule =
+                DemoSentenceRule(
+                    statement = "배고프면 아빠랑 식당에 가자.",
+                    question = "배고프면 아빠랑 식당에 갈까?",
+                )
+            private val comfortScaredRule =
+                DemoSentenceRule(
+                    statement = "무서우면 아빠가 안아줄게.",
+                    question = "무서우면 아빠가 안아줄까?",
+                )
+            private val treatPainRule =
+                DemoSentenceRule(
+                    statement = "아프면 아빠가 치료해줄게.",
+                    question = "아프면 아빠가 치료해줄까?",
+                )
+            private val carefulHandRule =
+                DemoSentenceRule(
+                    statement = "손 조심해, 다치면 아파.",
+                    question = "손 조심할까? 다치면 아파.",
+                )
+            private val sleepBlanketRule =
+                DemoSentenceRule(
+                    statement = "이불 덮고 자자.",
+                    question = "이불 덮고 잘까?",
+                )
+            private val coverBlanketRule =
+                DemoSentenceRule(
+                    statement = "잘 때 아빠가 이불 덮어줄게.",
+                    question = "잘 때 아빠가 이불 덮어줄까?",
+                )
+            private val helpUnknownRule =
+                DemoSentenceRule(
+                    statement = "모르면 아빠가 도와줄게.",
+                    question = "모르면 아빠가 도와줄까?",
+                )
+            private val comfortSadRule =
+                DemoSentenceRule(
+                    statement = "슬프면 아빠가 안아줄게.",
+                    question = "슬프면 아빠가 안아줄까?",
+                )
+            private val carefulWalkRule =
+                DemoSentenceRule(
+                    statement = "조심해서 걸어, 다치면 아파.",
+                    question = "조심해서 걸을까? 다치면 아파.",
+                )
+            private val carefulRainWalkRule =
+                DemoSentenceRule(
+                    statement = "비 오니까 조심해, 다치면 아파.",
+                    question = "비 오니까 조심할까? 다치면 아파.",
+                )
+            private val carefulRainRule =
+                DemoSentenceRule(
+                    statement = "비 오니까 조심하자.",
+                    question = "비 오니까 조심할까?",
+                )
+            private val comfortWindRule =
+                DemoSentenceRule(
+                    statement = "바람이 무서우면 아빠가 안아줄게.",
+                    question = "바람이 무서우면 아빠가 안아줄까?",
+                )
+            private val comfortMistakeRule =
+                DemoSentenceRule(
+                    statement = "실수해도 괜찮아, 아빠가 있어.",
+                    question = "실수해도 괜찮아, 아빠가 있을까?",
+                )
             private val exactStableDemoRules =
                 mapOf(
-                    "엄마 아프다 치료" to "엄마가 아파서 치료가 필요해요.",
-                    "시험 모르다 위로" to "시험을 몰라서 위로가 필요해요.",
-                    "엄마 서점 독서" to "엄마가 서점에서 독서해요.",
-                    "서점 독서 좋다" to "서점에서 독서하는 게 좋아요.",
+                    "배고프다 식당 엄마 가다" to goRestaurantRule,
+                    "배고프다 엄마 식당" to goRestaurantRule,
+                    "무섭다 엄마 위로" to comfortScaredRule,
+                    "아프다 엄마 치료" to treatPainRule,
+                    "손 조심 아프다" to carefulHandRule,
+                    "이불 자다" to sleepBlanketRule,
+                    "자다 엄마 이불" to coverBlanketRule,
+                    "모르다 엄마 돕다" to helpUnknownRule,
+                    "슬프다 엄마 위로" to comfortSadRule,
+                    "비 조심 걷다 아프다" to carefulRainWalkRule,
+                    "비 조심 아프다" to carefulRainWalkRule,
+                    "조심 걷다 아프다" to carefulWalkRule,
+                    "비 조심" to carefulRainRule,
+                    "바람 무섭다 엄마 위로" to comfortWindRule,
+                    "실수 괜찮다 엄마 위로" to comfortMistakeRule,
                 )
             private val stableSetDemoRules =
                 mapOf(
-                    setOf("엄마", "아프다", "치료") to "엄마가 아파서 치료가 필요해요.",
-                    setOf("시험", "모르다", "위로") to "시험을 몰라서 위로가 필요해요.",
-                    setOf("엄마", "서점", "독서") to "엄마가 서점에서 독서해요.",
+                    setOf("배고프다", "식당", "엄마", "가다") to goRestaurantRule,
+                    setOf("배고프다", "엄마", "식당") to goRestaurantRule,
+                    setOf("무섭다", "엄마", "위로") to comfortScaredRule,
+                    setOf("아프다", "엄마", "치료") to treatPainRule,
+                    setOf("손", "조심", "아프다") to carefulHandRule,
+                    setOf("이불", "자다") to sleepBlanketRule,
+                    setOf("자다", "엄마", "이불") to coverBlanketRule,
+                    setOf("모르다", "엄마", "돕다") to helpUnknownRule,
+                    setOf("슬프다", "엄마", "위로") to comfortSadRule,
+                    setOf("비", "조심", "걷다", "아프다") to carefulRainWalkRule,
+                    setOf("비", "조심", "아프다") to carefulRainWalkRule,
+                    setOf("조심", "걷다", "아프다") to carefulWalkRule,
+                    setOf("비", "조심") to carefulRainRule,
+                    setOf("바람", "무섭다", "엄마", "위로") to comfortWindRule,
+                    setOf("실수", "괜찮다", "엄마", "위로") to comfortMistakeRule,
                 )
             private val exactHoldDemoRules =
-                mapOf(
-                    "엄마 아프다 의사" to "엄마가 아파서 의사를 만나야 해요.",
-                    "의사 치료 위로" to "의사가 치료하고 위로해 줘요.",
-                    "서점 가다 독서" to "서점에 가서 독서해요.",
-                    "엄마 병원 가다" to "엄마가 병원에 가요.",
-                    "병원 치료 받다" to "병원에서 치료를 받아요.",
-                    "우유 주다 감사" to "우유를 줘서 감사해요.",
-                )
+                emptyMap<String, DemoSentenceRule>()
             private const val NOTICE_AUTO_OFFLINE_FALLBACK =
                 "자동 모드: 네트워크가 없어 기기 내 처리로 전환했어요."
             private const val NOTICE_AUTO_SERVER_FALLBACK =

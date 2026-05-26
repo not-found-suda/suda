@@ -1,8 +1,36 @@
-# Python == 3.11
+# AI sign2text pipeline dependencies.
+#
+# Runtime notes:
+# - V100 training/conversion environment: Python 3.10, CUDA 11.8 torch wheel.
+# - Local realtime TFLite inference environment: Python 3.11.
+# - Full extracted environment records are kept in:
+#   - environment_v100.yml
+#   - requirements_v100_freeze.txt
+#   - requirements_inference_freeze.txt
+
+# data extraction / realtime inference
+numpy
 opencv-python
 mediapipe==0.10.14
-numpy
+pillow
+
+# training
 torch
 scikit-learn
+
+# TFLite conversion / validation
+tensorflow
+tf-keras
+onnx
+onnxruntime
+onnx2tf
+onnx-graphsurgeon
+onnxoptimizer
+onnxsim
+ai-edge-litert
+
+# utilities / optional integrations
 boto3
 python-dotenv
+tqdm
+matplotlib

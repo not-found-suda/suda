@@ -3,6 +3,7 @@ package com.ssafy.backend.global.docs;
 import com.ssafy.backend.domain.auth.exception.AuthErrorCode;
 import com.ssafy.backend.domain.child.exception.ChildProfileErrorCode;
 import com.ssafy.backend.domain.report.exception.ReportErrorCode;
+import com.ssafy.backend.domain.sign.exception.SignInferenceErrorCode;
 import com.ssafy.backend.domain.translation.exception.TranslationErrorCode;
 import com.ssafy.backend.domain.user.exception.UserErrorCode;
 import com.ssafy.backend.global.exception.CommonErrorCode;
@@ -26,6 +27,7 @@ public class ApiErrorCodeCatalog {
     register(map, AuthErrorCode.values());
     register(map, ChildProfileErrorCode.values());
     register(map, ReportErrorCode.values());
+    register(map, SignInferenceErrorCode.values());
     register(map, TranslationErrorCode.values());
     register(map, UserErrorCode.values());
     this.byCode = Collections.unmodifiableMap(new LinkedHashMap<>(map));

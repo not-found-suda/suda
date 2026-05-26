@@ -118,7 +118,8 @@ class ReportQuizSessionQueryRepositoryTest {
   private TestFixture persistFixture() {
     User user = User.create("report-" + UUID.randomUUID() + "@example.com", "password", "guardian");
     entityManager.persist(user);
-    ChildProfile child = ChildProfile.create(user, "child", LocalDate.of(2020, 1, 1));
+    ChildProfile child =
+        ChildProfile.create(user, "child", LocalDate.of(2020, 1, 1), "purple_diamond");
     entityManager.persist(child);
     LearnCategory category = newEntity(LearnCategory.class);
     ReflectionTestUtils.setField(category, "name", "words");

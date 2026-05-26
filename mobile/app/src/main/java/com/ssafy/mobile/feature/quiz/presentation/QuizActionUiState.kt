@@ -37,6 +37,7 @@ internal data class QuizActionUiState(
     val nextButton: QuizButtonUiState,
     val recording: QuizRecordingUiState,
     val answerSubmitState: QuizAnswerSubmitState,
+    val isAwaitingNextQuestion: Boolean,
 )
 
 internal data class QuizButtonUiState(
@@ -105,6 +106,9 @@ internal fun quizActionUiState(
                 recognizedText = answer?.sttText,
             ),
         answerSubmitState = answerSubmitState,
+        isAwaitingNextQuestion =
+            answerSubmitState is QuizAnswerSubmitState.TimedOut &&
+                !canMoveNext,
     )
 
 @Composable
@@ -125,7 +129,23 @@ internal fun QuizActionCard(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        if (canMoveNext) {
+        if (actionState.isAwaitingNextQuestion) {
+            ChunkyButton(
+                text = "실패!",
+                onClick = {},
+                enabled = false,
+                tone = ChunkyButtonTone.Primary,
+                modifier = Modifier.fillMaxWidth(0.62f),
+            )
+            Text(
+                text = actionState.toShortGuideMessage(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            )
+            AnswerSubmitStatusBadge(state = actionState.answerSubmitState)
+        } else if (canMoveNext) {
             ChunkyButton(
                 text = actionState.nextButton.text,
                 onClick = onNextClick,
@@ -299,11 +319,12 @@ private fun AnswerSubmitStatusBadge(
 
 private fun QuizActionUiState.toShortGuideMessage(): String =
     when {
+        answerSubmitState is QuizAnswerSubmitState.TimedOut -> answerSubmitState.message
+        answerSubmitState is QuizAnswerSubmitState.SaveFailed -> "실패!"
         recording.status.isRecordingStatus() -> "다 말했으면 한 번 더 눌러요."
         recording.status == QuizRecordingStatus.Processing -> "목소리를 확인하고 있어요."
         answerSubmitState == QuizAnswerSubmitState.Submitting -> "답변을 저장하고 있어요."
         answerSubmitState is QuizAnswerSubmitState.Error -> answerSubmitState.message
-        answerSubmitState is QuizAnswerSubmitState.SaveFailed -> answerSubmitState.message
         recording.answerAttemptCount != null -> "천천히 다시 말해볼까요?"
         else -> "버튼을 누르고 단어를 말해요."
     }
@@ -314,16 +335,18 @@ private fun QuizRecordingStatus.isRecordingStatus(): Boolean =
 
 private fun QuizAnswerSubmitState.toStatusMessage(): String? =
     when (this) {
+        is QuizAnswerSubmitState.TimedOut -> message
         QuizAnswerSubmitState.Idle -> null
         QuizAnswerSubmitState.Submitting -> "답변을 저장하고 있어요..."
         QuizAnswerSubmitState.Success -> "답변을 저장했어요."
         is QuizAnswerSubmitState.CompletionPending -> message
-        is QuizAnswerSubmitState.SaveFailed -> message
+        is QuizAnswerSubmitState.SaveFailed -> "실패!"
         is QuizAnswerSubmitState.Error -> message
     }
 
 private fun QuizAnswerSubmitState.toBadgeTone(): AppBadgeTone =
     when (this) {
+        is QuizAnswerSubmitState.TimedOut -> AppBadgeTone.Error
         QuizAnswerSubmitState.Success -> AppBadgeTone.Success
         QuizAnswerSubmitState.Submitting -> AppBadgeTone.Primary
         QuizAnswerSubmitState.Idle -> AppBadgeTone.Neutral

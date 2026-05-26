@@ -37,12 +37,31 @@ ai:
     stt-url: ${CLOVA_STT_URL:https://naveropenapi.apigw.ntruss.com/recog/v1/stt}
     stt-language: ${CLOVA_STT_LANGUAGE:Kor}
 
+  clova-speech:
+    endpoint: ${CLOVA_SPEECH_GRPC_ENDPOINT:clovaspeech-gw.ncloud.com:50051}
+    secret-key: ${CLOVA_SPEECH_SECRET_KEY:}
+    language: ${CLOVA_SPEECH_LANGUAGE:ko}
+    poc:
+      enabled: ${CLOVA_SPEECH_POC_ENABLED:false}
+      audio-path: ${CLOVA_SPEECH_POC_AUDIO_PATH:}
+      skip-wav-header: ${CLOVA_SPEECH_POC_SKIP_WAV_HEADER:false}
+
 external-api:
   timeout:
     connect: 3s
     read: 10s
 
+sign-ai:
+  base-url: ${SIGN_AI_BASE_URL:http://localhost:8000}
+  timeout:
+    connect: ${SIGN_AI_CONNECT_TIMEOUT:1s}
+    read: ${SIGN_AI_READ_TIMEOUT:1s}
+
 app:
   asset:
     cloud-front-domain: ${ASSET_CLOUDFRONT_DOMAIN:https://d14zyw67949hvk.cloudfront.net}
+
+translation:
+  stt:
+    mode: ${TRANSLATION_STT_MODE:REST}
 

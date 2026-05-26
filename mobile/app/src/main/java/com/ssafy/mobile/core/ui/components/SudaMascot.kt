@@ -15,6 +15,8 @@ enum class SudaMascot(
 ) {
     Default(R.drawable.mascot_default),
     Icon(R.drawable.mascot_icon),
+    IconNormal(R.drawable.mascot_icon_normal),
+    IconDifficult(R.drawable.mascot_icon_difficult),
     WordCard(R.drawable.mascot_word_card),
     Microphone(R.drawable.mascot_microphone),
     Success3Star(R.drawable.mascot_success_3star),

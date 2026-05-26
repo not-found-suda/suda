@@ -19,6 +19,7 @@ data class ReportFilterCategoryOption(
 
 data class ReportFilterUiState(
     val input: ReportFilterInputState = defaultReportFilterInputState(),
+    val anchorDate: LocalDate = defaultReportFilterAnchorDate(),
     val hasAppliedFilter: Boolean = true,
     val errorMessage: String? = null,
     val categoryOptions: List<ReportFilterCategoryOption> = emptyList(),
@@ -79,6 +80,26 @@ internal fun ReportFilterState.hasFilters(): Boolean =
         !difficulty.isNullOrBlank() ||
         !status.isNullOrBlank() ||
         minAttemptCount != null
+
+internal fun ReportFilterUiState.withAnchorDate(anchorDate: LocalDate): ReportFilterUiState {
+    if (this.anchorDate == anchorDate) {
+        return this
+    }
+
+    val selectedRange = input.selectedQuickDateRange(this.anchorDate)
+    return copy(
+        input =
+            selectedRange
+                ?.let { range ->
+                    input.applyQuickDateRange(
+                        range = range,
+                        anchorDate = anchorDate,
+                    )
+                }
+                ?: input,
+        anchorDate = anchorDate,
+    )
+}
 
 private data class DateRange(
     val from: String?,

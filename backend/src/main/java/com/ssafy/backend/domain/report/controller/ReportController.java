@@ -50,9 +50,11 @@ public class ReportController implements ReportApiDocs {
       Authentication authentication,
       @PathVariable Long childId,
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) String from,
-      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) String to) {
+      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) String to,
+      @RequestParam(defaultValue = "5") int sessionLimit) {
     return ResponseEntity.ok(
-        reportService.getCommunicationSummary(resolveUserId(authentication), childId, from, to));
+        reportService.getCommunicationSummary(
+            resolveUserId(authentication), childId, from, to, sessionLimit));
   }
 
   @Override

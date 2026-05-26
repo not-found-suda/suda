@@ -4,25 +4,52 @@ import java.io.File
 import java.util.Properties
 
 // 모노레포 루트 .env 파일에서 환경변수 로드
-val envFile = rootDir.parentFile.resolve(".env")
-val envProps =
-    Properties().also { props ->
-        if (envFile.exists()) props.load(envFile.inputStream())
-    }
-val mobileBaseUrl: String =
-    envProps.getProperty("MOBILE_API_BASE_URL", "http://10.0.2.2:8080/api/")
-val naverClientId: String = envProps.getProperty("NAVER_CLIENT_ID", "")
-val naverClientSecret: String = envProps.getProperty("NAVER_CLIENT_SECRET", "")
-val naverClientName: String = envProps.getProperty("NAVER_CLIENT_NAME", "")
-val defaultSllmModelDownloadUrl =
-    "https://d14zyw67949hvk.cloudfront.net/models/sllm/qwen2.5-1.5b/qwen2.5-1.5b.litertlm"
-val sllmModelDownloadUrl: String =
-    envProps.getProperty("SLLM_MODEL_DOWNLOAD_URL", defaultSllmModelDownloadUrl)
 val localPropsFile = rootDir.resolve("local.properties")
 val localProps =
     Properties().also { props ->
         if (localPropsFile.exists()) props.load(localPropsFile.inputStream())
     }
+val envFile = rootDir.parentFile.resolve(".env")
+val envProps =
+    Properties().also { props ->
+        if (envFile.exists()) props.load(envFile.inputStream())
+    }
+
+fun configValue(
+    key: String,
+    gradlePropertyKey: String? = null,
+    defaultValue: String = "",
+): String =
+    listOfNotNull(
+        localProps.getProperty(key),
+        gradlePropertyKey?.let { providers.gradleProperty(it).orNull },
+        envProps.getProperty(key),
+        defaultValue,
+    ).firstOrNull { it.isNotBlank() } ?: ""
+
+val mobileBaseUrl: String =
+    configValue(
+        key = "MOBILE_API_BASE_URL",
+        gradlePropertyKey = "mobile.api.base.url",
+        defaultValue = "https://k14a404.p.ssafy.io/api/",
+    )
+val naverClientId: String = configValue(key = "NAVER_CLIENT_ID")
+val naverClientSecret: String = configValue(key = "NAVER_CLIENT_SECRET")
+val naverClientName: String = configValue(key = "NAVER_CLIENT_NAME")
+val defaultSllmModelDownloadUrl =
+    "https://d14zyw67949hvk.cloudfront.net/models/sllm/qwen2.5-1.5b/qwen2.5-1.5b.litertlm"
+val sllmModelDownloadUrl: String =
+    configValue(
+        key = "SLLM_MODEL_DOWNLOAD_URL",
+        gradlePropertyKey = "sllm.model.download.url",
+        defaultValue = defaultSllmModelDownloadUrl,
+    )
+val reportUseFakeData: Boolean =
+    configValue(
+        key = "REPORT_USE_FAKE_DATA",
+        gradlePropertyKey = "report.use.fake.data",
+        defaultValue = "false",
+    ).toBooleanStrictOrNull() ?: false
 val qwenModelFileName =
     "Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm"
 val qwenDebugModelLocalPath: String =
@@ -65,6 +92,7 @@ android {
         buildConfigField("String", "NAVER_CLIENT_ID", "\"$naverClientId\"")
         buildConfigField("String", "NAVER_CLIENT_SECRET", "\"$naverClientSecret\"")
         buildConfigField("String", "NAVER_CLIENT_NAME", "\"$naverClientName\"")
+        buildConfigField("boolean", "REPORT_USE_FAKE_DATA", reportUseFakeData.toString())
         buildConfigField(
             "String",
             "SLLM_MODEL_DOWNLOAD_URL",
@@ -106,7 +134,7 @@ android {
     }
     sourceSets {
         getByName("debug") {
-            assets.setSrcDirs(listOf(debugQwenAssetsDir))
+            assets.srcDirs(debugQwenAssetsDir)
         }
     }
 }

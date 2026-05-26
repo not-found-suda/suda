@@ -8,6 +8,7 @@ import com.ssafy.mobile.feature.report.domain.model.ReportFilterState
 import com.ssafy.mobile.feature.report.domain.model.ReportSummary
 import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.LocalDate
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -53,6 +54,7 @@ class ReportHomeViewModel
                     filterUiState =
                         ReportFilterUiState(
                             input = filterSelectionStore.currentInput(),
+                            anchorDate = filterSelectionStore.currentAnchorDate(),
                             hasAppliedFilter = true,
                         ),
                 ),
@@ -64,7 +66,7 @@ class ReportHomeViewModel
                 .currentInput()
                 .toDateFilter()
                 .getOrDefault(
-                    defaultReportFilterState(),
+                    defaultReportFilterState(filterSelectionStore.currentAnchorDate()),
                 )
 
         init {
@@ -153,13 +155,14 @@ class ReportHomeViewModel
         }
 
         fun resetFilter() {
-            appliedFilter = defaultReportFilterState()
+            appliedFilter = defaultReportFilterState(filterSelectionStore.currentAnchorDate())
             filterSelectionStore.reset()
             _uiState.value =
                 _uiState.value.copy(
                     filterUiState =
                         ReportFilterUiState(
                             input = filterSelectionStore.currentInput(),
+                            anchorDate = filterSelectionStore.currentAnchorDate(),
                             hasAppliedFilter = true,
                         ),
                 )
@@ -207,7 +210,20 @@ class ReportHomeViewModel
             _uiState.value =
                 result.fold(
                     onSuccess = { summary ->
+                        val anchoredFilterUiState =
+                            summary
+                                .anchorDateOrNull()
+                                ?.let { anchorDate ->
+                                    val anchored =
+                                        _uiState.value.filterUiState.withAnchorDate(anchorDate)
+                                    filterSelectionStore.updateAnchorDate(anchorDate)
+                                    filterSelectionStore.update(anchored.input)
+                                    anchored
+                                }
+                                ?: _uiState.value.filterUiState
+
                         _uiState.value.copy(
+                            filterUiState = anchoredFilterUiState,
                             summaryState =
                                 if (summary.hasCompletedRecords) {
                                     ReportSummaryUiState.Success(summary)
@@ -227,3 +243,10 @@ class ReportHomeViewModel
                 )
         }
     }
+
+private fun ReportSummary.anchorDateOrNull(): LocalDate? =
+    (generatedAt ?: latestActivity?.latestSessionAt)
+        ?.take(REPORT_DATE_LENGTH)
+        ?.toReportDateOrNull()
+
+private const val REPORT_DATE_LENGTH = 10

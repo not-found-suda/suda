@@ -23,6 +23,26 @@ data class ReportCommunicationSummaryResponseDto(
     val frequentWords: List<ReportCommunicationWordCountDto> = emptyList(),
     @SerializedName("expressionTypeCounts")
     val expressionTypeCounts: ReportExpressionTypeCountsDto? = null,
+    @SerializedName("communicationLevel")
+    val communicationLevel: String? = null,
+    @SerializedName("vocabularyDiversityLevel")
+    val vocabularyDiversityLevel: String? = null,
+    @SerializedName("sentenceExpansionLevel")
+    val sentenceExpansionLevel: String? = null,
+    @SerializedName("strengths")
+    val strengths: List<String> = emptyList(),
+    @SerializedName("improvementPoints")
+    val improvementPoints: List<String> = emptyList(),
+    @SerializedName("parentGuide")
+    val parentGuide: List<String> = emptyList(),
+    @SerializedName("recommendedActivities")
+    val recommendedActivities: List<String> = emptyList(),
+    @SerializedName("developmentReference")
+    val developmentReference: String? = null,
+    @SerializedName("cautionLevel")
+    val cautionLevel: String? = null,
+    @SerializedName("consultationGuide")
+    val consultationGuide: String? = null,
     @SerializedName("recentSessions")
     val recentSessions: List<ReportCommunicationSessionSummaryDto> = emptyList(),
     @SerializedName("generatedAt")
@@ -38,8 +58,32 @@ data class ReportCommunicationSessionSummaryDto(
     val endedAt: String? = null,
     @SerializedName("utteranceCount")
     val utteranceCount: Int = 0,
+    @SerializedName("averageSentenceLength")
+    val averageSentenceLength: Double = 0.0,
     @SerializedName("frequentWords")
     val frequentWords: List<ReportCommunicationWordCountDto> = emptyList(),
+    @SerializedName("expressionTypeCounts")
+    val expressionTypeCounts: ReportExpressionTypeCountsDto? = null,
+    @SerializedName("communicationLevel")
+    val communicationLevel: String? = null,
+    @SerializedName("vocabularyDiversityLevel")
+    val vocabularyDiversityLevel: String? = null,
+    @SerializedName("sentenceExpansionLevel")
+    val sentenceExpansionLevel: String? = null,
+    @SerializedName("strengths")
+    val strengths: List<String> = emptyList(),
+    @SerializedName("improvementPoints")
+    val improvementPoints: List<String> = emptyList(),
+    @SerializedName("parentGuide")
+    val parentGuide: List<String> = emptyList(),
+    @SerializedName("recommendedActivities")
+    val recommendedActivities: List<String> = emptyList(),
+    @SerializedName("developmentReference")
+    val developmentReference: String? = null,
+    @SerializedName("cautionLevel")
+    val cautionLevel: String? = null,
+    @SerializedName("consultationGuide")
+    val consultationGuide: String? = null,
     @SerializedName("summary")
     val summary: String? = null,
     @SerializedName("analysisStatus")
@@ -64,6 +108,8 @@ data class ReportExpressionTypeCountsDto(
     val response: Int = 0,
     @SerializedName("play")
     val play: Int = 0,
+    @SerializedName("question")
+    val question: Int = 0,
     @SerializedName("other")
     val other: Int = 0,
 )
@@ -83,8 +129,19 @@ fun ReportCommunicationSummaryResponseDto.toDomain(): ReportCommunicationSummary
                     emotion = 0,
                     response = 0,
                     play = 0,
+                    question = 0,
                     other = 0,
                 ),
+        communicationLevel = communicationLevel.orUnknownLevel(),
+        vocabularyDiversityLevel = vocabularyDiversityLevel.orUnknownLevel(),
+        sentenceExpansionLevel = sentenceExpansionLevel.orUnknownLevel(),
+        strengths = strengths.filterNotBlank(),
+        improvementPoints = improvementPoints.filterNotBlank(),
+        parentGuide = parentGuide.filterNotBlank(),
+        recommendedActivities = recommendedActivities.filterNotBlank(),
+        developmentReference = developmentReference.orEmpty(),
+        cautionLevel = cautionLevel.orNoneCautionLevel(),
+        consultationGuide = consultationGuide.orEmpty(),
         recentSessions = recentSessions.map { it.toDomain() },
         generatedAt = generatedAt,
     )
@@ -95,7 +152,28 @@ fun ReportCommunicationSessionSummaryDto.toDomain(): ReportCommunicationSessionS
         startedAt = startedAt,
         endedAt = endedAt,
         utteranceCount = utteranceCount,
+        averageSentenceLength = averageSentenceLength,
         frequentWords = frequentWords.mapNotNull { it.toDomainOrNull() },
+        expressionTypeCounts =
+            expressionTypeCounts?.toDomain()
+                ?: ReportExpressionTypeCounts(
+                    request = 0,
+                    emotion = 0,
+                    response = 0,
+                    play = 0,
+                    question = 0,
+                    other = 0,
+                ),
+        communicationLevel = communicationLevel.orUnknownLevel(),
+        vocabularyDiversityLevel = vocabularyDiversityLevel.orUnknownLevel(),
+        sentenceExpansionLevel = sentenceExpansionLevel.orUnknownLevel(),
+        strengths = strengths.filterNotBlank(),
+        improvementPoints = improvementPoints.filterNotBlank(),
+        parentGuide = parentGuide.filterNotBlank(),
+        recommendedActivities = recommendedActivities.filterNotBlank(),
+        developmentReference = developmentReference.orEmpty(),
+        cautionLevel = cautionLevel.orNoneCautionLevel(),
+        consultationGuide = consultationGuide.orEmpty(),
         summary = summary.orEmpty(),
         analysisStatus = analysisStatus.toCommunicationAnalysisStatus(),
         analyzedAt = analyzedAt,
@@ -107,6 +185,7 @@ fun ReportExpressionTypeCountsDto.toDomain(): ReportExpressionTypeCounts =
         emotion = emotion,
         response = response,
         play = play,
+        question = question,
         other = other,
     )
 
@@ -130,3 +209,22 @@ private fun String?.toCommunicationAnalysisStatus(): ReportCommunicationAnalysis
         "EMPTY" -> ReportCommunicationAnalysisStatus.Empty
         else -> ReportCommunicationAnalysisStatus.Unknown
     }
+
+private fun String?.orUnknownLevel(): String =
+    when (this?.uppercase(Locale.ROOT)) {
+        "LOW" -> "LOW"
+        "NORMAL" -> "NORMAL"
+        "HIGH" -> "HIGH"
+        else -> "UNKNOWN"
+    }
+
+private fun String?.orNoneCautionLevel(): String =
+    when (this?.uppercase(Locale.ROOT)) {
+        "WATCH" -> "WATCH"
+        "CONSULT" -> "CONSULT"
+        else -> "NONE"
+    }
+
+private fun List<String>.filterNotBlank(): List<String> =
+    map { it.trim() }
+        .filter { it.isNotBlank() }

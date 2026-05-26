@@ -4,10 +4,12 @@ import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechReque
 import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechResponse
 import com.ssafy.mobile.feature.conversation.data.remote.model.SpeechToTextResponse
 import com.ssafy.mobile.feature.conversation.data.remote.model.TranslationFeedbackRequest
+import com.ssafy.mobile.feature.conversation.data.remote.model.TranslationSttConfigResponse
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.GET
 import retrofit2.http.Multipart
 import retrofit2.http.POST
 import retrofit2.http.Part
@@ -17,6 +19,9 @@ import retrofit2.http.Query
  * 번역 및 음성 변환 관련 Spring API 인터페이스
  */
 interface TranslateApiService {
+    @GET("v1/translation/stt-config")
+    suspend fun getSttConfig(): Response<TranslationSttConfigResponse>
+
     /**
      * 부모 수화 단어열을 문장으로 보정하고 TTS 생성
      */

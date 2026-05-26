@@ -51,7 +51,8 @@ public interface ReportApiDocs {
       @Parameter(hidden = true) Authentication authentication,
       @Parameter(description = "아이 프로필 ID", example = "1") Long childId,
       @Parameter(description = "조회 시작일", example = "2026-05-01") String from,
-      @Parameter(description = "조회 종료일", example = "2026-05-31") String to);
+      @Parameter(description = "조회 종료일", example = "2026-05-31") String to,
+      @Parameter(description = "최근 소통 세션 반환 개수", example = "5") int sessionLimit);
 
   @Operation(
       summary = "카테고리별 리포트 요약 조회",

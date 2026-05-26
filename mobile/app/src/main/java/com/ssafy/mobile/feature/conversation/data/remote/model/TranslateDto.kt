@@ -34,6 +34,16 @@ data class SpeechToTextResponse(
     @SerializedName("locale") val locale: String?,
 )
 
+data class TranslationSttConfigResponse(
+    @SerializedName("mode") val mode: TranslationSttModeDto,
+)
+
+enum class TranslationSttModeDto {
+    REST,
+    STREAMING,
+    AUTO,
+}
+
 /**
  * 번역 오류 신고 요청 DTO
  */

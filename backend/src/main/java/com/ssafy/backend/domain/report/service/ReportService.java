@@ -53,7 +53,8 @@ public class ReportService {
   private static final int DEFAULT_PAGE = 1;
   private static final int DEFAULT_MIN_ATTEMPT_COUNT = 1;
   private static final int SUMMARY_WEAK_WORD_LIMIT = 5;
-  private static final int RECENT_COMMUNICATION_SESSION_LIMIT = 5;
+  private static final int MAX_COMMUNICATION_SESSION_LIMIT = 50;
+  private static final int REPORT_GUIDE_LIMIT = 5;
   private static final int MAX_SIZE = 100;
 
   private final ChildProfileRepository childProfileRepository;
@@ -84,6 +85,7 @@ public class ReportService {
         reportQuizSessionQueryRepository
             .findLatestCategory(childId, fromDateTime, toDateTime)
             .orElse(null);
+
     PageRequest weakWordLimit = PageRequest.of(0, SUMMARY_WEAK_WORD_LIMIT);
     List<ReportWeakWordResponse> weakWords =
         reportQuizSessionQueryRepository
@@ -106,13 +108,15 @@ public class ReportService {
             ? new ReportLatestCategoryResponse(
                 latestCategory.categoryId(), latestCategory.categoryName())
             : null,
-        weakWords);
+        weakWords,
+        LocalDateTime.now());
   }
 
   public ReportCommunicationSummaryResponse getCommunicationSummary(
-      Long userId, Long childId, String from, String to) {
+      Long userId, Long childId, String from, String to, int sessionLimit) {
     validatePositiveId(childId, "childId");
     validateChildProfileOwner(childId, userId);
+    int resolvedSessionLimit = resolveCommunicationSessionLimit(sessionLimit);
 
     LocalDateTime fromDateTime = parseFrom(from);
     LocalDateTime toDateTime = parseToExclusive(to);
@@ -128,20 +132,35 @@ public class ReportService {
 
     List<ReportCommunicationAnalysisQueryRow> rows =
         communicationSessionAnalysisRepository.findCommunicationAnalysisRows(
-            childId, fromDateTime, toDateTime);
+            childId, fromDateTime, toDateTime, CommunicationAnalysisStatus.COMPLETED);
 
-    long totalSessionCount = rows.size();
     long totalUtteranceCount = 0;
     double sentenceLengthSum = 0.0;
     long completedCount = 0;
+
+    int communicationLevelScoreSum = 0;
+    int communicationLevelValidCount = 0;
+    int vocabularyDiversityLevelScoreSum = 0;
+    int vocabularyDiversityLevelValidCount = 0;
+    int sentenceExpansionLevelScoreSum = 0;
+    int sentenceExpansionLevelValidCount = 0;
 
     Map<String, Integer> wordCounts = new LinkedHashMap<>();
     int requestCount = 0;
     int emotionCount = 0;
     int responseCount = 0;
     int playCount = 0;
+    int questionCount = 0;
     int otherCount = 0;
 
+    String developmentReference = "";
+    String cautionLevel = "NONE";
+    String consultationGuide = "";
+
+    List<String> strengths = new ArrayList<>();
+    List<String> improvementPoints = new ArrayList<>();
+    List<String> parentGuide = new ArrayList<>();
+    List<String> recommendedActivities = new ArrayList<>();
     List<ReportCommunicationSessionSummaryResponse> recentSessions = new ArrayList<>();
 
     for (ReportCommunicationAnalysisQueryRow row : rows) {
@@ -149,50 +168,143 @@ public class ReportService {
 
       int utteranceCount = readInt(summary, "utteranceCount");
       double averageSentenceLength = readDouble(summary, "averageSentenceLength");
+
+      String sessionCommunicationLevel = readLevel(summary, "communicationLevel");
+      String sessionVocabularyDiversityLevel = readLevel(summary, "vocabularyDiversityLevel");
+      String sessionSentenceExpansionLevel = readLevel(summary, "sentenceExpansionLevel");
+      String sessionDevelopmentReference = readText(summary, "developmentReference");
+      String sessionCautionLevel = readCautionLevel(summary, "cautionLevel");
+      String sessionConsultationGuide = readText(summary, "consultationGuide");
       String sessionSummary = readText(summary, "summary");
 
-      if (row.analysisStatus() == CommunicationAnalysisStatus.COMPLETED) {
+      JsonNode expressionTypeCounts = summary.path("expressionTypeCounts");
+      ReportExpressionTypeCountsResponse sessionExpressionTypeCounts =
+          new ReportExpressionTypeCountsResponse(
+              readInt(expressionTypeCounts, "REQUEST"),
+              readInt(expressionTypeCounts, "EMOTION"),
+              readInt(expressionTypeCounts, "RESPONSE"),
+              readInt(expressionTypeCounts, "PLAY"),
+              readInt(expressionTypeCounts, "QUESTION"),
+              readInt(expressionTypeCounts, "OTHER"));
+
+      List<String> sessionStrengths = readStringList(summary, "strengths");
+      List<String> sessionImprovementPoints = readStringList(summary, "improvementPoints");
+      List<String> sessionParentGuide = readStringList(summary, "parentGuide");
+      List<String> sessionRecommendedActivities = readStringList(summary, "recommendedActivities");
+
+      if (row.analysisStatus() == CommunicationAnalysisStatus.COMPLETED && utteranceCount > 0) {
+        sessionStrengths = withFallbackStrengths(sessionStrengths, sessionSummary);
+        sessionImprovementPoints = withFallbackImprovementPoints(sessionImprovementPoints);
+        sessionParentGuide = withFallbackParentGuide(sessionParentGuide);
+        sessionRecommendedActivities =
+            withFallbackRecommendedActivities(sessionRecommendedActivities);
+      }
+
+      if (row.analysisStatus() == CommunicationAnalysisStatus.COMPLETED && utteranceCount > 0) {
         completedCount++;
         totalUtteranceCount += utteranceCount;
         sentenceLengthSum += averageSentenceLength;
 
         mergeFrequentWords(wordCounts, summary.path("frequentWords"));
 
-        JsonNode expressionTypeCounts = summary.path("expressionTypeCounts");
-        requestCount += readInt(expressionTypeCounts, "REQUEST");
-        emotionCount += readInt(expressionTypeCounts, "EMOTION");
-        responseCount += readInt(expressionTypeCounts, "RESPONSE");
-        playCount += readInt(expressionTypeCounts, "PLAY");
-        otherCount += readInt(expressionTypeCounts, "OTHER");
-      }
+        requestCount += sessionExpressionTypeCounts.request();
+        emotionCount += sessionExpressionTypeCounts.emotion();
+        responseCount += sessionExpressionTypeCounts.response();
+        playCount += sessionExpressionTypeCounts.play();
+        questionCount += sessionExpressionTypeCounts.question();
+        otherCount += sessionExpressionTypeCounts.other();
 
-      if (recentSessions.size() < RECENT_COMMUNICATION_SESSION_LIMIT) {
-        recentSessions.add(
-            new ReportCommunicationSessionSummaryResponse(
-                row.sessionId(),
-                row.startedAt(),
-                row.endedAt(),
-                utteranceCount,
-                toTopWordResponses(summary.path("frequentWords"), 5),
-                sessionSummary,
-                row.analysisStatus(),
-                row.analyzedAt()));
+        if (isValidLevel(sessionCommunicationLevel)) {
+          communicationLevelScoreSum += levelScore(sessionCommunicationLevel);
+          communicationLevelValidCount++;
+        }
+
+        if (isValidLevel(sessionVocabularyDiversityLevel)) {
+          vocabularyDiversityLevelScoreSum += levelScore(sessionVocabularyDiversityLevel);
+          vocabularyDiversityLevelValidCount++;
+        }
+
+        if (isValidLevel(sessionSentenceExpansionLevel)) {
+          sentenceExpansionLevelScoreSum += levelScore(sessionSentenceExpansionLevel);
+          sentenceExpansionLevelValidCount++;
+        }
+
+        if (developmentReference.isBlank() && !sessionDevelopmentReference.isBlank()) {
+          developmentReference = sessionDevelopmentReference;
+        }
+
+        if (consultationGuide.isBlank() && !sessionConsultationGuide.isBlank()) {
+          consultationGuide = sessionConsultationGuide;
+        }
+
+        cautionLevel = higherCautionLevel(cautionLevel, sessionCautionLevel);
+
+        addDistinctUntilLimit(strengths, sessionStrengths, REPORT_GUIDE_LIMIT);
+        addDistinctUntilLimit(improvementPoints, sessionImprovementPoints, REPORT_GUIDE_LIMIT);
+        addDistinctUntilLimit(parentGuide, sessionParentGuide, REPORT_GUIDE_LIMIT);
+        addDistinctUntilLimit(
+            recommendedActivities, sessionRecommendedActivities, REPORT_GUIDE_LIMIT);
+
+        if (recentSessions.size() < resolvedSessionLimit) {
+          recentSessions.add(
+              new ReportCommunicationSessionSummaryResponse(
+                  row.sessionId(),
+                  row.startedAt(),
+                  row.endedAt(),
+                  utteranceCount,
+                  averageSentenceLength,
+                  toTopWordResponses(summary.path("frequentWords"), 5),
+                  sessionExpressionTypeCounts,
+                  sessionCommunicationLevel,
+                  sessionVocabularyDiversityLevel,
+                  sessionSentenceExpansionLevel,
+                  sessionStrengths,
+                  sessionImprovementPoints,
+                  sessionParentGuide,
+                  sessionRecommendedActivities,
+                  sessionDevelopmentReference,
+                  sessionCautionLevel,
+                  sessionConsultationGuide,
+                  sessionSummary,
+                  row.analysisStatus(),
+                  row.analyzedAt()));
+        }
       }
     }
 
-    CommunicationAnalysisStatus status = resolveOverallAnalysisStatus(rows);
+    CommunicationAnalysisStatus status =
+        completedCount == 0
+            ? CommunicationAnalysisStatus.EMPTY
+            : CommunicationAnalysisStatus.COMPLETED;
     double averageSentenceLength =
         completedCount == 0 ? 0.0 : roundOneDecimal(sentenceLengthSum / completedCount);
+
+    String communicationLevel =
+        resolveAverageLevel(communicationLevelScoreSum, communicationLevelValidCount);
+    String vocabularyDiversityLevel =
+        resolveAverageLevel(vocabularyDiversityLevelScoreSum, vocabularyDiversityLevelValidCount);
+    String sentenceExpansionLevel =
+        resolveAverageLevel(sentenceExpansionLevelScoreSum, sentenceExpansionLevelValidCount);
 
     return new ReportCommunicationSummaryResponse(
         childId,
         status,
-        totalSessionCount,
+        completedCount,
         totalUtteranceCount,
         averageSentenceLength,
         toTopWordResponses(wordCounts, 5),
         new ReportExpressionTypeCountsResponse(
-            requestCount, emotionCount, responseCount, playCount, otherCount),
+            requestCount, emotionCount, responseCount, playCount, questionCount, otherCount),
+        communicationLevel,
+        vocabularyDiversityLevel,
+        sentenceExpansionLevel,
+        strengths,
+        improvementPoints,
+        parentGuide,
+        recommendedActivities,
+        developmentReference,
+        cautionLevel,
+        consultationGuide,
         recentSessions,
         LocalDateTime.now());
   }
@@ -378,41 +490,6 @@ public class ReportService {
         row.latestSessionAt());
   }
 
-  private CommunicationAnalysisStatus resolveOverallAnalysisStatus(
-      List<ReportCommunicationAnalysisQueryRow> rows) {
-    if (rows.isEmpty()) {
-      return CommunicationAnalysisStatus.EMPTY;
-    }
-
-    boolean hasProcessing =
-        rows.stream()
-            .anyMatch(
-                row ->
-                    row.analysisStatus() == CommunicationAnalysisStatus.PENDING
-                        || row.analysisStatus() == CommunicationAnalysisStatus.PROCESSING);
-
-    if (hasProcessing) {
-      return CommunicationAnalysisStatus.PROCESSING;
-    }
-
-    boolean hasCompleted =
-        rows.stream()
-            .anyMatch(row -> row.analysisStatus() == CommunicationAnalysisStatus.COMPLETED);
-
-    if (hasCompleted) {
-      return CommunicationAnalysisStatus.COMPLETED;
-    }
-
-    boolean allEmpty =
-        rows.stream().allMatch(row -> row.analysisStatus() == CommunicationAnalysisStatus.EMPTY);
-
-    if (allEmpty) {
-      return CommunicationAnalysisStatus.EMPTY;
-    }
-
-    return CommunicationAnalysisStatus.FAILED;
-  }
-
   private JsonNode parseSummaryJson(String summaryJson) {
     if (summaryJson == null || summaryJson.isBlank()) {
       return objectMapper.createObjectNode();
@@ -438,6 +515,142 @@ public class ReportService {
   private String readText(JsonNode node, String fieldName) {
     JsonNode value = node.path(fieldName);
     return value.isTextual() ? value.asText() : "";
+  }
+
+  private String readLevel(JsonNode node, String fieldName) {
+    String value = readText(node, fieldName);
+
+    if (isValidLevel(value)) {
+      return value;
+    }
+
+    return "UNKNOWN";
+  }
+
+  private boolean isValidLevel(String level) {
+    return "LOW".equals(level) || "NORMAL".equals(level) || "HIGH".equals(level);
+  }
+
+  private int levelScore(String level) {
+    return switch (level) {
+      case "HIGH" -> 3;
+      case "NORMAL" -> 2;
+      case "LOW" -> 1;
+      default -> 0;
+    };
+  }
+
+  private String resolveAverageLevel(int scoreSum, int validCount) {
+    if (validCount == 0) {
+      return "UNKNOWN";
+    }
+
+    double averageScore = scoreSum * 1.0 / validCount;
+
+    if (averageScore >= 2.5) {
+      return "HIGH";
+    }
+
+    if (averageScore >= 1.5) {
+      return "NORMAL";
+    }
+
+    return "LOW";
+  }
+
+  private String readCautionLevel(JsonNode node, String fieldName) {
+    String value = readText(node, fieldName);
+
+    if ("NONE".equals(value) || "WATCH".equals(value) || "CONSULT".equals(value)) {
+      return value;
+    }
+
+    return "NONE";
+  }
+
+  private String higherCautionLevel(String current, String candidate) {
+    return cautionScore(candidate) > cautionScore(current) ? candidate : current;
+  }
+
+  private int cautionScore(String cautionLevel) {
+    return switch (cautionLevel) {
+      case "CONSULT" -> 2;
+      case "WATCH" -> 1;
+      default -> 0;
+    };
+  }
+
+  private List<String> readStringList(JsonNode node, String fieldName) {
+    JsonNode values = node.path(fieldName);
+    if (values == null || !values.isArray()) {
+      return List.of();
+    }
+
+    List<String> result = new ArrayList<>();
+    for (JsonNode value : values) {
+      if (!value.isTextual()) {
+        continue;
+      }
+
+      String text = value.asText();
+      if (text == null || text.isBlank()) {
+        continue;
+      }
+
+      result.add(text);
+    }
+
+    return result;
+  }
+
+  private void addDistinctUntilLimit(List<String> target, List<String> source, int limit) {
+    for (String value : source) {
+      if (target.size() >= limit) {
+        return;
+      }
+
+      if (value == null || value.isBlank() || target.contains(value)) {
+        continue;
+      }
+
+      target.add(value);
+    }
+  }
+
+  private List<String> withFallbackStrengths(List<String> values, String summary) {
+    if (!values.isEmpty()) {
+      return values;
+    }
+
+    if (summary != null && !summary.isBlank()) {
+      return List.of("아이의 발화를 기록하고 표현 흐름을 확인할 수 있었어요.");
+    }
+
+    return List.of("소통 상황에서 아이의 목소리 표현이 기록되었어요.");
+  }
+
+  private List<String> withFallbackImprovementPoints(List<String> values) {
+    if (!values.isEmpty()) {
+      return values;
+    }
+
+    return List.of("아이의 말을 한 번 더 확장해서 되말해 주면 표현을 넓히는 데 도움이 돼요.");
+  }
+
+  private List<String> withFallbackParentGuide(List<String> values) {
+    if (!values.isEmpty()) {
+      return values;
+    }
+
+    return List.of("아이의 말을 그대로 인정한 뒤 한 단어를 덧붙여 짧게 다시 말해 주세요.", "대답을 기다릴 수 있게 3초 정도 여유를 주세요.");
+  }
+
+  private List<String> withFallbackRecommendedActivities(List<String> values) {
+    if (!values.isEmpty()) {
+      return values;
+    }
+
+    return List.of("그림책을 보며 아이가 말한 단어를 문장으로 이어 말하기", "좋아하는 놀이 중 원하는 것을 말로 고르게 하기");
   }
 
   private void mergeFrequentWords(Map<String, Integer> wordCounts, JsonNode frequentWords) {
@@ -532,14 +745,24 @@ public class ReportService {
     return size;
   }
 
+  private int resolveCommunicationSessionLimit(int sessionLimit) {
+    if (sessionLimit < 1 || sessionLimit > MAX_COMMUNICATION_SESSION_LIMIT) {
+      throw new BusinessException(
+          ValidationErrorCode.INVALID_INPUT, "sessionLimit은 1 이상 50 이하여야 합니다.");
+    }
+    return sessionLimit;
+  }
+
   private int resolveMinAttemptCount(Integer minAttemptCount) {
     if (minAttemptCount == null) {
       return DEFAULT_MIN_ATTEMPT_COUNT;
     }
+
     if (minAttemptCount < 1) {
       throw new BusinessException(
           ValidationErrorCode.INVALID_INPUT, "minAttemptCount는 1 이상이어야 합니다.");
     }
+
     return minAttemptCount;
   }
 

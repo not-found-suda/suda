@@ -1,4 +1,11 @@
-@file:Suppress("LongMethod", "LongParameterList", "MagicNumber", "TooManyFunctions")
+@file:Suppress(
+    "LongMethod",
+    "LongParameterList",
+    "MagicNumber",
+    "MaxLineLength",
+    "TooManyFunctions",
+    "UnusedPrivateMember",
+)
 
 package com.ssafy.mobile.feature.conversation.presentation
 
@@ -8,22 +15,23 @@ import android.content.ContextWrapper
 import android.util.Log
 import android.view.WindowManager
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
@@ -48,7 +56,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -59,11 +73,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssafy.mobile.core.ui.components.AppBadge
 import com.ssafy.mobile.core.ui.components.AppBadgeTone
-import com.ssafy.mobile.core.ui.feedback.AppNetworkStatusBanner
+import com.ssafy.mobile.core.ui.components.AppCard
+import com.ssafy.mobile.core.ui.components.SudaMascot
+import com.ssafy.mobile.core.ui.components.SudaMascotImage
 import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
 import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
 import com.ssafy.mobile.feature.conversation.domain.model.TranslationFeedbackReason
-import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
 import com.ssafy.mobile.feature.conversation.presentation.components.SubtitleList
 import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
 
@@ -71,36 +86,26 @@ private const val TAG = "ConversationRoute"
 private const val SUBTITLE_WIDTH_FRACTION = 0.95f
 private const val SUBTITLE_HEIGHT_FRACTION = 0.4f
 private const val INPUT_LANE_LABEL_ALPHA = 0.14f
-private const val NOTICE_ENTER_SLIDE_DIVISOR = 5
 private const val CAMERA_SCRIM_ALPHA = 0.54f
 
 data class ConversationUiState(
     val sessionState: SessionState,
     val signInputPhase: SignInputPhase,
     val speechInputPhase: SpeechInputPhase,
-    val isOnline: Boolean,
     val messages: List<ChatMessage>,
-    val lastGlosses: List<String>,
-    val translationMode: TranslationMode,
-    val translationModeNotice: String?,
     val translationFeedbackSubmitState: TranslationFeedbackSubmitState,
 )
 
 @Composable
 fun conversationRoute(
     modifier: Modifier = Modifier,
-    onOpenSignDebug: (() -> Unit)? = null,
     onNavigateToLogin: (() -> Unit)? = null,
     viewModel: ConversationViewModel = hiltViewModel(),
 ) {
     val sessionState by viewModel.sessionState.collectAsStateWithLifecycle()
     val signInputPhase by viewModel.signInputPhase.collectAsStateWithLifecycle()
     val speechInputPhase by viewModel.speechInputPhase.collectAsStateWithLifecycle()
-    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
-    val lastGlosses by viewModel.lastGlosses.collectAsStateWithLifecycle()
-    val translationMode by viewModel.translationMode.collectAsStateWithLifecycle()
-    val translationModeNotice by viewModel.translationModeNotice.collectAsStateWithLifecycle()
     val translationFeedbackSubmitState by
         viewModel.translationFeedbackSubmitState.collectAsStateWithLifecycle()
     val predictionFeedbackToken by viewModel.predictionFeedbackToken.collectAsStateWithLifecycle()
@@ -145,11 +150,7 @@ fun conversationRoute(
             sessionState = sessionState,
             signInputPhase = signInputPhase,
             speechInputPhase = speechInputPhase,
-            isOnline = isOnline,
             messages = messages,
-            lastGlosses = lastGlosses,
-            translationMode = translationMode,
-            translationModeNotice = translationModeNotice,
             translationFeedbackSubmitState = translationFeedbackSubmitState,
         )
 
@@ -159,11 +160,9 @@ fun conversationRoute(
             ConversationActions(
                 onStartSession = viewModel::startSession,
                 onStopSession = viewModel::stopSession,
-                onTranslationModeSelected = viewModel::updateTranslationMode,
                 onLandmarkFrame = viewModel::onLandmarkFrame,
                 onFeedbackReasonConfirmed = viewModel::submitTranslationFeedback,
                 onFeedbackDismissed = viewModel::clearTranslationFeedbackSubmitState,
-                onOpenSignDebug = onOpenSignDebug,
                 onNavigateToLogin = onNavigateToLogin,
             ),
         modifier = modifier,
@@ -173,11 +172,9 @@ fun conversationRoute(
 private data class ConversationActions(
     val onStartSession: () -> Unit,
     val onStopSession: () -> Unit,
-    val onTranslationModeSelected: (TranslationMode) -> Unit,
     val onLandmarkFrame: (LandmarkFrameResult) -> Unit,
     val onFeedbackReasonConfirmed: (ChatMessage, TranslationFeedbackReason) -> Unit,
     val onFeedbackDismissed: () -> Unit,
-    val onOpenSignDebug: (() -> Unit)?,
     val onNavigateToLogin: (() -> Unit)?,
 )
 
@@ -205,71 +202,49 @@ private fun ConversationScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        topBar = {
-            Column(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.background),
-            ) {
-                SessionHeader(
-                    sessionState = uiState.sessionState,
-                    signInputPhase = uiState.signInputPhase,
-                    speechInputPhase = uiState.speechInputPhase,
-                    translationMode = uiState.translationMode,
-                    onTranslationModeSelected = actions.onTranslationModeSelected,
-                    onOpenSignDebug = actions.onOpenSignDebug,
-                    onNavigateToLogin = actions.onNavigateToLogin,
-                )
-                AppNetworkStatusBanner(isOnline = uiState.isOnline)
-                TranslationModeNotice(text = uiState.translationModeNotice)
-            }
-        },
+        containerColor = Color.Transparent,
         bottomBar = {
-            SessionControls(
+            ConversationSessionControls(
+                signInputPhase = uiState.signInputPhase,
+                speechInputPhase = uiState.speechInputPhase,
                 sessionState = uiState.sessionState,
                 onStartSession = actions.onStartSession,
                 onStopSession = actions.onStopSession,
+                onNavigateToLogin = actions.onNavigateToLogin,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         },
     ) { paddingValues ->
-        Column(
+        Box(
             modifier =
                 Modifier
                     .padding(paddingValues)
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background),
+                    .background(conversationBackgroundBrush()),
         ) {
             // 카메라 인식 영역 및 자막 오버레이
-            SignRecognitionArea(
-                sessionState = uiState.sessionState,
-                signInputPhase = uiState.signInputPhase,
-                speechInputPhase = uiState.speechInputPhase,
-                messages = uiState.messages,
-                onLandmarkFrame = actions.onLandmarkFrame,
-                onFeedbackClick = { message ->
-                    feedbackTargetMessage = message
-                    selectedFeedbackReason = null
-                },
-                showStatusOverlay = false,
-                showSubtitles =
-                    uiState.sessionState == SessionState.Active ||
-                        uiState.messages.isNotEmpty(),
-                showDebugOverlay = false,
+            Column(
                 modifier =
                     Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-            )
-
-            ParallelInputStatusCard(
-                signInputPhase = uiState.signInputPhase,
-                speechInputPhase = uiState.speechInputPhase,
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-            )
+                        .fillMaxSize()
+                        .padding(start = 12.dp, top = 12.dp, end = 12.dp),
+            ) {
+                ConversationStageCard(
+                    sessionState = uiState.sessionState,
+                    signInputPhase = uiState.signInputPhase,
+                    speechInputPhase = uiState.speechInputPhase,
+                    messages = uiState.messages,
+                    onLandmarkFrame = actions.onLandmarkFrame,
+                    onFeedbackClick = { message ->
+                        feedbackTargetMessage = message
+                        selectedFeedbackReason = null
+                    },
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                )
+            }
         }
     }
 
@@ -320,6 +295,95 @@ private fun TranslationFeedbackSheetHost(
 }
 
 @Composable
+private fun conversationBackgroundBrush(): Brush =
+    Brush.verticalGradient(
+        colors =
+            listOf(
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.34f),
+                MaterialTheme.colorScheme.background,
+                MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.18f),
+            ),
+    )
+
+@Composable
+private fun ConversationStageCard(
+    sessionState: SessionState,
+    signInputPhase: SignInputPhase,
+    speechInputPhase: SpeechInputPhase,
+    messages: List<ChatMessage>,
+    onLandmarkFrame: (LandmarkFrameResult) -> Unit,
+    onFeedbackClick: (ChatMessage) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 2.dp,
+        shadowElevation = 4.dp,
+        border =
+            BorderStroke(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f),
+            ),
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                AppBadge(
+                    text = stageBadgeText(sessionState),
+                    tone =
+                        if (sessionState == SessionState.Active) {
+                            AppBadgeTone.Primary
+                        } else {
+                            AppBadgeTone.Neutral
+                        },
+                )
+                Text(
+                    text = conversationMessageSummary(messages.size),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.End,
+                )
+            }
+
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.36f)),
+            ) {
+                SignRecognitionArea(
+                    sessionState = sessionState,
+                    signInputPhase = signInputPhase,
+                    speechInputPhase = speechInputPhase,
+                    messages = messages,
+                    onLandmarkFrame = onLandmarkFrame,
+                    onFeedbackClick = onFeedbackClick,
+                    showStatusOverlay = false,
+                    showSubtitles = sessionState == SessionState.Active || messages.isNotEmpty(),
+                    showDebugOverlay = false,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun SignRecognitionArea(
     sessionState: SessionState,
     signInputPhase: SignInputPhase,
@@ -342,15 +406,16 @@ private fun SignRecognitionArea(
             modifier = Modifier.fillMaxSize(),
         )
 
+        UpperBodyGuideOverlay(
+            modifier =
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth(0.84f)
+                    .fillMaxHeight(0.74f)
+                    .offset(y = 64.dp),
+        )
+
         if (showSubtitles) {
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .fillMaxHeight(SUBTITLE_HEIGHT_FRACTION)
-                        .align(Alignment.BottomCenter)
-                        .background(Color.Black.copy(alpha = CAMERA_SCRIM_ALPHA)),
-            )
             Box(
                 modifier =
                     Modifier
@@ -361,7 +426,7 @@ private fun SignRecognitionArea(
             ) {
                 SubtitleList(
                     messages = messages,
-                    emptyText = subtitlePlaceholder(signInputPhase, speechInputPhase),
+                    emptyText = conversationSubtitlePlaceholder(signInputPhase, speechInputPhase),
                     onFeedbackClick = onFeedbackClick,
                 )
             }
@@ -400,6 +465,62 @@ private fun SignRecognitionArea(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun UpperBodyGuideOverlay(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val strokeWidth = size.minDimension * 0.014f
+        val dashEffect =
+            PathEffect.dashPathEffect(
+                intervals =
+                    floatArrayOf(
+                        strokeWidth * 1.8f,
+                        strokeWidth * 1.2f,
+                    ),
+            )
+        val guideColor = Color.White.copy(alpha = 0.34f)
+        val accentColor = Color(0xFF9EE7D8).copy(alpha = 0.28f)
+        val centerX = size.width / 2f
+        val headRadius = size.minDimension * 0.132f
+        val headCenter = Offset(centerX, size.height * 0.23f)
+        val shoulderWidth = size.width * 0.54f
+        val shoulderTop = headCenter.y + (headRadius * 1.9f)
+        val torsoBottom = size.height * 0.88f
+
+        drawCircle(
+            color = guideColor,
+            center = headCenter,
+            radius = headRadius,
+            style = Stroke(width = strokeWidth, pathEffect = dashEffect),
+        )
+
+        drawArc(
+            color = guideColor,
+            startAngle = 198f,
+            sweepAngle = 144f,
+            useCenter = false,
+            topLeft = Offset(centerX - (shoulderWidth / 2f), shoulderTop - (headRadius * 0.1f)),
+            size = Size(width = shoulderWidth, height = size.height * 0.42f),
+            style = Stroke(width = strokeWidth, pathEffect = dashEffect),
+        )
+
+        drawLine(
+            color = guideColor,
+            start = Offset(centerX, shoulderTop + (size.height * 0.08f)),
+            end = Offset(centerX, torsoBottom),
+            strokeWidth = strokeWidth,
+            pathEffect = dashEffect,
+        )
+
+        drawLine(
+            color = accentColor,
+            start = Offset(size.width * 0.2f, size.height * 0.7f),
+            end = Offset(size.width * 0.8f, size.height * 0.7f),
+            strokeWidth = strokeWidth * 0.75f,
+            pathEffect = dashEffect,
+        )
     }
 }
 
@@ -566,12 +687,391 @@ private fun TranslationFeedbackReasonRow(
 }
 
 @Composable
+private fun ConversationHeroHeader(
+    sessionState: SessionState,
+    signInputPhase: SignInputPhase,
+    speechInputPhase: SpeechInputPhase,
+    onOpenSignDebug: (() -> Unit)?,
+    onNavigateToLogin: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val isGuestMode = onNavigateToLogin != null
+
+    AppCard(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AppBadge(
+                        text = conversationHeroBadgeText(isGuestMode),
+                        tone = if (isGuestMode) AppBadgeTone.Secondary else AppBadgeTone.Primary,
+                    )
+                    AppBadge(
+                        text =
+                            conversationHeaderLabel(
+                                sessionState,
+                                signInputPhase,
+                                speechInputPhase,
+                            ),
+                        tone =
+                            conversationHeaderTone(
+                                sessionState,
+                                signInputPhase,
+                                speechInputPhase,
+                            ),
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "\uC18C\uD1B5",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text =
+                            compactConversationGuideText(
+                                sessionState,
+                                signInputPhase,
+                                speechInputPhase,
+                            ),
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+
+                if (onOpenSignDebug != null || onNavigateToLogin != null) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        onOpenSignDebug?.let {
+                            ConversationActionChip(
+                                text = "\uB514\uBC84\uADF8",
+                                onClick = it,
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        onNavigateToLogin?.let {
+                            ConversationActionChip(
+                                text = "\uB85C\uADF8\uC778",
+                                onClick = it,
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                        }
+                    }
+                }
+            }
+
+            Surface(
+                modifier = Modifier.size(56.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.44f),
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .padding(6.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    SudaMascotImage(
+                        mascot =
+                            conversationHeaderMascot(
+                                sessionState,
+                                signInputPhase,
+                                speechInputPhase,
+                            ),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConversationActionChip(
+    text: String,
+    onClick: () -> Unit,
+    containerColor: Color,
+    contentColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(999.dp),
+        color = containerColor,
+        contentColor = contentColor,
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+@Composable
+private fun ConversationSessionControls(
+    signInputPhase: SignInputPhase,
+    speechInputPhase: SpeechInputPhase,
+    sessionState: SessionState,
+    onStartSession: () -> Unit,
+    onStopSession: () -> Unit,
+    onNavigateToLogin: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val hapticFeedback = LocalHapticFeedback.current
+
+    AppCard(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                AppBadge(
+                    text = inputStatusHeadline(signInputPhase, speechInputPhase),
+                    tone = inputStatusTone(signInputPhase, speechInputPhase),
+                )
+                Text(
+                    text =
+                        compactSessionControlText(
+                            sessionState,
+                            signInputPhase,
+                            speechInputPhase,
+                        ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                )
+                onNavigateToLogin?.let { navigateToLogin ->
+                    ConversationActionChip(
+                        text = "\uB85C\uADF8\uC778",
+                        onClick = navigateToLogin,
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
+            }
+
+            if (sessionState == SessionState.Idle) {
+                ConversationActionButton(
+                    text = "\uC2DC\uC791",
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    onClick = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onStartSession()
+                    },
+                    modifier = Modifier.widthIn(min = 104.dp),
+                )
+            } else {
+                ConversationActionButton(
+                    text = "\uC885\uB8CC",
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                    onClick = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onStopSession()
+                    },
+                    modifier = Modifier.widthIn(min = 104.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConversationActionButton(
+    text: String,
+    containerColor: Color,
+    contentColor: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier =
+            modifier
+                .heightIn(min = 46.dp)
+                .clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        color = containerColor,
+        contentColor = contentColor,
+    ) {
+        Box(
+            modifier =
+                Modifier
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+private fun stageBadgeText(sessionState: SessionState): String =
+    if (sessionState == SessionState.Active) {
+        "\uC2E4\uC2DC\uAC04 \uD654\uBA74"
+    } else {
+        "\uB300\uAE30 \uD654\uBA74"
+    }
+
+private fun conversationMessageSummary(messageCount: Int): String =
+    if (messageCount == 0) {
+        "\uC544\uC9C1 \uB300\uD654 \uAE30\uB85D\uC774 \uC5C6\uC5B4\uC694"
+    } else {
+        "\uB204\uC801 \uBA54\uC2DC\uC9C0 ${messageCount}\uAC1C"
+    }
+
+private fun conversationHeroBadgeText(isGuestMode: Boolean): String =
+    if (isGuestMode) {
+        "\uAC8C\uC2A4\uD2B8 \uBAA8\uB4DC"
+    } else {
+        "\uC2E4\uC2DC\uAC04 \uC18C\uD1B5"
+    }
+
+private fun conversationHeaderLabel(
+    sessionState: SessionState,
+    signInputPhase: SignInputPhase,
+    speechInputPhase: SpeechInputPhase,
+): String =
+    when {
+        signInputPhase.isWarning() || speechInputPhase.isWarning() -> "\uD655\uC778 \uD544\uC694"
+        sessionState == SessionState.Active -> "\uC18C\uD1B5 \uC911"
+        else -> "\uC900\uBE44 \uC644\uB8CC"
+    }
+
+private fun conversationHeaderTone(
+    sessionState: SessionState,
+    signInputPhase: SignInputPhase,
+    speechInputPhase: SpeechInputPhase,
+): AppBadgeTone =
+    when {
+        signInputPhase.isWarning() || speechInputPhase.isWarning() -> AppBadgeTone.Error
+        sessionState == SessionState.Active -> AppBadgeTone.Primary
+        else -> AppBadgeTone.Neutral
+    }
+
+private fun compactConversationGuideText(
+    sessionState: SessionState,
+    signInputPhase: SignInputPhase,
+    speechInputPhase: SpeechInputPhase,
+): String =
+    when {
+        signInputPhase.isWarning() || speechInputPhase.isWarning() ->
+            "\uC785\uB825 \uC0C1\uD0DC\uB97C \uD55C \uBC88 \uD655\uC778\uD574 \uC8FC\uC138\uC694"
+        sessionState == SessionState.Active ->
+            "\uAE30\uAE30 \uB0B4 \uC2E4\uC2DC\uAC04 \uC778\uC2DD \uC911"
+        else ->
+            "\uC218\uC5B4\u00B7\uC74C\uC131 \uC900\uBE44 \uC644\uB8CC"
+    }
+
+private fun conversationHeaderMascot(
+    sessionState: SessionState,
+    signInputPhase: SignInputPhase,
+    speechInputPhase: SpeechInputPhase,
+): SudaMascot =
+    when {
+        signInputPhase.isWarning() || speechInputPhase.isWarning() -> SudaMascot.IconDifficult
+        sessionState == SessionState.Active -> SudaMascot.Microphone
+        else -> SudaMascot.IconNormal
+    }
+
+private fun inputStatusHeadline(
+    signInputPhase: SignInputPhase,
+    speechInputPhase: SpeechInputPhase,
+): String =
+    when {
+        signInputPhase.isWarning() || speechInputPhase.isWarning() -> "\uD655\uC778 \uD544\uC694"
+        signInputPhase.isWorking() || speechInputPhase.isWorking() -> "\uC2E4\uC2DC\uAC04"
+        else -> "\uC900\uBE44 \uC644\uB8CC"
+    }
+
+private fun inputStatusTone(
+    signInputPhase: SignInputPhase,
+    speechInputPhase: SpeechInputPhase,
+): AppBadgeTone =
+    when {
+        signInputPhase.isWarning() || speechInputPhase.isWarning() -> AppBadgeTone.Error
+        signInputPhase.isWorking() || speechInputPhase.isWorking() -> AppBadgeTone.Primary
+        else -> AppBadgeTone.Neutral
+    }
+
+private fun conversationSubtitlePlaceholder(
+    signInputPhase: SignInputPhase,
+    speechInputPhase: SpeechInputPhase,
+): String =
+    when {
+        signInputPhase == SignInputPhase.Translating ->
+            "\uC218\uC5B4 \uBC88\uC5ED \uACB0\uACFC\uB97C \uAE30\uB2E4\uB9AC\uB294 \uC911\uC785\uB2C8\uB2E4."
+        speechInputPhase == SpeechInputPhase.Analyzing ->
+            "\uC74C\uC131\uC744 \uBD84\uC11D\uD558\uACE0 \uC788\uC5B4\uC694."
+        signInputPhase.isWarning() || speechInputPhase.isWarning() ->
+            "\uC0C1\uD0DC \uC548\uB0B4 \uB610\uB294 \uC624\uB958 \uBA54\uC2DC\uC9C0\uAC00 " +
+                "\uC5EC\uAE30\uC5D0 \uD45C\uC2DC\uB429\uB2C8\uB2E4."
+        else ->
+            "\uC218\uC5B4 \uB610\uB294 \uC74C\uC131 \uC790\uB9C9\uC774 " +
+                "\uC5EC\uAE30\uC5D0 \uD45C\uC2DC\uB429\uB2C8\uB2E4."
+    }
+
+private fun compactSessionControlText(
+    sessionState: SessionState,
+    signInputPhase: SignInputPhase,
+    speechInputPhase: SpeechInputPhase,
+): String =
+    when {
+        signInputPhase.isWarning() || speechInputPhase.isWarning() ->
+            "\uCE74\uBA54\uB77C \uAD6C\uB3C4\uC640 \uB9C8\uC774\uD06C \uC0C1\uD0DC\uB97C \uBCF4\uC815\uD574 \uC8FC\uC138\uC694."
+        sessionState == SessionState.Active ->
+            "\uC2E4\uC2DC\uAC04 \uC18C\uD1B5\uC774 \uC9C4\uD589 \uC911\uC785\uB2C8\uB2E4."
+        else ->
+            "\uBC14\uB85C \uC2DC\uC791\uD574 \uC18C\uD1B5\uC744 \uC2DC\uB3C4\uD560 \uC218 \uC788\uC5B4\uC694."
+    }
+
+@Composable
 private fun SessionHeader(
     sessionState: SessionState,
     signInputPhase: SignInputPhase,
     speechInputPhase: SpeechInputPhase,
-    translationMode: TranslationMode,
-    onTranslationModeSelected: (TranslationMode) -> Unit,
     onOpenSignDebug: (() -> Unit)?,
     onNavigateToLogin: (() -> Unit)?,
 ) {
@@ -598,7 +1098,8 @@ private fun SessionHeader(
                     color = MaterialTheme.colorScheme.onBackground,
                 )
                 Text(
-                    text = translationMode.summaryLabel(),
+                    text =
+                        "기기 내 수어·음성 인식으로 소통해요",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -657,11 +1158,6 @@ private fun SessionHeader(
                             },
                     )
                 }
-
-                TranslationModeToggleButton(
-                    selectedMode = translationMode,
-                    onModeSelected = onTranslationModeSelected,
-                )
             }
         }
     }
@@ -764,91 +1260,6 @@ private fun InputStatusPill(
         }
     }
 }
-
-@Composable
-private fun TranslationModeToggleButton(
-    selectedMode: TranslationMode,
-    onModeSelected: (TranslationMode) -> Unit,
-) {
-    Surface(
-        modifier =
-            Modifier
-                .clickable { onModeSelected(selectedMode.nextMode()) },
-        shape = RoundedCornerShape(999.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
-        ) {
-            Text(
-                text = "인식",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = FontWeight.SemiBold,
-            )
-            AnimatedContent(
-                targetState = selectedMode.label(),
-                label = "TranslationModeToggleText",
-            ) { modeLabel ->
-                Text(
-                    text = modeLabel,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TranslationModeNotice(text: String?) {
-    AnimatedVisibility(
-        visible = !text.isNullOrBlank(),
-        enter = fadeIn() + slideInVertically { it / NOTICE_ENTER_SLIDE_DIVISOR },
-    ) {
-        Surface(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-            shape = RoundedCornerShape(8.dp),
-            color = MaterialTheme.colorScheme.secondaryContainer,
-        ) {
-            Text(
-                text = text.orEmpty(),
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-    }
-}
-
-private fun TranslationMode.label(): String =
-    when (this) {
-        TranslationMode.AUTO -> "자동"
-        TranslationMode.SERVER -> "서버"
-        TranslationMode.ON_DEVICE -> "기기"
-    }
-
-private fun TranslationMode.nextMode(): TranslationMode =
-    when (this) {
-        TranslationMode.AUTO -> TranslationMode.SERVER
-        TranslationMode.SERVER -> TranslationMode.ON_DEVICE
-        TranslationMode.ON_DEVICE -> TranslationMode.AUTO
-    }
-
-private fun TranslationMode.summaryLabel(): String =
-    when (this) {
-        TranslationMode.AUTO -> "온라인은 서버, 오프라인은 기기 인식"
-        TranslationMode.SERVER -> "서버 음성 인식 사용"
-        TranslationMode.ON_DEVICE -> "기기 내 음성 인식 사용"
-    }
 
 private fun headerLabel(
     sessionState: SessionState,
