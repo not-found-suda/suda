@@ -1,0 +1,307 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningQuizApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningQuizApiService.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningQuizApiService.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningQuizApiService.kt
+@@ -7,6 +7,7 @@ import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionRequestDto
+ import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionResponseDto
+ import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionStatusResponseDto
+ import okhttp3.MultipartBody
++import okhttp3.RequestBody
+ import retrofit2.Response
+ import retrofit2.http.Body
+ import retrofit2.http.GET
+@@ -33,7 +34,8 @@ interface LearningQuizApiService {
+     suspend fun submitAnswer(
+         @Path("sessionId") sessionId: Long,
+         @Query("questionId") questionId: Long,
+-        @Part audioFile: MultipartBody.Part,
++        @Part audioFile: MultipartBody.Part?,
++        @Part("recognizedText") recognizedText: RequestBody? = null,
+     ): Response<LearningQuizAnswerResponseDto>
+ 
+     @PATCH("v1/learn/quizzes/sessions/{sessionId}")
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDto.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDto.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDto.kt
+@@ -6,6 +6,7 @@ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizQuestion
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizResult
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizResultAnswer
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSession
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSessionQuestion
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSessionStatus
+ 
+ data class LearningQuizSessionRequestDto(
+@@ -23,27 +24,55 @@ data class LearningQuizSessionResponseDto(
+     @SerializedName("sessionId")
+     val sessionId: Long,
+     @SerializedName("categoryId")
+-    val categoryId: Long,
++    val categoryId: Long? = null,
+     @SerializedName("difficulty")
+-    val difficulty: String,
++    val difficulty: String? = null,
+     @SerializedName("totalQuestionCount")
+-    val totalQuestionCount: Int,
++    val totalQuestionCount: Int? = null,
+     @SerializedName("currentQuestionNumber")
+-    val currentQuestionNumber: Int,
++    val currentQuestionNumber: Int? = null,
+     @SerializedName("status")
+-    val status: String,
++    val status: String? = null,
+     @SerializedName("imageUrls")
+     val imageUrls: List<String>? = null,
++    @SerializedName("questions")
++    val questions: List<LearningQuizSessionQuestionDto>? = null,
+ ) {
+     fun toDomain(): LearningQuizSession =
+         LearningQuizSession(
+             sessionId = sessionId,
+-            categoryId = categoryId,
+-            difficulty = difficulty,
+-            totalQuestionCount = totalQuestionCount,
+-            currentQuestionNumber = currentQuestionNumber,
+-            status = status,
++            categoryId = categoryId ?: 0L,
++            difficulty = difficulty.orEmpty(),
++            totalQuestionCount = totalQuestionCount ?: questions?.size ?: 0,
++            currentQuestionNumber = currentQuestionNumber ?: DEFAULT_QUESTION_NUMBER,
++            status = status.orEmpty(),
+             imageUrls = imageUrls.orEmpty(),
++            questions = questions.orEmpty().map { it.toDomain() },
++        )
++}
++
++data class LearningQuizSessionQuestionDto(
++    @SerializedName("questionId")
++    val questionId: Long,
++    @SerializedName("questionNumber")
++    val questionNumber: Int,
++    @SerializedName("targetText")
++    val targetText: String? = null,
++    @SerializedName("wordId")
++    val wordId: Long? = null,
++    @SerializedName("imageUrl")
++    val imageUrl: String? = null,
++    @SerializedName("audioUrl")
++    val audioUrl: String? = null,
++) {
++    fun toDomain(): LearningQuizSessionQuestion =
++        LearningQuizSessionQuestion(
++            questionId = questionId,
++            questionNumber = questionNumber,
++            targetText = targetText.orEmpty(),
++            wordId = wordId,
++            imageUrl = imageUrl,
++            audioUrl = audioUrl,
+         )
+ }
+ 
+@@ -84,37 +113,40 @@ data class LearningQuizCurrentQuestionResponseDto(
+ 
+ data class LearningQuizAnswerResponseDto(
+     @SerializedName("sessionId")
+-    val sessionId: Long,
++    val sessionId: Long? = null,
+     @SerializedName("questionId")
+-    val questionId: Long,
++    val questionId: Long? = null,
+     @SerializedName("wordId")
+-    val wordId: Long,
++    val wordId: Long? = null,
+     @SerializedName("targetText")
+-    val targetText: String,
++    val targetText: String? = null,
+     @SerializedName("recognizedText")
+-    val recognizedText: String,
++    val recognizedText: String? = null,
+     @SerializedName("isCorrect")
+-    val isCorrect: Boolean,
++    val isCorrect: Boolean? = null,
+     @SerializedName("star")
+-    val star: Int,
++    val star: Int? = null,
+     @SerializedName("feedback")
+     val feedback: String? = null,
+     @SerializedName("hasNext")
+-    val hasNext: Boolean,
++    val hasNext: Boolean? = null,
+     @SerializedName("nextQuestionNumber")
+     val nextQuestionNumber: Int? = null,
+ ) {
+-    fun toDomain(): LearningQuizAnswerResult =
++    fun toDomain(
++        fallbackSessionId: Long,
++        fallbackQuestionId: Long,
++    ): LearningQuizAnswerResult =
+         LearningQuizAnswerResult(
+-            sessionId = sessionId,
+-            questionId = questionId,
+-            wordId = wordId,
+-            targetText = targetText,
+-            recognizedText = recognizedText,
+-            isCorrect = isCorrect,
+-            star = star,
++            sessionId = sessionId ?: fallbackSessionId,
++            questionId = questionId ?: fallbackQuestionId,
++            wordId = wordId ?: UNKNOWN_WORD_ID,
++            targetText = targetText.orEmpty(),
++            recognizedText = recognizedText.orEmpty(),
++            isCorrect = isCorrect ?: false,
++            star = star ?: MIN_QUIZ_STAR,
+             feedback = feedback,
+-            hasNext = hasNext,
++            hasNext = hasNext ?: false,
+             nextQuestionNumber = nextQuestionNumber,
+         )
+ }
+@@ -189,3 +221,7 @@ data class LearningQuizResultAnswerDto(
+             feedback = feedback,
+         )
+ }
++
++private const val DEFAULT_QUESTION_NUMBER = 1
++private const val UNKNOWN_WORD_ID = -1L
++private const val MIN_QUIZ_STAR = 1
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningQuizRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningQuizRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningQuizRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningQuizRepository.kt
+@@ -16,6 +16,7 @@ import kotlin.coroutines.cancellation.CancellationException
+ import okhttp3.MediaType.Companion.toMediaTypeOrNull
+ import okhttp3.MultipartBody
+ import okhttp3.RequestBody.Companion.asRequestBody
++import okhttp3.RequestBody.Companion.toRequestBody
+ import retrofit2.Response
+ 
+ private const val QUIZ_TAG = "RemoteLearningQuizRepo"
+@@ -63,22 +64,48 @@ class RemoteLearningQuizRepository
+         override suspend fun submitAnswer(
+             sessionId: Long,
+             questionId: Long,
+-            audioFile: File,
+-            audioMimeType: String,
++            audioFile: File?,
++            audioMimeType: String?,
+         ): Result<LearningQuizAnswerResult> =
+-            if (!audioFile.isUsableAudioFile()) {
+-                Result.failure(IllegalStateException("녹음 파일이 비어 있습니다. 다시 말해 주세요."))
+-            } else {
+-                runCatchingNetwork("Failed to submit quiz answer") {
+-                    apiService
+-                        .submitAnswer(
+-                            sessionId = sessionId,
+-                            questionId = questionId,
+-                            audioFile = audioFile.toMultipartAudioPart(audioMimeType),
+-                        ).toResult { response ->
+-                            response.toDomain()
+-                        }
+-                }
++            when {
++                audioFile == null && audioMimeType == null ->
++                    runCatchingNetwork("Failed to submit quiz answer") {
++                        apiService
++                            .submitAnswer(
++                                sessionId = sessionId,
++                                questionId = questionId,
++                                audioFile = null,
++                                recognizedText =
++                                    EMPTY_RECOGNIZED_TEXT.toRequestBody(
++                                        MULTIPART_TEXT_MEDIA_TYPE,
++                                    ),
++                            ).toResult { response ->
++                                response.toDomain(
++                                    fallbackSessionId = sessionId,
++                                    fallbackQuestionId = questionId,
++                                )
++                            }
++                    }
++
++                audioFile == null ||
++                    audioMimeType == null ||
++                    !audioFile.isUsableAudioFile() ->
++                    Result.failure(IllegalStateException("녹음 파일이 비어 있습니다. 다시 말해 주세요."))
++
++                else ->
++                    runCatchingNetwork("Failed to submit quiz answer") {
++                        apiService
++                            .submitAnswer(
++                                sessionId = sessionId,
++                                questionId = questionId,
++                                audioFile = audioFile.toMultipartAudioPart(audioMimeType),
++                            ).toResult { response ->
++                                response.toDomain(
++                                    fallbackSessionId = sessionId,
++                                    fallbackQuestionId = questionId,
++                                )
++                            }
++                    }
+             }
+ 
+         override suspend fun completeSession(sessionId: Long): Result<LearningQuizSessionStatus> =
+@@ -163,3 +190,5 @@ class RemoteLearningQuizRepository
+ 
+ private const val AUDIO_FILE_PART_NAME = "audioFile"
+ private const val MIN_VALID_WAV_FILE_BYTES = 44L
++private const val EMPTY_RECOGNIZED_TEXT = ""
++private val MULTIPART_TEXT_MEDIA_TYPE = "text/plain".toMediaTypeOrNull()
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/model/LearningQuizModels.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/model/LearningQuizModels.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/model/LearningQuizModels.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/model/LearningQuizModels.kt
+@@ -10,6 +10,16 @@ data class LearningQuizSession(
+     val currentQuestionNumber: Int,
+     val status: String,
+     val imageUrls: List<String> = emptyList(),
++    val questions: List<LearningQuizSessionQuestion> = emptyList(),
++)
++
++data class LearningQuizSessionQuestion(
++    val questionId: Long,
++    val questionNumber: Int,
++    val targetText: String,
++    val wordId: Long? = null,
++    val imageUrl: String? = null,
++    val audioUrl: String? = null,
+ )
+ 
+ data class LearningQuizQuestion(
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningQuizRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningQuizRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningQuizRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningQuizRepository.kt
+@@ -20,8 +20,8 @@ interface LearningQuizRepository {
+     suspend fun submitAnswer(
+         sessionId: Long,
+         questionId: Long,
+-        audioFile: File,
+-        audioMimeType: String,
++        audioFile: File?,
++        audioMimeType: String?,
+     ): Result<LearningQuizAnswerResult>
+ 
+     suspend fun completeSession(sessionId: Long): Result<LearningQuizSessionStatus>
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizAnswer.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizAnswer.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizAnswer.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizAnswer.kt
+@@ -8,6 +8,8 @@ data class QuizAnswer(
+     val star: Int? = null,
+     val attemptCount: Int,
+     val isCorrect: Boolean? = star?.let { it >= PASSING_STAR },
++    val hasNextQuestion: Boolean? = null,
++    val nextQuestionNumber: Int? = null,
+     val feedback: String? = null,
+     val audioFile: File? = null,
+     val audioMimeType: String? = null,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
+

@@ -1,0 +1,40 @@
+﻿diff --git a/backend/src/main/resources/db/migration/V20260428160000__create_learn_table.sql b/backend/src/main/resources/db/migration/V20260428160000__create_learn_table.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260428160000__create_learn_table.sql
+@@ -0,0 +1,17 @@
++CREATE TABLE IF NOT EXISTS learning_contents (
++  id BIGSERIAL PRIMARY KEY,
++  category VARCHAR(50) NOT NULL,
++  difficulty VARCHAR(50) NOT NULL,
++  word VARCHAR(100) NOT NULL,
++  display_text VARCHAR(100) NOT NULL,
++  image_url VARCHAR(500),
++  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
++  );
++
++CREATE INDEX IF NOT EXISTS ix_learning_contents_category_difficulty
++  ON learning_contents (category, difficulty);
++
++CREATE UNIQUE INDEX IF NOT EXISTS ux_learning_contents_unique_word
++  ON learning_contents (category, difficulty, word);
++
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260428162000__rename_learning_contents_to_learn.sql b/backend/src/main/resources/db/migration/V20260428162000__rename_learning_contents_to_learn.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260428162000__rename_learning_contents_to_learn.sql
+
+diff --git a/backend/src/main/resources/db/migration/V20260428170000__rename_learning_contents_to_learn.sql b/backend/src/main/resources/db/migration/V20260428170000__rename_learning_contents_to_learn.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260428170000__rename_learning_contents_to_learn.sql
+@@ -0,0 +1,7 @@
++ALTER TABLE learning_contents RENAME TO learn;
++
++ALTER INDEX ix_learning_contents_category_difficulty
++RENAME TO ix_learn_category_difficulty;
++
++ALTER INDEX ux_learning_contents_unique_word
++RENAME TO ux_learn_unique_word;
+
+

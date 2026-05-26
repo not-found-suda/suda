@@ -1,0 +1,2927 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -21,6 +21,7 @@ import com.ssafy.mobile.feature.learning.presentation.category.LearningCategoryR
+ import com.ssafy.mobile.feature.learning.presentation.wordlist.LearningWordListRoute
+ import com.ssafy.mobile.feature.login.presentation.LoginRoute
+ import com.ssafy.mobile.feature.mypage.presentation.AccountEditRoute
++import com.ssafy.mobile.feature.mypage.presentation.AiModelSettingsRoute
+ import com.ssafy.mobile.feature.mypage.presentation.AppSettingsRoute
+ import com.ssafy.mobile.feature.mypage.presentation.MyPageRoute
+ import com.ssafy.mobile.feature.quiz.presentation.QuizResultRoute
+@@ -120,28 +121,23 @@ fun MobileNavHost(
+                 navController = navController,
+                 onNavigateToHome = {
+                     val previousRoute = navController.previousBackStackEntry?.destination?.route
+-                    val poppedToReport =
+-                        if (previousRoute == Screen.ReportHome.route) {
+-                            navController.popBackStack(
+-                                route = Screen.ReportHome.route,
+-                                inclusive = false,
+-                            )
+-                        } else {
+-                            false
++                    val returnRoute =
++                        when (previousRoute) {
++                            Screen.MyPage.route -> Screen.MyPage.route
++                            Screen.ReportHome.route -> Screen.ReportHome.route
++                            else -> Screen.Home.route
+                         }
+ 
+-                    if (!poppedToReport) {
+-                        val poppedToHome =
+-                            navController.popBackStack(
+-                                route = Screen.Home.route,
+-                                inclusive = false,
+-                            )
++                    val poppedToReturnRoute =
++                        navController.popBackStack(
++                            route = returnRoute,
++                            inclusive = false,
++                        )
+ 
+-                        if (!poppedToHome) {
+-                            navController.navigate(Screen.Home.route) {
+-                                popUpTo(Screen.ChildSelect.route) { inclusive = true }
+-                                launchSingleTop = true
+-                            }
++                    if (!poppedToReturnRoute) {
++                        navController.navigate(Screen.Home.route) {
++                            popUpTo(Screen.ChildSelect.route) { inclusive = true }
++                            launchSingleTop = true
+                         }
+                     }
+                 },
+@@ -291,6 +287,12 @@ fun MobileNavHost(
+                 onNavigateToAccountEdit = {
+                     navController.navigate(Screen.AccountEdit.route)
+                 },
++                onNavigateToChildSelect = {
++                    navController.navigate(Screen.ChildSelect.route)
++                },
++                onNavigateToAiModelSettings = {
++                    navController.navigate(Screen.AiModelSettings.route)
++                },
+                 onLogoutSuccess = {
+                     navController.navigate(Screen.GuestConversation.route) {
+                         popUpTo(Screen.Home.route) { inclusive = true }
+@@ -317,6 +319,13 @@ fun MobileNavHost(
+             )
+         }
+ 
++        composable(Screen.AiModelSettings.route) {
++            AiModelSettingsRoute(
++                onNavigateBack = { navController.popBackStack() },
++                modifier = Modifier.fillMaxSize(),
++            )
++        }
++
+         if (BuildConfig.DEBUG) {
+             composable(Screen.Sign.route) {
+                 SignDebugRoute(
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+@@ -48,6 +48,8 @@ sealed class Screen(
+ 
+     data object AccountEdit : Screen("account_edit_route")
+ 
++    data object AiModelSettings : Screen("ai_model_settings_route")
++
+     data object Sign : Screen("sign_route")
+ 
+     data object LearningCategory : Screen("learning_category_route")
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/ChunkyButton.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/ChunkyButton.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/ChunkyButton.kt
+@@ -0,0 +1,154 @@
++@file:Suppress("LongMethod", "MagicNumber", "MatchingDeclarationName")
++
++package com.ssafy.mobile.core.ui.components
++
++import androidx.compose.animation.core.animateDpAsState
++import androidx.compose.foundation.background
++import androidx.compose.foundation.clickable
++import androidx.compose.foundation.interaction.MutableInteractionSource
++import androidx.compose.foundation.interaction.collectIsPressedAsState
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.offset
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.CircularProgressIndicator
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.remember
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.clip
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.sp
++
++enum class ChunkyButtonTone {
++    Primary,
++    Secondary,
++    Success,
++    Warning,
++    Danger,
++}
++
++@Composable
++fun ChunkyButton(
++    text: String,
++    onClick: () -> Unit,
++    modifier: Modifier = Modifier,
++    tone: ChunkyButtonTone = ChunkyButtonTone.Primary,
++    enabled: Boolean = true,
++    loading: Boolean = false,
++) {
++    val interactionSource = remember { MutableInteractionSource() }
++    val isPressed by interactionSource.collectIsPressedAsState()
++
++    // 색상 테마 설정
++    val (topColor, bottomColor, textColor) =
++        when (tone) {
++            ChunkyButtonTone.Primary ->
++                Triple(
++                    MaterialTheme.colorScheme.primary,
++                    MaterialTheme.colorScheme.primary.copy(alpha = 0.8f), // 임시 섀도우 색상
++                    MaterialTheme.colorScheme.onPrimary,
++                )
++            ChunkyButtonTone.Secondary ->
++                Triple(
++                    MaterialTheme.colorScheme.surfaceVariant,
++                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f),
++                    MaterialTheme.colorScheme.onSurfaceVariant,
++                )
++            ChunkyButtonTone.Success ->
++                Triple(
++                    Color(0xFF58CC02), // 듀오링고 그린
++                    Color(0xFF58A700),
++                    Color.White,
++                )
++            ChunkyButtonTone.Warning ->
++                Triple(
++                    Color(0xFFFFC43B),
++                    Color(0xFFE89A00),
++                    Color(0xFF7A4A00),
++                )
++            ChunkyButtonTone.Danger ->
++                Triple(
++                    MaterialTheme.colorScheme.error,
++                    MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
++                    MaterialTheme.colorScheme.onError,
++                )
++        }
++
++    val actualTopColor = if (enabled) topColor else MaterialTheme.colorScheme.surfaceVariant
++    val actualBottomColor =
++        if (enabled) {
++            bottomColor
++        } else {
++            MaterialTheme.colorScheme.onSurfaceVariant
++                .copy(
++                    alpha = 0.2f,
++                )
++        }
++    val actualTextColor = if (enabled) textColor else MaterialTheme.colorScheme.onSurfaceVariant
++
++    // 눌렸을 때 Y축으로 내려가는 애니메이션
++    val offsetY by animateDpAsState(
++        targetValue = if (isPressed && enabled && !loading) 4.dp else 0.dp,
++        label = "buttonPress",
++    )
++
++    Box(
++        modifier =
++            modifier
++                .fillMaxWidth()
++                .height(60.dp) // 버튼 높이 지정
++                .clip(RoundedCornerShape(16.dp))
++                .clickable(
++                    interactionSource = interactionSource,
++                    indication = null, // 기본 리플 효과 제거
++                    enabled = enabled && !loading,
++                    onClick = onClick,
++                ),
++    ) {
++        // 배경 그림자 (항상 고정)
++        Box(
++            modifier =
++                Modifier
++                    .fillMaxWidth()
++                    .height(56.dp)
++                    .offset(y = 4.dp)
++                    .background(actualBottomColor, RoundedCornerShape(16.dp)),
++        )
++        // 실제 버튼 (눌리면 아래로 내려감)
++        Box(
++            modifier =
++                Modifier
++                    .fillMaxWidth()
++                    .height(56.dp)
++                    .offset(y = offsetY)
++                    .background(actualTopColor, RoundedCornerShape(16.dp)),
++            contentAlignment = Alignment.Center,
++        ) {
++            if (loading) {
++                CircularProgressIndicator(
++                    modifier = Modifier.size(24.dp),
++                    strokeWidth = 3.dp,
++                    color = actualTextColor,
++                )
++            } else {
++                Text(
++                    text = text.uppercase(),
++                    color = actualTextColor,
++                    fontWeight = FontWeight.Bold,
++                    fontSize = 16.sp,
++                    maxLines = 1,
++                    overflow = TextOverflow.Ellipsis,
++                )
++            }
++        }
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/FlipCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/FlipCard.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/FlipCard.kt
+@@ -0,0 +1,68 @@
++@file:Suppress("MagicNumber")
++
++package com.ssafy.mobile.core.ui.components
++
++import androidx.compose.animation.core.FastOutSlowInEasing
++import androidx.compose.animation.core.animateFloatAsState
++import androidx.compose.animation.core.tween
++import androidx.compose.foundation.clickable
++import androidx.compose.foundation.interaction.MutableInteractionSource
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.setValue
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.graphicsLayer
++import androidx.compose.ui.platform.LocalDensity
++
++@Composable
++fun FlipCard(
++    front: @Composable () -> Unit,
++    back: @Composable () -> Unit,
++    modifier: Modifier = Modifier,
++    isFlipped: Boolean = false,
++    onFlip: () -> Unit = {},
++) {
++    val density = LocalDensity.current
++
++    // 0도에서 180도까지 부드럽게 회전하는 애니메이션
++    val rotation by animateFloatAsState(
++        targetValue = if (isFlipped) 180f else 0f,
++        animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
++        label = "flip",
++    )
++
++    Box(
++        modifier =
++            modifier
++                .graphicsLayer {
++                    rotationY = rotation
++                    cameraDistance = 12f * density.density // 3D 원근감 부여 (필수!)
++                }.clickable(
++                    interactionSource = remember { MutableInteractionSource() },
++                    indication = null,
++                    onClick = onFlip,
++                ),
++    ) {
++        // 카드가 90도 이상 회전하면 뒷면, 아니면 앞면을 보여줌
++        if (rotation <= 90f) {
++            Box(
++                modifier = Modifier.fillMaxSize(),
++            ) {
++                front()
++            }
++        } else {
++            // 뒷면: 글자가 뒤집혀 보이지 않도록 rotationY = 180f로 다시 보정
++            Box(
++                modifier =
++                    Modifier
++                        .fillMaxSize()
++                        .graphicsLayer { rotationY = 180f },
++            ) {
++                back()
++            }
++        }
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/SudaMascot.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/SudaMascot.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/SudaMascot.kt
+@@ -0,0 +1,43 @@
++@file:Suppress("FunctionNaming")
++
++package com.ssafy.mobile.core.ui.components
++
++import androidx.annotation.DrawableRes
++import androidx.compose.foundation.Image
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.layout.ContentScale
++import androidx.compose.ui.res.painterResource
++import com.ssafy.mobile.R
++
++enum class SudaMascot(
++    @param:DrawableRes val resId: Int,
++) {
++    Default(R.drawable.mascot_default),
++    Icon(R.drawable.mascot_icon),
++    WordCard(R.drawable.mascot_word_card),
++    Microphone(R.drawable.mascot_microphone),
++    Success3Star(R.drawable.mascot_success_3star),
++    Good2Star(R.drawable.mascot_good_2star),
++    Retry1Star(R.drawable.mascot_retry_1star),
++    Loading(R.drawable.mascot_loading),
++    Empty(R.drawable.mascot_empty),
++    ErrorNetwork(R.drawable.mascot_error_network),
++    Report(R.drawable.mascot_report),
++    Sleep(R.drawable.mascot_sleep),
++}
++
++@Composable
++fun SudaMascotImage(
++    mascot: SudaMascot,
++    contentDescription: String?,
++    modifier: Modifier = Modifier,
++    contentScale: ContentScale = ContentScale.Fit,
++) {
++    Image(
++        painter = painterResource(id = mascot.resId),
++        contentDescription = contentDescription,
++        modifier = modifier,
++        contentScale = contentScale,
++    )
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/AppThemeMode.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/AppThemeMode.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/AppThemeMode.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/AppThemeMode.kt
+@@ -17,9 +17,9 @@ enum class AppThemeMode {
+     val description: String
+         get() =
+             when (this) {
+-                System -> "기기 설정에 맞춰 자동으로 변경됩니다."
+-                Light -> "밝은 화면으로 앱을 사용합니다."
+-                Dark -> "어두운 화면으로 앱을 사용합니다."
++                System -> "기기 설정에 맞춰 자동으로 변경돼요."
++                Light -> "밝은 화면으로 앱을 사용해요."
++                Dark -> "어두운 화면으로 앱을 사용해요."
+             }
+ 
+     fun shouldUseDarkTheme(systemInDarkTheme: Boolean): Boolean =
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/dto/ChildProfileDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/dto/ChildProfileDto.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/dto/ChildProfileDto.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/dto/ChildProfileDto.kt
+@@ -2,12 +2,14 @@ package com.ssafy.mobile.feature.childprofile.data.dto
+ 
+ import com.google.gson.annotations.SerializedName
+ import com.ssafy.mobile.feature.childprofile.domain.model.ChildProfile
++import com.ssafy.mobile.feature.childprofile.domain.model.DEFAULT_CHILD_PROFILE_AVATAR_KEY
+ 
+ data class ChildProfileResponseDto(
+     @SerializedName("childId") val childId: Long,
+     @SerializedName("name") val name: String,
+     @SerializedName("birthDate") val birthDate: String,
+     @SerializedName("age") val age: Int?,
++    @SerializedName("avatarKey") val avatarKey: String? = null,
+     @SerializedName("active") val active: Boolean,
+ ) {
+     fun toDomain(): ChildProfile =
+@@ -16,6 +18,7 @@ data class ChildProfileResponseDto(
+             name = name,
+             birthDate = birthDate,
+             age = age,
++            avatarKey = avatarKey ?: DEFAULT_CHILD_PROFILE_AVATAR_KEY,
+             active = active,
+         )
+ }
+@@ -28,9 +31,11 @@ data class ChildProfileListResponseDto(
+ data class ChildProfileCreateRequestDto(
+     @SerializedName("name") val name: String,
+     @SerializedName("birthDate") val birthDate: String,
++    @SerializedName("avatarKey") val avatarKey: String,
+ )
+ 
+ data class ChildProfileUpdateRequestDto(
+     @SerializedName("name") val name: String? = null,
+     @SerializedName("birthDate") val birthDate: String? = null,
++    @SerializedName("avatarKey") val avatarKey: String? = null,
+ )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/RemoteChildProfileRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/RemoteChildProfileRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/RemoteChildProfileRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/RemoteChildProfileRepository.kt
+@@ -56,12 +56,14 @@ class RemoteChildProfileRepository
+         override suspend fun createChildProfile(
+             name: String,
+             birthDate: String,
++            avatarKey: String,
+         ) {
+             try {
+                 val request =
+                     ChildProfileCreateRequestDto(
+                         name = name,
+                         birthDate = birthDate,
++                        avatarKey = avatarKey,
+                     )
+                 val response = apiService.createChildProfile(request)
+                 if (!response.isSuccessful) {
+@@ -120,9 +122,15 @@ class RemoteChildProfileRepository
+             childId: Long,
+             name: String?,
+             birthDate: String?,
++            avatarKey: String?,
+         ) {
+             try {
+-                val request = ChildProfileUpdateRequestDto(name = name, birthDate = birthDate)
++                val request =
++                    ChildProfileUpdateRequestDto(
++                        name = name,
++                        birthDate = birthDate,
++                        avatarKey = avatarKey,
++                    )
+                 val response = apiService.updateChildProfile(childId, request)
+                 if (!response.isSuccessful) {
+                     throw HttpException(response)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/model/ChildProfile.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/model/ChildProfile.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/model/ChildProfile.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/model/ChildProfile.kt
+@@ -1,9 +1,12 @@
+ package com.ssafy.mobile.feature.childprofile.domain.model
+ 
++const val DEFAULT_CHILD_PROFILE_AVATAR_KEY = "purple_diamond"
++
+ data class ChildProfile(
+     val childId: Long,
+     val name: String,
+     val birthDate: String,
+     val age: Int?,
++    val avatarKey: String = DEFAULT_CHILD_PROFILE_AVATAR_KEY,
+     val active: Boolean = true,
+ )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/repository/ChildProfileRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/repository/ChildProfileRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/repository/ChildProfileRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/repository/ChildProfileRepository.kt
+@@ -8,6 +8,7 @@ interface ChildProfileRepository {
+     suspend fun createChildProfile(
+         name: String,
+         birthDate: String,
++        avatarKey: String,
+     )
+ 
+     suspend fun getChildProfile(childId: Long): ChildProfile
+@@ -16,6 +17,7 @@ interface ChildProfileRepository {
+         childId: Long,
+         name: String?,
+         birthDate: String?,
++        avatarKey: String?,
+     )
+ 
+     suspend fun deleteChildProfile(childId: Long)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileAvatar.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileAvatar.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileAvatar.kt
+@@ -0,0 +1,69 @@
++package com.ssafy.mobile.feature.childprofile.presentation
++
++import androidx.annotation.DrawableRes
++import com.ssafy.mobile.R
++import com.ssafy.mobile.feature.childprofile.domain.model.DEFAULT_CHILD_PROFILE_AVATAR_KEY
++
++object ChildProfileAvatars {
++    val items =
++        listOf(
++            ChildProfileAvatarSpec(
++                key = "purple_diamond",
++                drawableResId = R.drawable.profile_purple_diamond,
++                label = "보라 다이아",
++            ),
++            ChildProfileAvatarSpec(
++                key = "yellow_circle",
++                drawableResId = R.drawable.profile_yellow_circle,
++                label = "노랑 동그라미",
++            ),
++            ChildProfileAvatarSpec(
++                key = "blue_square",
++                drawableResId = R.drawable.profile_blue_square,
++                label = "파랑 네모",
++            ),
++            ChildProfileAvatarSpec(
++                key = "green_wink_square",
++                drawableResId = R.drawable.profile_green_wink_square,
++                label = "초록 윙크",
++            ),
++            ChildProfileAvatarSpec(
++                key = "navy_hexagon",
++                drawableResId = R.drawable.profile_navy_hexagon,
++                label = "남색 육각형",
++            ),
++            ChildProfileAvatarSpec(
++                key = "orange_pentagon",
++                drawableResId = R.drawable.profile_orange_pentagon,
++                label = "주황 오각형",
++            ),
++            ChildProfileAvatarSpec(
++                key = "pink_oval",
++                drawableResId = R.drawable.profile_pink_oval,
++                label = "분홍 타원",
++            ),
++            ChildProfileAvatarSpec(
++                key = "red_triangle",
++                drawableResId = R.drawable.profile_red_triangle,
++                label = "빨강 세모",
++            ),
++            ChildProfileAvatarSpec(
++                key = "teal_star",
++                drawableResId = R.drawable.profile_teal_star,
++                label = "청록 별",
++            ),
++        )
++
++    @DrawableRes
++    fun resourceId(key: String?): Int =
++        items.firstOrNull { it.key == key }?.drawableResId
++            ?: items.first { it.key == DEFAULT_CHILD_PROFILE_AVATAR_KEY }.drawableResId
++
++    fun firstKey(): String = DEFAULT_CHILD_PROFILE_AVATAR_KEY
++}
++
++data class ChildProfileAvatarSpec(
++    val key: String,
++    @param:DrawableRes val drawableResId: Int,
++    val label: String,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt
+@@ -1,9 +1,14 @@
++@file:Suppress("TooManyFunctions")
++
+ package com.ssafy.mobile.feature.childprofile.presentation
+ 
+ import androidx.compose.foundation.BorderStroke
++import androidx.compose.foundation.Image
++import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.aspectRatio
+ import androidx.compose.foundation.layout.fillMaxSize
+@@ -35,13 +40,14 @@ import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.focus.FocusDirection
++import androidx.compose.ui.layout.ContentScale
+ import androidx.compose.ui.platform.LocalFocusManager
++import androidx.compose.ui.res.painterResource
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.input.ImeAction
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
+-import androidx.compose.ui.unit.sp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import com.ssafy.mobile.core.ui.components.AppCard
+@@ -61,6 +67,7 @@ fun ChildProfileEditRoute(
+     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+     val name by viewModel.name.collectAsStateWithLifecycle()
+     val birthDate by viewModel.birthDate.collectAsStateWithLifecycle()
++    val avatarKey by viewModel.avatarKey.collectAsStateWithLifecycle()
+     val isProfileLoaded by viewModel.isProfileLoaded.collectAsStateWithLifecycle()
+ 
+     LaunchedEffect(childId) {
+@@ -82,8 +89,10 @@ fun ChildProfileEditRoute(
+         uiState = uiState,
+         name = name,
+         birthDate = birthDate,
++        avatarKey = avatarKey,
+         onNameChange = viewModel::onNameChange,
+         onBirthDateChange = viewModel::onBirthDateChange,
++        onAvatarKeyChange = viewModel::onAvatarKeyChange,
+         onSave = viewModel::saveProfile,
+         onDelete = viewModel::deleteProfile,
+         onRetry = { childId?.let { viewModel.loadProfile(it) } },
+@@ -101,8 +110,10 @@ private fun ChildProfileEditScreen(
+     uiState: ChildProfileEditUiState,
+     name: String,
+     birthDate: String,
++    avatarKey: String,
+     onNameChange: (String) -> Unit,
+     onBirthDateChange: (String) -> Unit,
++    onAvatarKeyChange: (String) -> Unit,
+     onSave: () -> Unit,
+     onDelete: () -> Unit,
+     onRetry: () -> Unit,
+@@ -164,6 +175,7 @@ private fun ChildProfileEditScreen(
+                 ) {
+                     ProfilePreviewCard(
+                         name = name,
++                        avatarKey = avatarKey,
+                         isEditMode = isEditMode,
+                     )
+ 
+@@ -172,10 +184,12 @@ private fun ChildProfileEditScreen(
+                     EditForm(
+                         name = name,
+                         birthDate = birthDate,
++                        avatarKey = avatarKey,
+                         isSaving = isSaving,
+                         errorMessage = (uiState as? ChildProfileEditUiState.Error)?.message,
+                         onNameChange = onNameChange,
+                         onBirthDateChange = onBirthDateChange,
++                        onAvatarKeyChange = onAvatarKeyChange,
+                     )
+                 }
+ 
+@@ -218,6 +232,7 @@ private fun EditTopBar(
+ @Composable
+ private fun ProfilePreviewCard(
+     name: String,
++    avatarKey: String,
+     isEditMode: Boolean,
+     modifier: Modifier = Modifier,
+ ) {
+@@ -258,11 +273,14 @@ private fun ProfilePreviewCard(
+                 modifier = Modifier.fillMaxSize(),
+                 contentAlignment = Alignment.Center,
+             ) {
+-                Text(
+-                    text = name.trim().firstOrNull()?.toString() ?: "+",
+-                    fontSize = 54.sp,
+-                    fontWeight = FontWeight.Black,
+-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
++                Image(
++                    painter = painterResource(id = ChildProfileAvatars.resourceId(avatarKey)),
++                    contentDescription = "선택한 프로필 이미지",
++                    contentScale = ContentScale.Fit,
++                    modifier =
++                        Modifier
++                            .fillMaxSize()
++                            .padding(12.dp),
+                 )
+             }
+         }
+@@ -280,13 +298,16 @@ private fun ProfilePreviewCard(
+ }
+ 
+ @Composable
++@Suppress("LongParameterList")
+ private fun EditForm(
+     name: String,
+     birthDate: String,
++    avatarKey: String,
+     isSaving: Boolean,
+     errorMessage: String?,
+     onNameChange: (String) -> Unit,
+     onBirthDateChange: (String) -> Unit,
++    onAvatarKeyChange: (String) -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+     val focusManager = LocalFocusManager.current
+@@ -314,6 +335,14 @@ private fun EditForm(
+         )
+         Spacer(modifier = Modifier.height(16.dp))
+ 
++        AvatarPicker(
++            selectedAvatarKey = avatarKey,
++            enabled = !isSaving,
++            onAvatarSelected = onAvatarKeyChange,
++        )
++
++        Spacer(modifier = Modifier.height(16.dp))
++
+         AppTextField(
+             value = name,
+             onValueChange = onNameChange,
+@@ -350,6 +379,82 @@ private fun EditForm(
+     }
+ }
+ 
++@Composable
++private fun AvatarPicker(
++    selectedAvatarKey: String,
++    enabled: Boolean,
++    onAvatarSelected: (String) -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Column(
++        modifier = modifier.fillMaxWidth(),
++        verticalArrangement = Arrangement.spacedBy(10.dp),
++    ) {
++        Text(
++            text = "프로필 이미지",
++            style = MaterialTheme.typography.titleSmall,
++            fontWeight = FontWeight.SemiBold,
++            color = MaterialTheme.colorScheme.onSurface,
++        )
++        ChildProfileAvatars.items.chunked(AVATAR_PICKER_COLUMNS).forEach { rowItems ->
++            Row(
++                modifier = Modifier.fillMaxWidth(),
++                horizontalArrangement = Arrangement.spacedBy(10.dp),
++            ) {
++                rowItems.forEach { avatar ->
++                    AvatarOption(
++                        avatar = avatar,
++                        selected = avatar.key == selectedAvatarKey,
++                        enabled = enabled,
++                        onClick = { onAvatarSelected(avatar.key) },
++                        modifier = Modifier.weight(1f),
++                    )
++                }
++                repeat(AVATAR_PICKER_COLUMNS - rowItems.size) {
++                    Spacer(modifier = Modifier.weight(1f))
++                }
++            }
++        }
++    }
++}
++
++@Composable
++private fun AvatarOption(
++    avatar: ChildProfileAvatarSpec,
++    selected: Boolean,
++    enabled: Boolean,
++    onClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Surface(
++        modifier =
++            modifier
++                .aspectRatio(1f)
++                .clickable(
++                    enabled = enabled,
++                    onClick = onClick,
++                ),
++        shape = RoundedCornerShape(22.dp),
++        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.64f),
++        border =
++            if (selected) {
++                BorderStroke(3.dp, MaterialTheme.colorScheme.primary)
++            } else {
++                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
++            },
++    ) {
++        Image(
++            painter = painterResource(id = avatar.drawableResId),
++            contentDescription = avatar.label,
++            contentScale = ContentScale.Fit,
++            modifier =
++                Modifier
++                    .fillMaxSize()
++                    .padding(8.dp),
++        )
++    }
++}
++
+ @Composable
+ private fun EditActionButtons(
+     isEditMode: Boolean,
+@@ -452,3 +557,4 @@ private fun DeleteConfirmationDialog(
+ }
+ 
+ private const val PROFILE_PREVIEW_WIDTH_FRACTION = 0.52f
++private const val AVATAR_PICKER_COLUMNS = 3
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditViewModel.kt
+@@ -4,6 +4,7 @@ import android.util.Log
+ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
+ import com.ssafy.mobile.core.session.ActiveChildStorage
++import com.ssafy.mobile.feature.childprofile.domain.model.DEFAULT_CHILD_PROFILE_AVATAR_KEY
+ import com.ssafy.mobile.feature.childprofile.domain.repository.ChildProfileRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import javax.inject.Inject
+@@ -49,6 +50,9 @@ class ChildProfileEditViewModel
+         var birthDate = MutableStateFlow("")
+             private set
+ 
++        var avatarKey = MutableStateFlow(DEFAULT_CHILD_PROFILE_AVATAR_KEY)
++            private set
++
+         private var editingChildId: Long? = null
+ 
+         @Suppress("TooGenericExceptionCaught")
+@@ -64,6 +68,7 @@ class ChildProfileEditViewModel
+                         }
+                     name.value = profile.name
+                     birthDate.value = profile.birthDate
++                    avatarKey.value = profile.avatarKey
+                     _isProfileLoaded.value = true
+                     _uiState.value = ChildProfileEditUiState.Idle
+                 } catch (e: CancellationException) {
+@@ -100,7 +105,11 @@ class ChildProfileEditViewModel
+             }
+ 
+             val normalizedBirthDate = validationResult.normalizedDate!!
+-            performSave(currentName, normalizedBirthDate)
++            performSave(
++                currentName = currentName,
++                normalizedBirthDate = normalizedBirthDate,
++                currentAvatarKey = avatarKey.value,
++            )
+         }
+ 
+         @Suppress("TooGenericExceptionCaught")
+@@ -134,6 +143,7 @@ class ChildProfileEditViewModel
+         private fun performSave(
+             currentName: String,
+             normalizedBirthDate: String,
++            currentAvatarKey: String,
+         ) {
+             _uiState.value = ChildProfileEditUiState.Saving
+             viewModelScope.launch {
+@@ -144,12 +154,14 @@ class ChildProfileEditViewModel
+                             childProfileRepository.createChildProfile(
+                                 name = currentName,
+                                 birthDate = normalizedBirthDate,
++                                avatarKey = currentAvatarKey,
+                             )
+                         } else {
+                             childProfileRepository.updateChildProfile(
+                                 childId = childId,
+                                 name = currentName,
+                                 birthDate = normalizedBirthDate,
++                                avatarKey = currentAvatarKey,
+                             )
+                         }
+                     }
+@@ -180,6 +192,13 @@ class ChildProfileEditViewModel
+             }
+         }
+ 
++        fun onAvatarKeyChange(newAvatarKey: String) {
++            avatarKey.value = newAvatarKey
++            if (_uiState.value is ChildProfileEditUiState.Error) {
++                _uiState.value = ChildProfileEditUiState.Idle
++            }
++        }
++
+         private fun validateAndNormalizeBirthDate(raw: String): BirthDateValidationResult {
+             val normalized =
+                 when {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt
+@@ -1,6 +1,7 @@
+ package com.ssafy.mobile.feature.childprofile.presentation
+ 
+ import androidx.compose.foundation.BorderStroke
++import androidx.compose.foundation.Image
+ import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+@@ -16,22 +17,23 @@ import androidx.compose.foundation.lazy.grid.GridCells
+ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+ import androidx.compose.foundation.lazy.grid.itemsIndexed
+ import androidx.compose.foundation.shape.RoundedCornerShape
+-import androidx.compose.material3.ExperimentalMaterial3Api
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Scaffold
+ import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.material3.TextButton
+-import androidx.compose.material3.TopAppBar
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableStateOf
+ import androidx.compose.runtime.remember
++import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.alpha
+ import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.layout.ContentScale
++import androidx.compose.ui.res.painterResource
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.text.style.TextOverflow
+@@ -45,7 +47,6 @@ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ import com.ssafy.mobile.core.ui.feedback.AppErrorText
+ import com.ssafy.mobile.feature.childprofile.domain.model.ChildProfile
+ 
+-@OptIn(ExperimentalMaterial3Api::class)
+ @Composable
+ fun ChildProfileSelectRoute(
+     navController: NavController,
+@@ -57,6 +58,7 @@ fun ChildProfileSelectRoute(
+ ) {
+     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+     val isSelecting by viewModel.isSelecting.collectAsStateWithLifecycle()
++    var isManageMode by remember { mutableStateOf(false) }
+ 
+     val refreshNeeded by navController.currentBackStackEntry
+         ?.savedStateHandle
+@@ -84,6 +86,8 @@ fun ChildProfileSelectRoute(
+     ChildProfileSelectScreen(
+         uiState = uiState,
+         isSelecting = isSelecting,
++        isManageMode = isManageMode,
++        onToggleManageMode = { isManageMode = !isManageMode },
+         onProfileSelect = viewModel::selectProfile,
+         onRetry = viewModel::retry,
+         onNavigateToCreate = onNavigateToCreate,
+@@ -92,11 +96,13 @@ fun ChildProfileSelectRoute(
+     )
+ }
+ 
+-@OptIn(ExperimentalMaterial3Api::class)
+ @Composable
++@Suppress("LongParameterList")
+ private fun ChildProfileSelectScreen(
+     uiState: ChildProfileSelectUiState,
+     isSelecting: Boolean,
++    isManageMode: Boolean,
++    onToggleManageMode: () -> Unit,
+     onProfileSelect: (Long) -> Unit,
+     onRetry: () -> Unit,
+     onNavigateToCreate: () -> Unit,
+@@ -106,24 +112,13 @@ private fun ChildProfileSelectScreen(
+     Scaffold(
+         modifier = modifier.fillMaxSize(),
+         containerColor = MaterialTheme.colorScheme.background,
+-        topBar = {
+-            TopAppBar(
+-                title = {
+-                    Text(
+-                        text = "아이 선택",
+-                        style = MaterialTheme.typography.titleLarge,
+-                        fontWeight = FontWeight.Bold,
+-                    )
+-                },
+-            )
+-        },
+     ) { padding ->
+         Column(
+             modifier =
+                 Modifier
+                     .fillMaxSize()
+                     .padding(padding)
+-                    .padding(horizontal = 24.dp, vertical = 18.dp),
++                    .padding(horizontal = 24.dp, vertical = 32.dp),
+             horizontalAlignment = Alignment.CenterHorizontally,
+         ) {
+             Text(
+@@ -135,12 +130,10 @@ private fun ChildProfileSelectScreen(
+                 modifier = Modifier.fillMaxWidth(),
+             )
+             Spacer(modifier = Modifier.height(8.dp))
+-            Text(
+-                text = "학습과 리포트에 사용할 아이 프로필을 선택해 주세요.",
+-                style = MaterialTheme.typography.bodyMedium,
+-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                textAlign = TextAlign.Center,
+-                modifier = Modifier.fillMaxWidth(),
++            HeaderActionRow(
++                isManageMode = isManageMode,
++                onToggleManageMode = onToggleManageMode,
++                showManageButton = uiState is ChildProfileSelectUiState.Success,
+             )
+             Spacer(modifier = Modifier.height(28.dp))
+ 
+@@ -151,8 +144,8 @@ private fun ChildProfileSelectScreen(
+                 is ChildProfileSelectUiState.Success -> {
+                     ProfileGrid(
+                         profiles = uiState.profiles,
+-                        activeChildId = uiState.activeChildId,
+                         isSelecting = isSelecting,
++                        isManageMode = isManageMode,
+                         onProfileSelect = onProfileSelect,
+                         onNavigateToCreate = onNavigateToCreate,
+                         onNavigateToEdit = onNavigateToEdit,
+@@ -177,6 +170,40 @@ private fun ChildProfileSelectScreen(
+     }
+ }
+ 
++@Composable
++private fun HeaderActionRow(
++    isManageMode: Boolean,
++    onToggleManageMode: () -> Unit,
++    showManageButton: Boolean,
++    modifier: Modifier = Modifier,
++) {
++    Box(
++        modifier = modifier.fillMaxWidth(),
++        contentAlignment = Alignment.Center,
++    ) {
++        Text(
++            text =
++                if (isManageMode) {
++                    "수정할 아이 프로필을 선택해 주세요."
++                } else {
++                    "학습과 리포트에 사용할 아이 프로필을 선택해 주세요."
++                },
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            textAlign = TextAlign.Center,
++            modifier = Modifier.fillMaxWidth(),
++        )
++        if (showManageButton) {
++            TextButton(
++                onClick = onToggleManageMode,
++                modifier = Modifier.align(Alignment.CenterEnd),
++            ) {
++                Text(text = if (isManageMode) "완료" else "관리")
++            }
++        }
++    }
++}
++
+ @Composable
+ private fun LoadingContent(modifier: Modifier = Modifier) {
+     Box(
+@@ -190,8 +217,8 @@ private fun LoadingContent(modifier: Modifier = Modifier) {
+ @Composable
+ private fun ProfileGrid(
+     profiles: List<ChildProfile>,
+-    activeChildId: Long?,
+     isSelecting: Boolean,
++    isManageMode: Boolean,
+     onProfileSelect: (Long) -> Unit,
+     onNavigateToCreate: () -> Unit,
+     onNavigateToEdit: (Long) -> Unit,
+@@ -211,10 +238,15 @@ private fun ProfileGrid(
+             ProfileTile(
+                 profile = profile,
+                 paletteIndex = index,
+-                isSelected = profile.childId == activeChildId,
++                isManageMode = isManageMode,
+                 enabled = !isSelecting,
+-                onClick = { onProfileSelect(profile.childId) },
+-                onEditClick = { onNavigateToEdit(profile.childId) },
++                onClick = {
++                    if (isManageMode) {
++                        onNavigateToEdit(profile.childId)
++                    } else {
++                        onProfileSelect(profile.childId)
++                    }
++                },
+             )
+         }
+ 
+@@ -231,10 +263,9 @@ private fun ProfileGrid(
+ private fun ProfileTile(
+     profile: ChildProfile,
+     paletteIndex: Int,
+-    isSelected: Boolean,
++    isManageMode: Boolean,
+     enabled: Boolean,
+     onClick: () -> Unit,
+-    onEditClick: () -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+     val colors = profileAvatarColors(paletteIndex)
+@@ -256,22 +287,40 @@ private fun ProfileTile(
+             color = colors.container,
+             contentColor = colors.content,
+             tonalElevation = 2.dp,
+-            border =
+-                if (isSelected) {
+-                    BorderStroke(3.dp, MaterialTheme.colorScheme.primary)
+-                } else {
+-                    null
+-                },
+         ) {
+             Box(
+                 modifier = Modifier.fillMaxSize(),
+                 contentAlignment = Alignment.Center,
+             ) {
+-                Text(
+-                    text = profile.name.firstOrNull()?.toString() ?: "?",
+-                    fontSize = 46.sp,
+-                    fontWeight = FontWeight.Black,
+-                    color = colors.content,
++                if (isManageMode) {
++                    Surface(
++                        modifier =
++                            Modifier
++                                .align(Alignment.TopEnd)
++                                .padding(10.dp),
++                        shape = RoundedCornerShape(999.dp),
++                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
++                        contentColor = MaterialTheme.colorScheme.primary,
++                    ) {
++                        Text(
++                            text = "수정",
++                            style = MaterialTheme.typography.labelSmall,
++                            fontWeight = FontWeight.Bold,
++                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
++                        )
++                    }
++                }
++                Image(
++                    painter =
++                        painterResource(
++                            id = ChildProfileAvatars.resourceId(profile.avatarKey),
++                        ),
++                    contentDescription = "${profile.name} 프로필 이미지",
++                    contentScale = ContentScale.Fit,
++                    modifier =
++                        Modifier
++                            .fillMaxSize()
++                            .padding(10.dp),
+                 )
+             }
+         }
+@@ -296,16 +345,6 @@ private fun ProfileTile(
+                 modifier = Modifier.fillMaxWidth(),
+             )
+         }
+-        if (isSelected) {
+-            SelectedProfilePill()
+-        } else {
+-            TextButton(
+-                onClick = onEditClick,
+-                enabled = enabled,
+-            ) {
+-                Text(text = "수정")
+-            }
+-        }
+     }
+ }
+ 
+@@ -365,23 +404,6 @@ private fun AddProfileTile(
+     }
+ }
+ 
+-@Composable
+-private fun SelectedProfilePill(modifier: Modifier = Modifier) {
+-    Surface(
+-        modifier = modifier.padding(top = 8.dp),
+-        shape = RoundedCornerShape(999.dp),
+-        color = MaterialTheme.colorScheme.primaryContainer,
+-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+-    ) {
+-        Text(
+-            text = "현재 선택됨",
+-            style = MaterialTheme.typography.labelSmall,
+-            fontWeight = FontWeight.SemiBold,
+-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+-        )
+-    }
+-}
+-
+ @Composable
+ private fun EmptyContent(
+     onNavigateToCreate: () -> Unit,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AccountEditRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AccountEditRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AccountEditRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AccountEditRoute.kt
+@@ -114,7 +114,7 @@ private fun AccountEditScreen(
+             verticalArrangement = Arrangement.spacedBy(16.dp),
+         ) {
+             Text(
+-                text = "보호자 계정의 이름을 수정할 수 있습니다.",
++                text = "보호자 계정의 이름을 수정할 수 있어요.",
+                 style = MaterialTheme.typography.bodyMedium,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+             )
+@@ -129,7 +129,7 @@ private fun AccountEditScreen(
+ 
+                 uiState.accountInfo == null -> {
+                     AccountEditErrorState(
+-                        message = uiState.errorMessage ?: "계정 정보를 불러오지 못했습니다.",
++                        message = uiState.errorMessage ?: "계정 정보를 불러오지 못했어요.",
+                         onRetry = onRetry,
+                     )
+                 }
+@@ -179,7 +179,6 @@ private fun AccountEditForm(
+             value = name,
+             onValueChange = onNameChange,
+             label = "이름",
+-            placeholder = "예: 김보호",
+             enabled = !isSaving,
+             isError = nameError != null,
+             supportingText = nameError ?: "이름은 50자 이하로 입력해 주세요.",
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AccountEditViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AccountEditViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AccountEditViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AccountEditViewModel.kt
+@@ -73,7 +73,7 @@ class AccountEditViewModel
+                     _uiState.value =
+                         _uiState.value.copy(
+                             isLoading = false,
+-                            errorMessage = e.message ?: "계정 정보를 불러오지 못했습니다.",
++                            errorMessage = e.message ?: "계정 정보를 불러오지 못했어요.",
+                         )
+                 }
+             }
+@@ -187,7 +187,7 @@ class AccountEditViewModel
+                 _uiState.value =
+                     _uiState.value.copy(
+                         isSaving = false,
+-                        errorMessage = e.message ?: "계정 정보를 저장하지 못했습니다.",
++                        errorMessage = e.message ?: "계정 정보를 저장하지 못했어요.",
+                     )
+             }
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AiModelSettingsRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AiModelSettingsRoute.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AiModelSettingsRoute.kt
+@@ -0,0 +1,332 @@
++@file:Suppress("MagicNumber")
++
++package com.ssafy.mobile.feature.mypage.presentation
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.lazy.LazyColumn
++import androidx.compose.material3.ExperimentalMaterial3Api
++import androidx.compose.material3.IconButton
++import androidx.compose.material3.LinearProgressIndicator
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.RadioButton
++import androidx.compose.material3.Scaffold
++import androidx.compose.material3.SnackbarHost
++import androidx.compose.material3.SnackbarHostState
++import androidx.compose.material3.Text
++import androidx.compose.material3.TextButton
++import androidx.compose.material3.TopAppBar
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.rememberCoroutineScope
++import androidx.compose.runtime.setValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import androidx.hilt.navigation.compose.hiltViewModel
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
++import com.ssafy.mobile.core.ui.components.AppDialog
++import java.util.Locale
++import kotlinx.coroutines.launch
++
++@Composable
++fun AiModelSettingsRoute(
++    onNavigateBack: () -> Unit,
++    modifier: Modifier = Modifier,
++    viewModel: MyPageViewModel = hiltViewModel(),
++) {
++    val aiModelState by viewModel.aiModelState.collectAsStateWithLifecycle()
++    var isDefaultEditMode by remember { mutableStateOf(false) }
++    var showDeleteDialog by remember { mutableStateOf(false) }
++    val snackbarHostState = remember { SnackbarHostState() }
++    val coroutineScope = rememberCoroutineScope()
++
++    LaunchedEffect(Unit) {
++        viewModel.refreshAiModelState()
++    }
++
++    AiModelSettingsScreen(
++        state = aiModelState,
++        isDefaultEditMode = isDefaultEditMode,
++        snackbarHostState = snackbarHostState,
++        onToggleDefaultEditMode = {
++            isDefaultEditMode = !isDefaultEditMode
++        },
++        onSelectDefaultModel = {
++            isDefaultEditMode = false
++            coroutineScope.launch {
++                snackbarHostState.showSnackbar("기본 모델로 설정했어요.")
++            }
++        },
++        onDownloadClick = viewModel::downloadAiModel,
++        onCancelClick = viewModel::cancelAiModelDownload,
++        onDeleteClick = { showDeleteDialog = true },
++        onNavigateBack = onNavigateBack,
++        modifier = modifier,
++    )
++
++    if (showDeleteDialog) {
++        AppDialog(
++            title = "AI 모델을 삭제할까요?",
++            message = "기기에 저장된 온디바이스 AI 모델 파일을 삭제합니다. 다시 사용하려면 모델을 다시 다운로드해야 해요.",
++            confirmText = "삭제",
++            dismissText = "취소",
++            onConfirm = {
++                showDeleteDialog = false
++                viewModel.deleteAiModel()
++            },
++            onDismiss = { showDeleteDialog = false },
++        )
++    }
++}
++
++@OptIn(ExperimentalMaterial3Api::class)
++@Composable
++@Suppress("LongParameterList")
++private fun AiModelSettingsScreen(
++    state: AiModelUiState,
++    isDefaultEditMode: Boolean,
++    snackbarHostState: SnackbarHostState,
++    onToggleDefaultEditMode: () -> Unit,
++    onSelectDefaultModel: () -> Unit,
++    onDownloadClick: () -> Unit,
++    onCancelClick: () -> Unit,
++    onDeleteClick: () -> Unit,
++    onNavigateBack: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Scaffold(
++        modifier = modifier.fillMaxSize(),
++        containerColor = MaterialTheme.colorScheme.background,
++        topBar = {
++            TopAppBar(
++                title = {
++                    Text(
++                        text = "온디바이스 모델",
++                        style = MaterialTheme.typography.titleLarge,
++                        fontWeight = FontWeight.Bold,
++                    )
++                },
++                navigationIcon = {
++                    TextButton(onClick = onNavigateBack) {
++                        Text("뒤로")
++                    }
++                },
++                actions = {
++                    TextButton(onClick = onToggleDefaultEditMode) {
++                        Text(if (isDefaultEditMode) "완료" else "기본값 설정")
++                    }
++                },
++            )
++        },
++        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
++    ) { padding ->
++        LazyColumn(
++            modifier =
++                Modifier
++                    .fillMaxSize()
++                    .padding(padding),
++            contentPadding = PaddingValues(20.dp, 16.dp, 20.dp, 28.dp),
++            verticalArrangement = Arrangement.spacedBy(16.dp),
++        ) {
++            item {
++                AiModelListItem(
++                    state = state,
++                    isDefaultEditMode = isDefaultEditMode,
++                    onSelectDefaultModel = onSelectDefaultModel,
++                    onDownloadClick = onDownloadClick,
++                    onCancelClick = onCancelClick,
++                    onDeleteClick = onDeleteClick,
++                )
++            }
++        }
++    }
++}
++
++@Composable
++@Suppress("LongParameterList")
++private fun AiModelListItem(
++    state: AiModelUiState,
++    isDefaultEditMode: Boolean,
++    onSelectDefaultModel: () -> Unit,
++    onDownloadClick: () -> Unit,
++    onCancelClick: () -> Unit,
++    onDeleteClick: () -> Unit,
++) {
++    AppCard(modifier = Modifier.fillMaxWidth()) {
++        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
++            Row(
++                modifier = Modifier.fillMaxWidth(),
++                verticalAlignment = Alignment.CenterVertically,
++                horizontalArrangement = Arrangement.spacedBy(12.dp),
++            ) {
++                Column(
++                    modifier = Modifier.weight(1f),
++                    verticalArrangement = Arrangement.spacedBy(4.dp),
++                ) {
++                    Row(
++                        verticalAlignment = Alignment.CenterVertically,
++                        horizontalArrangement = Arrangement.spacedBy(8.dp),
++                    ) {
++                        Text(
++                            text = state.modelName,
++                            style = MaterialTheme.typography.titleSmall,
++                            fontWeight = FontWeight.SemiBold,
++                            maxLines = 1,
++                            overflow = TextOverflow.Ellipsis,
++                            modifier = Modifier.weight(1f, fill = false),
++                        )
++                        AppBadge(text = "기본값", tone = AppBadgeTone.Primary)
++                    }
++                }
++                if (isDefaultEditMode) {
++                    RadioButton(
++                        selected = true,
++                        onClick = onSelectDefaultModel,
++                    )
++                } else {
++                    AiModelRowActionButton(
++                        state = state,
++                        onDownloadClick = onDownloadClick,
++                        onCancelClick = onCancelClick,
++                        onDeleteClick = onDeleteClick,
++                    )
++                }
++            }
++
++            Row(
++                modifier = Modifier.fillMaxWidth(),
++                horizontalArrangement = Arrangement.SpaceBetween,
++                verticalAlignment = Alignment.CenterVertically,
++            ) {
++                AppBadge(text = state.status.label(), tone = state.status.badgeTone())
++                Text(
++                    text =
++                        "${formatModelBytes(state.currentSizeBytes)} / " +
++                            formatModelBytes(state.expectedSizeBytes),
++                    style = MaterialTheme.typography.labelMedium,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                )
++            }
++
++            AiModelProgress(state = state)
++        }
++    }
++}
++
++@Composable
++private fun AiModelRowActionButton(
++    state: AiModelUiState,
++    onDownloadClick: () -> Unit,
++    onCancelClick: () -> Unit,
++    onDeleteClick: () -> Unit,
++) {
++    when {
++        state.status == AiModelDownloadStatus.Downloading -> {
++            IconButton(onClick = onCancelClick) {
++                Text(
++                    text = "×",
++                    style = MaterialTheme.typography.titleLarge,
++                    color = MaterialTheme.colorScheme.error,
++                    fontWeight = FontWeight.Bold,
++                )
++            }
++        }
++
++        state.canDelete -> {
++            IconButton(onClick = onDeleteClick) {
++                Text(
++                    text = "삭제",
++                    style = MaterialTheme.typography.labelLarge,
++                    color = MaterialTheme.colorScheme.error,
++                    fontWeight = FontWeight.Bold,
++                )
++            }
++        }
++
++        else -> {
++            IconButton(
++                onClick = onDownloadClick,
++                enabled = state.canDownload,
++            ) {
++                Text(
++                    text = "↓",
++                    style = MaterialTheme.typography.titleLarge,
++                    color =
++                        if (state.canDownload) {
++                            MaterialTheme.colorScheme.primary
++                        } else {
++                            MaterialTheme.colorScheme.onSurfaceVariant
++                        },
++                    fontWeight = FontWeight.Bold,
++                )
++            }
++        }
++    }
++}
++
++@Composable
++private fun AiModelProgress(state: AiModelUiState) {
++    if (state.status != AiModelDownloadStatus.Downloading) return
++
++    val progress = state.progressPercent?.coerceIn(0, PERCENT_MAX)
++    if (progress == null) {
++        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
++    } else {
++        LinearProgressIndicator(
++            progress = { progress / PERCENT_MAX.toFloat() },
++            modifier = Modifier.fillMaxWidth(),
++        )
++        Text(
++            text = "$progress%",
++            style = MaterialTheme.typography.labelSmall,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++        )
++    }
++}
++
++private fun AiModelDownloadStatus.label(): String =
++    when (this) {
++        AiModelDownloadStatus.Ready -> "준비 완료"
++        AiModelDownloadStatus.Missing -> "미설치"
++        AiModelDownloadStatus.Downloading -> "다운로드 중"
++        AiModelDownloadStatus.Success -> "완료"
++        AiModelDownloadStatus.Canceled -> "취소됨"
++        AiModelDownloadStatus.Failed -> "실패"
++    }
++
++private fun AiModelDownloadStatus.badgeTone(): AppBadgeTone =
++    when (this) {
++        AiModelDownloadStatus.Ready,
++        AiModelDownloadStatus.Success,
++        -> AppBadgeTone.Success
++        AiModelDownloadStatus.Downloading -> AppBadgeTone.Warning
++        AiModelDownloadStatus.Canceled,
++        AiModelDownloadStatus.Missing,
++        -> AppBadgeTone.Neutral
++        AiModelDownloadStatus.Failed -> AppBadgeTone.Error
++    }
++
++private fun formatModelBytes(bytes: Long): String =
++    when {
++        bytes <= 0L -> "-"
++        bytes >= BYTES_PER_GIB -> String.format(Locale.US, "%.2fGB", bytes / BYTES_PER_GIB)
++        else -> String.format(Locale.US, "%.1fMB", bytes / BYTES_PER_MIB)
++    }
++
++private const val BYTES_PER_MIB = 1024.0 * 1024.0
++private const val BYTES_PER_GIB = 1024.0 * 1024.0 * 1024.0
++private const val PERCENT_MAX = 100
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AppSettingsRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AppSettingsRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AppSettingsRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AppSettingsRoute.kt
+@@ -1,16 +1,25 @@
++@file:Suppress("MagicNumber")
++
+ package com.ssafy.mobile.feature.mypage.presentation
+ 
++import androidx.compose.foundation.background
+ import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.shape.CircleShape
++import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.material3.ExperimentalMaterial3Api
++import androidx.compose.material3.HorizontalDivider
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.RadioButton
+ import androidx.compose.material3.Scaffold
++import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.material3.TextButton
+ import androidx.compose.material3.TopAppBar
+@@ -18,11 +27,11 @@ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.getValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+-import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.core.ui.theme.AppThemeMode
+ 
+ @Composable
+@@ -51,7 +60,7 @@ private fun AppSettingsScreen(
+ ) {
+     Scaffold(
+         modifier = modifier.fillMaxSize(),
+-        containerColor = MaterialTheme.colorScheme.background,
++        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+         topBar = {
+             TopAppBar(
+                 title = {
+@@ -74,15 +83,15 @@ private fun AppSettingsScreen(
+                 Modifier
+                     .fillMaxSize()
+                     .padding(padding)
+-                    .padding(horizontal = 24.dp, vertical = 16.dp),
+-            verticalArrangement = Arrangement.spacedBy(16.dp),
++                    .padding(horizontal = 18.dp, vertical = 18.dp),
++            verticalArrangement = Arrangement.spacedBy(18.dp),
+         ) {
+             Text(
+-                text = "앱 사용 환경을 설정합니다.",
+-                style = MaterialTheme.typography.bodyMedium,
++                text = "화면과 사용 환경을 설정해요.",
++                style = MaterialTheme.typography.bodySmall,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+             )
+-            ThemeModeSettingsCard(
++            ThemeModeSettingsGroup(
+                 selectedMode = themeMode,
+                 onThemeModeSelected = onThemeModeSelected,
+             )
+@@ -91,34 +100,31 @@ private fun AppSettingsScreen(
+ }
+ 
+ @Composable
+-private fun ThemeModeSettingsCard(
++private fun ThemeModeSettingsGroup(
+     selectedMode: AppThemeMode,
+     onThemeModeSelected: (AppThemeMode) -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+-    AppCard(modifier = modifier.fillMaxWidth()) {
+-        Column(
+-            verticalArrangement = Arrangement.spacedBy(12.dp),
+-        ) {
+-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+-                Text(
+-                    text = "테마 설정",
+-                    style = MaterialTheme.typography.titleMedium,
+-                    fontWeight = FontWeight.SemiBold,
+-                )
+-                Text(
+-                    text = "앱 화면을 시스템 설정, 라이트 모드, 다크 모드 중에서 선택합니다.",
+-                    style = MaterialTheme.typography.bodySmall,
+-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                )
+-            }
+-
+-            AppThemeMode.entries.forEach { mode ->
++    Surface(
++        modifier = modifier.fillMaxWidth(),
++        shape = RoundedCornerShape(28.dp),
++        color = MaterialTheme.colorScheme.surface,
++        contentColor = MaterialTheme.colorScheme.onSurface,
++    ) {
++        Column {
++            AppThemeMode.entries.forEachIndexed { index, mode ->
+                 ThemeModeRow(
+                     mode = mode,
+                     selected = mode == selectedMode,
++                    iconColor = mode.iconColor(),
+                     onClick = { onThemeModeSelected(mode) },
+                 )
++                if (index != AppThemeMode.entries.lastIndex) {
++                    HorizontalDivider(
++                        modifier = Modifier.padding(start = 82.dp, end = 20.dp),
++                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
++                    )
++                }
+             }
+         }
+     }
+@@ -128,6 +134,7 @@ private fun ThemeModeSettingsCard(
+ private fun ThemeModeRow(
+     mode: AppThemeMode,
+     selected: Boolean,
++    iconColor: Color,
+     onClick: () -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+@@ -135,24 +142,36 @@ private fun ThemeModeRow(
+         modifier =
+             modifier
+                 .fillMaxWidth()
+-                .clickable(onClick = onClick)
+-                .padding(vertical = 4.dp),
++                .background(MaterialTheme.colorScheme.surface)
++                .clickable(onClick = onClick),
+         verticalAlignment = Alignment.CenterVertically,
+-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+     ) {
+-        RadioButton(
+-            selected = selected,
+-            onClick = onClick,
+-        )
++        Box(
++            modifier =
++                Modifier
++                    .padding(start = 20.dp)
++                    .size(42.dp)
++                    .background(iconColor, CircleShape),
++            contentAlignment = Alignment.Center,
++        ) {
++            Text(
++                text = mode.iconLabel(),
++                style = MaterialTheme.typography.labelLarge,
++                color = Color.White,
++                fontWeight = FontWeight.Bold,
++            )
++        }
+         Column(
+-            modifier = Modifier.weight(1f),
+-            verticalArrangement = Arrangement.spacedBy(2.dp),
++            modifier =
++                Modifier
++                    .weight(1f)
++                    .padding(horizontal = 18.dp, vertical = 16.dp),
++            verticalArrangement = Arrangement.spacedBy(3.dp),
+         ) {
+             Text(
+                 text = mode.label,
+                 style = MaterialTheme.typography.bodyLarge,
+                 fontWeight = FontWeight.SemiBold,
+-                color = MaterialTheme.colorScheme.onSurface,
+             )
+             Text(
+                 text = mode.description,
+@@ -160,5 +179,24 @@ private fun ThemeModeRow(
+                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+             )
+         }
++        RadioButton(
++            selected = selected,
++            onClick = onClick,
++            modifier = Modifier.padding(end = 14.dp),
++        )
+     }
+ }
++
++private fun AppThemeMode.iconLabel(): String =
++    when (this) {
++        AppThemeMode.System -> "자"
++        AppThemeMode.Light -> "라"
++        AppThemeMode.Dark -> "다"
++    }
++
++private fun AppThemeMode.iconColor(): Color =
++    when (this) {
++        AppThemeMode.System -> Color(0xFF3F8DF6)
++        AppThemeMode.Light -> Color(0xFFFFB020)
++        AppThemeMode.Dark -> Color(0xFF6C5CE7)
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageViewModel.kt
+@@ -55,7 +55,7 @@ data class AiModelUiState(
+     val progressPercent: Int? = null,
+     val speedBytesPerSecond: Long? = null,
+     val remainingMillis: Long? = null,
+-    val message: String = "모델 파일이 아직 준비되지 않았습니다.",
++    val message: String = "모델 파일이 아직 준비되지 않았어요.",
+ ) {
+     val isDownloaded: Boolean
+         get() = status == AiModelDownloadStatus.Ready || status == AiModelDownloadStatus.Success
+@@ -104,7 +104,7 @@ class MyPageViewModel
+                         progressPercent = 100,
+                         speedBytesPerSecond = null,
+                         remainingMillis = null,
+-                        message = "온디바이스 AI 모델이 준비되었습니다.",
++                        message = "온디바이스 AI 모델이 준비됐어요.",
+                     )
+             } else {
+                 _aiModelState.value =
+@@ -116,9 +116,9 @@ class MyPageViewModel
+                         remainingMillis = null,
+                         message =
+                             if (baseState.downloadUrl.isBlank()) {
+-                                "다운로드 URL이 설정되지 않았습니다. .env에 SLLM_MODEL_DOWNLOAD_URL을 추가해 주세요."
++                                "다운로드 URL이 설정되지 않았어요. .env에 SLLM_MODEL_DOWNLOAD_URL을 추가해 주세요."
+                             } else {
+-                                "모델을 다운로드하면 소통 기능에서 온디바이스 문장 변환을 사용할 수 있습니다."
++                                "모델을 다운로드하면 소통 기능에서 온디바이스 문장 변환을 사용할 수 있어요."
+                             },
+                     )
+             }
+@@ -136,7 +136,7 @@ class MyPageViewModel
+                 _aiModelState.value =
+                     current.copy(
+                         status = AiModelDownloadStatus.Failed,
+-                        message = "이 기기에서 다운로드 관리자를 사용할 수 없습니다.",
++                        message = "이 기기에서 다운로드 관리자를 사용할 수 없어요.",
+                     )
+                 return
+             }
+@@ -171,7 +171,8 @@ class MyPageViewModel
+                                 status = AiModelDownloadStatus.Failed,
+                                 speedBytesPerSecond = null,
+                                 remainingMillis = null,
+-                                message = "모델 다운로드를 시작하지 못했습니다: ${throwable.message.orEmpty()}",
++                                message =
++                                    "모델 다운로드를 시작하지 못했어요. ${throwable.message.orEmpty()}",
+                             )
+                     } finally {
+                         if (activeDownloadId == downloadId) {
+@@ -192,7 +193,7 @@ class MyPageViewModel
+                     progressPercent = null,
+                     speedBytesPerSecond = null,
+                     remainingMillis = null,
+-                    message = "모델 다운로드를 취소했습니다. 필요하면 다시 다운로드할 수 있습니다.",
++                    message = "모델 다운로드를 취소했어요. 필요하면 다시 다운로드할 수 있어요.",
+                 )
+         }
+ 
+@@ -215,9 +216,9 @@ class MyPageViewModel
+                         remainingMillis = null,
+                         message =
+                             if (deleted) {
+-                                "온디바이스 AI 모델을 삭제했습니다. 다시 사용하려면 다운로드해 주세요."
++                                "온디바이스 AI 모델을 삭제했어요. 다시 사용하려면 다운로드해 주세요."
+                             } else {
+-                                "삭제할 모델 파일을 찾지 못했습니다."
++                                "삭제할 모델 파일을 찾지 못했어요."
+                             },
+                     )
+             }
+@@ -240,9 +241,9 @@ class MyPageViewModel
+                     @Suppress("TooGenericExceptionCaught")
+                     e: Exception,
+                 ) {
+-                    Log.e("MyPageViewModel", "Logout failed", e)
++                    Log.e(TAG, "Logout failed", e)
+                     _logoutState.value =
+-                        MyPageLogoutState.Error("로그아웃하지 못했습니다. 다시 시도해 주세요.")
++                        MyPageLogoutState.Error("로그아웃하지 못했어요. 다시 시도해 주세요.")
+                 }
+             }
+         }
+@@ -314,7 +315,7 @@ class MyPageViewModel
+                     progressPercent = 0,
+                     speedBytesPerSecond = null,
+                     remainingMillis = null,
+-                    message = "모델을 다운로드하고 있습니다.",
++                    message = "모델을 다운로드하고 있어요.",
+                 )
+ 
+             var shouldMonitor = true
+@@ -397,10 +398,10 @@ class MyPageViewModel
+                         }
+                     val message =
+                         when (status) {
+-                            AiModelDownloadStatus.Success -> "모델 다운로드가 완료되었습니다."
++                            AiModelDownloadStatus.Success -> "모델 다운로드가 완료됐어요."
+                             AiModelDownloadStatus.Failed ->
+-                                "모델 다운로드에 실패했습니다. 네트워크 상태와 저장 공간을 확인해 주세요."
+-                            else -> "모델을 다운로드하고 있습니다."
++                                "모델 다운로드에 실패했어요. 네트워크 상태와 저장 공간을 확인해 주세요."
++                            else -> "모델을 다운로드하고 있어요."
+                         }
+ 
+                     DownloadSnapshot(
+@@ -502,6 +503,7 @@ class MyPageViewModel
+         )
+ 
+         private companion object {
++            const val TAG = "MyPageViewModel"
+             const val DOWNLOAD_POLL_INTERVAL_MILLIS = 700L
+             const val PERCENT_MULTIPLIER = 100L
+             const val MILLIS_PER_SECOND = 1000L
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizActionUiState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizActionUiState.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizActionUiState.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizActionUiState.kt
+@@ -1,26 +1,28 @@
++@file:Suppress("LongMethod", "MagicNumber", "TooManyFunctions")
++
+ package com.ssafy.mobile.feature.quiz.presentation
+ 
++import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+-import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.fillMaxWidth
+-import androidx.compose.foundation.layout.height
+-import androidx.compose.foundation.layout.heightIn
+-import androidx.compose.foundation.layout.padding
+-import androidx.compose.foundation.shape.RoundedCornerShape
+-import androidx.compose.material3.Button
+-import androidx.compose.material3.ButtonDefaults
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.shape.CircleShape
++import androidx.compose.material3.CircularProgressIndicator
+ import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.text.font.FontWeight
+-import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+ import com.ssafy.mobile.core.ui.components.AppBadge
+ import com.ssafy.mobile.core.ui.components.AppBadgeTone
+-import com.ssafy.mobile.core.ui.components.AppCard
+-import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.core.ui.components.ChunkyButton
++import com.ssafy.mobile.core.ui.components.ChunkyButtonTone
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
+ 
+ internal data class QuizActionUiState(
+@@ -105,82 +107,81 @@ internal fun QuizActionCard(
+     onNextClick: () -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+-    val isRecording =
+-        actionState.recording.status == QuizRecordingStatus.Recording ||
+-            actionState.recording.status == QuizRecordingStatus.FallbackRecording
+-
+-    AppCard(modifier = modifier.fillMaxWidth()) {
+-        QuizRecordingStatusText(
+-            recordingStatus = actionState.recording.status,
+-            answerAttemptCount = actionState.recording.answerAttemptCount,
+-            recognizedText = actionState.recording.recognizedText,
+-        )
+-
+-        Spacer(modifier = Modifier.height(12.dp))
+-
+-        QuizRecordButton(
+-            text = actionState.recordButton.text,
+-            onClick = onAnswerClick,
+-            enabled = actionState.recordButton.enabled,
+-            isRecording = isRecording,
+-        )
+-
+-        Spacer(modifier = Modifier.height(10.dp))
++    val isRecording = actionState.recording.status.isRecordingStatus()
++    val isBusy =
++        actionState.recording.status == QuizRecordingStatus.Processing ||
++            actionState.answerSubmitState == QuizAnswerSubmitState.Submitting
++    val canMoveNext = actionState.nextButton.enabled
+ 
+-        AppSecondaryButton(
+-            text = actionState.nextButton.text,
+-            onClick = onNextClick,
+-            enabled = actionState.nextButton.enabled,
+-        )
+-
+-        AnswerSubmitStatusBadge(
+-            state = actionState.answerSubmitState,
+-            modifier = Modifier.padding(top = 10.dp),
+-        )
++    Column(
++        modifier = modifier.fillMaxWidth(),
++        horizontalAlignment = Alignment.CenterHorizontally,
++        verticalArrangement = Arrangement.spacedBy(14.dp),
++    ) {
++        if (canMoveNext) {
++            ChunkyButton(
++                text = actionState.nextButton.text,
++                onClick = onNextClick,
++                enabled = true,
++                tone = ChunkyButtonTone.Primary,
++                modifier = Modifier.fillMaxWidth(0.62f),
++            )
++        } else {
++            MicCircleButton(
++                isRecording = isRecording,
++                isBusy = isBusy,
++                enabled = actionState.recordButton.enabled || isRecording,
++                onClick = onAnswerClick,
++            )
++            Text(
++                text = actionState.toShortGuideMessage(),
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++                fontWeight = FontWeight.Bold,
++                textAlign = TextAlign.Center,
++            )
++            AnswerSubmitStatusBadge(state = actionState.answerSubmitState)
++        }
+     }
+ }
+ 
+ @Composable
+-private fun QuizRecordButton(
+-    text: String,
+-    onClick: () -> Unit,
+-    enabled: Boolean,
++private fun MicCircleButton(
+     isRecording: Boolean,
+-    modifier: Modifier = Modifier,
++    isBusy: Boolean,
++    enabled: Boolean,
++    onClick: () -> Unit,
+ ) {
+-    Button(
++    Surface(
+         onClick = onClick,
+-        enabled = enabled || isRecording,
+-        modifier =
+-            modifier
+-                .fillMaxWidth()
+-                .heightIn(min = 58.dp),
+-        shape = RoundedCornerShape(8.dp),
+-        colors =
+-            ButtonDefaults.buttonColors(
+-                containerColor =
+-                    if (isRecording) {
+-                        MaterialTheme.colorScheme.error
+-                    } else {
+-                        MaterialTheme.colorScheme.primary
+-                    },
+-                contentColor =
+-                    if (isRecording) {
+-                        MaterialTheme.colorScheme.onError
+-                    } else {
+-                        MaterialTheme.colorScheme.onPrimary
+-                    },
+-                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+-                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+-            ),
++        enabled = enabled && !isBusy,
++        modifier = Modifier.size(88.dp),
++        shape = CircleShape,
++        color =
++            when {
++                isRecording -> Color(0xFFFF8F8F)
++                enabled -> Color(0xFF76CFF0)
++                else -> MaterialTheme.colorScheme.surfaceVariant
++            },
++        contentColor = Color.White,
++        shadowElevation = 10.dp,
+     ) {
+-        Text(
+-            text = text,
+-            style = MaterialTheme.typography.titleSmall,
+-            fontWeight = FontWeight.Bold,
+-            maxLines = 1,
+-            overflow = TextOverflow.Ellipsis,
+-        )
++        Box(contentAlignment = Alignment.Center) {
++            if (isBusy) {
++                CircularProgressIndicator(
++                    modifier = Modifier.size(32.dp),
++                    strokeWidth = 3.dp,
++                    color = Color.White,
++                )
++            } else {
++                Text(
++                    text = if (isRecording) "■" else "🎙",
++                    style = MaterialTheme.typography.headlineLarge,
++                    fontWeight = FontWeight.Black,
++                    textAlign = TextAlign.Center,
++                )
++            }
++        }
+     }
+ }
+ 
+@@ -202,6 +203,21 @@ private fun AnswerSubmitStatusBadge(
+     }
+ }
+ 
++private fun QuizActionUiState.toShortGuideMessage(): String =
++    when {
++        recording.status.isRecordingStatus() -> "다 말했으면 한 번 더 눌러요."
++        recording.status == QuizRecordingStatus.Processing -> "목소리를 확인하고 있어요."
++        answerSubmitState == QuizAnswerSubmitState.Submitting -> "답변을 저장하고 있어요."
++        answerSubmitState is QuizAnswerSubmitState.Error -> answerSubmitState.message
++        answerSubmitState is QuizAnswerSubmitState.SaveFailed -> answerSubmitState.message
++        recording.answerAttemptCount != null -> "천천히 다시 말해볼까요?"
++        else -> "버튼을 누르고 단어를 말해요."
++    }
++
++private fun QuizRecordingStatus.isRecordingStatus(): Boolean =
++    this == QuizRecordingStatus.Recording ||
++        this == QuizRecordingStatus.FallbackRecording
++
+ private fun QuizAnswerSubmitState.toStatusMessage(): String? =
+     when (this) {
+         QuizAnswerSubmitState.Idle -> null
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+@@ -10,12 +10,10 @@ package com.ssafy.mobile.feature.quiz.presentation
+ import androidx.compose.animation.AnimatedContent
+ import androidx.compose.animation.animateContentSize
+ import androidx.compose.animation.core.animateFloatAsState
+-import androidx.compose.foundation.BorderStroke
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+-import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.aspectRatio
+ import androidx.compose.foundation.layout.fillMaxSize
+@@ -27,7 +25,6 @@ import androidx.compose.foundation.rememberScrollState
+ import androidx.compose.foundation.shape.CircleShape
+ import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.foundation.verticalScroll
+-import androidx.compose.material3.LinearProgressIndicator
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+@@ -38,6 +35,7 @@ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.clip
+ import androidx.compose.ui.graphics.Brush
++import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.layout.ContentScale
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+@@ -45,14 +43,11 @@ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+-import com.ssafy.mobile.core.ui.components.AppBadge
+-import com.ssafy.mobile.core.ui.components.AppBadgeTone
+ import com.ssafy.mobile.core.ui.components.AppNetworkImage
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizQuestion
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizRetryPolicy
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionState
+-import kotlin.math.roundToInt
+ 
+ @Composable
+ fun quizQuestionRoute(
+@@ -210,9 +205,19 @@ private fun QuizQuestionContent(
+     Column(
+         modifier =
+             modifier
+-                .verticalScroll(rememberScrollState())
+-                .padding(horizontal = 24.dp, vertical = 28.dp),
+-        verticalArrangement = Arrangement.spacedBy(22.dp),
++                .background(
++                    Brush.verticalGradient(
++                        colors =
++                            listOf(
++                                Color(0xFFD7FFF1),
++                                Color(0xFFE8FFF8),
++                                Color(0xFFFDFDF9),
++                            ),
++                    ),
++                ).verticalScroll(rememberScrollState())
++                .padding(horizontal = 28.dp, vertical = 22.dp),
++        horizontalAlignment = Alignment.CenterHorizontally,
++        verticalArrangement = Arrangement.spacedBy(20.dp),
+     ) {
+         QuizProgressHeader(
+             currentQuestionNumber = state.currentQuestionNumber,
+@@ -223,6 +228,7 @@ private fun QuizQuestionContent(
+         AnimatedContent(
+             targetState = question,
+             label = "quizQuestionContent",
++            modifier = Modifier.fillMaxWidth(),
+         ) { currentQuestion ->
+             QuizQuestionCard(question = currentQuestion)
+         }
+@@ -255,32 +261,33 @@ private fun QuizProgressHeader(
+ 
+     Column(
+         modifier = modifier.fillMaxWidth(),
+-        verticalArrangement = Arrangement.spacedBy(10.dp),
++        horizontalAlignment = Alignment.CenterHorizontally,
++        verticalArrangement = Arrangement.spacedBy(8.dp),
+     ) {
+-        Row(
+-            modifier = Modifier.fillMaxWidth(),
+-            horizontalArrangement = Arrangement.SpaceBetween,
+-            verticalAlignment = Alignment.CenterVertically,
+-        ) {
+-            AppBadge(
+-                text = "문제 $currentQuestionNumber / $totalQuestionCount",
+-                tone = AppBadgeTone.Primary,
+-            )
+-            AppBadge(
+-                text = "${(animatedProgress * PERCENT_MAX).roundToInt()}%",
+-                tone = AppBadgeTone.Neutral,
+-            )
+-        }
++        Text(
++            text = "$currentQuestionNumber / $totalQuestionCount",
++            style = MaterialTheme.typography.titleLarge,
++            fontWeight = FontWeight.Black,
++            color = Color(0xFF263238),
++        )
+ 
+-        LinearProgressIndicator(
+-            progress = { animatedProgress },
++        Box(
+             modifier =
+                 Modifier
+-                    .fillMaxWidth()
++                    .fillMaxWidth(0.72f)
+                     .height(10.dp)
+-                    .clip(RoundedCornerShape(999.dp)),
+-            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+-        )
++                    .clip(RoundedCornerShape(999.dp))
++                    .background(Color.White.copy(alpha = 0.94f)),
++        ) {
++            Box(
++                modifier =
++                    Modifier
++                        .fillMaxWidth(fraction = animatedProgress)
++                        .height(10.dp)
++                        .clip(RoundedCornerShape(999.dp))
++                        .background(Color(0xFF73CDED)),
++            )
++        }
+     }
+ }
+ 
+@@ -291,40 +298,26 @@ private fun QuizQuestionCard(
+ ) {
+     Surface(
+         modifier = modifier.fillMaxWidth(),
+-        shape = RoundedCornerShape(8.dp),
+-        color = MaterialTheme.colorScheme.surface,
++        shape = RoundedCornerShape(32.dp),
++        color = Color.White.copy(alpha = 0.98f),
+         contentColor = MaterialTheme.colorScheme.onSurface,
+-        tonalElevation = 1.dp,
+-        border =
+-            BorderStroke(
+-                width = 1.dp,
+-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+-            ),
++        shadowElevation = 16.dp,
+     ) {
+         Column(
+             modifier =
+                 Modifier
+                     .fillMaxWidth()
+-                    .padding(14.dp),
++                    .padding(horizontal = 24.dp, vertical = 28.dp),
+             horizontalAlignment = Alignment.CenterHorizontally,
+-            verticalArrangement = Arrangement.spacedBy(16.dp),
++            verticalArrangement = Arrangement.spacedBy(20.dp),
+         ) {
+             Box(
+                 modifier =
+                     Modifier
+                         .fillMaxWidth()
+-                        .aspectRatio(1.12f)
+-                        .clip(RoundedCornerShape(8.dp))
+-                        .background(
+-                            Brush.linearGradient(
+-                                colors =
+-                                    listOf(
+-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+-                                        MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f),
+-                                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.08f),
+-                                    ),
+-                            ),
+-                        ),
++                        .aspectRatio(1.06f)
++                        .clip(RoundedCornerShape(24.dp))
++                        .background(Color(0xFFF8FFFC)),
+                 contentAlignment = Alignment.Center,
+             ) {
+                 AppNetworkImage(
+@@ -378,7 +371,7 @@ private fun QuizImagePlaceholder(
+         Spacer(modifier = Modifier.height(20.dp))
+ 
+         Text(
+-            text = "그림 카드",
++            text = "말하기 카드",
+             style = MaterialTheme.typography.labelLarge,
+             color = MaterialTheme.colorScheme.onSurfaceVariant,
+         )
+@@ -396,27 +389,17 @@ private fun QuizTargetWord(
+     Column(
+         modifier = modifier.fillMaxWidth(),
+         horizontalAlignment = Alignment.CenterHorizontally,
+-        verticalArrangement = Arrangement.spacedBy(10.dp),
++        verticalArrangement = Arrangement.spacedBy(6.dp),
+     ) {
+-        AppBadge(
+-            text = "그림을 보고 말해요",
+-            tone = AppBadgeTone.Primary,
+-        )
+         Text(
+             text = targetText,
+             style = MaterialTheme.typography.headlineLarge,
+             fontWeight = FontWeight.Black,
+-            color = MaterialTheme.colorScheme.onSurface,
++            color = Color(0xFF242424),
+             textAlign = TextAlign.Center,
+             maxLines = 2,
+             overflow = TextOverflow.Ellipsis,
+         )
+-        Text(
+-            text = "준비되면 아래 버튼을 눌러 말해 주세요",
+-            style = MaterialTheme.typography.bodyMedium,
+-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+-            textAlign = TextAlign.Center,
+-        )
+     }
+ }
+ 
+@@ -482,7 +465,8 @@ private fun QuizActionArea(
+             modifier
+                 .fillMaxWidth()
+                 .animateContentSize(),
+-        verticalArrangement = Arrangement.spacedBy(12.dp),
++        horizontalAlignment = Alignment.CenterHorizontally,
++        verticalArrangement = Arrangement.spacedBy(14.dp),
+     ) {
+         if (answer != null) {
+             QuizStarResultCard(
+@@ -499,5 +483,4 @@ private fun QuizActionArea(
+     }
+ }
+ 
+-private const val PERCENT_MAX = 100
+ private const val FIRST_LETTER_COUNT = 1
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultRoute.kt
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
+@@ -2,29 +2,39 @@
+ 
+ package com.ssafy.mobile.feature.quiz.presentation
+ 
+-import androidx.compose.animation.Crossfade
++import androidx.compose.animation.core.Animatable
++import androidx.compose.animation.core.FastOutSlowInEasing
++import androidx.compose.animation.core.RepeatMode
++import androidx.compose.animation.core.Spring
++import androidx.compose.animation.core.animateFloat
++import androidx.compose.animation.core.infiniteRepeatable
++import androidx.compose.animation.core.rememberInfiniteTransition
++import androidx.compose.animation.core.spring
++import androidx.compose.animation.core.tween
++import androidx.compose.foundation.Image
+ import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.offset
++import androidx.compose.foundation.layout.size
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+-import androidx.compose.runtime.getValue
+-import androidx.compose.runtime.mutableIntStateOf
+ import androidx.compose.runtime.remember
+-import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+-import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.draw.alpha
++import androidx.compose.ui.draw.scale
++import androidx.compose.ui.graphics.graphicsLayer
++import androidx.compose.ui.res.painterResource
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+-import com.ssafy.mobile.core.ui.components.AppBadge
+-import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.R
+ import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
+-import kotlinx.coroutines.delay
+ 
+ @Composable
+ internal fun QuizStarResultCard(
+@@ -32,147 +42,190 @@ internal fun QuizStarResultCard(
+     remainingRetryCount: Int,
+     modifier: Modifier = Modifier,
+ ) {
+-    val resultText = answer.toStarResultText(remainingRetryCount)
+-    val targetStar = answer.star?.coerceIn(0, MAX_STAR) ?: 0
+-    var visibleStar by remember(answer.questionId, answer.attemptCount) { mutableIntStateOf(0) }
+-
+     QuizFeedbackEffects(
+         eventKey = answer.feedbackEventKey(),
+         cue = answer.toFeedbackCue(),
+     )
+ 
+-    LaunchedEffect(answer.questionId, answer.attemptCount, targetStar) {
+-        visibleStar = 0
+-        repeat(targetStar) { index ->
+-            delay(STAR_REVEAL_DELAY_MILLIS)
+-            visibleStar = index + 1
+-        }
+-    }
+-
+     AppCard(
+         modifier = modifier.fillMaxWidth(),
+     ) {
++        val eventKey = answer.feedbackEventKey()
++
+         Column(
+             modifier = Modifier.fillMaxWidth(),
+             horizontalAlignment = Alignment.CenterHorizontally,
+-            verticalArrangement = Arrangement.spacedBy(8.dp),
++            verticalArrangement = Arrangement.spacedBy(10.dp),
+         ) {
+-            AppBadge(
+-                text = answer.star.toResultBadgeText(),
+-                tone = answer.star.toResultBadgeTone(),
++            StarRewardBurst(
++                eventKey = eventKey,
++                isCorrect = answer.isCorrect == true,
+             )
+-            Crossfade(
+-                targetState = visibleStar,
+-                label = "quizStarReveal",
+-            ) { animatedStar ->
+-                Text(
+-                    text = animatedStar.toStarDisplay(),
+-                    style = MaterialTheme.typography.headlineMedium,
+-                    color = answer.star.starResultColor(),
+-                    fontWeight = FontWeight.Black,
+-                    textAlign = TextAlign.Center,
+-                )
+-            }
+             Text(
+-                text = resultText.title,
+-                style = MaterialTheme.typography.titleMedium,
++                text = answer.toRewardTitle(remainingRetryCount),
++                style = MaterialTheme.typography.headlineSmall,
+                 color = MaterialTheme.colorScheme.onSurface,
+-                fontWeight = FontWeight.Bold,
++                fontWeight = FontWeight.Black,
+                 textAlign = TextAlign.Center,
+             )
+-            Text(
+-                text = resultText.description,
+-                style = MaterialTheme.typography.bodyMedium,
+-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                textAlign = TextAlign.Center,
+-            )
+-            AppBadge(
+-                text = "인식 결과: ${answer.recognizedTextLabel()}",
+-                tone = AppBadgeTone.Neutral,
+-            )
+         }
+     }
+ }
+ 
+-private data class StarResultText(
+-    val title: String,
+-    val description: String,
+-)
+-
+-private fun QuizAnswer.toStarResultText(remainingRetryCount: Int): StarResultText =
+-    when (star?.coerceIn(MIN_STAR, MAX_STAR)) {
+-        null ->
+-            StarResultText(
+-                title = "답변을 확인하고 있어요",
+-                description = "잠시만 기다려 주세요. 채점 결과가 곧 도착해요.",
+-            )
+-        MAX_STAR ->
+-            StarResultText(
+-                title = "정말 잘했어요!",
+-                description = "단어를 또렷하게 말했어요. 다음 문제로 가볼까요?",
+-            )
+-        TWO_STARS ->
+-            StarResultText(
+-                title = "거의 다 왔어요!",
+-                description = retryDescription(remainingRetryCount),
+-            )
+-        else ->
+-            StarResultText(
+-                title = "다시 한 번 해봐요!",
+-                description = retryDescription(remainingRetryCount),
+-            )
+-    }
+-
+-private fun retryDescription(remainingRetryCount: Int): String =
+-    if (remainingRetryCount > 0) {
+-        "천천히 듣고 다시 말해볼 수 있어요. ${remainingRetryCount}번 더 도전할 수 있어요."
+-    } else {
+-        "충분히 연습했어요. 다음 문제로 넘어가도 괜찮아요."
++@Composable
++private fun StarRewardBurst(
++    eventKey: String?,
++    isCorrect: Boolean,
++    modifier: Modifier = Modifier,
++) {
++    val scale = remember(eventKey) { Animatable(0.7f) }
++    val rotation = remember(eventKey) { Animatable(-10f) }
++    val infiniteTransition = rememberInfiniteTransition(label = "starRewardTwinkle")
++    val sparkleScale =
++        infiniteTransition.animateFloat(
++            initialValue = 0.82f,
++            targetValue = 1.12f,
++            animationSpec =
++                infiniteRepeatable(
++                    animation = tween(durationMillis = 760, easing = FastOutSlowInEasing),
++                    repeatMode = RepeatMode.Reverse,
++                ),
++            label = "sparkleScale",
++        )
++    val sparkleAlpha =
++        infiniteTransition.animateFloat(
++            initialValue = 0.55f,
++            targetValue = 1f,
++            animationSpec =
++                infiniteRepeatable(
++                    animation = tween(durationMillis = 620, easing = FastOutSlowInEasing),
++                    repeatMode = RepeatMode.Reverse,
++                ),
++            label = "sparkleAlpha",
++        )
++
++    LaunchedEffect(eventKey) {
++        if (eventKey == null) return@LaunchedEffect
++
++        scale.snapTo(0.7f)
++        rotation.snapTo(-10f)
++        scale.animateTo(
++            targetValue = 1.18f,
++            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
++        )
++        rotation.animateTo(
++            targetValue = 4f,
++            animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing),
++        )
++        scale.animateTo(
++            targetValue = 1f,
++            animationSpec =
++                spring(
++                    dampingRatio = Spring.DampingRatioMediumBouncy,
++                    stiffness = Spring.StiffnessLow,
++                ),
++        )
++        rotation.animateTo(
++            targetValue = 0f,
++            animationSpec =
++                spring(
++                    dampingRatio = Spring.DampingRatioMediumBouncy,
++                    stiffness = Spring.StiffnessMedium,
++                ),
++        )
+     }
+ 
+-private fun QuizAnswer.recognizedTextLabel(): String =
+-    sttText
+-        .takeIf { it.isNotBlank() }
+-        ?: if (isScored) {
+-            "인식 결과가 없어요"
+-        } else {
+-            "서버에서 음성을 확인하고 있어요"
+-        }
++    StarRewardBurstContent(
++        isCorrect = isCorrect,
++        starScale = scale.value,
++        starRotation = rotation.value,
++        sparkleScale = sparkleScale.value,
++        sparkleAlpha = sparkleAlpha.value,
++        modifier = modifier,
++    )
++}
+ 
+ @Composable
+-private fun Int?.starResultColor(): Color =
+-    when (this?.coerceIn(MIN_STAR, MAX_STAR)) {
+-        null -> MaterialTheme.colorScheme.onSurfaceVariant
+-        MAX_STAR -> MaterialTheme.colorScheme.primary
+-        TWO_STARS -> MaterialTheme.colorScheme.tertiary
+-        else -> MaterialTheme.colorScheme.error
+-    }
+-
+-private fun Int?.toResultBadgeText(): String =
+-    when (this?.coerceIn(MIN_STAR, MAX_STAR)) {
+-        null -> "채점 중"
+-        MAX_STAR -> "훌륭해요"
+-        TWO_STARS -> "거의 다 왔어요"
+-        else -> "다시 도전"
++private fun StarRewardBurstContent(
++    isCorrect: Boolean,
++    starScale: Float,
++    starRotation: Float,
++    sparkleScale: Float,
++    sparkleAlpha: Float,
++    modifier: Modifier = Modifier,
++) {
++    Box(
++        modifier =
++            modifier
++                .fillMaxWidth()
++                .size(184.dp),
++        contentAlignment = Alignment.Center,
++    ) {
++        RewardSparkle(
++            modifier =
++                Modifier
++                    .align(Alignment.TopStart)
++                    .offset(x = 30.dp, y = 12.dp),
++            size = 44,
++            scale = sparkleScale,
++            alpha = sparkleAlpha,
++        )
++        RewardSparkle(
++            modifier =
++                Modifier
++                    .align(Alignment.BottomEnd)
++                    .offset(x = (-24).dp, y = (-8).dp),
++            size = 38,
++            scale = sparkleScale * 0.92f,
++            alpha = sparkleAlpha,
++        )
++        Image(
++            painter =
++                painterResource(
++                    if (isCorrect) {
++                        R.drawable.star_reward_glow
++                    } else {
++                        R.drawable.star_reward_full
++                    },
++                ),
++            contentDescription = null,
++            modifier =
++                Modifier
++                    .size(164.dp)
++                    .graphicsLayer {
++                        scaleX = starScale
++                        scaleY = starScale
++                        rotationZ = starRotation
++                    },
++        )
+     }
++}
+ 
+-private fun Int?.toResultBadgeTone(): AppBadgeTone =
+-    when (this?.coerceIn(MIN_STAR, MAX_STAR)) {
+-        null -> AppBadgeTone.Neutral
+-        MAX_STAR -> AppBadgeTone.Success
+-        TWO_STARS -> AppBadgeTone.Primary
+-        else -> AppBadgeTone.Error
+-    }
++@Composable
++private fun RewardSparkle(
++    size: Int,
++    scale: Float,
++    alpha: Float,
++    modifier: Modifier = Modifier,
++) {
++    Image(
++        painter = painterResource(R.drawable.star_reward_small),
++        contentDescription = null,
++        modifier =
++            modifier
++                .size(size.dp)
++                .scale(scale)
++                .alpha(alpha),
++    )
++}
+ 
+-private fun Int?.toStarDisplay(): String {
+-    val filledCount = this?.coerceIn(0, MAX_STAR) ?: 0
+-    return buildString {
+-        repeat(MAX_STAR) { index ->
+-            append(if (index < filledCount) FILLED_STAR else EMPTY_STAR)
+-            if (index < MAX_STAR - 1) append(STAR_SEPARATOR)
+-        }
++private fun QuizAnswer.toRewardTitle(remainingRetryCount: Int): String =
++    when {
++        star == null -> "확인하고 있어요"
++        isCorrect == true -> "잘했어요!"
++        remainingRetryCount > 0 -> "한 번 더 해볼까요?"
++        else -> "괜찮아요!"
+     }
+-}
+ 
+ private fun QuizAnswer.feedbackEventKey(): String? =
+     star?.let { "${questionId}_${attemptCount}_$it" }
+@@ -183,11 +236,3 @@ private fun QuizAnswer.toFeedbackCue(): QuizFeedbackCue? =
+         isCorrect == true -> QuizFeedbackCue.Correct
+         else -> QuizFeedbackCue.Retry
+     }
+-
+-private const val STAR_REVEAL_DELAY_MILLIS = 130L
+-private const val MIN_STAR = 1
+-private const val TWO_STARS = 2
+-private const val MAX_STAR = 3
+-private const val FILLED_STAR = '★'
+-private const val EMPTY_STAR = '☆'
+-private const val STAR_SEPARATOR = ' '
+
+
+diff --git a/mobile/app/src/main/res/drawable/profile_blue_square.webp b/mobile/app/src/main/res/drawable/profile_blue_square.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable/profile_blue_square.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable/profile_blue_square.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable/profile_green_wink_square.webp b/mobile/app/src/main/res/drawable/profile_green_wink_square.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable/profile_green_wink_square.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable/profile_green_wink_square.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable/profile_navy_hexagon.webp b/mobile/app/src/main/res/drawable/profile_navy_hexagon.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable/profile_navy_hexagon.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable/profile_navy_hexagon.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable/profile_orange_pentagon.webp b/mobile/app/src/main/res/drawable/profile_orange_pentagon.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable/profile_orange_pentagon.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable/profile_orange_pentagon.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable/profile_pink_oval.webp b/mobile/app/src/main/res/drawable/profile_pink_oval.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable/profile_pink_oval.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable/profile_pink_oval.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable/profile_purple_diamond.webp b/mobile/app/src/main/res/drawable/profile_purple_diamond.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable/profile_purple_diamond.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable/profile_purple_diamond.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable/profile_red_triangle.webp b/mobile/app/src/main/res/drawable/profile_red_triangle.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable/profile_red_triangle.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable/profile_red_triangle.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable/profile_teal_star.webp b/mobile/app/src/main/res/drawable/profile_teal_star.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable/profile_teal_star.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable/profile_teal_star.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable/profile_yellow_circle.webp b/mobile/app/src/main/res/drawable/profile_yellow_circle.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable/profile_yellow_circle.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable/profile_yellow_circle.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable-nodpi/mascot_default.webp b/mobile/app/src/main/res/drawable-nodpi/mascot_default.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable-nodpi/mascot_default.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable-nodpi/mascot_default.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable-nodpi/mascot_empty.webp b/mobile/app/src/main/res/drawable-nodpi/mascot_empty.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable-nodpi/mascot_empty.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable-nodpi/mascot_empty.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable-nodpi/mascot_error_network.webp b/mobile/app/src/main/res/drawable-nodpi/mascot_error_network.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable-nodpi/mascot_error_network.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable-nodpi/mascot_error_network.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable-nodpi/mascot_good_2star.webp b/mobile/app/src/main/res/drawable-nodpi/mascot_good_2star.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable-nodpi/mascot_good_2star.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable-nodpi/mascot_good_2star.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable-nodpi/mascot_icon.webp b/mobile/app/src/main/res/drawable-nodpi/mascot_icon.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable-nodpi/mascot_icon.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable-nodpi/mascot_icon.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable-nodpi/mascot_loading.webp b/mobile/app/src/main/res/drawable-nodpi/mascot_loading.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable-nodpi/mascot_loading.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable-nodpi/mascot_loading.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable-nodpi/mascot_microphone.webp b/mobile/app/src/main/res/drawable-nodpi/mascot_microphone.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable-nodpi/mascot_microphone.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable-nodpi/mascot_microphone.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable-nodpi/mascot_report.webp b/mobile/app/src/main/res/drawable-nodpi/mascot_report.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable-nodpi/mascot_report.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable-nodpi/mascot_report.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable-nodpi/mascot_retry_1star.webp b/mobile/app/src/main/res/drawable-nodpi/mascot_retry_1star.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable-nodpi/mascot_retry_1star.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable-nodpi/mascot_retry_1star.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable-nodpi/mascot_sleep.webp b/mobile/app/src/main/res/drawable-nodpi/mascot_sleep.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable-nodpi/mascot_sleep.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable-nodpi/mascot_sleep.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable-nodpi/mascot_success_3star.webp b/mobile/app/src/main/res/drawable-nodpi/mascot_success_3star.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable-nodpi/mascot_success_3star.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable-nodpi/mascot_success_3star.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable-nodpi/mascot_word_card.webp b/mobile/app/src/main/res/drawable-nodpi/mascot_word_card.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable-nodpi/mascot_word_card.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable-nodpi/mascot_word_card.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable-nodpi/star_reward_big.png b/mobile/app/src/main/res/drawable-nodpi/star_reward_big.png
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable-nodpi/star_reward_big.png
+Binary files /dev/null and b/mobile/app/src/main/res/drawable-nodpi/star_reward_big.png differ
+
+
+diff --git a/mobile/app/src/main/res/drawable-nodpi/star_reward_empty.png b/mobile/app/src/main/res/drawable-nodpi/star_reward_empty.png
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable-nodpi/star_reward_empty.png
+Binary files /dev/null and b/mobile/app/src/main/res/drawable-nodpi/star_reward_empty.png differ
+
+
+diff --git a/mobile/app/src/main/res/drawable-nodpi/star_reward_full.png b/mobile/app/src/main/res/drawable-nodpi/star_reward_full.png
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable-nodpi/star_reward_full.png
+Binary files /dev/null and b/mobile/app/src/main/res/drawable-nodpi/star_reward_full.png differ
+
+
+diff --git a/mobile/app/src/main/res/drawable-nodpi/star_reward_glow.png b/mobile/app/src/main/res/drawable-nodpi/star_reward_glow.png
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable-nodpi/star_reward_glow.png
+Binary files /dev/null and b/mobile/app/src/main/res/drawable-nodpi/star_reward_glow.png differ
+
+
+diff --git a/mobile/app/src/main/res/drawable-nodpi/star_reward_pop.png b/mobile/app/src/main/res/drawable-nodpi/star_reward_pop.png
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable-nodpi/star_reward_pop.png
+Binary files /dev/null and b/mobile/app/src/main/res/drawable-nodpi/star_reward_pop.png differ
+
+
+diff --git a/mobile/app/src/main/res/drawable-nodpi/star_reward_small.png b/mobile/app/src/main/res/drawable-nodpi/star_reward_small.png
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable-nodpi/star_reward_small.png
+Binary files /dev/null and b/mobile/app/src/main/res/drawable-nodpi/star_reward_small.png differ
+
+

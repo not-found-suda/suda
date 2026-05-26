@@ -1,0 +1,206 @@
+﻿diff --git a/ai/ai-server/README.md b/ai/ai-server/README.md
+--- a/ai/ai-server/README.md
++++ b/ai/ai-server/README.md
+@@ -2,9 +2,9 @@
+ 
+ V6 PyTorch TCN 모델을 사용해 서버 측 수어 인식을 수행하는 FastAPI 서버입니다.
+ 
+-모델 artifact 파일은 repository에 커밋하지 않습니다. 로컬 실행 시에는 각 파일 경로를
+-환경변수로 지정하고, Docker 실행 시에는 같은 artifact 디렉터리를 `/models` 경로에
+-mount해서 사용합니다.
++모델 artifact 파일은 repository에 커밋하지 않습니다. 로컬 실행 시에도 같은 학습 run에서
++나온 모델 파일 세트를 하나의 artifact 디렉터리에 두고, Docker 실행 시에는 그 디렉터리를
++컨테이너의 `/models` 경로에 read-only로 mount해서 사용합니다.
+ 
+ ## 로컬 실행
+ 
+@@ -12,18 +12,18 @@ mount해서 사용합니다.
+ 작업 디렉터리 기준으로 해석되므로, 모델/config 파일 경로는 절대 경로 사용을 권장합니다.
+ 
+ ```bash
+-$env:SIGN_MODEL_PATH="C:\path\to\best_sign_model_v6.pt"
+-$env:SIGN_TRAIN_CONFIG_PATH="C:\path\to\S14P31A404\ai\models\tcn_mobile\train_config_v6.json"
+-$env:SIGN_LABEL_MAP_PATH="C:\path\to\S14P31A404\ai\models\tcn_mobile\label_map_v6.json"
+-$env:SIGN_MODEL_MODULE_PATH="C:\path\to\S14P31A404\ai\src\sign2text_tcn\model.py"
++$env:SIGN_MODEL_PATH="C:\path\to\sign-model-artifact\best_sign_model_v6.pt"
++$env:SIGN_TRAIN_CONFIG_PATH="C:\path\to\sign-model-artifact\train_config_v6.json"
++$env:SIGN_LABEL_MAP_PATH="C:\path\to\sign-model-artifact\label_map_v6.json"
++$env:SIGN_MODEL_MODULE_PATH="C:\path\to\sign-model-artifact\model.py"
+ pip install -r requirements.txt
+ uvicorn app.main:app --host 0.0.0.0 --port 8000
+ ```
+ 
+-## Docker 실행
++## Docker 실행: 같은 Compose에서 로컬 AI 서버 사용
+ 
+ ```bash
+-docker compose up --build ai-server
++docker compose --profile local-ai up --build ai-server
+ ```
+ 
+ 기본 Compose 설정에서는 `8000` 포트를 Docker network 내부에만 노출합니다. host에서 AI
+@@ -39,12 +39,53 @@ Docker 실행 시에는 `SIGN_MODEL_ARTIFACT_PATH`로 지정한 host 디렉터
+ - `label_map_v6.json`
+ - `model.py`
+ 
+-Spring을 Docker Compose에서 실행하는 경우 이 서버는
+-`SIGN_AI_BASE_URL=http://ai-server:8000`으로 호출합니다.
++Spring을 같은 Docker Compose의 backend 컨테이너로 실행하면서 로컬 AI 서버를 함께 띄우는
++경우에는 아래처럼 실행하고, backend에는 `BACKEND_SIGN_AI_BASE_URL=http://ai-server:8000`
++값이 주입되도록 설정합니다.
++
++```bash
++docker compose --profile local-ai up --build backend ai-server
++```
+ 
+ Spring을 로컬에서 실행하는 경우 이 서버는 `SIGN_AI_BASE_URL=http://localhost:8000`으로
+ 호출합니다.
+ 
++## GPU 서버 단독 배포
++
++FastAPI AI 서버만 GPU 서버에 올릴 때는 repository root에서 아래 compose 파일을 사용합니다.
++
++```bash
++docker compose -f docker-compose.ai.yml up -d --build
++```
++
++`docker-compose.ai.yml`은 NVIDIA Container Toolkit이 설치된 서버에서 `gpus: all`로
++컨테이너를 실행합니다. Spring 서버가 다른 머신에서 접근해야 한다면 GPU 서버 보안그룹 또는
++방화벽에서 Spring 서버만 `8000` 포트에 접근할 수 있게 제한하고, 실행 환경변수는 아래처럼
++설정합니다.
++
++```bash
++SIGN_MODEL_ARTIFACT_PATH=/srv/sign-ai/models/v6_24words_tcn
++AI_SERVER_BIND_HOST=0.0.0.0
++AI_SERVER_PORT=8000
++```
++
++이때 Spring 서버에는 실행 방식에 맞춰 아래 값을 설정합니다.
++
++```bash
++# Spring을 직접 실행하는 경우
++SIGN_AI_BASE_URL=http://<gpu-private-ip>:8000
++
++# Docker Compose backend 컨테이너로 실행하는 경우
++BACKEND_SIGN_AI_BASE_URL=http://<gpu-private-ip>:8000
++```
++
++외부 사용자에게 AI 서버를 직접 공개하지 않고, 모바일은 Spring API만 호출하는 구조를
++유지합니다.
++
++원격 GPU AI 서버를 사용하는 Docker Compose 배포에서는 `local-ai` profile을 켜지 않습니다.
++따라서 backend는 로컬 `ai-server` healthcheck를 기다리지 않고, 설정된
++`BACKEND_SIGN_AI_BASE_URL`로 원격 AI 서버를 호출합니다.
++
+ ## Endpoints
+ 
+ - `GET /health`
+
+
+diff --git a/.env.example b/.env.example
+--- a/.env.example
++++ b/.env.example
+@@ -26,21 +26,30 @@ BACKEND_PORT=8080
+ FRONTEND_PORT=5173
+ 
+ # Sign AI server
++# 로컬에서 Spring을 직접 실행할 때는 SIGN_AI_BASE_URL을 사용합니다.
++# Docker Compose backend는 BACKEND_SIGN_AI_BASE_URL을 사용합니다.
++# 같은 compose의 local-ai profile을 쓰면 http://ai-server:8000,
++# 원격 GPU AI 서버를 쓰면 http://<gpu-private-ip>:8000 형태로 설정합니다.
+ SIGN_AI_BASE_URL=http://localhost:8000
++BACKEND_SIGN_AI_BASE_URL=http://ai-server:8000
+ SIGN_AI_CONNECT_TIMEOUT=1s
+ SIGN_AI_READ_TIMEOUT=1s
+-SIGN_MODEL_PATH=/absolute/path/to/best_sign_model_v6.pt
+ SIGN_MODEL_ARTIFACT_PATH=/absolute/path/to/sign-model-artifact
++SIGN_MODEL_PATH=/absolute/path/to/sign-model-artifact/best_sign_model_v6.pt
++SIGN_TRAIN_CONFIG_PATH=/absolute/path/to/sign-model-artifact/train_config_v6.json
++SIGN_LABEL_MAP_PATH=/absolute/path/to/sign-model-artifact/label_map_v6.json
++SIGN_MODEL_MODULE_PATH=/absolute/path/to/sign-model-artifact/model.py
+ SIGN_MODEL_CONTAINER_PATH=/models/best_sign_model_v6.pt
+-SIGN_TRAIN_CONFIG_PATH=/absolute/path/to/S14P31A404/ai/models/tcn_mobile/train_config_v6.json
+-SIGN_LABEL_MAP_PATH=/absolute/path/to/S14P31A404/ai/models/tcn_mobile/label_map_v6.json
+-SIGN_MODEL_MODULE_PATH=/absolute/path/to/S14P31A404/ai/src/sign2text_tcn/model.py
+ SIGN_TRAIN_CONFIG_CONTAINER_PATH=/models/train_config_v6.json
+ SIGN_LABEL_MAP_CONTAINER_PATH=/models/label_map_v6.json
+ SIGN_MODEL_MODULE_CONTAINER_PATH=/models/model.py
+ SIGN_CONFIDENCE_THRESHOLD=0.80
+ SIGN_NONE_LABEL=none
+ SIGN_MODEL_VERSION=v6_24words_tcn
++# docker-compose.ai.yml로 GPU 서버에 단독 배포할 때 사용합니다.
++# 다른 서버의 Spring에서 접근해야 하면 AI_SERVER_BIND_HOST=0.0.0.0으로 바꾸고 방화벽을 제한합니다.
++AI_SERVER_BIND_HOST=127.0.0.1
++AI_SERVER_PORT=8000
+ 
+ # Frontend (Vite)
+ VITE_API_BASE_URL=http://localhost:8080
+
+
+diff --git a/docker-compose.ai.yml b/docker-compose.ai.yml
+--- /dev/null
++++ b/docker-compose.ai.yml
+@@ -0,0 +1,29 @@
++name: s14p31a404-ai
++
++services:
++  ai-server:
++    build:
++      context: ./ai
++      dockerfile: ai-server/Dockerfile
++    container_name: ai-server
++    environment:
++      TZ: Asia/Seoul
++      SIGN_MODEL_PATH: ${SIGN_MODEL_CONTAINER_PATH:-/models/best_sign_model_v6.pt}
++      SIGN_TRAIN_CONFIG_PATH: ${SIGN_TRAIN_CONFIG_CONTAINER_PATH:-/models/train_config_v6.json}
++      SIGN_LABEL_MAP_PATH: ${SIGN_LABEL_MAP_CONTAINER_PATH:-/models/label_map_v6.json}
++      SIGN_MODEL_MODULE_PATH: ${SIGN_MODEL_MODULE_CONTAINER_PATH:-/models/model.py}
++      SIGN_CONFIDENCE_THRESHOLD: ${SIGN_CONFIDENCE_THRESHOLD:-0.80}
++      SIGN_NONE_LABEL: ${SIGN_NONE_LABEL:-none}
++      SIGN_MODEL_VERSION: ${SIGN_MODEL_VERSION:-v6_24words_tcn}
++    volumes:
++      - ${SIGN_MODEL_ARTIFACT_PATH:-./ai/model-artifacts}:/models:ro
++    ports:
++      - "${AI_SERVER_BIND_HOST:-127.0.0.1}:${AI_SERVER_PORT:-8000}:8000"
++    gpus: all
++    healthcheck:
++      test: ["CMD-SHELL", "python -c \"import json, sys, urllib.request; data=json.load(urllib.request.urlopen('http://localhost:8000/health', timeout=2)); sys.exit(0 if data.get('modelLoaded') is True else 1)\""]
++      interval: 5s
++      timeout: 3s
++      retries: 20
++      start_period: 30s
++    restart: unless-stopped
+
+
+diff --git a/docker-compose.yml b/docker-compose.yml
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -43,6 +43,8 @@ services:
+     restart: unless-stopped
+ 
+   ai-server:
++    profiles:
++      - local-ai
+     build:
+       context: ./ai
+       dockerfile: ai-server/Dockerfile
+@@ -79,8 +81,6 @@ services:
+         condition: service_healthy
+       redis:
+         condition: service_healthy
+-      ai-server:
+-        condition: service_healthy
+     environment:
+       TZ: Asia/Seoul
+       JAVA_TOOL_OPTIONS: -Duser.timezone=Asia/Seoul
+@@ -110,7 +110,7 @@ services:
+       CLOVA_TTS_FORMAT: ${CLOVA_TTS_FORMAT:-mp3}
+       CLOVA_STT_URL: ${CLOVA_STT_URL:-https://naveropenapi.apigw.ntruss.com/recog/v1/stt}
+       CLOVA_STT_LANGUAGE: ${CLOVA_STT_LANGUAGE:-Kor}
+-      SIGN_AI_BASE_URL: http://ai-server:8000
++      SIGN_AI_BASE_URL: ${BACKEND_SIGN_AI_BASE_URL:-http://ai-server:8000}
+       SIGN_AI_CONNECT_TIMEOUT: ${SIGN_AI_CONNECT_TIMEOUT:-1s}
+       SIGN_AI_READ_TIMEOUT: ${SIGN_AI_READ_TIMEOUT:-1s}
+     ports:
+
+

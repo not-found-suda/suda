@@ -1,0 +1,459 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/network/di/NetworkModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/network/di/NetworkModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/network/di/NetworkModule.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/network/di/NetworkModule.kt
+@@ -1,8 +1,8 @@
+ package com.ssafy.mobile.core.network.di
+ 
+ import com.ssafy.mobile.core.network.AuthInterceptor
+-import com.ssafy.mobile.core.network.MockRefreshTokenClient
+ import com.ssafy.mobile.core.network.RefreshTokenClient
++import com.ssafy.mobile.core.network.RetrofitRefreshTokenClient
+ import com.ssafy.mobile.core.network.TokenAuthenticator
+ import dagger.Module
+ import dagger.Provides
+@@ -23,7 +23,9 @@ object NetworkModule {
+ 
+     @Provides
+     @Singleton
+-    fun provideRefreshTokenClient(): RefreshTokenClient = MockRefreshTokenClient()
++    fun provideRefreshTokenClient(
++        @Named("NoAuth") retrofit: Retrofit,
++    ): RefreshTokenClient = RetrofitRefreshTokenClient(retrofit)
+ 
+     @Provides
+     @Singleton
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/network/dto/RefreshDtos.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/network/dto/RefreshDtos.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/network/dto/RefreshDtos.kt
+@@ -0,0 +1,19 @@
++package com.ssafy.mobile.core.network.dto
++
++import com.google.gson.annotations.SerializedName
++
++data class RefreshRequestDto(
++    @SerializedName("refreshToken")
++    val refreshToken: String,
++)
++
++data class RefreshResponseDto(
++    @SerializedName("accessToken")
++    val accessToken: String,
++    @SerializedName("refreshToken")
++    val refreshToken: String,
++    @SerializedName("tokenType")
++    val tokenType: String,
++    @SerializedName("expiresIn")
++    val expiresIn: Long,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/network/RefreshTokenClient.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/network/RefreshTokenClient.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/network/RefreshTokenClient.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/network/RefreshTokenClient.kt
+@@ -1,21 +1,69 @@
+ package com.ssafy.mobile.core.network
+ 
++import com.ssafy.mobile.core.network.dto.RefreshRequestDto
++import com.ssafy.mobile.core.network.dto.RefreshResponseDto
++import java.io.IOException
++import kotlin.coroutines.cancellation.CancellationException
++import retrofit2.Response
++import retrofit2.Retrofit
++import retrofit2.http.Body
++import retrofit2.http.POST
++
+ /**
+- * 백엔드 Refresh API 명세가 확정될 때까지 사용할 임시 인터페이스입니다.
+- * // [S14P31A404-226] 명세 확정 시 DTO 및 Endpoint URL 작성 후 Retrofit Service 로 연동.
+- * 연동 시 반드시 NetworkModule 에 정의될 NoAuthRetrofit 주입을 사용해야 순환 참조를 막을 수 있습니다.
++ * 토큰 갱신을 담당하는 클라이언트 인터페이스입니다.
+  */
+ interface RefreshTokenClient {
+-    /**
+-     * @return 새로운 AccessToken (성공 시), 갱신 실패 시 null 반환
+-     */
+-    fun refresh(refreshToken: String): String?
++    suspend fun refresh(refreshToken: String): RefreshResponseDto?
+ }
+ 
+-// API 명세가 나올 때까지 사용할 임시 빈 구현체
+-class MockRefreshTokenClient : RefreshTokenClient {
+-    override fun refresh(refreshToken: String): String? {
+-        // [S14P31A404-226] 실제 API 연동 시 이곳을 제거하고 별도의 Retrofit 인터페이스를 주입받아 사용해야 함
+-        return null
++/**
++ * 실제 백엔드 API와 통신하여 토큰을 갱신하는 Retrofit 기반 구현체입니다.
++ */
++class RetrofitRefreshTokenClient(
++    private val noAuthRetrofit: Retrofit,
++) : RefreshTokenClient {
++    private interface RefreshApiService {
++        @POST("v1/auth/refresh")
++        suspend fun refresh(
++            @Body request: RefreshRequestDto,
++        ): Response<RefreshResponseDto>
+     }
++
++    private val apiService = noAuthRetrofit.create(RefreshApiService::class.java)
++
++    override suspend fun refresh(refreshToken: String): RefreshResponseDto? =
++        try {
++            val response = apiService.refresh(RefreshRequestDto(refreshToken))
++            if (response.isSuccessful) {
++                response.body()
++            } else {
++                null
++            }
++        } catch (e: CancellationException) {
++            throw e
++        } catch (e: IOException) {
++            android.util.Log.e(
++                "RefreshTokenClient",
++                "Network error during refresh: ${e.message}",
++                e,
++            )
++            null
++        } catch (e: IllegalStateException) {
++            android.util.Log.e(
++                "RefreshTokenClient",
++                "Invalid state during refresh: ${e.message}",
++                e,
++            )
++            null
++        } catch (e: com.google.gson.JsonSyntaxException) {
++            android.util.Log.e("RefreshTokenClient", "Response parsing failed: ${e.message}", e)
++            null
++        }
++}
++
++/**
++ * 테스트용 Mock 구현체입니다.
++ */
++class MockRefreshTokenClient : RefreshTokenClient {
++    override suspend fun refresh(refreshToken: String): RefreshResponseDto? = null
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/network/TokenAuthenticator.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/network/TokenAuthenticator.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/network/TokenAuthenticator.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/network/TokenAuthenticator.kt
+@@ -3,6 +3,7 @@ package com.ssafy.mobile.core.network
+ import com.ssafy.mobile.core.auth.TokenStorage
+ import java.net.HttpURLConnection
+ import javax.inject.Inject
++import kotlin.coroutines.cancellation.CancellationException
+ import kotlinx.coroutines.runBlocking
+ import kotlinx.coroutines.sync.Mutex
+ import kotlinx.coroutines.sync.withLock
+@@ -77,15 +78,32 @@ class TokenAuthenticator
+                         return@runBlocking null
+                     }
+ 
+-                    // 3. Refresh API 호출 (동기)
+-                    val newAccessToken = refreshTokenClient.refresh(refreshToken)
++                    // 3. Refresh API 호출 (동기적으로 대기)
++                    val refreshResponse = refreshTokenClient.refresh(refreshToken)
++
++                    if (refreshResponse != null) {
++                        // 성공: 새 토큰들 저장 후 기존 실패했던 요청 재시도
++                        try {
++                            tokenStorage.clearTokens()
++                            tokenStorage.saveTokens(
++                                accessToken = refreshResponse.accessToken,
++                                refreshToken = refreshResponse.refreshToken,
++                            )
++                        } catch (e: CancellationException) {
++                            throw e
++                        } catch (e: IllegalArgumentException) {
++                            android.util.Log.e("TokenAuthenticator", "Invalid token format", e)
++                            tokenStorage.clearTokens()
++                            return@runBlocking null
++                        } catch (e: java.security.GeneralSecurityException) {
++                            android.util.Log.e("TokenAuthenticator", "Security storage error", e)
++                            tokenStorage.clearTokens()
++                            return@runBlocking null
++                        }
+ 
+-                    if (newAccessToken != null) {
+-                        // 성공: 새 토큰 저장 후 기존 실패했던 요청 재시도
+-                        tokenStorage.updateAccessToken(newAccessToken)
+                         response.request
+                             .newBuilder()
+-                            .header("Authorization", "Bearer $newAccessToken")
++                            .header("Authorization", "Bearer ${refreshResponse.accessToken}")
+                             .build()
+                     } else {
+                         // 실패: 토큰 파기 및 인증 만료 처리
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/data/dto/LoginResponseDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/data/dto/LoginResponseDto.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/data/dto/LoginResponseDto.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/data/dto/LoginResponseDto.kt
+@@ -5,6 +5,8 @@ import com.google.gson.annotations.SerializedName
+ data class LoginResponseDto(
+     @SerializedName("accessToken")
+     val accessToken: String,
++    @SerializedName("refreshToken")
++    val refreshToken: String,
+     @SerializedName("tokenType")
+     val tokenType: String,
+     @SerializedName("expiresIn")
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginViewModel.kt
+@@ -58,6 +58,7 @@ class LoginViewModel
+         }
+ 
+         fun login() {
++            if (_uiState.value is LoginUiState.Loading) return
+             if (!validateInputs()) return
+ 
+             _uiState.value = LoginUiState.Loading
+@@ -72,7 +73,10 @@ class LoginViewModel
+                     try {
+                         withContext(Dispatchers.IO) {
+                             tokenStorage.clearTokens()
+-                            tokenStorage.updateAccessToken(response.accessToken)
++                            tokenStorage.saveTokens(
++                                accessToken = response.accessToken,
++                                refreshToken = response.refreshToken,
++                            )
+                         }
+                     } catch (e: CancellationException) {
+                         throw e
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/data/dto/SignupRequestDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/data/dto/SignupRequestDto.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/data/dto/SignupRequestDto.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/data/dto/SignupRequestDto.kt
+@@ -7,4 +7,6 @@ data class SignupRequestDto(
+     val email: String,
+     @SerializedName("password")
+     val password: String,
++    @SerializedName("name")
++    val name: String,
+ )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/data/repository/SignupRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/data/repository/SignupRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/data/repository/SignupRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/data/repository/SignupRepository.kt
+@@ -16,9 +16,17 @@ class SignupRepository
+         suspend fun signup(
+             email: String,
+             password: String,
++            name: String,
+         ): SignupResponseDto =
+             try {
+-                val response = signupApiService.signup(SignupRequestDto(email, password))
++                val response =
++                    signupApiService.signup(
++                        SignupRequestDto(
++                            email = email,
++                            password = password,
++                            name = name,
++                        ),
++                    )
+ 
+                 if (response.isSuccessful) {
+                     response.body() ?: error("응답 본문이 비어 있습니다.")
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupRoute.kt
+@@ -48,9 +48,11 @@ fun SignupRoute(
+     val email by viewModel.email.collectAsStateWithLifecycle()
+     val password by viewModel.password.collectAsStateWithLifecycle()
+     val confirmPassword by viewModel.confirmPassword.collectAsStateWithLifecycle()
++    val name by viewModel.name.collectAsStateWithLifecycle()
+     val emailError by viewModel.emailError.collectAsStateWithLifecycle()
+     val passwordError by viewModel.passwordError.collectAsStateWithLifecycle()
+     val confirmPasswordError by viewModel.confirmPasswordError.collectAsStateWithLifecycle()
++    val nameError by viewModel.nameError.collectAsStateWithLifecycle()
+ 
+     LaunchedEffect(uiState) {
+         if (uiState is SignupUiState.Success) {
+@@ -62,13 +64,16 @@ fun SignupRoute(
+         email = email,
+         password = password,
+         confirmPassword = confirmPassword,
++        name = name,
+         emailError = emailError,
+         passwordError = passwordError,
+         confirmPasswordError = confirmPasswordError,
++        nameError = nameError,
+         uiState = uiState,
+         onEmailChanged = viewModel::onEmailChanged,
+         onPasswordChanged = viewModel::onPasswordChanged,
+         onConfirmPasswordChanged = viewModel::onConfirmPasswordChanged,
++        onNameChanged = viewModel::onNameChanged,
+         onSignupClick = viewModel::signup,
+         onNavigateToLogin = onNavigateToLogin,
+         modifier = modifier,
+@@ -81,13 +86,16 @@ private fun SignupScreen(
+     email: String,
+     password: String,
+     confirmPassword: String,
++    name: String,
+     emailError: String?,
+     passwordError: String?,
+     confirmPasswordError: String?,
++    nameError: String?,
+     uiState: SignupUiState,
+     onEmailChanged: (String) -> Unit,
+     onPasswordChanged: (String) -> Unit,
+     onConfirmPasswordChanged: (String) -> Unit,
++    onNameChanged: (String) -> Unit,
+     onSignupClick: () -> Unit,
+     onNavigateToLogin: () -> Unit,
+     modifier: Modifier = Modifier,
+@@ -112,13 +120,16 @@ private fun SignupScreen(
+             email = email,
+             password = password,
+             confirmPassword = confirmPassword,
++            name = name,
+             emailError = emailError,
+             passwordError = passwordError,
+             confirmPasswordError = confirmPasswordError,
++            nameError = nameError,
+             isLoading = isLoading,
+             onEmailChanged = onEmailChanged,
+             onPasswordChanged = onPasswordChanged,
+             onConfirmPasswordChanged = onConfirmPasswordChanged,
++            onNameChanged = onNameChanged,
+             onSignupClick = onSignupClick,
+         )
+ 
+@@ -164,13 +175,16 @@ private fun SignupInputFields(
+     email: String,
+     password: String,
+     confirmPassword: String,
++    name: String,
+     emailError: String?,
+     passwordError: String?,
+     confirmPasswordError: String?,
++    nameError: String?,
+     isLoading: Boolean,
+     onEmailChanged: (String) -> Unit,
+     onPasswordChanged: (String) -> Unit,
+     onConfirmPasswordChanged: (String) -> Unit,
++    onNameChanged: (String) -> Unit,
+     onSignupClick: () -> Unit,
+ ) {
+     val focusManager = LocalFocusManager.current
+@@ -203,6 +217,32 @@ private fun SignupInputFields(
+ 
+     Spacer(modifier = Modifier.height(8.dp))
+ 
++    OutlinedTextField(
++        value = name,
++        onValueChange = onNameChanged,
++        label = { Text("보호자 이름") },
++        placeholder = { Text("이름을 입력해 주세요") },
++        isError = nameError != null,
++        supportingText =
++            nameError?.let {
++                { Text(text = it, color = MaterialTheme.colorScheme.error) }
++            },
++        singleLine = true,
++        enabled = !isLoading,
++        keyboardOptions =
++            KeyboardOptions(
++                keyboardType = KeyboardType.Text,
++                imeAction = ImeAction.Next,
++            ),
++        keyboardActions =
++            KeyboardActions(
++                onNext = { focusManager.moveFocus(FocusDirection.Down) },
++            ),
++        modifier = Modifier.fillMaxWidth(),
++    )
++
++    Spacer(modifier = Modifier.height(8.dp))
++
+     OutlinedTextField(
+         value = password,
+         onValueChange = onPasswordChanged,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupViewModel.kt
+@@ -27,6 +27,7 @@ class SignupViewModel
+             private const val TAG = "SignupViewModel"
+             private const val PASSWORD_MIN_LENGTH = 8
+             private const val PASSWORD_MAX_LENGTH = 20
++            private const val NAME_MAX_LENGTH = 50
+             private const val PWD_LETTERS = "(?=.*[A-Za-z])"
+             private const val PWD_DIGITS = "(?=.*\\d)"
+             private const val PWD_SPECIALS = "(?=.*[!@#\$%^&*()_+\\-={}\\[\\]:;,.?/~])"
+@@ -50,6 +51,9 @@ class SignupViewModel
+         private val _confirmPassword = MutableStateFlow("")
+         val confirmPassword: StateFlow<String> = _confirmPassword.asStateFlow()
+ 
++        private val _name = MutableStateFlow("")
++        val name: StateFlow<String> = _name.asStateFlow()
++
+         private val _emailError = MutableStateFlow<String?>(null)
+         val emailError: StateFlow<String?> = _emailError.asStateFlow()
+ 
+@@ -59,6 +63,9 @@ class SignupViewModel
+         private val _confirmPasswordError = MutableStateFlow<String?>(null)
+         val confirmPasswordError: StateFlow<String?> = _confirmPasswordError.asStateFlow()
+ 
++        private val _nameError = MutableStateFlow<String?>(null)
++        val nameError: StateFlow<String?> = _nameError.asStateFlow()
++
+         fun onEmailChanged(value: String) {
+             _email.value = value
+             _emailError.value = null
+@@ -74,7 +81,13 @@ class SignupViewModel
+             _confirmPasswordError.value = null
+         }
+ 
++        fun onNameChanged(value: String) {
++            _name.value = value
++            _nameError.value = null
++        }
++
+         fun signup() {
++            if (_uiState.value is SignupUiState.Loading) return
+             if (!validateInputs()) return
+ 
+             _uiState.value = SignupUiState.Loading
+@@ -82,7 +95,11 @@ class SignupViewModel
+             viewModelScope.launch {
+                 try {
+                     withContext(Dispatchers.IO) {
+-                        signupRepository.signup(_email.value.trim(), _password.value)
++                        signupRepository.signup(
++                            email = _email.value.trim(),
++                            password = _password.value,
++                            name = _name.value.trim(),
++                        )
+                     }
+ 
+                     _uiState.value = SignupUiState.Success
+@@ -126,6 +143,15 @@ class SignupViewModel
+                 isValid = false
+             }
+ 
++            val nameValue = _name.value.trim()
++            if (nameValue.isEmpty()) {
++                _nameError.value = "이름을 입력해 주세요."
++                isValid = false
++            } else if (nameValue.length > NAME_MAX_LENGTH) {
++                _nameError.value = "이름은 50자 이내로 입력해 주세요."
++                isValid = false
++            }
++
+             val passwordValue = _password.value
+             if (passwordValue.isEmpty()) {
+                 _passwordError.value = "비밀번호를 입력해 주세요."
+
+

@@ -1,0 +1,105 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt b/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
+@@ -1,4 +1,4 @@
+-﻿package com.ssafy.mobile
++package com.ssafy.mobile
+ 
+ import android.os.Bundle
+ import androidx.activity.ComponentActivity
+@@ -6,7 +6,9 @@ import androidx.activity.compose.setContent
+ import androidx.activity.enableEdgeToEdge
+ import com.ssafy.mobile.core.ui.theme.MobileTheme
+ import com.ssafy.mobile.feature.sample.presentation.SampleRoute
++import dagger.hilt.android.AndroidEntryPoint
+ 
++@AndroidEntryPoint
+ class MainActivity : ComponentActivity() {
+     override fun onCreate(savedInstanceState: Bundle?) {
+         super.onCreate(savedInstanceState)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/MobileApplication.kt b/mobile/app/src/main/java/com/ssafy/mobile/MobileApplication.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/MobileApplication.kt
+@@ -0,0 +1,7 @@
++package com.ssafy.mobile
++
++import android.app.Application
++import dagger.hilt.android.HiltAndroidApp
++
++@HiltAndroidApp
++class MobileApplication : Application()
+
+
+diff --git a/mobile/app/src/main/AndroidManifest.xml b/mobile/app/src/main/AndroidManifest.xml
+--- a/mobile/app/src/main/AndroidManifest.xml
++++ b/mobile/app/src/main/AndroidManifest.xml
+@@ -5,6 +5,7 @@
+     <uses-permission android:name="android.permission.INTERNET" />
+ 
+     <application
++        android:name=".MobileApplication"
+         android:allowBackup="true"
+         android:dataExtractionRules="@xml/data_extraction_rules"
+         android:fullBackupContent="@xml/backup_rules"
+
+
+diff --git a/mobile/app/build.gradle.kts b/mobile/app/build.gradle.kts
+--- a/mobile/app/build.gradle.kts
++++ b/mobile/app/build.gradle.kts
+@@ -7,6 +7,7 @@ plugins {
+     alias(libs.plugins.ksp)
+     alias(libs.plugins.ktlint)
+     alias(libs.plugins.detekt)
++    alias(libs.plugins.hilt)
+ }
+ 
+ android {
+@@ -97,4 +98,6 @@ dependencies {
+     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+     debugImplementation(libs.androidx.compose.ui.tooling)
+     debugImplementation(libs.androidx.compose.ui.test.manifest)
++    implementation(libs.hilt.android)
++    ksp(libs.hilt.compiler)
+ }
+
+
+diff --git a/mobile/gradle/libs.versions.toml b/mobile/gradle/libs.versions.toml
+--- a/mobile/gradle/libs.versions.toml
++++ b/mobile/gradle/libs.versions.toml
+@@ -15,6 +15,7 @@ datastore = "1.1.2"
+ ksp = "2.3.7"
+ ktlintPlugin = "14.2.0"
+ detektPlugin = "1.23.8"
++hilt = "2.59.2"
+ 
+ [libraries]
+ androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+@@ -42,6 +43,8 @@ androidx-room-runtime = { group = "androidx.room", name = "room-runtime", versio
+ androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+ androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+ androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
++hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
++hilt-compiler = { group = "com.google.dagger", name = "hilt-android-compiler", version.ref = "hilt" }
+ 
+ [plugins]
+ android-application = { id = "com.android.application", version.ref = "agp" }
+@@ -49,3 +52,4 @@ kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "ko
+ ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+ ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlintPlugin" }
+ detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detektPlugin" }
++hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+
+
+diff --git a/mobile/build.gradle.kts b/mobile/build.gradle.kts
+--- a/mobile/build.gradle.kts
++++ b/mobile/build.gradle.kts
+@@ -5,4 +5,5 @@ plugins {
+     alias(libs.plugins.ksp) apply false
+     alias(libs.plugins.ktlint) apply false
+     alias(libs.plugins.detekt) apply false
++    alias(libs.plugins.hilt) apply false
+ }
+
+

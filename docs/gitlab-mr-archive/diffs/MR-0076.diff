@@ -1,0 +1,473 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -8,7 +8,7 @@ import androidx.navigation.compose.NavHost
+ import androidx.navigation.compose.composable
+ import com.ssafy.mobile.BuildConfig
+ import com.ssafy.mobile.feature.appentry.AppEntryRoute
+-import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileCreatePlaceholderRoute
++import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileEditRoute
+ import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileSelectRoute
+ import com.ssafy.mobile.feature.conversation.presentation.conversationRoute
+ import com.ssafy.mobile.feature.login.presentation.LoginRoute
+@@ -78,6 +78,7 @@ fun MobileNavHost(
+ 
+         composable(Screen.ChildSelect.route) {
+             ChildProfileSelectRoute(
++                navController = navController,
+                 onNavigateToHome = {
+                     navController.navigate(Screen.Home.route) {
+                         popUpTo(Screen.ChildSelect.route) { inclusive = true }
+@@ -91,7 +92,17 @@ fun MobileNavHost(
+         }
+ 
+         composable(Screen.ChildProfileCreate.route) {
+-            ChildProfileCreatePlaceholderRoute(modifier = Modifier.fillMaxSize())
++            ChildProfileEditRoute(
++                onNavigateBack = { changed ->
++                    if (changed) {
++                        navController.previousBackStackEntry
++                            ?.savedStateHandle
++                            ?.set("child_profile_changed", true)
++                    }
++                    navController.popBackStack()
++                },
++                modifier = Modifier.fillMaxSize(),
++            )
+         }
+ 
+         composable(Screen.Home.route) {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/FakeChildProfileRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/FakeChildProfileRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/FakeChildProfileRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/FakeChildProfileRepository.kt
+@@ -4,32 +4,59 @@ import com.ssafy.mobile.BuildConfig
+ import com.ssafy.mobile.feature.childprofile.domain.model.ChildProfile
+ import com.ssafy.mobile.feature.childprofile.domain.repository.ChildProfileRepository
+ import javax.inject.Inject
++import javax.inject.Singleton
+ import kotlinx.coroutines.delay
+ 
+ /**
+  * 실제 API 연동 전까지 사용하는 Fake Repository 구현체입니다.
+  * [S14P31A404-234] 아이 프로필 목록 및 선택 화면 개발용 데이터 제공용.
+  */
++@Singleton
+ class FakeChildProfileRepository
+     @Inject
+     constructor() : ChildProfileRepository {
++        // 메모리 기반 임시 저장소 (백엔드 API 연동 전까지 유지)
++        private val createdProfiles = mutableListOf<ChildProfile>()
++
+         override suspend fun getChildProfiles(): List<ChildProfile> {
+             // 네트워크 지연 시뮬레이션
+             delay(LOADING_DELAY_MS)
+ 
+             // 후속 작업: [S14P31A404-300] 백엔드 아이 프로필 API 완성 시 RemoteRepository 구현체로 교체 필요
+-            return if (BuildConfig.DEBUG && USE_SAMPLE_DATA) {
+-                listOf(
+-                    ChildProfile(childId = 1L, name = "민준", age = 6),
+-                    ChildProfile(childId = 2L, name = "서연", age = 4),
++            val baseProfiles =
++                if (BuildConfig.DEBUG && USE_SAMPLE_DATA) {
++                    listOf(
++                        ChildProfile(childId = 1L, name = "민준", age = 6),
++                        ChildProfile(childId = 2L, name = "서연", age = 4),
++                    )
++                } else {
++                    emptyList()
++                }
++
++            return baseProfiles + createdProfiles
++        }
++
++        override suspend fun createChildProfile(
++            name: String,
++            age: Int,
++        ) {
++            // 네트워크 지연 시뮬레이션
++            delay(LOADING_DELAY_MS)
++
++            // 임시 ID 생성 (기존 프로필 ID와 겹치지 않게 1000L부터 시작)
++            val newId = INITIAL_FAKE_ID + createdProfiles.size
++            val newProfile =
++                ChildProfile(
++                    childId = newId,
++                    name = name,
++                    age = age,
+                 )
+-            } else {
+-                emptyList()
+-            }
++            createdProfiles.add(newProfile)
+         }
+ 
+         companion object {
+             private const val LOADING_DELAY_MS = 1000L
++            private const val INITIAL_FAKE_ID = 1000L
+ 
+             /**
+              * 개발/검증용 샘플 데이터 노출 여부.
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/repository/ChildProfileRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/repository/ChildProfileRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/repository/ChildProfileRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/repository/ChildProfileRepository.kt
+@@ -4,4 +4,9 @@ import com.ssafy.mobile.feature.childprofile.domain.model.ChildProfile
+ 
+ interface ChildProfileRepository {
+     suspend fun getChildProfiles(): List<ChildProfile>
++
++    suspend fun createChildProfile(
++        name: String,
++        age: Int,
++    )
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt
+@@ -0,0 +1,137 @@
++package com.ssafy.mobile.feature.childprofile.presentation
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.text.KeyboardOptions
++import androidx.compose.material3.Button
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.OutlinedTextField
++import androidx.compose.material3.Scaffold
++import androidx.compose.material3.Text
++import androidx.compose.material3.TextButton
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.input.KeyboardType
++import androidx.compose.ui.unit.dp
++import androidx.hilt.navigation.compose.hiltViewModel
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
++
++@Composable
++fun ChildProfileEditRoute(
++    onNavigateBack: (Boolean) -> Unit,
++    modifier: Modifier = Modifier,
++    viewModel: ChildProfileEditViewModel = hiltViewModel(),
++) {
++    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
++    val name by viewModel.name.collectAsStateWithLifecycle()
++    val age by viewModel.age.collectAsStateWithLifecycle()
++
++    LaunchedEffect(uiState) {
++        if (uiState is ChildProfileEditUiState.Success) {
++            onNavigateBack(true)
++        }
++    }
++
++    ChildProfileEditScreen(
++        uiState = uiState,
++        name = name,
++        age = age,
++        onNameChange = viewModel::onNameChange,
++        onAgeChange = viewModel::onAgeChange,
++        onSave = viewModel::saveProfile,
++        onBack = { onNavigateBack(false) },
++        modifier = modifier,
++    )
++}
++
++@Composable
++@Suppress("LongParameterList")
++private fun ChildProfileEditScreen(
++    uiState: ChildProfileEditUiState,
++    name: String,
++    age: String,
++    onNameChange: (String) -> Unit,
++    onAgeChange: (String) -> Unit,
++    onSave: () -> Unit,
++    onBack: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    val isSaving = uiState is ChildProfileEditUiState.Saving
++
++    Scaffold { padding ->
++        Column(
++            modifier =
++                modifier
++                    .fillMaxSize()
++                    .padding(padding)
++                    .padding(24.dp),
++        ) {
++            // 커스텀 헤더
++            Row(
++                modifier = Modifier.fillMaxWidth(),
++                verticalAlignment = Alignment.CenterVertically,
++                horizontalArrangement = Arrangement.SpaceBetween,
++            ) {
++                Text(
++                    text = "아이 프로필 추가",
++                    style = MaterialTheme.typography.headlineSmall,
++                    fontWeight = FontWeight.Bold,
++                )
++                TextButton(onClick = onBack, enabled = !isSaving) {
++                    Text("취소")
++                }
++            }
++
++            Spacer(modifier = Modifier.height(32.dp))
++            OutlinedTextField(
++                value = name,
++                onValueChange = onNameChange,
++                label = { Text("아이 이름") },
++                modifier = Modifier.fillMaxWidth(),
++                enabled = !isSaving,
++                singleLine = true,
++            )
++
++            Spacer(modifier = Modifier.height(16.dp))
++
++            OutlinedTextField(
++                value = age,
++                onValueChange = onAgeChange,
++                label = { Text("아이 나이") },
++                modifier = Modifier.fillMaxWidth(),
++                enabled = !isSaving,
++                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
++                singleLine = true,
++            )
++
++            if (uiState is ChildProfileEditUiState.Error) {
++                Spacer(modifier = Modifier.height(8.dp))
++                Text(
++                    text = uiState.message,
++                    color = MaterialTheme.colorScheme.error,
++                    style = MaterialTheme.typography.bodySmall,
++                )
++            }
++
++            Spacer(modifier = Modifier.height(32.dp))
++
++            Button(
++                onClick = onSave,
++                modifier = Modifier.fillMaxWidth(),
++                enabled = !isSaving,
++            ) {
++                Text(text = if (isSaving) "저장 중..." else "저장하기")
++            }
++        }
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditUiState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditUiState.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditUiState.kt
+@@ -0,0 +1,13 @@
++package com.ssafy.mobile.feature.childprofile.presentation
++
++sealed interface ChildProfileEditUiState {
++    data object Idle : ChildProfileEditUiState
++
++    data object Saving : ChildProfileEditUiState
++
++    data object Success : ChildProfileEditUiState
++
++    data class Error(
++        val message: String,
++    ) : ChildProfileEditUiState
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditViewModel.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditViewModel.kt
+@@ -0,0 +1,94 @@
++package com.ssafy.mobile.feature.childprofile.presentation
++
++import android.util.Log
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.feature.childprofile.domain.repository.ChildProfileRepository
++import dagger.hilt.android.lifecycle.HiltViewModel
++import javax.inject.Inject
++import kotlin.coroutines.cancellation.CancellationException
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++
++@HiltViewModel
++class ChildProfileEditViewModel
++    @Inject
++    constructor(
++        private val childProfileRepository: ChildProfileRepository,
++    ) : ViewModel() {
++        companion object {
++            private const val TAG = "ChildProfileEditViewModel"
++            private const val MAX_AGE = 18
++        }
++
++        private val _uiState =
++            MutableStateFlow<ChildProfileEditUiState>(ChildProfileEditUiState.Idle)
++        val uiState: StateFlow<ChildProfileEditUiState> = _uiState.asStateFlow()
++
++        var name = MutableStateFlow("")
++            private set
++
++        var age = MutableStateFlow("")
++            private set
++
++        @Suppress("TooGenericExceptionCaught")
++        fun saveProfile() {
++            if (_uiState.value is ChildProfileEditUiState.Saving) return
++
++            val currentName = name.value.trim()
++            val currentAgeText = age.value.trim()
++            val currentAge = currentAgeText.toIntOrNull()
++
++            val errorMessage =
++                when {
++                    currentName.isEmpty() -> "이름을 입력해 주세요."
++                    currentAge == null -> "나이를 숫자로 입력해 주세요."
++                    currentAge !in 0..MAX_AGE -> "나이는 0세에서 ${MAX_AGE}세 사이여야 합니다."
++                    else -> null
++                }
++
++            if (errorMessage != null) {
++                _uiState.value = ChildProfileEditUiState.Error(errorMessage)
++                return
++            }
++
++            _uiState.value = ChildProfileEditUiState.Saving
++            viewModelScope.launch {
++                try {
++                    withContext(Dispatchers.IO) {
++                        childProfileRepository.createChildProfile(
++                            name = currentName,
++                            age = currentAge!!,
++                        )
++                    }
++                    _uiState.value = ChildProfileEditUiState.Success
++                } catch (e: CancellationException) {
++                    throw e
++                } catch (e: Exception) {
++                    Log.e(TAG, "Failed to save child profile", e)
++                    _uiState.value = ChildProfileEditUiState.Error("아이 정보를 저장하지 못했습니다.")
++                }
++            }
++        }
++
++        fun onNameChange(newName: String) {
++            name.value = newName
++            if (_uiState.value is ChildProfileEditUiState.Error) {
++                _uiState.value = ChildProfileEditUiState.Idle
++            }
++        }
++
++        fun onAgeChange(newAge: String) {
++            // 숫자만 허용
++            if (newAge.isEmpty() || newAge.all { it.isDigit() }) {
++                age.value = newAge
++            }
++            if (_uiState.value is ChildProfileEditUiState.Error) {
++                _uiState.value = ChildProfileEditUiState.Idle
++            }
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt
+@@ -26,16 +26,20 @@ import androidx.compose.material3.TextButton
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import androidx.navigation.NavController
+ import com.ssafy.mobile.feature.childprofile.domain.model.ChildProfile
+ 
+ @Composable
+ fun ChildProfileSelectRoute(
++    navController: NavController,
+     onNavigateToHome: () -> Unit,
+     onNavigateToCreate: () -> Unit,
+     modifier: Modifier = Modifier,
+@@ -44,6 +48,22 @@ fun ChildProfileSelectRoute(
+     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+     val isSelecting by viewModel.isSelecting.collectAsStateWithLifecycle()
+ 
++    // 이전 화면에서 전달된 변경 플래그 확인
++    val refreshNeeded by navController.currentBackStackEntry
++        ?.savedStateHandle
++        ?.getStateFlow("child_profile_changed", false)
++        ?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(false) }
++
++    LaunchedEffect(refreshNeeded) {
++        if (refreshNeeded) {
++            viewModel.loadProfiles()
++            navController.currentBackStackEntry?.savedStateHandle?.set(
++                "child_profile_changed",
++                false,
++            )
++        }
++    }
++
+     LaunchedEffect(Unit) {
+         viewModel.navigationEvent.collect { event ->
+             when (event) {
+@@ -103,6 +123,7 @@ private fun ChildProfileSelectScreen(
+                     profiles = uiState.profiles,
+                     isSelecting = isSelecting,
+                     onProfileSelect = onProfileSelect,
++                    onNavigateToCreate = onNavigateToCreate,
+                 )
+             }
+             is ChildProfileSelectUiState.Empty -> {
+@@ -136,6 +157,7 @@ private fun ProfileList(
+     profiles: List<ChildProfile>,
+     isSelecting: Boolean,
+     onProfileSelect: (Long) -> Unit,
++    onNavigateToCreate: () -> Unit,
+ ) {
+     LazyColumn(
+         modifier = Modifier.fillMaxWidth(),
+@@ -149,6 +171,17 @@ private fun ProfileList(
+                 onClick = { onProfileSelect(profile.childId) },
+             )
+         }
++
++        item {
++            Spacer(modifier = Modifier.height(8.dp))
++            TextButton(
++                onClick = onNavigateToCreate,
++                modifier = Modifier.fillMaxWidth(),
++                enabled = !isSelecting,
++            ) {
++                Text(text = "+ 아이 추가하기")
++            }
++        }
+     }
+ }
+ 
+
+

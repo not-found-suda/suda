@@ -1,0 +1,421 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/domain/TranslateRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/domain/TranslateRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/domain/TranslateRepository.kt
++++ /dev/null
+@@ -1,16 +0,0 @@
+-package com.ssafy.mobile.core.domain
+-
+-import com.ssafy.mobile.core.model.SignTranslateResult
+-import com.ssafy.mobile.core.model.VoiceTranslateResult
+-
+-/**
+- * 서버 통역 API와의 소통 계약을 정의하는 도메인 인터페이스.
+- * 구현체는 B 파트가 feature/conversation/data 레이어에서 작성합니다.
+- */
+-interface TranslateRepository {
+-    /** 수어 단어 목록(gloss)을 서버로 전송하여 자연어 문장으로 교정받습니다. (PATOCH_004) */
+-    suspend fun translateSign(glosses: List<String>): SignTranslateResult
+-
+-    /** 아이의 음성 텍스트를 서버로 전송하여 영유아 발음을 보정받습니다. (CHTOPA_002) */
+-    suspend fun translateVoice(rawText: String): VoiceTranslateResult
+-}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/model/TranslateResult.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/model/TranslateResult.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/model/TranslateResult.kt
++++ /dev/null
+@@ -1,10 +0,0 @@
+-package com.ssafy.mobile.core.model
+-
+-data class SignTranslateResult(
+-    val correctedText: String,
+-    val audioUrl: String? = null,
+-)
+-
+-data class VoiceTranslateResult(
+-    val translatedText: String,
+-)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/network/RefreshTokenClient.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/network/RefreshTokenClient.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/network/RefreshTokenClient.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/network/RefreshTokenClient.kt
+@@ -9,16 +9,10 @@ import retrofit2.Retrofit
+ import retrofit2.http.Body
+ import retrofit2.http.POST
+ 
+-/**
+- * 토큰 갱신을 담당하는 클라이언트 인터페이스입니다.
+- */
+ interface RefreshTokenClient {
+     suspend fun refresh(refreshToken: String): RefreshResponseDto?
+ }
+ 
+-/**
+- * 실제 백엔드 API와 통신하여 토큰을 갱신하는 Retrofit 기반 구현체입니다.
+- */
+ class RetrofitRefreshTokenClient(
+     private val noAuthRetrofit: Retrofit,
+ ) : RefreshTokenClient {
+@@ -56,14 +50,11 @@ class RetrofitRefreshTokenClient(
+             )
+             null
+         } catch (e: com.google.gson.JsonSyntaxException) {
+-            android.util.Log.e("RefreshTokenClient", "Response parsing failed: ${e.message}", e)
++            android.util.Log.e(
++                "RefreshTokenClient",
++                "Response parsing failed: ${e.message}",
++                e,
++            )
+             null
+         }
+ }
+-
+-/**
+- * 테스트용 Mock 구현체입니다.
+- */
+-class MockRefreshTokenClient : RefreshTokenClient {
+-    override suspend fun refresh(refreshToken: String): RefreshResponseDto? = null
+-}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/FakeChildProfileRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/FakeChildProfileRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/FakeChildProfileRepository.kt
++++ /dev/null
+@@ -1,117 +0,0 @@
+-package com.ssafy.mobile.feature.childprofile.data.repository
+-
+-import com.ssafy.mobile.BuildConfig
+-import com.ssafy.mobile.feature.childprofile.domain.model.ChildProfile
+-import com.ssafy.mobile.feature.childprofile.domain.repository.ChildProfileRepository
+-import javax.inject.Inject
+-import javax.inject.Singleton
+-import kotlinx.coroutines.delay
+-
+-/**
+- * 실제 API 연동 전까지 사용하는 Fake Repository 구현체입니다.
+- * [S14P31A404-234] 아이 프로필 목록 및 선택 화면 개발용 데이터 제공용.
+- */
+-@Singleton
+-class FakeChildProfileRepository
+-    @Inject
+-    constructor() : ChildProfileRepository {
+-        // 메모리 기반 임시 저장소 (백엔드 API 연동 전까지 유지)
+-        private val createdProfiles = mutableListOf<ChildProfile>()
+-
+-        override suspend fun getChildProfiles(): List<ChildProfile> {
+-            // 네트워크 지연 시뮬레이션
+-            delay(LOADING_DELAY_MS)
+-
+-            // 후속 작업: [S14P31A404-300] 백엔드 아이 프로필 API 완성 시 RemoteRepository 구현체로 교체 필요
+-            val baseProfiles =
+-                if (BuildConfig.DEBUG && USE_SAMPLE_DATA) {
+-                    listOf(
+-                        ChildProfile(
+-                            childId = 1L,
+-                            name = "민준",
+-                            birthDate = "2020-05-01",
+-                            age = 6,
+-                            active = true,
+-                        ),
+-                        ChildProfile(
+-                            childId = 2L,
+-                            name = "서연",
+-                            birthDate = "2022-03-15",
+-                            age = 4,
+-                            active = true,
+-                        ),
+-                    )
+-                } else {
+-                    emptyList()
+-                }
+-
+-            return baseProfiles + createdProfiles
+-        }
+-
+-        override suspend fun createChildProfile(
+-            name: String,
+-            birthDate: String,
+-        ) {
+-            // 네트워크 지연 시뮬레이션
+-            delay(LOADING_DELAY_MS)
+-
+-            // 임시 ID 생성 (기존 프로필 ID와 겹치지 않게 1000L부터 시작)
+-            val newId = INITIAL_FAKE_ID + createdProfiles.size
+-            val newProfile =
+-                ChildProfile(
+-                    childId = newId,
+-                    name = name,
+-                    birthDate = birthDate,
+-                    age = 6, // Fake age
+-                    active = true,
+-                )
+-            createdProfiles.add(newProfile)
+-        }
+-
+-        @Suppress("MagicNumber")
+-        override suspend fun getChildProfile(childId: Long): ChildProfile {
+-            delay(LOADING_DELAY_MS)
+-            val baseProfiles =
+-                listOf(
+-                    ChildProfile(1L, "민준", "2020-05-01", 6, true),
+-                    ChildProfile(2L, "서연", "2022-03-15", 4, true),
+-                )
+-            val allProfiles = baseProfiles + createdProfiles
+-            return allProfiles.find { it.childId == childId }
+-                ?: error("존재하지 않는 프로필입니다.")
+-        }
+-
+-        override suspend fun updateChildProfile(
+-            childId: Long,
+-            name: String?,
+-            birthDate: String?,
+-        ) {
+-            delay(LOADING_DELAY_MS)
+-            val index = createdProfiles.indexOfFirst { it.childId == childId }
+-            if (index != -1) {
+-                val existing = createdProfiles[index]
+-                createdProfiles[index] =
+-                    existing.copy(
+-                        name = name ?: existing.name,
+-                        birthDate = birthDate ?: existing.birthDate,
+-                    )
+-            }
+-        }
+-
+-        override suspend fun deleteChildProfile(childId: Long) {
+-            delay(LOADING_DELAY_MS)
+-            createdProfiles.removeIf { it.childId == childId }
+-        }
+-
+-        companion object {
+-            private const val LOADING_DELAY_MS = 1000L
+-            private const val INITIAL_FAKE_ID = 1000L
+-
+-            /**
+-             * 개발/검증용 샘플 데이터 노출 여부.
+-             * 실제 백엔드 연동 전까지 빈 상태(Empty) 테스트를 위해 기본값은 false입니다.
+-             * 목록 UI 확인이 필요할 때만 로컬에서 true로 변경하여 사용합니다.
+-             */
+-            private const val USE_SAMPLE_DATA = false
+-        }
+-    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/ReplayWindowScanner.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/ReplayWindowScanner.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/ReplayWindowScanner.kt
++++ /dev/null
+@@ -1,193 +0,0 @@
+-package com.ssafy.mobile.feature.sign.presentation
+-
+-import android.content.Context
+-import android.util.Log
+-import com.ssafy.mobile.core.vision.feature.LandmarkFeatureEncoder
+-import com.ssafy.mobile.core.vision.feature.LandmarkFeatureFrame
+-import com.ssafy.mobile.core.vision.inference.SignInferenceAdapterFactory
+-import com.ssafy.mobile.core.vision.inference.SignInferenceResult
+-import com.ssafy.mobile.core.vision.inference.SignInferenceRuntimeMode
+-import com.ssafy.mobile.core.vision.inference.SignModelContract
+-import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
+-import java.util.Locale
+-
+-internal class ReplayWindowScanner(
+-    private val context: Context,
+-) {
+-    fun logExhaustiveWindows(frames: List<LandmarkFrameResult>) {
+-        if (!LOG_EXHAUSTIVE_WINDOWS) return
+-
+-        if (frames.size < SignModelContract.SEQUENCE_LENGTH) {
+-            Log.d(
+-                TAG,
+-                "SKIP frameCount=${frames.size} required=${SignModelContract.SEQUENCE_LENGTH}",
+-            )
+-            return
+-        }
+-
+-        val features = frames.map(LandmarkFeatureEncoder()::encode)
+-        val bestHits: MutableMap<String, ReplayWindowTargetHit?> =
+-            TARGET_GLOSSES
+-                .associateWith { null as ReplayWindowTargetHit? }
+-                .toMutableMap()
+-        val inferenceAdapter =
+-            SignInferenceAdapterFactory(
+-                context = context,
+-                runtimeMode = SignInferenceRuntimeMode.TFLITE,
+-            ).create()
+-
+-        try {
+-            val lastWindowStart = features.size - SignModelContract.SEQUENCE_LENGTH
+-            Log.d(TAG, "START frameCount=${features.size} windows=${lastWindowStart + 1}")
+-            for (windowStart in 0..lastWindowStart) {
+-                val windowEnd = windowStart + SignModelContract.SEQUENCE_LENGTH
+-                val window = features.subList(windowStart, windowEnd)
+-                val hit =
+-                    ReplayWindowHit(
+-                        windowIndex = windowStart,
+-                        startFrameNumber = windowStart + 1,
+-                        endFrameNumber = windowEnd,
+-                        startTimestampMs = window.first().timestampMs,
+-                        endTimestampMs = window.last().timestampMs,
+-                        handFrameCount = window.count { it.hasHands },
+-                        result = inferenceAdapter.predict(window.toSequenceInput()),
+-                    )
+-
+-                logWindow(hit)
+-                updateBestHits(bestHits, hit)
+-            }
+-            logSummary(bestHits)
+-        } finally {
+-            inferenceAdapter.close()
+-        }
+-    }
+-
+-    private fun List<LandmarkFeatureFrame>.toSequenceInput(): FloatArray {
+-        val sequence =
+-            FloatArray(
+-                SignModelContract.SEQUENCE_LENGTH *
+-                    SignModelContract.FEATURE_DIMENSION,
+-            )
+-        var offset = 0
+-        forEach { frame ->
+-            frame.values.copyInto(
+-                destination = sequence,
+-                destinationOffset = offset,
+-            )
+-            offset += SignModelContract.FEATURE_DIMENSION
+-        }
+-        return sequence
+-    }
+-
+-    private fun logWindow(hit: ReplayWindowHit) {
+-        val result = hit.result
+-        val top1Index = result.classIndex?.toString() ?: "-"
+-        Log.d(
+-            TAG,
+-            "WINDOW #${hit.windowIndex} " +
+-                "frames=${hit.startFrameNumber}-${hit.endFrameNumber} " +
+-                "time=${hit.startTimestampMs}-${hit.endTimestampMs}ms " +
+-                "hands=${hit.handFrameCount}/${SignModelContract.SEQUENCE_LENGTH} " +
+-                "top1=[$top1Index]${result.gloss} " +
+-                formatPercent(result.confidence) +
+-                " top2=${result.secondGloss ?: "-"} " +
+-                formatPercent(result.secondConfidence ?: 0f) +
+-                " margin=${formatPercent(result.margin)}",
+-        )
+-    }
+-
+-    private fun updateBestHits(
+-        bestHits: MutableMap<String, ReplayWindowTargetHit?>,
+-        hit: ReplayWindowHit,
+-    ) {
+-        val result = hit.result
+-        bestHits.updateBestHit(
+-            gloss = result.gloss,
+-            candidate =
+-                ReplayWindowTargetHit(
+-                    hit = hit,
+-                    rank = 1,
+-                    confidence = result.confidence,
+-                ),
+-        )
+-        result.secondGloss?.let { secondGloss ->
+-            bestHits.updateBestHit(
+-                gloss = secondGloss,
+-                candidate =
+-                    ReplayWindowTargetHit(
+-                        hit = hit,
+-                        rank = 2,
+-                        confidence = result.secondConfidence ?: 0f,
+-                    ),
+-            )
+-        }
+-    }
+-
+-    private fun MutableMap<String, ReplayWindowTargetHit?>.updateBestHit(
+-        gloss: String,
+-        candidate: ReplayWindowTargetHit,
+-    ) {
+-        if (!containsKey(gloss)) return
+-
+-        val current = this[gloss]
+-        if (current == null || candidate.confidence > current.confidence) {
+-            this[gloss] = candidate
+-        }
+-    }
+-
+-    private fun logSummary(bestHits: Map<String, ReplayWindowTargetHit?>) {
+-        bestHits.forEach { (gloss, bestHit) ->
+-            if (bestHit == null) {
+-                Log.d(TAG, "BEST $gloss none")
+-                return@forEach
+-            }
+-
+-            val hit = bestHit.hit
+-            Log.d(
+-                TAG,
+-                "BEST $gloss " +
+-                    "rank=top${bestHit.rank} " +
+-                    "confidence=${formatPercent(bestHit.confidence)} " +
+-                    "window=#${hit.windowIndex} " +
+-                    "frames=${hit.startFrameNumber}-${hit.endFrameNumber} " +
+-                    "time=${hit.startTimestampMs}-${hit.endTimestampMs}ms " +
+-                    "windowTop1=${hit.result.gloss} " +
+-                    formatPercent(hit.result.confidence),
+-            )
+-        }
+-    }
+-
+-    private fun formatPercent(value: Float): String =
+-        String.format(Locale.US, "%.1f%%", value * PERCENT_MULTIPLIER)
+-
+-    private data class ReplayWindowHit(
+-        val windowIndex: Int,
+-        val startFrameNumber: Int,
+-        val endFrameNumber: Int,
+-        val startTimestampMs: Long,
+-        val endTimestampMs: Long,
+-        val handFrameCount: Int,
+-        val result: SignInferenceResult,
+-    )
+-
+-    private data class ReplayWindowTargetHit(
+-        val hit: ReplayWindowHit,
+-        val rank: Int,
+-        val confidence: Float,
+-    )
+-
+-    private companion object {
+-        const val LOG_EXHAUSTIVE_WINDOWS = true
+-        const val PERCENT_MULTIPLIER = 100f
+-        const val TAG = "SignReplayWindow"
+-        val TARGET_GLOSSES =
+-            listOf(
+-                "장난감",
+-                "조심",
+-                "일어나다",
+-                "기차",
+-                "병원",
+-                "가다",
+-            )
+-    }
+-}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/translation/GemmaOnDeviceTranslationEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/translation/GemmaOnDeviceTranslationEngine.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/translation/GemmaOnDeviceTranslationEngine.kt
++++ /dev/null
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/translation/TranslationResult.kt b/mobile/app/src/main/java/com/ssafy/mobile/translation/TranslationResult.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/translation/TranslationResult.kt
+@@ -0,0 +1,9 @@
++package com.ssafy.mobile.translation
++
++data class TranslationResult(
++    val glossText: String,
++    val koreanText: String,
++    val rawText: String,
++    val usedRuleBased: Boolean,
++    val elapsedMs: Long,
++)
+
+

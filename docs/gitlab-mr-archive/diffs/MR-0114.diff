@@ -1,0 +1,819 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/local/db/LearningDatabase.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/local/db/LearningDatabase.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/local/db/LearningDatabase.kt
+@@ -0,0 +1,33 @@
++package com.ssafy.mobile.feature.learning.data.local.db
++
++import android.content.Context
++import androidx.room.Database
++import androidx.room.Room
++import androidx.room.RoomDatabase
++
++@Database(
++    entities = [PendingLearningQuizAnswerSubmissionEntity::class],
++    version = 1,
++    exportSchema = false,
++)
++abstract class LearningDatabase : RoomDatabase() {
++    abstract fun pendingLearningQuizAnswerSubmissionDao(): PendingLearningQuizAnswerSubmissionDao
++
++    companion object {
++        private const val DATABASE_NAME = "learning.db"
++
++        @Volatile
++        private var instance: LearningDatabase? = null
++
++        fun getInstance(context: Context): LearningDatabase =
++            instance ?: synchronized(this) {
++                instance ?: Room
++                    .databaseBuilder(
++                        context = context.applicationContext,
++                        klass = LearningDatabase::class.java,
++                        name = DATABASE_NAME,
++                    ).build()
++                    .also { instance = it }
++            }
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/local/db/PendingLearningQuizAnswerSubmissionDao.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/local/db/PendingLearningQuizAnswerSubmissionDao.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/local/db/PendingLearningQuizAnswerSubmissionDao.kt
+@@ -0,0 +1,61 @@
++package com.ssafy.mobile.feature.learning.data.local.db
++
++import androidx.room.Dao
++import androidx.room.Insert
++import androidx.room.OnConflictStrategy
++import androidx.room.Query
++
++@Dao
++interface PendingLearningQuizAnswerSubmissionDao {
++    @Insert(onConflict = OnConflictStrategy.REPLACE)
++    suspend fun upsert(submission: PendingLearningQuizAnswerSubmissionEntity)
++
++    @Query(
++        """
++        SELECT *
++        FROM pending_learning_quiz_answer_submissions
++        WHERE sessionId = :sessionId AND questionId = :questionId
++        LIMIT 1
++        """,
++    )
++    suspend fun find(
++        sessionId: Long,
++        questionId: Long,
++    ): PendingLearningQuizAnswerSubmissionEntity?
++
++    @Query(
++        """
++        SELECT *
++        FROM pending_learning_quiz_answer_submissions
++        ORDER BY createdAtMillis ASC
++        """,
++    )
++    suspend fun getAll(): List<PendingLearningQuizAnswerSubmissionEntity>
++
++    @Query(
++        """
++        DELETE FROM pending_learning_quiz_answer_submissions
++        WHERE sessionId = :sessionId AND questionId = :questionId
++        """,
++    )
++    suspend fun delete(
++        sessionId: Long,
++        questionId: Long,
++    )
++
++    @Query(
++        """
++        UPDATE pending_learning_quiz_answer_submissions
++        SET retryCount = retryCount + 1,
++            updatedAtMillis = :failedAtMillis,
++            lastFailureMessage = :failureMessage
++        WHERE sessionId = :sessionId AND questionId = :questionId
++        """,
++    )
++    suspend fun markRetryFailed(
++        sessionId: Long,
++        questionId: Long,
++        failureMessage: String?,
++        failedAtMillis: Long,
++    )
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/local/db/PendingLearningQuizAnswerSubmissionEntity.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/local/db/PendingLearningQuizAnswerSubmissionEntity.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/local/db/PendingLearningQuizAnswerSubmissionEntity.kt
+@@ -0,0 +1,43 @@
++package com.ssafy.mobile.feature.learning.data.local.db
++
++import androidx.room.Entity
++import com.ssafy.mobile.feature.learning.domain.model.PendingLearningQuizAnswerSubmission
++
++@Entity(
++    tableName = "pending_learning_quiz_answer_submissions",
++    primaryKeys = ["sessionId", "questionId"],
++)
++data class PendingLearningQuizAnswerSubmissionEntity(
++    val sessionId: Long,
++    val questionId: Long,
++    val wordId: Long,
++    val recognizedText: String,
++    val retryCount: Int,
++    val createdAtMillis: Long,
++    val updatedAtMillis: Long,
++    val lastFailureMessage: String?,
++)
++
++fun PendingLearningQuizAnswerSubmissionEntity.toDomain(): PendingLearningQuizAnswerSubmission =
++    PendingLearningQuizAnswerSubmission(
++        sessionId = sessionId,
++        questionId = questionId,
++        wordId = wordId,
++        recognizedText = recognizedText,
++        retryCount = retryCount,
++        createdAtMillis = createdAtMillis,
++        updatedAtMillis = updatedAtMillis,
++        lastFailureMessage = lastFailureMessage,
++    )
++
++fun PendingLearningQuizAnswerSubmission.toEntity(): PendingLearningQuizAnswerSubmissionEntity =
++    PendingLearningQuizAnswerSubmissionEntity(
++        sessionId = sessionId,
++        questionId = questionId,
++        wordId = wordId,
++        recognizedText = recognizedText,
++        retryCount = retryCount,
++        createdAtMillis = createdAtMillis,
++        updatedAtMillis = updatedAtMillis,
++        lastFailureMessage = lastFailureMessage,
++    )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/LearningQuizAnswerSubmissionQueueSyncer.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/LearningQuizAnswerSubmissionQueueSyncer.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/LearningQuizAnswerSubmissionQueueSyncer.kt
+@@ -0,0 +1,193 @@
++package com.ssafy.mobile.feature.learning.data.repository
++
++import android.util.Log
++import com.ssafy.mobile.core.network.NetworkMonitor
++import com.ssafy.mobile.feature.learning.data.api.LearningQuizApiService
++import com.ssafy.mobile.feature.learning.data.dto.LearningQuizAnswerRequestDto
++import com.ssafy.mobile.feature.learning.data.dto.LearningQuizAnswerResponseDto
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizAnswerSubmissionSyncEvent
++import com.ssafy.mobile.feature.learning.domain.model.PendingLearningQuizAnswerSubmission
++import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizAnswerSubmissionQueueRepository
++import java.io.IOException
++import javax.inject.Inject
++import javax.inject.Singleton
++import kotlin.coroutines.cancellation.CancellationException
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.flow.MutableSharedFlow
++import kotlinx.coroutines.flow.SharedFlow
++import kotlinx.coroutines.flow.asSharedFlow
++import kotlinx.coroutines.flow.filter
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
++import retrofit2.Response
++
++@Singleton
++class LearningQuizAnswerSubmissionQueueSyncer
++    @Inject
++    constructor(
++        private val networkMonitor: NetworkMonitor,
++        private val queueRepository: LearningQuizAnswerSubmissionQueueRepository,
++        private val apiService: LearningQuizApiService,
++    ) {
++        private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
++        private val syncMutex = Mutex()
++        private val _events =
++            MutableSharedFlow<LearningQuizAnswerSubmissionSyncEvent>(extraBufferCapacity = 16)
++        val events: SharedFlow<LearningQuizAnswerSubmissionSyncEvent> = _events.asSharedFlow()
++        private var isStarted = false
++
++        fun start() {
++            if (isStarted) return
++            isStarted = true
++
++            scope.launch {
++                networkMonitor.isOnline
++                    .filter { isOnline -> isOnline }
++                    .collect {
++                        syncPendingAnswerSubmissions()
++                    }
++            }
++        }
++
++        fun requestSync() {
++            scope.launch {
++                syncPendingAnswerSubmissions()
++            }
++        }
++
++        suspend fun syncPendingAnswerSubmissions() {
++            syncMutex.withLock {
++                val submissions = queueRepository.getPendingAnswerSubmissions()
++                for (submission in submissions) {
++                    val shouldContinue = syncAnswerSubmission(submission)
++                    if (!shouldContinue) break
++                }
++            }
++        }
++
++        @Suppress("TooGenericExceptionCaught")
++        private suspend fun syncAnswerSubmission(
++            submission: PendingLearningQuizAnswerSubmission,
++        ): Boolean =
++            try {
++                val response =
++                    apiService.submitAnswer(
++                        sessionId = submission.sessionId,
++                        request =
++                            LearningQuizAnswerRequestDto(
++                                questionId = submission.questionId,
++                                wordId = submission.wordId,
++                                recognizedText = submission.recognizedText,
++                            ),
++                    )
++
++                handleSyncResponse(
++                    submission = submission,
++                    response = response,
++                )
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: IOException) {
++                markRetryFailed(submission, e.message)
++                false
++            } catch (e: Exception) {
++                Log.e(TAG, "Failed to resend pending quiz answer", e)
++                markRetryFailed(submission, e.message)
++                true
++            }
++
++        private suspend fun handleSyncResponse(
++            submission: PendingLearningQuizAnswerSubmission,
++            response: Response<LearningQuizAnswerResponseDto>,
++        ): Boolean =
++            when {
++                response.isSuccessful -> {
++                    val body = response.body()
++                    queueRepository.deleteAnswerSubmission(
++                        sessionId = submission.sessionId,
++                        questionId = submission.questionId,
++                    )
++                    if (body != null) {
++                        _events.emit(
++                            LearningQuizAnswerSubmissionSyncEvent.AnswerSynced(
++                                result = body.toDomain(),
++                            ),
++                        )
++                    } else {
++                        emitAnswerAcceptedWithoutResult(submission)
++                    }
++                    true
++                }
++                response.code() == HTTP_STATUS_CONFLICT -> {
++                    queueRepository.deleteAnswerSubmission(
++                        sessionId = submission.sessionId,
++                        questionId = submission.questionId,
++                    )
++                    emitAnswerAcceptedWithoutResult(submission)
++                    true
++                }
++                response.code().isPermanentFailureStatusCode() -> {
++                    queueRepository.deleteAnswerSubmission(
++                        sessionId = submission.sessionId,
++                        questionId = submission.questionId,
++                    )
++                    true
++                }
++                response.code().isAuthFailureStatusCode() -> {
++                    markRetryFailed(
++                        submission = submission,
++                        failureMessage = "인증 후 다시 전송이 필요합니다.",
++                    )
++                    false
++                }
++                else -> {
++                    markRetryFailed(
++                        submission = submission,
++                        failureMessage = "서버 응답 오류: ${response.code()}",
++                    )
++                    true
++                }
++            }
++
++        private suspend fun emitAnswerAcceptedWithoutResult(
++            submission: PendingLearningQuizAnswerSubmission,
++        ) {
++            _events.emit(
++                LearningQuizAnswerSubmissionSyncEvent.AnswerAcceptedWithoutResult(
++                    sessionId = submission.sessionId,
++                    questionId = submission.questionId,
++                ),
++            )
++        }
++
++        private suspend fun markRetryFailed(
++            submission: PendingLearningQuizAnswerSubmission,
++            failureMessage: String?,
++        ) {
++            queueRepository.markAnswerSubmissionRetryFailed(
++                sessionId = submission.sessionId,
++                questionId = submission.questionId,
++                failureMessage = failureMessage,
++                failedAtMillis = System.currentTimeMillis(),
++            )
++        }
++
++        private fun Int.isPermanentFailureStatusCode(): Boolean =
++            this == HTTP_STATUS_BAD_REQUEST ||
++                this == HTTP_STATUS_NOT_FOUND
++
++        private fun Int.isAuthFailureStatusCode(): Boolean =
++            this == HTTP_STATUS_UNAUTHORIZED || this == HTTP_STATUS_FORBIDDEN
++
++        private companion object {
++            const val TAG = "LearningAnswerQueue"
++            const val HTTP_STATUS_BAD_REQUEST = 400
++            const val HTTP_STATUS_UNAUTHORIZED = 401
++            const val HTTP_STATUS_FORBIDDEN = 403
++            const val HTTP_STATUS_NOT_FOUND = 404
++            const val HTTP_STATUS_CONFLICT = 409
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningQuizRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningQuizRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningQuizRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningQuizRepository.kt
+@@ -10,6 +10,8 @@ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizQuestion
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizResult
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSession
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSessionStatus
++import com.ssafy.mobile.feature.learning.domain.model.PendingLearningQuizAnswerSubmission
++import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizAnswerSubmissionQueueRepository
+ import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizRepository
+ import java.io.IOException
+ import javax.inject.Inject
+@@ -30,6 +32,7 @@ class RemoteLearningQuizRepository
+     @Inject
+     constructor(
+         private val apiService: LearningQuizApiService,
++        private val queueRepository: LearningQuizAnswerSubmissionQueueRepository,
+     ) : LearningQuizRepository {
+         override suspend fun createSession(
+             categoryId: Long,
+@@ -59,29 +62,73 @@ class RemoteLearningQuizRepository
+             questionId: Long,
+             wordId: Long,
+             recognizedText: String,
+-        ): Result<LearningQuizAnswerResult> =
+-            runCatchingNetwork("Failed to submit quiz answer") {
+-                apiService
+-                    .submitAnswer(
++        ): Result<LearningQuizAnswerResult> {
++            val result =
++                runCatchingNetwork("Failed to submit quiz answer") {
++                    apiService
++                        .submitAnswer(
++                            sessionId = sessionId,
++                            request =
++                                LearningQuizAnswerRequestDto(
++                                    questionId = questionId,
++                                    wordId = wordId,
++                                    recognizedText = recognizedText,
++                                ),
++                        ).toResult { response ->
++                            response.toDomain()
++                        }
++                }
++
++            enqueuePendingAnswerSubmissionIfNeeded(
++                result = result,
++                sessionId = sessionId,
++                questionId = questionId,
++                wordId = wordId,
++                recognizedText = recognizedText,
++            )
++            return result
++        }
++
++        @Suppress("TooGenericExceptionCaught")
++        private suspend fun enqueuePendingAnswerSubmissionIfNeeded(
++            result: Result<LearningQuizAnswerResult>,
++            sessionId: Long,
++            questionId: Long,
++            wordId: Long,
++            recognizedText: String,
++        ) {
++            val failure = result.exceptionOrNull()
++            if (failure !is IOException) return
++
++            try {
++                val now = System.currentTimeMillis()
++                queueRepository.enqueueAnswerSubmission(
++                    PendingLearningQuizAnswerSubmission(
+                         sessionId = sessionId,
+-                        request =
+-                            LearningQuizAnswerRequestDto(
+-                                questionId = questionId,
+-                                wordId = wordId,
+-                                recognizedText = recognizedText,
+-                            ),
+-                    ).toResult { response ->
+-                        response.toDomain()
+-                    }
++                        questionId = questionId,
++                        wordId = wordId,
++                        recognizedText = recognizedText,
++                        retryCount = 0,
++                        createdAtMillis = now,
++                        updatedAtMillis = now,
++                        lastFailureMessage = failure.message,
++                    ),
++                )
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: Exception) {
++                Log.e(QUIZ_TAG, "Failed to enqueue pending quiz answer", e)
+             }
++        }
+ 
+         override suspend fun completeSession(sessionId: Long): Result<LearningQuizSessionStatus> =
+             runCatchingNetwork("Failed to complete quiz session") {
+                 val response =
+-                    apiService.updateSessionStatus(
+-                        sessionId = sessionId,
+-                        request = LearningQuizSessionStatusRequestDto(COMPLETED_STATUS),
+-                    )
++                    apiService
++                        .updateSessionStatus(
++                            sessionId = sessionId,
++                            request = LearningQuizSessionStatusRequestDto(COMPLETED_STATUS),
++                        )
+ 
+                 if (response.code() == HTTP_STATUS_CONFLICT) {
+                     Result.success(
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RoomLearningQuizAnswerSubmissionQueueRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RoomLearningQuizAnswerSubmissionQueueRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RoomLearningQuizAnswerSubmissionQueueRepository.kt
+@@ -0,0 +1,63 @@
++package com.ssafy.mobile.feature.learning.data.repository
++
++import com.ssafy.mobile.feature.learning.data.local.db.PendingLearningQuizAnswerSubmissionDao
++import com.ssafy.mobile.feature.learning.data.local.db.toDomain
++import com.ssafy.mobile.feature.learning.data.local.db.toEntity
++import com.ssafy.mobile.feature.learning.domain.model.PendingLearningQuizAnswerSubmission
++import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizAnswerSubmissionQueueRepository
++import javax.inject.Inject
++
++class RoomLearningQuizAnswerSubmissionQueueRepository
++    @Inject
++    constructor(
++        private val dao: PendingLearningQuizAnswerSubmissionDao,
++    ) : LearningQuizAnswerSubmissionQueueRepository {
++        override suspend fun enqueueAnswerSubmission(
++            submission: PendingLearningQuizAnswerSubmission,
++        ) {
++            val existing =
++                dao.find(
++                    sessionId = submission.sessionId,
++                    questionId = submission.questionId,
++                )
++            val entity =
++                existing
++                    ?.copy(
++                        wordId = submission.wordId,
++                        recognizedText = submission.recognizedText,
++                        updatedAtMillis = submission.updatedAtMillis,
++                        lastFailureMessage = submission.lastFailureMessage,
++                    ) ?: submission.toEntity()
++
++            dao.upsert(entity)
++        }
++
++        override suspend fun getPendingAnswerSubmissions(): List<
++            PendingLearningQuizAnswerSubmission,
++        > =
++            dao.getAll().map { entity -> entity.toDomain() }
++
++        override suspend fun deleteAnswerSubmission(
++            sessionId: Long,
++            questionId: Long,
++        ) {
++            dao.delete(
++                sessionId = sessionId,
++                questionId = questionId,
++            )
++        }
++
++        override suspend fun markAnswerSubmissionRetryFailed(
++            sessionId: Long,
++            questionId: Long,
++            failureMessage: String?,
++            failedAtMillis: Long,
++        ) {
++            dao.markRetryFailed(
++                sessionId = sessionId,
++                questionId = questionId,
++                failureMessage = failureMessage,
++                failedAtMillis = failedAtMillis,
++            )
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/di/LearningModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/di/LearningModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/di/LearningModule.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/di/LearningModule.kt
+@@ -1,18 +1,24 @@
+ package com.ssafy.mobile.feature.learning.di
+ 
++import android.content.Context
+ import com.ssafy.mobile.feature.learning.data.api.LearningCategoryApiService
+ import com.ssafy.mobile.feature.learning.data.api.LearningQuizApiService
+ import com.ssafy.mobile.feature.learning.data.api.LearningWordApiService
++import com.ssafy.mobile.feature.learning.data.local.db.LearningDatabase
++import com.ssafy.mobile.feature.learning.data.local.db.PendingLearningQuizAnswerSubmissionDao
+ import com.ssafy.mobile.feature.learning.data.repository.RemoteLearningCategoryRepository
+ import com.ssafy.mobile.feature.learning.data.repository.RemoteLearningQuizRepository
+ import com.ssafy.mobile.feature.learning.data.repository.RemoteLearningWordRepository
++import com.ssafy.mobile.feature.learning.data.repository.RoomLearningQuizAnswerSubmissionQueueRepository
+ import com.ssafy.mobile.feature.learning.domain.repository.LearningCategoryRepository
++import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizAnswerSubmissionQueueRepository
+ import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizRepository
+ import com.ssafy.mobile.feature.learning.domain.repository.LearningWordRepository
+ import dagger.Binds
+ import dagger.Module
+ import dagger.Provides
+ import dagger.hilt.InstallIn
++import dagger.hilt.android.qualifiers.ApplicationContext
+ import dagger.hilt.components.SingletonComponent
+ import javax.inject.Singleton
+ import retrofit2.Retrofit
+@@ -38,7 +44,26 @@ internal abstract class LearningModule {
+         repository: RemoteLearningQuizRepository,
+     ): LearningQuizRepository
+ 
++    @Binds
++    @Singleton
++    abstract fun bindLearningQuizAnswerSubmissionQueueRepository(
++        repository: RoomLearningQuizAnswerSubmissionQueueRepository,
++    ): LearningQuizAnswerSubmissionQueueRepository
++
+     companion object {
++        @Provides
++        @Singleton
++        fun provideLearningDatabase(
++            @ApplicationContext context: Context,
++        ): LearningDatabase = LearningDatabase.getInstance(context)
++
++        @Provides
++        @Singleton
++        fun providePendingLearningQuizAnswerSubmissionDao(
++            database: LearningDatabase,
++        ): PendingLearningQuizAnswerSubmissionDao =
++            database.pendingLearningQuizAnswerSubmissionDao()
++
+         @Provides
+         @Singleton
+         fun provideLearningCategoryApiService(retrofit: Retrofit): LearningCategoryApiService =
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/model/LearningQuizAnswerSubmissionSyncEvent.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/model/LearningQuizAnswerSubmissionSyncEvent.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/model/LearningQuizAnswerSubmissionSyncEvent.kt
+@@ -0,0 +1,12 @@
++package com.ssafy.mobile.feature.learning.domain.model
++
++sealed interface LearningQuizAnswerSubmissionSyncEvent {
++    data class AnswerSynced(
++        val result: LearningQuizAnswerResult,
++    ) : LearningQuizAnswerSubmissionSyncEvent
++
++    data class AnswerAcceptedWithoutResult(
++        val sessionId: Long,
++        val questionId: Long,
++    ) : LearningQuizAnswerSubmissionSyncEvent
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/model/PendingLearningQuizAnswerSubmission.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/model/PendingLearningQuizAnswerSubmission.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/model/PendingLearningQuizAnswerSubmission.kt
+@@ -0,0 +1,12 @@
++package com.ssafy.mobile.feature.learning.domain.model
++
++data class PendingLearningQuizAnswerSubmission(
++    val sessionId: Long,
++    val questionId: Long,
++    val wordId: Long,
++    val recognizedText: String,
++    val retryCount: Int,
++    val createdAtMillis: Long,
++    val updatedAtMillis: Long,
++    val lastFailureMessage: String?,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningQuizAnswerSubmissionQueueRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningQuizAnswerSubmissionQueueRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningQuizAnswerSubmissionQueueRepository.kt
+@@ -0,0 +1,21 @@
++package com.ssafy.mobile.feature.learning.domain.repository
++
++import com.ssafy.mobile.feature.learning.domain.model.PendingLearningQuizAnswerSubmission
++
++interface LearningQuizAnswerSubmissionQueueRepository {
++    suspend fun enqueueAnswerSubmission(submission: PendingLearningQuizAnswerSubmission)
++
++    suspend fun getPendingAnswerSubmissions(): List<PendingLearningQuizAnswerSubmission>
++
++    suspend fun deleteAnswerSubmission(
++        sessionId: Long,
++        questionId: Long,
++    )
++
++    suspend fun markAnswerSubmissionRetryFailed(
++        sessionId: Long,
++        questionId: Long,
++        failureMessage: String?,
++        failedAtMillis: Long,
++    )
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginViewModel.kt
+@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
+ import com.ssafy.mobile.core.auth.TokenStorage
+ import com.ssafy.mobile.core.session.ActiveChildStorage
++import com.ssafy.mobile.feature.learning.data.repository.LearningQuizAnswerSubmissionQueueSyncer
+ import com.ssafy.mobile.feature.login.data.repository.LoginException
+ import com.ssafy.mobile.feature.login.data.repository.LoginRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
+@@ -27,6 +28,8 @@ class LoginViewModel
+         private val loginRepository: LoginRepository,
+         private val tokenStorage: TokenStorage,
+         private val activeChildStorage: ActiveChildStorage,
++        private val learningQuizAnswerSubmissionQueueSyncer:
++            LearningQuizAnswerSubmissionQueueSyncer,
+     ) : ViewModel() {
+         companion object {
+             private const val TAG = "LoginViewModel"
+@@ -101,6 +104,7 @@ class LoginViewModel
+                             activeChildStorage.getActiveChildId() != null
+                         }
+ 
++                    learningQuizAnswerSubmissionQueueSyncer.requestSync()
+                     _uiState.value = LoginUiState.Success(hasActiveChild = hasActiveChild)
+                 } catch (e: CancellationException) {
+                     throw e
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
+@@ -3,7 +3,9 @@ package com.ssafy.mobile.feature.quiz.presentation
+ import androidx.lifecycle.SavedStateHandle
+ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.feature.learning.data.repository.LearningQuizAnswerSubmissionQueueSyncer
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizAnswerResult
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizAnswerSubmissionSyncEvent
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizQuestion
+ import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizRepository
+ import com.ssafy.mobile.feature.learning.domain.repository.LearningWordRepository
+@@ -27,6 +29,7 @@ class QuizQuestionViewModel
+         savedStateHandle: SavedStateHandle,
+         private val quizRepository: LearningQuizRepository,
+         private val wordRepository: LearningWordRepository,
++        private val queueSyncer: LearningQuizAnswerSubmissionQueueSyncer,
+     ) : ViewModel() {
+         private val categoryId: Long =
+             checkNotNull(savedStateHandle["categoryId"]) {
+@@ -44,6 +47,11 @@ class QuizQuestionViewModel
+         val answerSubmitState: StateFlow<QuizAnswerSubmitState> = _answerSubmitState.asStateFlow()
+ 
+         init {
++            viewModelScope.launch {
++                queueSyncer.events.collect { event ->
++                    handleAnswerSubmissionSyncEvent(event)
++                }
++            }
+             startSession()
+         }
+ 
+@@ -74,7 +82,7 @@ class QuizQuestionViewModel
+                     question != null &&
+                     trimmedText.isNotBlank()
+ 
+-            if (canSubmitLocalAnswer && question != null) {
++            if (canSubmitLocalAnswer) {
+                 if (question.word.isBlank()) {
+                     _answerSubmitState.value =
+                         QuizAnswerSubmitState.Error("문제 단어 정보를 확인할 수 없습니다.")
+@@ -336,10 +344,62 @@ class QuizQuestionViewModel
+                 }
+         }
+ 
+-        private fun List<QuizAnswer>.replaceAnswer(answer: QuizAnswer): List<QuizAnswer> =
+-            filterNot { it.questionId == answer.questionId } + answer
++        private fun handleAnswerSubmissionSyncEvent(event: LearningQuizAnswerSubmissionSyncEvent) {
++            val state = _quizState.value
++            val question = state.currentQuestion
++            when (event) {
++                is LearningQuizAnswerSubmissionSyncEvent.AnswerSynced -> {
++                    val result = event.result
++                    val isCurrentFailedAnswer =
++                        _answerSubmitState.value is QuizAnswerSubmitState.SaveFailed &&
++                            state.sessionId == result.sessionId &&
++                            question?.id == result.questionId
++
++                    if (isCurrentFailedAnswer) {
++                        applyAnswerResult(result)
++                        if (result.hasNext) {
++                            _answerSubmitState.value = QuizAnswerSubmitState.Success
++                            loadCurrentQuestion(result.sessionId)
++                        } else {
++                            isCompletionPending = true
++                            viewModelScope.launch {
++                                _answerSubmitState.value = QuizAnswerSubmitState.Submitting
++                                completeSession(result.sessionId)
++                            }
++                        }
++                    }
++                }
++                is LearningQuizAnswerSubmissionSyncEvent.AnswerAcceptedWithoutResult -> {
++                    val isCurrentFailedAnswer =
++                        _answerSubmitState.value is QuizAnswerSubmitState.SaveFailed &&
++                            state.sessionId == event.sessionId &&
++                            question?.id == event.questionId
++
++                    if (isCurrentFailedAnswer) {
++                        _answerSubmitState.value = QuizAnswerSubmitState.Success
++                        if (state.isLastQuestion()) {
++                            isCompletionPending = true
++                            viewModelScope.launch {
++                                _answerSubmitState.value = QuizAnswerSubmitState.Submitting
++                                completeSession(event.sessionId)
++                            }
++                        } else {
++                            loadCurrentQuestion(event.sessionId)
++                        }
++                    }
++                }
++            }
++        }
+ 
+         private companion object {
+             const val DEFAULT_DIFFICULTY = "EASY"
+         }
+     }
++
++private fun List<QuizAnswer>.replaceAnswer(answer: QuizAnswer): List<QuizAnswer> =
++    filterNot { it.questionId == answer.questionId } + answer
++
++private fun QuizSessionState.isLastQuestion(): Boolean =
++    currentQuestionNumberOverride != null &&
++        totalQuestionCountOverride != null &&
++        currentQuestionNumberOverride >= totalQuestionCountOverride
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/MobileApplication.kt b/mobile/app/src/main/java/com/ssafy/mobile/MobileApplication.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/MobileApplication.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/MobileApplication.kt
+@@ -1,7 +1,17 @@
+ package com.ssafy.mobile
+ 
+ import android.app.Application
++import com.ssafy.mobile.feature.learning.data.repository.LearningQuizAnswerSubmissionQueueSyncer
+ import dagger.hilt.android.HiltAndroidApp
++import javax.inject.Inject
+ 
+ @HiltAndroidApp
+-class MobileApplication : Application()
++class MobileApplication : Application() {
++    @Inject
++    lateinit var learningQuizAnswerSubmissionQueueSyncer: LearningQuizAnswerSubmissionQueueSyncer
++
++    override fun onCreate() {
++        super.onCreate()
++        learningQuizAnswerSubmissionQueueSyncer.start()
++    }
++}
+
+

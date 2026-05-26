@@ -1,0 +1,631 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioPlayer.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioPlayer.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioPlayer.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioPlayer.kt
+@@ -2,6 +2,7 @@ package com.ssafy.mobile.core.audio
+ 
+ import android.content.Context
+ import android.media.MediaPlayer
++import android.util.Base64
+ import dagger.hilt.android.qualifiers.ApplicationContext
+ import java.io.File
+ import java.io.FileOutputStream
+@@ -56,6 +57,20 @@ class AndroidAudioPlayer
+             }
+         }
+ 
++        override fun playBase64(
++            base64Data: String,
++            onComplete: () -> Unit,
++            onError: () -> Unit,
++        ) {
++            runCatching {
++                val audioBytes = Base64.decode(base64Data, Base64.DEFAULT)
++                play(audioBytes, onComplete)
++            }.onFailure {
++                onError()
++                it.printStackTrace()
++            }
++        }
++
+         override fun stop() {
+             mediaPlayer?.let {
+                 if (it.isPlaying) it.stop()
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AudioPlayer.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AudioPlayer.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AudioPlayer.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AudioPlayer.kt
+@@ -14,6 +14,18 @@ interface AudioPlayer {
+         onComplete: () -> Unit = {},
+     )
+ 
++    /**
++     * Base64 인코딩된 오디오 데이터를 재생합니다.
++     * @param base64Data 재생할 Base64 데이터
++     * @param onComplete 재생 완료 시 실행할 콜백
++     * @param onError 에러 발생 시 실행할 콜백
++     */
++    fun playBase64(
++        base64Data: String,
++        onComplete: () -> Unit = {},
++        onError: () -> Unit = {},
++    )
++
+     /**
+      * 재생 중인 오디오를 중지합니다.
+      */
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/model/ChatMessage.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/model/ChatMessage.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/model/ChatMessage.kt
+@@ -0,0 +1,30 @@
++package com.ssafy.mobile.feature.conversation.domain.model
++
++import java.util.UUID
++
++/**
++ * 대화 자막의 발화 주체를 구분합니다.
++ */
++enum class SenderType {
++    PARENT, // 농인 (부모)
++    CHILD, // 청인 (자녀)
++}
++
++/**
++ * 자막의 처리 상태를 나타냅니다.
++ */
++enum class MessageStatus {
++    PENDING, // 교정/번역 중
++    COMPLETED, // 완료
++}
++
++/**
++ * 대화 화면에 렌더링될 개별 자막 데이터 모델입니다.
++ */
++data class ChatMessage(
++    val id: String = UUID.randomUUID().toString(),
++    val text: String,
++    val senderType: SenderType,
++    val status: MessageStatus = MessageStatus.COMPLETED,
++    val timestamp: Long = System.currentTimeMillis(),
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleBubble.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleBubble.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleBubble.kt
+@@ -0,0 +1,75 @@
++package com.ssafy.mobile.feature.conversation.presentation.components
++
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.widthIn
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.alpha
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.sp
++import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
++import com.ssafy.mobile.feature.conversation.domain.model.MessageStatus
++import com.ssafy.mobile.feature.conversation.domain.model.SenderType
++
++private const val SUDA_BG_COLOR = 0xFFF0F0F0
++private const val PENDING_ALPHA = 0.6f
++private const val MAX_BUBBLE_WIDTH = 280
++
++@Composable
++fun SubtitleBubble(
++    message: ChatMessage,
++    modifier: Modifier = Modifier,
++) {
++    val isParent = message.senderType == SenderType.PARENT
++    val alignment = if (isParent) Alignment.CenterStart else Alignment.CenterEnd
++    val backgroundColor =
++        if (isParent) {
++            Color(SUDA_BG_COLOR)
++        } else {
++            MaterialTheme.colorScheme.primary
++        }
++    val contentColor = if (isParent) Color.Black else Color.White
++    val shape =
++        if (isParent) {
++            RoundedCornerShape(4.dp, 20.dp, 20.dp, 20.dp)
++        } else {
++            RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp)
++        }
++
++    Box(
++        modifier =
++            modifier
++                .fillMaxWidth()
++                .padding(vertical = 4.dp),
++        contentAlignment = alignment,
++    ) {
++        Column(
++            horizontalAlignment = if (isParent) Alignment.Start else Alignment.End,
++        ) {
++            Box(
++                modifier =
++                    Modifier
++                        .widthIn(max = MAX_BUBBLE_WIDTH.dp)
++                        .background(backgroundColor, shape)
++                        .padding(horizontal = 16.dp, vertical = 10.dp)
++                        .alpha(if (message.status == MessageStatus.PENDING) PENDING_ALPHA else 1f),
++            ) {
++                Text(
++                    text = message.text,
++                    color = contentColor,
++                    fontSize = 16.sp,
++                    lineHeight = 22.sp,
++                )
++            }
++        }
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleList.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleList.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleList.kt
+@@ -0,0 +1,39 @@
++package com.ssafy.mobile.feature.conversation.presentation.components
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.lazy.LazyColumn
++import androidx.compose.foundation.lazy.items
++import androidx.compose.foundation.lazy.rememberLazyListState
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
++
++@Composable
++fun SubtitleList(
++    messages: List<ChatMessage>,
++    modifier: Modifier = Modifier,
++) {
++    val listState = rememberLazyListState()
++
++    // 새로운 메시지가 추가될 때마다 최하단으로 자동 스크롤
++    LaunchedEffect(messages.size) {
++        if (messages.isNotEmpty()) {
++            listState.animateScrollToItem(messages.size - 1)
++        }
++    }
++
++    LazyColumn(
++        state = listState,
++        modifier = modifier.fillMaxSize(),
++        contentPadding = PaddingValues(16.dp),
++        verticalArrangement = Arrangement.spacedBy(8.dp),
++    ) {
++        items(messages, key = { it.id }) { message ->
++            SubtitleBubble(message = message)
++        }
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.fillMaxHeight
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.padding
+@@ -34,9 +35,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
++import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
++import com.ssafy.mobile.feature.conversation.presentation.components.SubtitleList
+ import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
+ 
+ private const val TAG = "ConversationWakelock"
++private const val SUBTITLE_WIDTH_FRACTION = 0.95f
++private const val SUBTITLE_HEIGHT_FRACTION = 0.4f
+ 
+ @Composable
+ fun ConversationRoute(
+@@ -44,6 +49,7 @@ fun ConversationRoute(
+     viewModel: ConversationViewModel = hiltViewModel(),
+ ) {
+     val sessionState by viewModel.sessionState.collectAsState()
++    val messages by viewModel.messages.collectAsState()
+     val lastGlosses by viewModel.lastGlosses.collectAsState()
+     val context = LocalContext.current
+ 
+@@ -71,6 +77,7 @@ fun ConversationRoute(
+ 
+     ConversationScreen(
+         sessionState = sessionState,
++        messages = messages,
+         lastGlosses = lastGlosses,
+         onStartSession = viewModel::startSession,
+         onStopSession = viewModel::stopSession,
+@@ -82,6 +89,7 @@ fun ConversationRoute(
+ @Composable
+ private fun ConversationScreen(
+     sessionState: SessionState,
++    messages: List<ChatMessage>,
+     lastGlosses: List<String>,
+     onStartSession: () -> Unit,
+     onStopSession: () -> Unit,
+@@ -107,61 +115,90 @@ private fun ConversationScreen(
+                     .padding(paddingValues)
+                     .fillMaxSize(),
+         ) {
+-            // 카메라 인식 영역
++            // 카메라 인식 영역 및 자막 오버레이
++            SignRecognitionArea(
++                sessionState = sessionState,
++                messages = messages,
++                onLandmarkFrame = onLandmarkFrame,
++                modifier = Modifier.weight(1.0f),
++            )
++
++            // 실시간 인식 결과 영역 (글로스 나열)
++            GlossRecognitionArea(lastGlosses = lastGlosses)
++        }
++    }
++}
++
++@Composable
++private fun SignRecognitionArea(
++    sessionState: SessionState,
++    messages: List<ChatMessage>,
++    onLandmarkFrame: (LandmarkFrameResult) -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Box(
++        modifier = modifier.fillMaxWidth(),
++    ) {
++        SignRecognitionScreen(
++            isSessionActive = sessionState == SessionState.Active,
++            onLandmarkFrameAvailable = onLandmarkFrame,
++            modifier = Modifier.fillMaxSize(),
++        )
++
++        // 자막 리스트 오버레이 (하단 40% 영역)
++        Box(
++            modifier =
++                Modifier
++                    .fillMaxWidth(SUBTITLE_WIDTH_FRACTION)
++                    .fillMaxHeight(SUBTITLE_HEIGHT_FRACTION)
++                    .align(Alignment.BottomCenter)
++                    .padding(bottom = 16.dp),
++        ) {
++            SubtitleList(messages = messages)
++        }
++
++        if (sessionState == SessionState.Idle) {
+             Box(
+                 modifier =
+                     Modifier
+-                        .weight(1.0f)
+-                        .fillMaxWidth(),
++                        .fillMaxSize()
++                        .background(Color.Black.copy(alpha = 0.4f)),
++                contentAlignment = Alignment.Center,
+             ) {
+-                SignRecognitionScreen(
+-                    isSessionActive = sessionState == SessionState.Active,
+-                    onLandmarkFrameAvailable = onLandmarkFrame,
+-                    modifier = Modifier.fillMaxSize(),
++                Text(
++                    text = "세션을 시작하려면 버튼을 누르세요",
++                    color = Color.White,
++                    style = MaterialTheme.typography.titleMedium,
+                 )
+-
+-                if (sessionState == SessionState.Idle) {
+-                    Box(
+-                        modifier =
+-                            Modifier
+-                                .fillMaxSize()
+-                                .background(Color.Black.copy(alpha = 0.4f)),
+-                        contentAlignment = Alignment.Center,
+-                    ) {
+-                        Text(
+-                            text = "세션을 시작하려면 버튼을 누르세요",
+-                            color = Color.White,
+-                            style = MaterialTheme.typography.titleMedium,
+-                        )
+-                    }
+-                }
+             }
++        }
++    }
++}
+ 
+-            // 실시간 인식 결과 영역 (글로스 나열)
+-            Box(
+-                modifier =
+-                    Modifier
+-                        .fillMaxWidth()
+-                        .padding(16.dp)
+-                        .background(
+-                            MaterialTheme.colorScheme.surfaceVariant,
+-                            shape = MaterialTheme.shapes.medium,
+-                        ).padding(12.dp),
++@Composable
++private fun GlossRecognitionArea(lastGlosses: List<String>) {
++    Box(
++        modifier =
++            Modifier
++                .fillMaxWidth()
++                .padding(16.dp)
++                .background(
++                    MaterialTheme.colorScheme.surfaceVariant,
++                    shape = MaterialTheme.shapes.medium,
++                ).padding(12.dp),
++    ) {
++        if (lastGlosses.isEmpty()) {
++            Text(
++                text = "수어 인식 대기 중...",
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++            )
++        } else {
++            LazyRow(
++                horizontalArrangement = Arrangement.spacedBy(8.dp),
+             ) {
+-                if (lastGlosses.isEmpty()) {
+-                    Text(
+-                        text = "수어 인식 대기 중...",
+-                        style = MaterialTheme.typography.bodyMedium,
+-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                    )
+-                } else {
+-                    LazyRow(
+-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+-                    ) {
+-                        items(lastGlosses) { gloss ->
+-                            GlossChip(gloss = gloss)
+-                        }
+-                    }
++                items(lastGlosses) { gloss ->
++                    GlossChip(gloss = gloss)
+                 }
+             }
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -1,6 +1,5 @@
+ package com.ssafy.mobile.feature.conversation.presentation
+ 
+-import android.util.Base64
+ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
+ import com.ssafy.mobile.core.audio.AudioPlayer
+@@ -9,6 +8,9 @@ import com.ssafy.mobile.core.stt.SttEngine
+ import com.ssafy.mobile.core.stt.SttEvent
+ import com.ssafy.mobile.core.vision.SignRecognitionEngine
+ import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
++import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
++import com.ssafy.mobile.feature.conversation.domain.model.MessageStatus
++import com.ssafy.mobile.feature.conversation.domain.model.SenderType
+ import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import javax.inject.Inject
+@@ -16,6 +18,7 @@ import kotlinx.coroutines.Job
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.StateFlow
+ import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.update
+ import kotlinx.coroutines.launch
+ 
+ enum class SessionState {
+@@ -36,6 +39,9 @@ class ConversationViewModel
+         private val _sessionState = MutableStateFlow(SessionState.Idle)
+         val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
+ 
++        private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
++        val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
++
+         private val _lastGlosses = MutableStateFlow<List<String>>(emptyList())
+         val lastGlosses: StateFlow<List<String>> = _lastGlosses.asStateFlow()
+ 
+@@ -90,6 +96,12 @@ class ConversationViewModel
+         }
+ 
+         private fun requestTranslation(words: List<String>) {
++            // 0. 교정 중인 부모 메시지 추가
++            addOrUpdateParentMessage(
++                text = "교정 중...",
++                isFinal = false,
++            )
++
+             // 이전 진행 중인 번역 요청이 있다면 취소하여 중복 및 순서 꼬임 방지
+             translationJob?.cancel()
+ 
+@@ -99,36 +111,34 @@ class ConversationViewModel
+                         .translateSignToSpeech(words)
+                         .onSuccess { response ->
+                             _translatedText.value = response.correctedText
++                            addOrUpdateParentMessage(
++                                text = response.correctedText,
++                                isFinal = true,
++                            )
+ 
+                             // 1. 번역 성공 시 음성 재생 (Base64 데이터가 있는 경우)
+                             response.audioBase64?.let { base64Data ->
+-                                runCatching {
+-                                    val audioBytes = Base64.decode(base64Data, Base64.DEFAULT)
+-
+-                                    // [에코 캔슬링] TTS 재생 전 STT 중단
+-                                    sttEngine.stopListening()
+-
+-                                    audioPlayer.play(
+-                                        audioData = audioBytes,
+-                                        onComplete = {
+-                                            // [에코 캔슬링] TTS 재생 완료 후 STT 재개
+-                                            if (_sessionState.value == SessionState.Active) {
+-                                                sttEngine.startListening()
+-                                            }
+-                                        },
+-                                    )
+-                                }.onFailure {
+-                                    // 디코딩 실패 등 예외 발생 시 STT 즉시 복구
+-                                    if (_sessionState.value == SessionState.Active) {
+-                                        sttEngine.startListening()
+-                                    }
+-                                }
++                                // [에코 캔슬링] TTS 재생 전 마이크 중단
++                                sttEngine.stopListening()
++
++                                audioPlayer.playBase64(
++                                    base64Data = base64Data,
++                                    onComplete = { startListening() },
++                                    onError = { startListening() },
++                                )
++                            } ?: run {
++                                startListening()
+                             }
+ 
+                             // 2. 단어 리스트 초기화
+                             _lastGlosses.value = emptyList()
+                         }.onFailure {
+-                            // 향후 사용자에게 번역 실패 알림 제공 로직 추가 예정
++                            // 3. 번역 실패 시 에러 처리
++                            addOrUpdateParentMessage(
++                                text = "번역에 실패했습니다. 다시 시도해 주세요.",
++                                isFinal = true,
++                            )
++                            startListening()
+                         }
+                 }
+         }
+@@ -145,8 +155,16 @@ class ConversationViewModel
+                 viewModelScope.launch {
+                     sttEngine.events.collect { event ->
+                         when (event) {
+-                            is SttEvent.PartialResults -> _sttText.value = event.text
+-                            is SttEvent.Results -> _sttText.value = event.text
++                            is SttEvent.PartialResults ->
++                                updateOrAddChildMessage(
++                                    event.text,
++                                    isFinal = false,
++                                )
++                            is SttEvent.Results ->
++                                updateOrAddChildMessage(
++                                    event.text,
++                                    isFinal = true,
++                                )
+                             is SttEvent.VolumeChanged -> _micVolume.value = event.db
+                             is SttEvent.Error -> {
+                                 // 에러 처리 (필요시 UI 알림 추가)
+@@ -166,12 +184,92 @@ class ConversationViewModel
+             _translatedText.value = ""
+             _sttText.value = ""
+             _micVolume.value = 0f
++            _messages.value = emptyList()
+             translationJob?.cancel()
+             completionTimerJob?.cancel()
+             sttJob?.cancel()
+             audioPlayer.stop()
+         }
+ 
++        private fun updateOrAddChildMessage(
++            text: String,
++            isFinal: Boolean,
++        ) {
++            _sttText.value = text
++            _messages.update { currentList ->
++                val lastMessage = currentList.lastOrNull()
++                if (lastMessage != null &&
++                    lastMessage.senderType == SenderType.CHILD &&
++                    lastMessage.status == MessageStatus.PENDING
++                ) {
++                    currentList.dropLast(1) +
++                        lastMessage.copy(
++                            text = text,
++                            status =
++                                if (isFinal) {
++                                    MessageStatus.COMPLETED
++                                } else {
++                                    MessageStatus.PENDING
++                                },
++                        )
++                } else {
++                    currentList +
++                        ChatMessage(
++                            text = text,
++                            senderType = SenderType.CHILD,
++                            status =
++                                if (isFinal) {
++                                    MessageStatus.COMPLETED
++                                } else {
++                                    MessageStatus.PENDING
++                                },
++                        )
++                }
++            }
++        }
++
++        private fun addOrUpdateParentMessage(
++            text: String,
++            isFinal: Boolean,
++        ) {
++            _messages.update { currentList ->
++                val lastMessage = currentList.lastOrNull()
++                if (lastMessage != null &&
++                    lastMessage.senderType == SenderType.PARENT &&
++                    lastMessage.status == MessageStatus.PENDING
++                ) {
++                    currentList.dropLast(1) +
++                        lastMessage.copy(
++                            text = text,
++                            status =
++                                if (isFinal) {
++                                    MessageStatus.COMPLETED
++                                } else {
++                                    MessageStatus.PENDING
++                                },
++                        )
++                } else {
++                    currentList +
++                        ChatMessage(
++                            text = text,
++                            senderType = SenderType.PARENT,
++                            status =
++                                if (isFinal) {
++                                    MessageStatus.COMPLETED
++                                } else {
++                                    MessageStatus.PENDING
++                                },
++                        )
++                }
++            }
++        }
++
++        private fun startListening() {
++            if (_sessionState.value == SessionState.Active) {
++                sttEngine.startListening()
++            }
++        }
++
+         override fun onCleared() {
+             super.onCleared()
+             audioPlayer.release()
+
+

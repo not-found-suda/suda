@@ -1,0 +1,671 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/social/dto/SocialAccountLinkRequestDto.java b/backend/src/main/java/com/ssafy/backend/domain/social/dto/SocialAccountLinkRequestDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/social/dto/SocialAccountLinkRequestDto.java
+@@ -0,0 +1,11 @@
++package com.ssafy.backend.domain.social.dto;
++
++import io.swagger.v3.oas.annotations.media.Schema;
++import jakarta.validation.constraints.NotBlank;
++
++public record SocialAccountLinkRequestDto(
++    @NotBlank(message = "providerAccessToken은 필수입니다.")
++        @Schema(
++            description = "네이버 Android SDK가 발급한 provider Access Token",
++            example = "naver-access-token")
++        String providerAccessToken) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/social/dto/SocialAccountListResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/social/dto/SocialAccountListResponseDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/social/dto/SocialAccountListResponseDto.java
+@@ -0,0 +1,7 @@
++package com.ssafy.backend.domain.social.dto;
++
++import io.swagger.v3.oas.annotations.media.Schema;
++import java.util.List;
++
++public record SocialAccountListResponseDto(
++    @Schema(description = "소셜 계정 연동 상태 목록") List<SocialAccountResponseDto> accounts) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/social/dto/SocialAccountResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/social/dto/SocialAccountResponseDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/social/dto/SocialAccountResponseDto.java
+@@ -0,0 +1,11 @@
++package com.ssafy.backend.domain.social.dto;
++
++import com.ssafy.backend.domain.social.entity.SocialProvider;
++import io.swagger.v3.oas.annotations.media.Schema;
++import java.time.LocalDateTime;
++
++public record SocialAccountResponseDto(
++    @Schema(description = "소셜 제공자", example = "NAVER") SocialProvider provider,
++    @Schema(description = "연동 여부", example = "true") boolean linked,
++    @Schema(description = "소셜 제공자 이메일", example = "user@naver.com") String providerEmail,
++    @Schema(description = "연동 시각") LocalDateTime linkedAt) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/social/entity/SocialAccount.java b/backend/src/main/java/com/ssafy/backend/domain/social/entity/SocialAccount.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/social/entity/SocialAccount.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/social/entity/SocialAccount.java
+@@ -54,4 +54,20 @@ public class SocialAccount extends BaseEntity {
+   public User getUser() {
+     return user;
+   }
++
++  public Long getId() {
++    return id;
++  }
++
++  public SocialProvider getProvider() {
++    return provider;
++  }
++
++  public String getProviderUserId() {
++    return providerUserId;
++  }
++
++  public String getProviderEmail() {
++    return providerEmail;
++  }
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/social/exception/SocialAccountErrorCode.java b/backend/src/main/java/com/ssafy/backend/domain/social/exception/SocialAccountErrorCode.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/social/exception/SocialAccountErrorCode.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/social/exception/SocialAccountErrorCode.java
+@@ -4,7 +4,14 @@ import com.ssafy.backend.global.exception.ErrorCode;
+ import org.springframework.http.HttpStatus;
+ 
+ public enum SocialAccountErrorCode implements ErrorCode {
+-  ALREADY_LINKED("SOCIAL_ACCOUNT_ALREADY_LINKED", HttpStatus.CONFLICT, "이미 다른 계정에 연동된 소셜 계정입니다.");
++  ALREADY_LINKED("SOCIAL_ACCOUNT_ALREADY_LINKED", HttpStatus.CONFLICT, "이미 연동된 소셜 계정입니다."),
++  LINKED_TO_OTHER_USER(
++      "SOCIAL_ACCOUNT_LINKED_TO_OTHER_USER", HttpStatus.CONFLICT, "이미 다른 계정에 연동된 소셜 계정입니다."),
++  EMAIL_MISMATCH(
++      "SOCIAL_ACCOUNT_EMAIL_MISMATCH", HttpStatus.CONFLICT, "현재 계정 이메일과 소셜 계정 이메일이 일치하지 않습니다."),
++  NOT_LINKED("SOCIAL_ACCOUNT_NOT_LINKED", HttpStatus.NOT_FOUND, "연동된 소셜 계정이 없습니다."),
++  LAST_LOGIN_METHOD(
++      "SOCIAL_ACCOUNT_LAST_LOGIN_METHOD", HttpStatus.CONFLICT, "마지막 로그인 수단은 해제할 수 없습니다.");
+ 
+   private final String code;
+   private final HttpStatus httpStatus;
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/social/repository/SocialAccountRepository.java b/backend/src/main/java/com/ssafy/backend/domain/social/repository/SocialAccountRepository.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/social/repository/SocialAccountRepository.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/social/repository/SocialAccountRepository.java
+@@ -2,6 +2,7 @@ package com.ssafy.backend.domain.social.repository;
+ 
+ import com.ssafy.backend.domain.social.entity.SocialAccount;
+ import com.ssafy.backend.domain.social.entity.SocialProvider;
++import java.util.List;
+ import java.util.Optional;
+ import org.springframework.data.jpa.repository.JpaRepository;
+ 
+@@ -9,4 +10,10 @@ public interface SocialAccountRepository extends JpaRepository<SocialAccount, Lo
+ 
+   Optional<SocialAccount> findByProviderAndProviderUserId(
+       SocialProvider provider, String providerUserId);
++
++  List<SocialAccount> findByUserId(Long userId);
++
++  Optional<SocialAccount> findByUserIdAndProvider(Long userId, SocialProvider provider);
++
++  long countByUserId(Long userId);
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/social/service/SocialAccountService.java b/backend/src/main/java/com/ssafy/backend/domain/social/service/SocialAccountService.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/social/service/SocialAccountService.java
+@@ -0,0 +1,142 @@
++package com.ssafy.backend.domain.social.service;
++
++import com.ssafy.backend.domain.auth.service.NaverOAuthClient;
++import com.ssafy.backend.domain.social.dto.SocialAccountListResponseDto;
++import com.ssafy.backend.domain.social.dto.SocialAccountResponseDto;
++import com.ssafy.backend.domain.social.entity.SocialAccount;
++import com.ssafy.backend.domain.social.entity.SocialProvider;
++import com.ssafy.backend.domain.social.exception.SocialAccountErrorCode;
++import com.ssafy.backend.domain.social.repository.SocialAccountRepository;
++import com.ssafy.backend.domain.user.entity.User;
++import com.ssafy.backend.domain.user.exception.UserErrorCode;
++import com.ssafy.backend.domain.user.repository.UserRepository;
++import com.ssafy.backend.global.exception.BusinessException;
++import java.util.Arrays;
++import java.util.Locale;
++import java.util.Map;
++import java.util.function.Function;
++import java.util.stream.Collectors;
++import org.springframework.stereotype.Service;
++import org.springframework.transaction.annotation.Transactional;
++
++@Service
++@Transactional
++public class SocialAccountService {
++
++  private final SocialAccountRepository socialAccountRepository;
++  private final UserRepository userRepository;
++  private final NaverOAuthClient naverOAuthClient;
++
++  public SocialAccountService(
++      SocialAccountRepository socialAccountRepository,
++      UserRepository userRepository,
++      NaverOAuthClient naverOAuthClient) {
++    this.socialAccountRepository = socialAccountRepository;
++    this.userRepository = userRepository;
++    this.naverOAuthClient = naverOAuthClient;
++  }
++
++  @Transactional(readOnly = true)
++  public SocialAccountListResponseDto getMySocialAccounts(Long userId) {
++    getActiveUser(userId);
++    Map<SocialProvider, SocialAccount> linkedAccounts =
++        socialAccountRepository.findByUserId(userId).stream()
++            .collect(Collectors.toMap(SocialAccount::getProvider, Function.identity()));
++
++    return new SocialAccountListResponseDto(
++        Arrays.stream(SocialProvider.values())
++            .map(provider -> toResponse(provider, linkedAccounts.get(provider)))
++            .toList());
++  }
++
++  public SocialAccountResponseDto linkNaver(Long userId, String providerAccessToken) {
++    User user = getActiveUser(userId);
++    NaverOAuthClient.NaverProfile profile = naverOAuthClient.getProfile(providerAccessToken);
++    String providerEmail = normalizeEmail(profile.email());
++    validateProviderEmail(user, providerEmail);
++
++    return socialAccountRepository
++        .findByUserIdAndProvider(userId, SocialProvider.NAVER)
++        .map(existing -> validateAndReturnExisting(existing, profile.id()))
++        .orElseGet(() -> createNaverLink(user, profile.id(), providerEmail));
++  }
++
++  public void unlinkNaver(Long userId) {
++    User user = getActiveUser(userId);
++    SocialAccount socialAccount =
++        socialAccountRepository
++            .findByUserIdAndProvider(userId, SocialProvider.NAVER)
++            .orElseThrow(() -> new BusinessException(SocialAccountErrorCode.NOT_LINKED));
++
++    long linkedSocialAccountCount = socialAccountRepository.countByUserId(userId);
++    if (!user.isPasswordLoginEnabled() && linkedSocialAccountCount <= 1) {
++      throw new BusinessException(SocialAccountErrorCode.LAST_LOGIN_METHOD);
++    }
++
++    socialAccountRepository.delete(socialAccount);
++    socialAccountRepository.flush();
++  }
++
++  private SocialAccountResponseDto createNaverLink(
++      User user, String providerUserId, String providerEmail) {
++    socialAccountRepository
++        .findByProviderAndProviderUserId(SocialProvider.NAVER, providerUserId)
++        .ifPresent(
++            account -> {
++              throw new BusinessException(SocialAccountErrorCode.LINKED_TO_OTHER_USER);
++            });
++
++    SocialAccount saved =
++        socialAccountRepository.saveAndFlush(
++            SocialAccount.create(user, SocialProvider.NAVER, providerUserId, providerEmail));
++    return toLinkedResponse(saved);
++  }
++
++  private SocialAccountResponseDto validateAndReturnExisting(
++      SocialAccount existing, String providerUserId) {
++    if (!existing.getProviderUserId().equals(providerUserId)) {
++      throw new BusinessException(SocialAccountErrorCode.ALREADY_LINKED);
++    }
++    return toLinkedResponse(existing);
++  }
++
++  private void validateProviderEmail(User user, String providerEmail) {
++    if (!normalizeEmail(user.getEmail()).equals(providerEmail)) {
++      throw new BusinessException(SocialAccountErrorCode.EMAIL_MISMATCH);
++    }
++  }
++
++  private User getActiveUser(Long userId) {
++    User user =
++        userRepository
++            .findById(userId)
++            .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
++    if (!user.isActive()) {
++      throw new BusinessException(UserErrorCode.USER_NOT_FOUND);
++    }
++    return user;
++  }
++
++  private SocialAccountResponseDto toResponse(
++      SocialProvider provider, SocialAccount socialAccount) {
++    if (socialAccount == null) {
++      return new SocialAccountResponseDto(provider, false, null, null);
++    }
++    return toLinkedResponse(socialAccount);
++  }
++
++  private SocialAccountResponseDto toLinkedResponse(SocialAccount socialAccount) {
++    return new SocialAccountResponseDto(
++        socialAccount.getProvider(),
++        true,
++        socialAccount.getProviderEmail(),
++        socialAccount.getCreatedAt());
++  }
++
++  private String normalizeEmail(String email) {
++    if (email == null) {
++      return "";
++    }
++    return email.trim().toLowerCase(Locale.ROOT);
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/controller/UserController.java b/backend/src/main/java/com/ssafy/backend/domain/user/controller/UserController.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/user/controller/UserController.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/controller/UserController.java
+@@ -1,5 +1,9 @@
+ package com.ssafy.backend.domain.user.controller;
+ 
++import com.ssafy.backend.domain.social.dto.SocialAccountLinkRequestDto;
++import com.ssafy.backend.domain.social.dto.SocialAccountListResponseDto;
++import com.ssafy.backend.domain.social.dto.SocialAccountResponseDto;
++import com.ssafy.backend.domain.social.service.SocialAccountService;
+ import com.ssafy.backend.domain.user.docs.UserApiDocs;
+ import com.ssafy.backend.domain.user.dto.TtsSpeakerListResponseDto;
+ import com.ssafy.backend.domain.user.dto.TtsSpeakerUpdateRequestDto;
+@@ -18,6 +22,7 @@ import org.springframework.security.core.Authentication;
+ import org.springframework.web.bind.annotation.DeleteMapping;
+ import org.springframework.web.bind.annotation.GetMapping;
+ import org.springframework.web.bind.annotation.PatchMapping;
++import org.springframework.web.bind.annotation.PostMapping;
+ import org.springframework.web.bind.annotation.RequestBody;
+ import org.springframework.web.bind.annotation.RequestMapping;
+ import org.springframework.web.bind.annotation.RestController;
+@@ -27,9 +32,11 @@ import org.springframework.web.bind.annotation.RestController;
+ public class UserController implements UserApiDocs {
+ 
+   private final UserService userService;
++  private final SocialAccountService socialAccountService;
+ 
+-  public UserController(UserService userService) {
++  public UserController(UserService userService, SocialAccountService socialAccountService) {
+     this.userService = userService;
++    this.socialAccountService = socialAccountService;
+   }
+ 
+   @GetMapping("/me")
+@@ -90,6 +97,34 @@ public class UserController implements UserApiDocs {
+     return ResponseEntity.ok(userService.updateTtsSpeaker(userId, requestDto.ttsSpeaker()));
+   }
+ 
++  @GetMapping("/me/social-accounts")
++  @Override
++  public ResponseEntity<SocialAccountListResponseDto> getSocialAccounts(
++      Authentication authentication) {
++    Long userId = extractUserId(authentication);
++
++    return ResponseEntity.ok(socialAccountService.getMySocialAccounts(userId));
++  }
++
++  @PostMapping("/me/social-accounts/naver")
++  @Override
++  public ResponseEntity<SocialAccountResponseDto> linkNaver(
++      Authentication authentication, @Valid @RequestBody SocialAccountLinkRequestDto requestDto) {
++    Long userId = extractUserId(authentication);
++
++    return ResponseEntity.ok(
++        socialAccountService.linkNaver(userId, requestDto.providerAccessToken()));
++  }
++
++  @DeleteMapping("/me/social-accounts/naver")
++  @Override
++  public ResponseEntity<Void> unlinkNaver(Authentication authentication) {
++    Long userId = extractUserId(authentication);
++
++    socialAccountService.unlinkNaver(userId);
++    return ResponseEntity.noContent().build();
++  }
++
+   private Long extractUserId(Authentication authentication) {
+     if (authentication == null || !(authentication.getPrincipal() instanceof Long userId)) {
+       throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/docs/UserApiDocs.java b/backend/src/main/java/com/ssafy/backend/domain/user/docs/UserApiDocs.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/user/docs/UserApiDocs.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/docs/UserApiDocs.java
+@@ -1,5 +1,8 @@
+ package com.ssafy.backend.domain.user.docs;
+ 
++import com.ssafy.backend.domain.social.dto.SocialAccountLinkRequestDto;
++import com.ssafy.backend.domain.social.dto.SocialAccountListResponseDto;
++import com.ssafy.backend.domain.social.dto.SocialAccountResponseDto;
+ import com.ssafy.backend.domain.user.dto.TtsSpeakerListResponseDto;
+ import com.ssafy.backend.domain.user.dto.TtsSpeakerUpdateRequestDto;
+ import com.ssafy.backend.domain.user.dto.TtsSpeakerUpdateResponseDto;
+@@ -112,4 +115,51 @@ public interface UserApiDocs {
+   ResponseEntity<TtsSpeakerUpdateResponseDto> updateTtsSpeaker(
+       @Parameter(hidden = true) Authentication authentication,
+       @Valid @RequestBody TtsSpeakerUpdateRequestDto request);
++
++  @Operation(
++      summary = "내 소셜 계정 연동 상태 조회",
++      description = "인증된 사용자의 소셜 계정 연동 상태를 조회합니다.",
++      security = {@SecurityRequirement(name = "bearerAuth")})
++  @ApiErrorCodes({"COMMON_UNAUTHORIZED", "USER_NOT_FOUND"})
++  @ApiResponse(
++      responseCode = "200",
++      description = "성공",
++      content = @Content(schema = @Schema(implementation = SocialAccountListResponseDto.class)))
++  ResponseEntity<SocialAccountListResponseDto> getSocialAccounts(
++      @Parameter(hidden = true) Authentication authentication);
++
++  @Operation(
++      summary = "네이버 계정 연동",
++      description = "네이버 Android SDK가 발급한 provider Access Token으로 현재 계정에 네이버 계정을 연동합니다.",
++      security = {@SecurityRequirement(name = "bearerAuth")})
++  @ApiErrorCodes({
++    "VALIDATION_REQUIRED_FIELD",
++    "COMMON_UNAUTHORIZED",
++    "USER_NOT_FOUND",
++    "OAUTH_INVALID_PROVIDER_TOKEN",
++    "OAUTH_PROVIDER_ERROR",
++    "SOCIAL_ACCOUNT_ALREADY_LINKED",
++    "SOCIAL_ACCOUNT_LINKED_TO_OTHER_USER",
++    "SOCIAL_ACCOUNT_EMAIL_MISMATCH"
++  })
++  @ApiResponse(
++      responseCode = "200",
++      description = "성공",
++      content = @Content(schema = @Schema(implementation = SocialAccountResponseDto.class)))
++  ResponseEntity<SocialAccountResponseDto> linkNaver(
++      @Parameter(hidden = true) Authentication authentication,
++      @Valid @RequestBody SocialAccountLinkRequestDto request);
++
++  @Operation(
++      summary = "네이버 계정 연동 해제",
++      description = "현재 계정에 연동된 네이버 계정을 해제합니다. 마지막 로그인 수단이면 해제할 수 없습니다.",
++      security = {@SecurityRequirement(name = "bearerAuth")})
++  @ApiErrorCodes({
++    "COMMON_UNAUTHORIZED",
++    "USER_NOT_FOUND",
++    "SOCIAL_ACCOUNT_NOT_LINKED",
++    "SOCIAL_ACCOUNT_LAST_LOGIN_METHOD"
++  })
++  @ApiResponse(responseCode = "204", description = "성공")
++  ResponseEntity<Void> unlinkNaver(@Parameter(hidden = true) Authentication authentication);
+ }
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/social/service/SocialAccountServiceTest.java b/backend/src/test/java/com/ssafy/backend/domain/social/service/SocialAccountServiceTest.java
+--- /dev/null
++++ b/backend/src/test/java/com/ssafy/backend/domain/social/service/SocialAccountServiceTest.java
+@@ -0,0 +1,262 @@
++package com.ssafy.backend.domain.social.service;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
++import static org.mockito.Mockito.never;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.when;
++
++import com.ssafy.backend.domain.auth.service.NaverOAuthClient;
++import com.ssafy.backend.domain.social.dto.SocialAccountListResponseDto;
++import com.ssafy.backend.domain.social.dto.SocialAccountResponseDto;
++import com.ssafy.backend.domain.social.entity.SocialAccount;
++import com.ssafy.backend.domain.social.entity.SocialProvider;
++import com.ssafy.backend.domain.social.exception.SocialAccountErrorCode;
++import com.ssafy.backend.domain.social.repository.SocialAccountRepository;
++import com.ssafy.backend.domain.user.entity.User;
++import com.ssafy.backend.domain.user.repository.UserRepository;
++import com.ssafy.backend.global.exception.BusinessException;
++import java.util.List;
++import java.util.Optional;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.extension.ExtendWith;
++import org.mockito.Mock;
++import org.mockito.Mockito;
++import org.mockito.junit.jupiter.MockitoExtension;
++import org.springframework.test.util.ReflectionTestUtils;
++
++@ExtendWith(MockitoExtension.class)
++class SocialAccountServiceTest {
++
++  private static final Long USER_ID = 1L;
++  private static final Long OTHER_USER_ID = 2L;
++  private static final String PROVIDER_ACCESS_TOKEN = "provider-access-token";
++  private static final String NAVER_PROVIDER_USER_ID = "naver-123";
++  private static final String OTHER_NAVER_PROVIDER_USER_ID = "naver-456";
++  private static final String PROVIDER_EMAIL = "guardian@naver.com";
++  private static final String OTHER_PROVIDER_EMAIL = "other@naver.com";
++
++  @Mock private SocialAccountRepository socialAccountRepository;
++  @Mock private UserRepository userRepository;
++  @Mock private NaverOAuthClient naverOAuthClient;
++
++  private SocialAccountService socialAccountService;
++
++  @BeforeEach
++  void setUp() {
++    socialAccountService =
++        new SocialAccountService(socialAccountRepository, userRepository, naverOAuthClient);
++  }
++
++  @Test
++  @DisplayName("소셜 계정 목록은 전체 provider의 연동 상태를 반환한다")
++  void getMySocialAccountsReturnsAllProviderStatuses() {
++    User user = passwordUser(USER_ID);
++    SocialAccount naverAccount = naverAccount(user, NAVER_PROVIDER_USER_ID);
++    when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
++    when(socialAccountRepository.findByUserId(USER_ID)).thenReturn(List.of(naverAccount));
++
++    SocialAccountListResponseDto response = socialAccountService.getMySocialAccounts(USER_ID);
++
++    assertThat(response.accounts()).hasSize(2);
++    assertThat(response.accounts())
++        .anySatisfy(
++            account -> {
++              assertThat(account.provider()).isEqualTo(SocialProvider.NAVER);
++              assertThat(account.linked()).isTrue();
++              assertThat(account.providerEmail()).isEqualTo(PROVIDER_EMAIL);
++            })
++        .anySatisfy(
++            account -> {
++              assertThat(account.provider()).isEqualTo(SocialProvider.KAKAO);
++              assertThat(account.linked()).isFalse();
++              assertThat(account.providerEmail()).isNull();
++            });
++  }
++
++  @Test
++  @DisplayName("네이버 provider token이 유효하면 현재 사용자에게 네이버 계정을 연동한다")
++  void linkNaverCreatesSocialAccount() {
++    User user = passwordUser(USER_ID);
++    NaverOAuthClient.NaverProfile profile = naverProfile(NAVER_PROVIDER_USER_ID);
++    when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
++    when(naverOAuthClient.getProfile(PROVIDER_ACCESS_TOKEN)).thenReturn(profile);
++    when(socialAccountRepository.findByUserIdAndProvider(USER_ID, SocialProvider.NAVER))
++        .thenReturn(Optional.empty());
++    when(socialAccountRepository.findByProviderAndProviderUserId(
++            SocialProvider.NAVER, NAVER_PROVIDER_USER_ID))
++        .thenReturn(Optional.empty());
++    when(socialAccountRepository.saveAndFlush(Mockito.any(SocialAccount.class)))
++        .thenAnswer(invocation -> invocation.getArgument(0));
++
++    SocialAccountResponseDto response =
++        socialAccountService.linkNaver(USER_ID, PROVIDER_ACCESS_TOKEN);
++
++    assertThat(response.provider()).isEqualTo(SocialProvider.NAVER);
++    assertThat(response.linked()).isTrue();
++    assertThat(response.providerEmail()).isEqualTo(PROVIDER_EMAIL);
++    verify(socialAccountRepository).saveAndFlush(Mockito.any(SocialAccount.class));
++  }
++
++  @Test
++  @DisplayName("이미 같은 네이버 계정이 현재 사용자에게 연동되어 있으면 기존 연동 상태를 반환한다")
++  void linkNaverReturnsExistingLinkWhenSameAccountAlreadyLinked() {
++    User user = passwordUser(USER_ID);
++    SocialAccount existing = naverAccount(user, NAVER_PROVIDER_USER_ID);
++    when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
++    when(naverOAuthClient.getProfile(PROVIDER_ACCESS_TOKEN))
++        .thenReturn(naverProfile(NAVER_PROVIDER_USER_ID));
++    when(socialAccountRepository.findByUserIdAndProvider(USER_ID, SocialProvider.NAVER))
++        .thenReturn(Optional.of(existing));
++
++    SocialAccountResponseDto response =
++        socialAccountService.linkNaver(USER_ID, PROVIDER_ACCESS_TOKEN);
++
++    assertThat(response.provider()).isEqualTo(SocialProvider.NAVER);
++    assertThat(response.linked()).isTrue();
++    verify(socialAccountRepository, never()).saveAndFlush(Mockito.any());
++  }
++
++  @Test
++  @DisplayName("현재 사용자에게 다른 네이버 계정이 이미 연동되어 있으면 추가 연동을 거부한다")
++  void linkNaverRejectsWhenUserAlreadyHasDifferentNaverAccount() {
++    User user = passwordUser(USER_ID);
++    SocialAccount existing = naverAccount(user, OTHER_NAVER_PROVIDER_USER_ID);
++    when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
++    when(naverOAuthClient.getProfile(PROVIDER_ACCESS_TOKEN))
++        .thenReturn(naverProfile(NAVER_PROVIDER_USER_ID));
++    when(socialAccountRepository.findByUserIdAndProvider(USER_ID, SocialProvider.NAVER))
++        .thenReturn(Optional.of(existing));
++
++    assertSocialAccountError(
++        () -> socialAccountService.linkNaver(USER_ID, PROVIDER_ACCESS_TOKEN),
++        SocialAccountErrorCode.ALREADY_LINKED);
++
++    verify(socialAccountRepository, never()).saveAndFlush(Mockito.any());
++  }
++
++  @Test
++  @DisplayName("네이버 계정 이메일이 현재 사용자 이메일과 다르면 연동할 수 없다")
++  void linkNaverRejectsProviderEmailMismatch() {
++    User user = passwordUser(USER_ID, OTHER_PROVIDER_EMAIL);
++    when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
++    when(naverOAuthClient.getProfile(PROVIDER_ACCESS_TOKEN))
++        .thenReturn(naverProfile(NAVER_PROVIDER_USER_ID));
++
++    assertSocialAccountError(
++        () -> socialAccountService.linkNaver(USER_ID, PROVIDER_ACCESS_TOKEN),
++        SocialAccountErrorCode.EMAIL_MISMATCH);
++
++    verify(socialAccountRepository, never()).findByUserIdAndProvider(Mockito.any(), Mockito.any());
++    verify(socialAccountRepository, never()).saveAndFlush(Mockito.any());
++  }
++
++  @Test
++  @DisplayName("다른 사용자에게 연동된 네이버 계정은 연동할 수 없다")
++  void linkNaverRejectsAccountLinkedToOtherUser() {
++    User user = passwordUser(USER_ID);
++    User otherUser = passwordUser(OTHER_USER_ID);
++    SocialAccount otherAccount = naverAccount(otherUser, NAVER_PROVIDER_USER_ID);
++    when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
++    when(naverOAuthClient.getProfile(PROVIDER_ACCESS_TOKEN))
++        .thenReturn(naverProfile(NAVER_PROVIDER_USER_ID));
++    when(socialAccountRepository.findByUserIdAndProvider(USER_ID, SocialProvider.NAVER))
++        .thenReturn(Optional.empty());
++    when(socialAccountRepository.findByProviderAndProviderUserId(
++            SocialProvider.NAVER, NAVER_PROVIDER_USER_ID))
++        .thenReturn(Optional.of(otherAccount));
++
++    assertSocialAccountError(
++        () -> socialAccountService.linkNaver(USER_ID, PROVIDER_ACCESS_TOKEN),
++        SocialAccountErrorCode.LINKED_TO_OTHER_USER);
++
++    verify(socialAccountRepository, never()).saveAndFlush(Mockito.any());
++  }
++
++  @Test
++  @DisplayName("비밀번호 로그인 계정은 네이버 연동을 해제할 수 있다")
++  void unlinkNaverDeletesSocialAccountForPasswordUser() {
++    User user = passwordUser(USER_ID);
++    SocialAccount account = naverAccount(user, NAVER_PROVIDER_USER_ID);
++    when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
++    when(socialAccountRepository.findByUserIdAndProvider(USER_ID, SocialProvider.NAVER))
++        .thenReturn(Optional.of(account));
++    when(socialAccountRepository.countByUserId(USER_ID)).thenReturn(1L);
++
++    socialAccountService.unlinkNaver(USER_ID);
++
++    verify(socialAccountRepository).delete(account);
++    verify(socialAccountRepository).flush();
++  }
++
++  @Test
++  @DisplayName("소셜 전용 계정은 마지막 로그인 수단인 네이버 연동을 해제할 수 없다")
++  void unlinkNaverRejectsLastLoginMethod() {
++    User user = oauthOnlyUser(USER_ID);
++    SocialAccount account = naverAccount(user, NAVER_PROVIDER_USER_ID);
++    when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
++    when(socialAccountRepository.findByUserIdAndProvider(USER_ID, SocialProvider.NAVER))
++        .thenReturn(Optional.of(account));
++    when(socialAccountRepository.countByUserId(USER_ID)).thenReturn(1L);
++
++    assertSocialAccountError(
++        () -> socialAccountService.unlinkNaver(USER_ID), SocialAccountErrorCode.LAST_LOGIN_METHOD);
++
++    verify(socialAccountRepository, never()).delete(Mockito.any());
++    verify(socialAccountRepository, never()).flush();
++  }
++
++  @Test
++  @DisplayName("연동된 네이버 계정이 없으면 해제를 거부한다")
++  void unlinkNaverRejectsMissingLink() {
++    User user = passwordUser(USER_ID);
++    when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
++    when(socialAccountRepository.findByUserIdAndProvider(USER_ID, SocialProvider.NAVER))
++        .thenReturn(Optional.empty());
++
++    assertSocialAccountError(
++        () -> socialAccountService.unlinkNaver(USER_ID), SocialAccountErrorCode.NOT_LINKED);
++
++    verify(socialAccountRepository, never()).delete(Mockito.any());
++    verify(socialAccountRepository, never()).flush();
++  }
++
++  private User passwordUser(Long userId) {
++    return passwordUser(userId, PROVIDER_EMAIL);
++  }
++
++  private User passwordUser(Long userId, String email) {
++    User user = User.create(email, "encoded-password", "보호자");
++    ReflectionTestUtils.setField(user, "id", userId);
++    return user;
++  }
++
++  private User oauthOnlyUser(Long userId) {
++    User user = User.createOAuthUser(PROVIDER_EMAIL, "encoded-password", "보호자");
++    ReflectionTestUtils.setField(user, "id", userId);
++    return user;
++  }
++
++  private SocialAccount naverAccount(User user, String providerUserId) {
++    return SocialAccount.create(user, SocialProvider.NAVER, providerUserId, PROVIDER_EMAIL);
++  }
++
++  private NaverOAuthClient.NaverProfile naverProfile(String providerUserId) {
++    return new NaverOAuthClient.NaverProfile(providerUserId, PROVIDER_EMAIL, "네이버닉네임", "네이버이름");
++  }
++
++  private void assertSocialAccountError(
++      ThrowingCall call, SocialAccountErrorCode expectedErrorCode) {
++    assertThatThrownBy(call::invoke)
++        .isInstanceOfSatisfying(
++            BusinessException.class,
++            exception -> assertThat(exception.getErrorCode()).isEqualTo(expectedErrorCode));
++  }
++
++  @FunctionalInterface
++  private interface ThrowingCall {
++    void invoke();
++  }
++}
+
+

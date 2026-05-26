@@ -1,0 +1,163 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -435,17 +435,21 @@ class ConversationViewModel
+             words: List<String>,
+             sentenceType: String?,
+         ): String {
++            val normalizedWords = normalizeOnDeviceGlosses(words)
++            if (normalizedWords.isEmpty()) {
++                return ""
++            }
++
++            generateDemoSentenceOrNull(normalizedWords)?.let { return it }
++
+             localSignSentenceGenerator
+                 .generateKnownPatternOrNull(
+-                    glosses = words,
++                    glosses = normalizedWords,
+                     sentenceType = sentenceType,
+                     speechStyle = onDeviceSpeechStyle,
+                 )?.let { return it }
+ 
+-            val glossText = words.joinToString(" ").trim()
+-            if (glossText.isBlank()) {
+-                return ""
+-            }
++            val glossText = normalizedWords.joinToString(" ").trim()
+ 
+             return runCatching {
+                 normalizeTranslatedSentence(
+@@ -460,7 +464,7 @@ class ConversationViewModel
+                 )
+                 localSignSentenceGenerator
+                     .generate(
+-                        glosses = words,
++                        glosses = normalizedWords,
+                         sentenceType = sentenceType,
+                         speechStyle = onDeviceSpeechStyle,
+                     ).ifBlank {
+@@ -469,6 +473,22 @@ class ConversationViewModel
+             }
+         }
+ 
++        private fun normalizeOnDeviceGlosses(words: List<String>): List<String> =
++            words
++                .map { word -> word.trim() }
++                .filter { word ->
++                    word.isNotBlank() && !word.equals(NONE_GLOSS, ignoreCase = true)
++                }.fold(emptyList()) { result, word ->
++                    if (result.lastOrNull() == word) result else result + word
++                }
++
++        private fun generateDemoSentenceOrNull(words: List<String>): String? {
++            val compact = words.joinToString(" ")
++            return exactStableDemoRules[compact]
++                ?: stableSetDemoRules[words.toSet()]
++                ?: exactHoldDemoRules[compact]
++        }
++
+         private fun normalizeTranslatedSentence(
+             text: String,
+             sentenceType: String?,
+@@ -1333,6 +1353,7 @@ class ConversationViewModel
+ 
+         companion object {
+             private const val TAG = "ConversationViewModel"
++            private const val NONE_GLOSS = "none"
+             private const val COMPLETION_THRESHOLD_MS = 2000L
+             private const val STT_RESTART_DELAY_MS = 500L
+             private const val STT_UNRECOGNIZED_NOTICE_MS = 1200L
+@@ -1356,6 +1377,28 @@ class ConversationViewModel
+             private const val CLOUD_STT_ANALYZING_MESSAGE = "대화 내용을 분석 중입니다..."
+             private const val CLOUD_STT_AUDIO_MIME_TYPE = "audio/wav"
+             private const val APP_SPEECH_ECHO_FILTER_MS = 5000L
++            private val exactStableDemoRules =
++                mapOf(
++                    "엄마 아프다 치료" to "엄마가 아파서 치료가 필요해요.",
++                    "시험 모르다 위로" to "시험을 몰라서 위로가 필요해요.",
++                    "엄마 서점 독서" to "엄마가 서점에서 독서해요.",
++                    "서점 독서 좋다" to "서점에서 독서하는 게 좋아요.",
++                )
++            private val stableSetDemoRules =
++                mapOf(
++                    setOf("엄마", "아프다", "치료") to "엄마가 아파서 치료가 필요해요.",
++                    setOf("시험", "모르다", "위로") to "시험을 몰라서 위로가 필요해요.",
++                    setOf("엄마", "서점", "독서") to "엄마가 서점에서 독서해요.",
++                )
++            private val exactHoldDemoRules =
++                mapOf(
++                    "엄마 아프다 의사" to "엄마가 아파서 의사를 만나야 해요.",
++                    "의사 치료 위로" to "의사가 치료하고 위로해 줘요.",
++                    "서점 가다 독서" to "서점에 가서 독서해요.",
++                    "엄마 병원 가다" to "엄마가 병원에 가요.",
++                    "병원 치료 받다" to "병원에서 치료를 받아요.",
++                    "우유 주다 감사" to "우유를 줘서 감사해요.",
++                )
+             private const val NOTICE_AUTO_OFFLINE_FALLBACK =
+                 "자동 모드: 네트워크가 없어 기기 내 처리로 전환했어요."
+             private const val NOTICE_AUTO_SERVER_FALLBACK =
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/translation/QwenLiteRtTranslationEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/translation/QwenLiteRtTranslationEngine.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/translation/QwenLiteRtTranslationEngine.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/translation/QwenLiteRtTranslationEngine.kt
+@@ -191,11 +191,11 @@ class QwenLiteRtTranslationEngine(
+ 
+     private fun buildUserPrompt(glossText: String): String =
+         """
+-        다음 한국 수어 gloss를 자연스러운 한국어 한 문장으로 변환해.
+-        출력은 변환된 한국어 문장 하나만 작성해.
++        다음 수어 gloss를 자연스러운 한국어 한 문장으로 바꿔.
+ 
+-        Gloss: $glossText
+-        한국어:
++        gloss: $glossText
++
++        출력:
+         """.trimIndent()
+ 
+     private fun extractText(message: Message): String {
+@@ -216,7 +216,9 @@ class QwenLiteRtTranslationEngine(
+                 .map { line ->
+                     line
+                         .trim()
++                        .removePrefix("한국어 문장:")
+                         .removePrefix("한국어:")
++                        .removePrefix("출력:")
+                         .removePrefix("Korean:")
+                         .removePrefix("정답:")
+                         .trim()
+@@ -225,6 +227,7 @@ class QwenLiteRtTranslationEngine(
+                         !line.startsWith("<think>", ignoreCase = true) &&
+                         !line.startsWith("</think>", ignoreCase = true) &&
+                         !line.startsWith("Gloss:") &&
++                        !line.startsWith("gloss:") &&
+                         !line.equals("user", ignoreCase = true) &&
+                         !line.equals("model", ignoreCase = true)
+                 }.orEmpty()
+@@ -437,13 +440,16 @@ class QwenLiteRtTranslationEngine(
+             """
+             너는 한국 수어 gloss를 자연스러운 한국어 한 문장으로 바꾸는 변환기다.
+             규칙:
+-            - 출력은 한국어 문장 하나만 쓴다.
+-            - 설명, 영어, 따옴표, 번호를 쓰지 않는다.
+-            - 입력에 없는 행동, 장소, 시제, 부정을 만들지 않는다.
+-            - gloss의 단어 순서가 어색하면 한국어 어순으로 자연스럽게 바꾼다.
++            - 출력은 변환된 한국어 문장 하나만 쓴다.
++            - 설명, 영어, 따옴표, 번호, 후보 문장을 쓰지 않는다.
++            - 입력 gloss에 없는 사람, 장소, 시간, 감정, 이유를 새로 만들지 않는다.
++            - "none"은 무시한다.
++            - 같은 단어가 반복되면 한 번만 반영한다.
++            - 단어 순서가 어색하면 의미를 유지한 채 자연스러운 한국어 어순으로만 바꾼다.
++            - 의학적 진단, 원인, 처방은 추측하지 않는다.
++            - 의미가 애매하면 짧고 안전한 문장으로 만든다.
+             - 명사만 있으면 "~입니다." 형태로 답한다.
+-            - 아니다, 없다, 못 같은 표현이 있으면 반드시 부정문으로 답한다.
+-            - 어제, 오늘, 내일, 지금 같은 시간 표현이 있으면 반드시 반영한다.
++            - 싫다, 없다, 모르다 같은 표현은 의미가 바뀌지 않게 반영한다.
+             """.trimIndent()
+     }
+ }
+
+

@@ -1,0 +1,320 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/model/CommsSessionDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/model/CommsSessionDto.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/model/CommsSessionDto.kt
+@@ -0,0 +1,27 @@
++package com.ssafy.mobile.feature.conversation.data.remote.model
++
++import com.google.gson.annotations.SerializedName
++
++data class CommsSessionCreateRequest(
++    @SerializedName("childProfileId")
++    val childProfileId: Long,
++)
++
++data class CommsSessionResponseDto(
++    @SerializedName("sessionId")
++    val sessionId: Long,
++    @SerializedName("userId")
++    val userId: Long,
++    @SerializedName("childProfileId")
++    val childProfileId: Long,
++    @SerializedName("status")
++    val status: String,
++    @SerializedName("startedAt")
++    val startedAt: String,
++    @SerializedName("endedAt")
++    val endedAt: String?,
++    @SerializedName("messageCount")
++    val messageCount: Int,
++    @SerializedName("expiresAt")
++    val expiresAt: String,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/model/TranslateDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/model/TranslateDto.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/model/TranslateDto.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/model/TranslateDto.kt
+@@ -6,6 +6,7 @@ import com.google.gson.annotations.SerializedName
+  * 부모 수화 변환 요청 DTO
+  */
+ data class SignToSpeechRequest(
++    @SerializedName("sessionId") val sessionId: Long? = null,
+     @SerializedName("words") val words: List<String>,
+     @SerializedName("locale") val locale: String = "ko-KR",
+     @SerializedName("requestTts") val requestTts: Boolean = true,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/CommsSessionApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/CommsSessionApiService.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/CommsSessionApiService.kt
+@@ -0,0 +1,21 @@
++package com.ssafy.mobile.feature.conversation.data.remote
++
++import com.ssafy.mobile.feature.conversation.data.remote.model.CommsSessionCreateRequest
++import com.ssafy.mobile.feature.conversation.data.remote.model.CommsSessionResponseDto
++import retrofit2.Response
++import retrofit2.http.Body
++import retrofit2.http.PATCH
++import retrofit2.http.POST
++import retrofit2.http.Path
++
++interface CommsSessionApiService {
++    @POST("v1/comms/sessions")
++    suspend fun createSession(
++        @Body request: CommsSessionCreateRequest,
++    ): Response<CommsSessionResponseDto>
++
++    @PATCH("v1/comms/sessions/{sessionId}/end")
++    suspend fun endSession(
++        @Path("sessionId") sessionId: Long,
++    ): Response<CommsSessionResponseDto>
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/TranslateApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/TranslateApiService.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/TranslateApiService.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/TranslateApiService.kt
+@@ -33,6 +33,7 @@ interface TranslateApiService {
+     @POST("v1/translation/speech-to-text")
+     suspend fun translateSpeechToText(
+         @Part audioFile: MultipartBody.Part,
++        @Part("sessionId") sessionId: RequestBody? = null,
+         @Part("locale") locale: RequestBody,
+         @Part("audioMimeType") audioMimeType: RequestBody,
+         @Query("dryRun") dryRun: Boolean = false,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/CommsSessionRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/CommsSessionRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/CommsSessionRepository.kt
+@@ -0,0 +1,109 @@
++package com.ssafy.mobile.feature.conversation.data.repository
++
++import android.util.Log
++import com.google.gson.Gson
++import com.ssafy.mobile.feature.conversation.data.remote.CommsSessionApiService
++import com.ssafy.mobile.feature.conversation.data.remote.model.ApiErrorResponse
++import com.ssafy.mobile.feature.conversation.data.remote.model.CommsSessionCreateRequest
++import java.io.IOException
++import javax.inject.Inject
++import kotlin.coroutines.cancellation.CancellationException
++import retrofit2.Response
++
++class CommsSessionRepository
++    @Inject
++    constructor(
++        private val apiService: CommsSessionApiService,
++    ) {
++        suspend fun createSession(childProfileId: Long): Result<Long> =
++            try {
++                val response =
++                    apiService.createSession(
++                        request = CommsSessionCreateRequest(childProfileId = childProfileId),
++                    )
++
++                if (response.isSuccessful) {
++                    val body =
++                        response.body()
++                            ?: return Result.failure(IllegalStateException(ERROR_EMPTY_BODY))
++                    Result.success(body.sessionId)
++                } else {
++                    Result.failure(response.toApiException())
++                }
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: IOException) {
++                Log.e(TAG, "Comms session create network error", e)
++                Result.failure(IOException("대화 기록 세션을 만들지 못했습니다."))
++            } catch (
++                @Suppress("TooGenericExceptionCaught")
++                e: Exception,
++            ) {
++                Log.e(TAG, "Comms session create unknown error", e)
++                Result.failure(IllegalStateException("대화 기록 세션을 만드는 중 오류가 발생했습니다."))
++            }
++
++        suspend fun endSession(sessionId: Long): Result<Unit> =
++            try {
++                val response = apiService.endSession(sessionId = sessionId)
++
++                if (response.isSuccessful || response.code() == HTTP_CONFLICT) {
++                    Result.success(Unit)
++                } else {
++                    Result.failure(response.toApiException())
++                }
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: IOException) {
++                Log.e(TAG, "Comms session end network error", e)
++                Result.failure(IOException("대화 기록 세션을 종료하지 못했습니다."))
++            } catch (
++                @Suppress("TooGenericExceptionCaught")
++                e: Exception,
++            ) {
++                Log.e(TAG, "Comms session end unknown error", e)
++                Result.failure(IllegalStateException("대화 기록 세션을 종료하는 중 오류가 발생했습니다."))
++            }
++
++        private fun Response<*>.toApiException(): IOException {
++            val errorBody = errorBody()?.string().orEmpty()
++            val problemDetails = errorBody.parseProblemDetails()
++            val diagnostic =
++                problemDetails
++                    ?.toDiagnosticMessage()
++                    ?.takeIf { it.isNotBlank() }
++                    ?: "body=${errorBody.take(ERROR_BODY_PREVIEW_LENGTH)}"
++
++            return IOException(
++                "$ERROR_API_PREFIX status=${code()}, message=${message()}, $diagnostic",
++            )
++        }
++
++        private fun String.parseProblemDetails(): ApiErrorResponse? {
++            if (isBlank()) return null
++
++            return runCatching {
++                gson.fromJson(this, ApiErrorResponse::class.java)
++            }.getOrNull()
++        }
++
++        private fun ApiErrorResponse.toDiagnosticMessage(): String =
++            listOfNotNull(
++                type?.let { "type=$it" },
++                title?.let { "title=$it" },
++                status?.let { "status=$it" },
++                detail?.let { "detail=$it" },
++                instance?.let { "instance=$it" },
++                code?.let { "code=$it" },
++                traceId?.let { "traceId=$it" },
++            ).joinToString()
++
++        private companion object {
++            const val TAG = "CommsSessionRepository"
++            const val ERROR_EMPTY_BODY = "Empty response body"
++            const val ERROR_API_PREFIX = "Comms Session API Error:"
++            const val ERROR_BODY_PREVIEW_LENGTH = 300
++            const val HTTP_CONFLICT = 409
++            val gson = Gson()
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DefaultTranslateRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DefaultTranslateRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DefaultTranslateRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DefaultTranslateRepository.kt
+@@ -30,11 +30,16 @@ class DefaultTranslateRepository
+     ) : TranslateRepository {
+         override suspend fun translateSignToSpeech(
+             words: List<String>,
++            sessionId: Long?,
+         ): Result<SignToSpeechResponse> =
+             runCatching {
+                 val response =
+                     apiService.translateSignToSpeech(
+-                        request = SignToSpeechRequest(words = words),
++                        request =
++                            SignToSpeechRequest(
++                                sessionId = sessionId,
++                                words = words,
++                            ),
+                     )
+                 if (response.isSuccessful) {
+                     response.body() ?: throw IllegalStateException(ERROR_EMPTY_BODY)
+@@ -46,6 +51,7 @@ class DefaultTranslateRepository
+         override suspend fun translateSpeechToText(
+             audioFile: File,
+             mimeType: String,
++            sessionId: Long?,
+         ): Result<SpeechToTextResponse> =
+             runCatching {
+                 validateSpeechAudioFile(audioFile)
+@@ -61,6 +67,7 @@ class DefaultTranslateRepository
+                 val response =
+                     apiService.translateSpeechToText(
+                         audioFile = body,
++                        sessionId = sessionId?.toString()?.toPlainTextRequestBody(),
+                         locale = DEFAULT_LOCALE.toPlainTextRequestBody(),
+                         audioMimeType = mimeType.toPlainTextRequestBody(),
+                     )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+@@ -7,6 +7,7 @@ import com.ssafy.mobile.core.vision.inference.SignInferenceAdapter
+ import com.ssafy.mobile.core.vision.inference.TfliteSignInferenceAdapter
+ import com.ssafy.mobile.core.vision.wordspotting.NoOpWordSpottingScanner
+ import com.ssafy.mobile.core.vision.wordspotting.WordSpottingScanner
++import com.ssafy.mobile.feature.conversation.data.remote.CommsSessionApiService
+ import com.ssafy.mobile.feature.conversation.data.remote.TranslateApiService
+ import com.ssafy.mobile.feature.conversation.data.repository.DataStoreTranslationModeRepository
+ import com.ssafy.mobile.feature.conversation.data.repository.DefaultTranslateRepository
+@@ -20,7 +21,6 @@ import dagger.Provides
+ import dagger.hilt.InstallIn
+ import dagger.hilt.android.qualifiers.ApplicationContext
+ import dagger.hilt.components.SingletonComponent
+-import javax.inject.Named
+ import javax.inject.Singleton
+ import retrofit2.Retrofit
+ 
+@@ -48,9 +48,13 @@ abstract class ConversationModule {
+     companion object {
+         @Provides
+         @Singleton
+-        fun provideTranslateApiService(
+-            @Named("NoAuth") retrofit: Retrofit,
+-        ): TranslateApiService = retrofit.create(TranslateApiService::class.java)
++        fun provideTranslateApiService(retrofit: Retrofit): TranslateApiService =
++            retrofit.create(TranslateApiService::class.java)
++
++        @Provides
++        @Singleton
++        fun provideCommsSessionApiService(retrofit: Retrofit): CommsSessionApiService =
++            retrofit.create(CommsSessionApiService::class.java)
+ 
+         @Provides
+         @Singleton
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/repository/TranslateRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/repository/TranslateRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/repository/TranslateRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/repository/TranslateRepository.kt
+@@ -13,7 +13,10 @@ interface TranslateRepository {
+     /**
+      * 부모 수화 단어열을 문장으로 변환하고 TTS 결과 수신
+      */
+-    suspend fun translateSignToSpeech(words: List<String>): Result<SignToSpeechResponse>
++    suspend fun translateSignToSpeech(
++        words: List<String>,
++        sessionId: Long? = null,
++    ): Result<SignToSpeechResponse>
+ 
+     /**
+      * 자녀 발화 음성 파일을 텍스트로 변환
+@@ -21,6 +24,7 @@ interface TranslateRepository {
+     suspend fun translateSpeechToText(
+         audioFile: File,
+         mimeType: String,
++        sessionId: Long? = null,
+     ): Result<SpeechToTextResponse>
+ 
+     /**
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/feature/conversation/data/repository/DefaultTranslateRepositoryTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/feature/conversation/data/repository/DefaultTranslateRepositoryTest.kt
+--- a/mobile/app/src/test/java/com/ssafy/mobile/feature/conversation/data/repository/DefaultTranslateRepositoryTest.kt
++++ b/mobile/app/src/test/java/com/ssafy/mobile/feature/conversation/data/repository/DefaultTranslateRepositoryTest.kt
+@@ -117,6 +117,7 @@ class DefaultTranslateRepositoryTest {
+ 
+         override suspend fun translateSpeechToText(
+             audioFile: MultipartBody.Part,
++            sessionId: RequestBody?,
+             locale: RequestBody,
+             audioMimeType: RequestBody,
+             dryRun: Boolean,
+
+

@@ -1,0 +1,72 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/SignSequenceBuffer.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/SignSequenceBuffer.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/SignSequenceBuffer.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/SignSequenceBuffer.kt
+@@ -75,7 +75,7 @@ class SignSequenceBuffer(
+ 
+     companion object {
+         const val DEFAULT_SEQUENCE_LENGTH = SignModelContract.SEQUENCE_LENGTH
+-        const val DEFAULT_MINIMUM_PREDICTION_FRAMES = 15
++        const val DEFAULT_MINIMUM_PREDICTION_FRAMES = 5
+         const val DEFAULT_MINIMUM_HAND_FRAME_RATIO = 0f
+         private const val MINIMUM_HAND_FRAMES = 1
+         private const val MINIMUM_PREDICTION_FRAMES_LOWER_BOUND = 1
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -590,7 +590,10 @@ class ConversationViewModel
+             if (shouldUseCloudStt()) {
+                 startCloudRecordingLoop()
+             } else {
+-                startLocalSttListening()
++                sttEngine.stopListening()
++                androidAudioRecorder.stop()
++                _speechInputPhase.value = SpeechInputPhase.Error
++                _translationModeNotice.value = NOTICE_SERVER_OFFLINE
+             }
+         }
+ 
+@@ -767,8 +770,6 @@ class ConversationViewModel
+                 TranslationSttModeDto.AUTO -> !streamingFallbackToRest
+             }
+ 
+-        private fun shouldUseLocalStt(): Boolean = !_isOnline.value
+-
+         private fun canUseCloudStt(): Boolean =
+             _sessionState.value == SessionState.Active &&
+                 sessionRuntimeStarted &&
+@@ -777,12 +778,12 @@ class ConversationViewModel
+         private fun canHandleLocalSttEvent(): Boolean =
+             _sessionState.value == SessionState.Active &&
+                 sessionRuntimeStarted &&
+-                shouldUseLocalStt()
++                LOCAL_STT_ENABLED
+ 
+         private fun canStartLocalSttAfterCloudLoop(): Boolean =
+             _sessionState.value == SessionState.Active &&
+                 sessionRuntimeStarted &&
+-                shouldUseLocalStt()
++                LOCAL_STT_ENABLED
+ 
+         private suspend fun refreshServerSttMode() {
+             translateRepository
+@@ -1010,7 +1011,7 @@ class ConversationViewModel
+             if (_sessionState.value != SessionState.Active) return
+ 
+             isStoppedReceived = true
+-            if (shouldUseLocalStt()) {
++            if (LOCAL_STT_ENABLED) {
+                 isResultsReceived = true // 오프라인은 결과 대기 불필요
+             }
+             checkAndRestartStt()
+@@ -1734,6 +1735,7 @@ class ConversationViewModel
+             private const val NONE_GLOSS = "none"
+             private const val STT_RESTART_DELAY_MS = 500L
+             private const val STT_UNRECOGNIZED_NOTICE_MS = 1200L
++            private const val LOCAL_STT_ENABLED = false
+             private const val CLOUD_STT_POLL_INTERVAL_MS = 150L
+             private const val CLOUD_STT_MIN_RECORDING_MS = 500L
+             private const val CLOUD_STT_MIN_UPLOAD_RECORDING_MS = 800L
+
+

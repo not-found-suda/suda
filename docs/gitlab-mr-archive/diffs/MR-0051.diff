@@ -1,0 +1,754 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidSystemTtsPlayer.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidSystemTtsPlayer.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidSystemTtsPlayer.kt
+@@ -0,0 +1,96 @@
++package com.ssafy.mobile.core.audio
++
++import android.content.Context
++import android.speech.tts.TextToSpeech
++import android.speech.tts.UtteranceProgressListener
++import dagger.hilt.android.qualifiers.ApplicationContext
++import java.util.Locale
++import java.util.UUID
++import javax.inject.Inject
++import javax.inject.Singleton
++
++/**
++ * Android 시스템 내장 TextToSpeech 엔진을 사용한 구현체.
++ */
++@Singleton
++class AndroidSystemTtsPlayer
++    @Inject
++    constructor(
++        @ApplicationContext private val context: Context,
++    ) : TtsPlayer {
++        private var tts: TextToSpeech? = null
++        private var isInitialized = false
++        private var pendingRequest: PendingRequest? = null
++
++        private data class PendingRequest(
++            val text: String,
++            val onComplete: () -> Unit,
++            val onError: (String) -> Unit,
++        )
++
++        init {
++            tts =
++                TextToSpeech(context) { status ->
++                    if (status == TextToSpeech.SUCCESS) {
++                        tts?.language = Locale.KOREAN
++                        isInitialized = true
++                        // 초기화 전 들어온 요청이 있다면 실행
++                        pendingRequest?.let { request ->
++                            speak(request.text, request.onComplete, request.onError)
++                            pendingRequest = null
++                        }
++                    } else {
++                        // 초기화 실패 시 대기 중인 요청에 에러 알림
++                        pendingRequest?.let { request ->
++                            request.onError("TTS 엔진 초기화에 실패했습니다.")
++                            pendingRequest = null
++                        }
++                    }
++                }
++        }
++
++        override fun speak(
++            text: String,
++            onComplete: () -> Unit,
++            onError: (String) -> Unit,
++        ) {
++            if (!isInitialized) {
++                pendingRequest = PendingRequest(text, onComplete, onError)
++                return
++            }
++
++            val utteranceId = UUID.randomUUID().toString()
++
++            tts?.setOnUtteranceProgressListener(
++                object : UtteranceProgressListener() {
++                    override fun onStart(utteranceId: String?) {
++                        // no-op
++                    }
++
++                    override fun onDone(utteranceId: String?) {
++                        onComplete()
++                    }
++
++                    @Deprecated("Deprecated in Java")
++                    override fun onError(utteranceId: String?) {
++                        onError("TTS 재생 중 오류가 발생했습니다.")
++                    }
++                },
++            )
++
++            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
++        }
++
++        override fun stop() {
++            pendingRequest = null
++            tts?.stop()
++        }
++
++        override fun release() {
++            isInitialized = false
++            pendingRequest = null
++            tts?.stop()
++            tts?.shutdown()
++            tts = null
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/TtsPlayer.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/TtsPlayer.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/TtsPlayer.kt
+@@ -0,0 +1,29 @@
++package com.ssafy.mobile.core.audio
++
++/**
++ * 텍스트 기반 음성 출력을 위한 인터페이스.
++ * 오프라인 상황에서 시스템 TTS를 활용하기 위해 사용됩니다.
++ */
++interface TtsPlayer {
++    /**
++     * 입력된 텍스트를 음성으로 출력합니다.
++     * @param text 출력할 텍스트
++     * @param onComplete 재생 완료 시 콜백
++     * @param onError 에러 발생 시 콜백
++     */
++    fun speak(
++        text: String,
++        onComplete: () -> Unit = {},
++        onError: (String) -> Unit = {},
++    )
++
++    /**
++     * 재생 중인 음성을 중지합니다.
++     */
++    fun stop()
++
++    /**
++     * 리소스를 해제합니다.
++     */
++    fun release()
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/di/AudioModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/di/AudioModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/di/AudioModule.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/di/AudioModule.kt
+@@ -1,7 +1,9 @@
+ package com.ssafy.mobile.core.di
+ 
+ import com.ssafy.mobile.core.audio.AndroidAudioPlayer
++import com.ssafy.mobile.core.audio.AndroidSystemTtsPlayer
+ import com.ssafy.mobile.core.audio.AudioPlayer
++import com.ssafy.mobile.core.audio.TtsPlayer
+ import dagger.Binds
+ import dagger.Module
+ import dagger.hilt.InstallIn
+@@ -14,4 +16,8 @@ abstract class AudioModule {
+     @Binds
+     @Singleton
+     abstract fun bindAudioPlayer(androidAudioPlayer: AndroidAudioPlayer): AudioPlayer
++
++    @Binds
++    @Singleton
++    abstract fun bindTtsPlayer(androidSystemTtsPlayer: AndroidSystemTtsPlayer): TtsPlayer
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/network/NetworkMonitor.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/network/NetworkMonitor.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/network/NetworkMonitor.kt
+@@ -0,0 +1,82 @@
++package com.ssafy.mobile.core.network
++
++import android.content.Context
++import android.net.ConnectivityManager
++import android.net.Network
++import android.net.NetworkCapabilities
++import android.net.NetworkRequest
++import dagger.hilt.android.qualifiers.ApplicationContext
++import javax.inject.Inject
++import javax.inject.Singleton
++import kotlinx.coroutines.channels.awaitClose
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.callbackFlow
++import kotlinx.coroutines.flow.conflate
++import kotlinx.coroutines.flow.distinctUntilChanged
++
++@Singleton
++class NetworkMonitor
++    @Inject
++    constructor(
++        @ApplicationContext private val context: Context,
++    ) {
++        private val connectivityManager =
++            context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
++
++        val isOnline: Flow<Boolean> =
++            callbackFlow {
++                val callback =
++                    object : ConnectivityManager.NetworkCallback() {
++                        override fun onAvailable(network: Network) {
++                            // no-op: 실제 온라인 여부는 onCapabilitiesChanged에서 VALIDATED 체크 후 결정
++                        }
++
++                        override fun onLost(network: Network) {
++                            trySend(false)
++                        }
++
++                        override fun onCapabilitiesChanged(
++                            network: Network,
++                            networkCapabilities: NetworkCapabilities,
++                        ) {
++                            val hasInternet =
++                                networkCapabilities.hasCapability(
++                                    NetworkCapabilities.NET_CAPABILITY_INTERNET,
++                                )
++                            val isValidated =
++                                networkCapabilities.hasCapability(
++                                    NetworkCapabilities.NET_CAPABILITY_VALIDATED,
++                                )
++                            trySend(hasInternet && isValidated)
++                        }
++                    }
++
++                connectivityManager.registerNetworkCallback(
++                    NetworkRequest
++                        .Builder()
++                        .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
++                        .build(),
++                    callback,
++                )
++
++                val initialStatus =
++                    connectivityManager.activeNetwork?.let { network ->
++                        val capabilities = connectivityManager.getNetworkCapabilities(network)
++                        val hasInternet =
++                            capabilities?.hasCapability(
++                                NetworkCapabilities.NET_CAPABILITY_INTERNET,
++                            ) == true
++                        val isValidated =
++                            capabilities?.hasCapability(
++                                NetworkCapabilities.NET_CAPABILITY_VALIDATED,
++                            ) == true
++                        hasInternet && isValidated
++                    } ?: false
++                trySend(initialStatus)
++
++                awaitClose {
++                    connectivityManager.unregisterNetworkCallback(callback)
++                }
++            }.distinctUntilChanged()
++                .conflate()
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppErrorText.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppErrorText.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppErrorText.kt
+@@ -0,0 +1,26 @@
++package com.ssafy.mobile.core.ui.components
++
++import androidx.compose.foundation.layout.padding
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.unit.dp
++
++/**
++ * 에러 상태를 표시하기 위한 전용 텍스트 컴포넌트.
++ */
++@Composable
++fun AppErrorText(
++    text: String,
++    modifier: Modifier = Modifier,
++) {
++    if (text.isNotEmpty()) {
++        Text(
++            text = text,
++            color = MaterialTheme.colorScheme.error,
++            style = MaterialTheme.typography.bodySmall,
++            modifier = modifier.padding(vertical = 4.dp),
++        )
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppOfflineBanner.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppOfflineBanner.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppOfflineBanner.kt
+@@ -0,0 +1,49 @@
++package com.ssafy.mobile.core.ui.components
++
++import androidx.compose.animation.AnimatedVisibility
++import androidx.compose.animation.expandVertically
++import androidx.compose.animation.shrinkVertically
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.unit.dp
++
++private const val OFFLINE_BANNER_COLOR = 0xFFFFA000
++
++@Composable
++fun AppOfflineBanner(
++    isOnline: Boolean,
++    modifier: Modifier = Modifier,
++) {
++    AnimatedVisibility(
++        visible = !isOnline,
++        enter = expandVertically(),
++        exit = shrinkVertically(),
++    ) {
++        Box(
++            modifier =
++                modifier
++                    .fillMaxWidth()
++                    .background(Color(OFFLINE_BANNER_COLOR))
++                    .padding(vertical = 8.dp, horizontal = 16.dp),
++            contentAlignment = Alignment.Center,
++        ) {
++            Row(verticalAlignment = Alignment.CenterVertically) {
++                Text(
++                    text = "오프라인 모드로 동작 중입니다.",
++                    color = Color.White,
++                    style = MaterialTheme.typography.labelLarge,
++                    modifier = Modifier.padding(start = 8.dp),
++                )
++            }
++        }
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+@@ -23,7 +23,6 @@ import androidx.compose.material3.Scaffold
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.DisposableEffect
+-import androidx.compose.runtime.collectAsState
+ import androidx.compose.runtime.getValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+@@ -32,6 +31,8 @@ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppOfflineBanner
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
+@@ -39,18 +40,26 @@ import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
+ import com.ssafy.mobile.feature.conversation.presentation.components.SubtitleList
+ import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
+ 
+-private const val TAG = "ConversationWakelock"
++private const val TAG = "ConversationRoute"
+ private const val SUBTITLE_WIDTH_FRACTION = 0.95f
+ private const val SUBTITLE_HEIGHT_FRACTION = 0.4f
+ 
++data class ConversationUiState(
++    val sessionState: SessionState,
++    val isOnline: Boolean,
++    val messages: List<ChatMessage>,
++    val lastGlosses: List<String>,
++)
++
+ @Composable
+ fun ConversationRoute(
+     modifier: Modifier = Modifier,
+     viewModel: ConversationViewModel = hiltViewModel(),
+ ) {
+-    val sessionState by viewModel.sessionState.collectAsState()
+-    val messages by viewModel.messages.collectAsState()
+-    val lastGlosses by viewModel.lastGlosses.collectAsState()
++    val sessionState by viewModel.sessionState.collectAsStateWithLifecycle()
++    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
++    val messages by viewModel.messages.collectAsStateWithLifecycle()
++    val lastGlosses by viewModel.lastGlosses.collectAsStateWithLifecycle()
+     val context = LocalContext.current
+ 
+     // 세션 활성화 중에는 화면이 꺼지지 않도록 설정
+@@ -75,10 +84,16 @@ fun ConversationRoute(
+         onDispose { viewModel.stopSession() }
+     }
+ 
++    val uiState =
++        ConversationUiState(
++            sessionState = sessionState,
++            isOnline = isOnline,
++            messages = messages,
++            lastGlosses = lastGlosses,
++        )
++
+     ConversationScreen(
+-        sessionState = sessionState,
+-        messages = messages,
+-        lastGlosses = lastGlosses,
++        uiState = uiState,
+         onStartSession = viewModel::startSession,
+         onStopSession = viewModel::stopSession,
+         onLandmarkFrame = viewModel::onLandmarkFrame,
+@@ -88,9 +103,7 @@ fun ConversationRoute(
+ 
+ @Composable
+ private fun ConversationScreen(
+-    sessionState: SessionState,
+-    messages: List<ChatMessage>,
+-    lastGlosses: List<String>,
++    uiState: ConversationUiState,
+     onStartSession: () -> Unit,
+     onStopSession: () -> Unit,
+     onLandmarkFrame: (LandmarkFrameResult) -> Unit,
+@@ -99,11 +112,14 @@ private fun ConversationScreen(
+     Scaffold(
+         modifier = modifier.fillMaxSize(),
+         topBar = {
+-            SessionHeader(sessionState = sessionState)
++            Column {
++                SessionHeader(sessionState = uiState.sessionState)
++                AppOfflineBanner(isOnline = uiState.isOnline)
++            }
+         },
+         bottomBar = {
+             SessionControls(
+-                sessionState = sessionState,
++                sessionState = uiState.sessionState,
+                 onStartSession = onStartSession,
+                 onStopSession = onStopSession,
+             )
+@@ -117,14 +133,14 @@ private fun ConversationScreen(
+         ) {
+             // 카메라 인식 영역 및 자막 오버레이
+             SignRecognitionArea(
+-                sessionState = sessionState,
+-                messages = messages,
++                sessionState = uiState.sessionState,
++                messages = uiState.messages,
+                 onLandmarkFrame = onLandmarkFrame,
+                 modifier = Modifier.weight(1.0f),
+             )
+ 
+             // 실시간 인식 결과 영역 (글로스 나열)
+-            GlossRecognitionArea(lastGlosses = lastGlosses)
++            GlossRecognitionArea(lastGlosses = uiState.lastGlosses)
+         }
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -3,7 +3,9 @@ package com.ssafy.mobile.feature.conversation.presentation
+ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
+ import com.ssafy.mobile.core.audio.AudioPlayer
++import com.ssafy.mobile.core.audio.TtsPlayer
+ import com.ssafy.mobile.core.model.SignRecognitionEvent
++import com.ssafy.mobile.core.network.NetworkMonitor
+ import com.ssafy.mobile.core.stt.SttEngine
+ import com.ssafy.mobile.core.stt.SttEvent
+ import com.ssafy.mobile.core.vision.SignRecognitionEngine
+@@ -34,11 +36,16 @@ class ConversationViewModel
+         private val signRecognitionEngine: SignRecognitionEngine,
+         private val translateRepository: TranslateRepository,
+         private val audioPlayer: AudioPlayer,
++        private val ttsPlayer: TtsPlayer,
+         private val sttEngine: SttEngine,
++        private val networkMonitor: NetworkMonitor,
+     ) : ViewModel() {
+         private val _sessionState = MutableStateFlow(SessionState.Idle)
+         val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
+ 
++        private val _isOnline = MutableStateFlow(true)
++        val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
++
+         private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
+         val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
+ 
+@@ -59,6 +66,13 @@ class ConversationViewModel
+         private var sttJob: Job? = null
+ 
+         init {
++            // 네트워크 상태 모니터링
++            viewModelScope.launch {
++                networkMonitor.isOnline.collect { online ->
++                    _isOnline.value = online
++                }
++            }
++
+             viewModelScope.launch {
+                 signRecognitionEngine.events.collect { event ->
+                     if (_sessionState.value == SessionState.Active) {
+@@ -69,80 +83,118 @@ class ConversationViewModel
+         }
+ 
+         private fun handleEvent(event: SignRecognitionEvent) {
+-            when (event) {
+-                is SignRecognitionEvent.Prediction -> {
+-                    val currentGlosses = _lastGlosses.value + event.gloss
+-                    _lastGlosses.value = currentGlosses
++            if (event !is SignRecognitionEvent.Prediction) return
+ 
+-                    // 새로운 단어가 들어올 때마다 문장 완성 타이머 초기화 및 재시작
+-                    restartCompletionTimer(currentGlosses)
+-                }
+-                else -> {
+-                    // 기타 상태 처리
+-                }
+-            }
+-        }
++            val currentGlosses = _lastGlosses.value + event.gloss
++            _lastGlosses.value = currentGlosses
+ 
+-        private fun restartCompletionTimer(words: List<String>) {
++            // 타이머 재시작 로직 인라인화
+             completionTimerJob?.cancel()
+             completionTimerJob =
+                 viewModelScope.launch {
+                     kotlinx.coroutines.delay(COMPLETION_THRESHOLD_MS)
+-                    // 2초간 새로운 단어가 없으면 번역 요청
+-                    if (words.isNotEmpty()) {
+-                        requestTranslation(words)
++                    if (currentGlosses.isNotEmpty()) {
++                        requestTranslation(currentGlosses)
+                     }
+                 }
+         }
+ 
+         private fun requestTranslation(words: List<String>) {
++            translationJob?.cancel()
++            if (_isOnline.value) {
++                // [온라인 모드] 기존 클라우드 번역 로직
++                performCloudTranslation(words)
++            } else {
++                // [오프라인 모드] Fallback 로직
++                performOfflineFallback(words)
++            }
++        }
++
++        private fun performCloudTranslation(words: List<String>) {
+             // 0. 교정 중인 부모 메시지 추가
+-            addOrUpdateParentMessage(
++            addOrUpdateMessage(
+                 text = "교정 중...",
+                 isFinal = false,
++                senderType = SenderType.PARENT,
+             )
+ 
+-            // 이전 진행 중인 번역 요청이 있다면 취소하여 중복 및 순서 꼬임 방지
+-            translationJob?.cancel()
+-
+             translationJob =
+                 viewModelScope.launch {
+                     translateRepository
+                         .translateSignToSpeech(words)
+                         .onSuccess { response ->
+                             _translatedText.value = response.correctedText
+-                            addOrUpdateParentMessage(
++                            addOrUpdateMessage(
+                                 text = response.correctedText,
+                                 isFinal = true,
++                                senderType = SenderType.PARENT,
+                             )
+ 
+-                            // 1. 번역 성공 시 음성 재생 (Base64 데이터가 있는 경우)
+                             response.audioBase64?.let { base64Data ->
+-                                // [에코 캔슬링] TTS 재생 전 마이크 중단
+                                 sttEngine.stopListening()
+-
+                                 audioPlayer.playBase64(
+                                     base64Data = base64Data,
+-                                    onComplete = { startListening() },
+-                                    onError = { startListening() },
++                                    onComplete = {
++                                        if (_sessionState.value == SessionState.Active) {
++                                            sttEngine.startListening()
++                                        }
++                                    },
++                                    onError = {
++                                        if (_sessionState.value == SessionState.Active) {
++                                            sttEngine.startListening()
++                                        }
++                                    },
+                                 )
+                             } ?: run {
+-                                startListening()
++                                if (_sessionState.value == SessionState.Active) {
++                                    sttEngine.startListening()
++                                }
+                             }
+ 
+-                            // 2. 단어 리스트 초기화
+                             _lastGlosses.value = emptyList()
+                         }.onFailure {
+-                            // 3. 번역 실패 시 에러 처리
+-                            addOrUpdateParentMessage(
++                            addOrUpdateMessage(
+                                 text = "번역에 실패했습니다. 다시 시도해 주세요.",
+                                 isFinal = true,
++                                senderType = SenderType.PARENT,
+                             )
+-                            startListening()
++                            if (_sessionState.value == SessionState.Active) {
++                                sttEngine.startListening()
++                            }
+                         }
+                 }
+         }
+ 
++        private fun performOfflineFallback(words: List<String>) {
++            val fallbackText = words.joinToString(" ")
++            _translatedText.value = fallbackText
++
++            // 오프라인이므로 즉시 최종 메시지로 추가
++            addOrUpdateMessage(
++                text = fallbackText,
++                isFinal = true,
++                senderType = SenderType.PARENT,
++            )
++
++            // 시스템 TTS로 재생
++            sttEngine.stopListening()
++            ttsPlayer.speak(
++                text = fallbackText,
++                onComplete = {
++                    if (_sessionState.value == SessionState.Active) {
++                        sttEngine.startListening()
++                    }
++                },
++                onError = {
++                    if (_sessionState.value == SessionState.Active) {
++                        sttEngine.startListening()
++                    }
++                },
++            )
++
++            _lastGlosses.value = emptyList()
++        }
++
+         fun startSession() {
+             _sessionState.value = SessionState.Active
+             signRecognitionEngine.start()
+@@ -189,17 +241,18 @@ class ConversationViewModel
+             completionTimerJob?.cancel()
+             sttJob?.cancel()
+             audioPlayer.stop()
++            ttsPlayer.stop()
+         }
+ 
+-        private fun updateOrAddChildMessage(
++        private fun addOrUpdateMessage(
+             text: String,
+             isFinal: Boolean,
++            senderType: SenderType,
+         ) {
+-            _sttText.value = text
+             _messages.update { currentList ->
+                 val lastMessage = currentList.lastOrNull()
+                 if (lastMessage != null &&
+-                    lastMessage.senderType == SenderType.CHILD &&
++                    lastMessage.senderType == senderType &&
+                     lastMessage.status == MessageStatus.PENDING
+                 ) {
+                     currentList.dropLast(1) +
+@@ -216,7 +269,7 @@ class ConversationViewModel
+                     currentList +
+                         ChatMessage(
+                             text = text,
+-                            senderType = SenderType.CHILD,
++                            senderType = senderType,
+                             status =
+                                 if (isFinal) {
+                                     MessageStatus.COMPLETED
+@@ -228,52 +281,19 @@ class ConversationViewModel
+             }
+         }
+ 
+-        private fun addOrUpdateParentMessage(
++        private fun updateOrAddChildMessage(
+             text: String,
+             isFinal: Boolean,
+         ) {
+-            _messages.update { currentList ->
+-                val lastMessage = currentList.lastOrNull()
+-                if (lastMessage != null &&
+-                    lastMessage.senderType == SenderType.PARENT &&
+-                    lastMessage.status == MessageStatus.PENDING
+-                ) {
+-                    currentList.dropLast(1) +
+-                        lastMessage.copy(
+-                            text = text,
+-                            status =
+-                                if (isFinal) {
+-                                    MessageStatus.COMPLETED
+-                                } else {
+-                                    MessageStatus.PENDING
+-                                },
+-                        )
+-                } else {
+-                    currentList +
+-                        ChatMessage(
+-                            text = text,
+-                            senderType = SenderType.PARENT,
+-                            status =
+-                                if (isFinal) {
+-                                    MessageStatus.COMPLETED
+-                                } else {
+-                                    MessageStatus.PENDING
+-                                },
+-                        )
+-                }
+-            }
+-        }
+-
+-        private fun startListening() {
+-            if (_sessionState.value == SessionState.Active) {
+-                sttEngine.startListening()
+-            }
++            _sttText.value = text
++            addOrUpdateMessage(text, isFinal, SenderType.CHILD)
+         }
+ 
+         override fun onCleared() {
+             super.onCleared()
+-            audioPlayer.release()
+-            sttEngine.release()
++            audioPlayer.stop()
++            ttsPlayer.stop()
++            sttEngine.stopListening()
+         }
+ 
+         fun onLandmarkFrame(frame: LandmarkFrameResult) {
+
+
+diff --git a/mobile/app/src/main/AndroidManifest.xml b/mobile/app/src/main/AndroidManifest.xml
+--- a/mobile/app/src/main/AndroidManifest.xml
++++ b/mobile/app/src/main/AndroidManifest.xml
+@@ -5,6 +5,7 @@
+     <uses-permission android:name="android.permission.INTERNET" />
+     <uses-permission android:name="android.permission.CAMERA" />
+     <uses-permission android:name="android.permission.RECORD_AUDIO" />
++    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+ 
+     <uses-feature
+         android:name="android.hardware.camera"
+
+

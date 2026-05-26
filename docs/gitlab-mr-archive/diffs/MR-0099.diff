@@ -1,0 +1,117 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizAnswerSubmitState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizAnswerSubmitState.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizAnswerSubmitState.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizAnswerSubmitState.kt
+@@ -11,6 +11,10 @@ sealed interface QuizAnswerSubmitState {
+         val message: String,
+     ) : QuizAnswerSubmitState
+ 
++    data class SaveFailed(
++        val message: String,
++    ) : QuizAnswerSubmitState
++
+     data class Error(
+         val message: String,
+     ) : QuizAnswerSubmitState
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+@@ -390,6 +390,7 @@ private fun QuizActionArea(
+     val isProcessing = recordingStatus == QuizRecordingStatus.Processing
+     val isSubmitting = answerSubmitState == QuizAnswerSubmitState.Submitting
+     val isCompletionPending = answerSubmitState is QuizAnswerSubmitState.CompletionPending
++    val isSaveFailed = answerSubmitState is QuizAnswerSubmitState.SaveFailed
+     val canSkipQuestion = false
+     val hasSuccessfulAnswer = QuizRetryPolicy.hasSuccessfulAnswer(answer)
+     val remainingRetryCount = QuizRetryPolicy.remainingRetryCount(answer)
+@@ -398,10 +399,15 @@ private fun QuizActionArea(
+         !isProcessing &&
+             !isSubmitting &&
+             !isCompletionPending &&
++            !isSaveFailed &&
+             !hasSuccessfulAnswer &&
+             !retryLimitReached
+     val canMoveNext =
+-        (isCompletionPending || QuizRetryPolicy.canMoveNext(answer, canSkipQuestion)) &&
++        (
++            isCompletionPending ||
++                isSaveFailed ||
++                QuizRetryPolicy.canMoveNext(answer, canSkipQuestion)
++        ) &&
+             !isRecording &&
+             !isProcessing &&
+             !isSubmitting
+@@ -424,6 +430,7 @@ private fun QuizActionArea(
+                     isProcessing -> "음성 인식 중..."
+                     isSubmitting -> "답변 저장 중..."
+                     isCompletionPending -> "답변 저장 완료"
++                    isSaveFailed -> "저장 재시도 대기"
+                     hasAnswered -> quizRetryButtonText(remainingRetryCount)
+                     else -> "말하기"
+                 },
+@@ -433,16 +440,17 @@ private fun QuizActionArea(
+ 
+         AppSecondaryButton(
+             text =
+-                if (isCompletionPending) {
+-                    "결과 보기 다시 시도"
+-                } else {
+-                    quizNextButtonText(
+-                        canSkipQuestion = canSkipQuestion,
+-                        hasAnswered = hasAnswered,
+-                        hasSuccessfulAnswer = hasSuccessfulAnswer,
+-                        retryLimitReached = retryLimitReached,
+-                        isLastQuestion = isLastQuestion,
+-                    )
++                when {
++                    isCompletionPending -> "결과 보기 다시 시도"
++                    isSaveFailed -> "답변 저장 다시 시도"
++                    else ->
++                        quizNextButtonText(
++                            canSkipQuestion = canSkipQuestion,
++                            hasAnswered = hasAnswered,
++                            hasSuccessfulAnswer = hasSuccessfulAnswer,
++                            retryLimitReached = retryLimitReached,
++                            isLastQuestion = isLastQuestion,
++                        )
+                 },
+             onClick = onNextClick,
+             enabled = canMoveNext,
+@@ -469,6 +477,7 @@ private fun AnswerSubmitStatusText(
+             QuizAnswerSubmitState.Submitting -> "답변을 저장하고 있어요..."
+             QuizAnswerSubmitState.Success -> "답변을 저장했어요."
+             is QuizAnswerSubmitState.CompletionPending -> state.message
++            is QuizAnswerSubmitState.SaveFailed -> state.message
+             is QuizAnswerSubmitState.Error -> state.message
+         }
+ 
+@@ -479,7 +488,8 @@ private fun AnswerSubmitStatusText(
+             style = MaterialTheme.typography.bodySmall,
+             color =
+                 if (state is QuizAnswerSubmitState.Error ||
+-                    state is QuizAnswerSubmitState.CompletionPending
++                    state is QuizAnswerSubmitState.CompletionPending ||
++                    state is QuizAnswerSubmitState.SaveFailed
+                 ) {
+                     MaterialTheme.colorScheme.error
+                 } else {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
+@@ -151,8 +151,9 @@ class QuizQuestionViewModel
+                                     }
+                                 }.onFailure { throwable ->
+                                     _answerSubmitState.value =
+-                                        QuizAnswerSubmitState.Error(
+-                                            throwable.message ?: "답변 저장에 실패했습니다.",
++                                        QuizAnswerSubmitState.SaveFailed(
++                                            throwable.message
++                                                ?: "답변 저장에 실패했습니다. 다시 시도해주세요.",
+                                         )
+                                 }
+                         }
+
+

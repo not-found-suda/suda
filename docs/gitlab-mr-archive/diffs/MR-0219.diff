@@ -1,0 +1,704 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -10,7 +10,6 @@ import androidx.navigation.NavType
+ import androidx.navigation.compose.NavHost
+ import androidx.navigation.compose.composable
+ import androidx.navigation.navArgument
+-import com.ssafy.mobile.BuildConfig
+ import com.ssafy.mobile.feature.appentry.AppEntryRoute
+ import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileEditRoute
+ import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileSelectRoute
+@@ -33,7 +32,6 @@ import com.ssafy.mobile.feature.report.presentation.ReportQuizSessionDetailRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportQuizSessionsRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportSummaryRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportWeakWordsRoute
+-import com.ssafy.mobile.feature.sign.presentation.SignDebugRoute
+ import com.ssafy.mobile.feature.signup.presentation.SignupRoute
+ 
+ @Composable
+@@ -269,15 +267,7 @@ fun MobileNavHost(
+         }
+ 
+         composable(Screen.Conversation.route) {
+-            val onOpenSignDebug: (() -> Unit)? =
+-                if (BuildConfig.DEBUG) {
+-                    { navController.navigate(Screen.Sign.route) }
+-                } else {
+-                    null
+-                }
+-
+             conversationRoute(
+-                onOpenSignDebug = onOpenSignDebug,
+                 modifier = Modifier.fillMaxSize(),
+             )
+         }
+@@ -340,17 +330,6 @@ fun MobileNavHost(
+             )
+         }
+ 
+-        if (BuildConfig.DEBUG) {
+-            composable(Screen.Sign.route) {
+-                SignDebugRoute(
+-                    onBackToMain = {
+-                        navController.popBackStack()
+-                    },
+-                    modifier = Modifier.fillMaxSize(),
+-                )
+-            }
+-        }
+-
+         composable(Screen.LearningCategory.route) {
+             LearningCategoryRoute(
+                 onNavigateToWordList = { categoryId, categoryName, difficulty ->
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+@@ -58,8 +58,6 @@ sealed class Screen(
+ 
+     data object AiModelSettings : Screen("ai_model_settings_route")
+ 
+-    data object Sign : Screen("sign_route")
+-
+     data object LearningCategory : Screen("learning_category_route")
+ 
+     data object WordList :
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+@@ -93,7 +93,6 @@ data class ConversationUiState(
+ @Composable
+ fun conversationRoute(
+     modifier: Modifier = Modifier,
+-    onOpenSignDebug: (() -> Unit)? = null,
+     onNavigateToLogin: (() -> Unit)? = null,
+     viewModel: ConversationViewModel = hiltViewModel(),
+ ) {
+@@ -158,7 +157,6 @@ fun conversationRoute(
+                 onLandmarkFrame = viewModel::onLandmarkFrame,
+                 onFeedbackReasonConfirmed = viewModel::submitTranslationFeedback,
+                 onFeedbackDismissed = viewModel::clearTranslationFeedbackSubmitState,
+-                onOpenSignDebug = onOpenSignDebug,
+                 onNavigateToLogin = onNavigateToLogin,
+             ),
+         modifier = modifier,
+@@ -171,7 +169,6 @@ private data class ConversationActions(
+     val onLandmarkFrame: (LandmarkFrameResult) -> Unit,
+     val onFeedbackReasonConfirmed: (ChatMessage, TranslationFeedbackReason) -> Unit,
+     val onFeedbackDismissed: () -> Unit,
+-    val onOpenSignDebug: (() -> Unit)?,
+     val onNavigateToLogin: (() -> Unit)?,
+ )
+ 
+@@ -200,16 +197,6 @@ private fun ConversationScreen(
+     Scaffold(
+         modifier = modifier.fillMaxSize(),
+         containerColor = Color.Transparent,
+-        topBar = {
+-            ConversationHeroHeader(
+-                sessionState = uiState.sessionState,
+-                signInputPhase = uiState.signInputPhase,
+-                speechInputPhase = uiState.speechInputPhase,
+-                onOpenSignDebug = actions.onOpenSignDebug,
+-                onNavigateToLogin = actions.onNavigateToLogin,
+-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+-            )
+-        },
+         bottomBar = {
+             ConversationSessionControls(
+                 signInputPhase = uiState.signInputPhase,
+@@ -217,6 +204,7 @@ private fun ConversationScreen(
+                 sessionState = uiState.sessionState,
+                 onStartSession = actions.onStartSession,
+                 onStopSession = actions.onStopSession,
++                onNavigateToLogin = actions.onNavigateToLogin,
+                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+             )
+         },
+@@ -233,7 +221,7 @@ private fun ConversationScreen(
+                 modifier =
+                     Modifier
+                         .fillMaxSize()
+-                        .padding(horizontal = 12.dp),
++                        .padding(start = 12.dp, top = 12.dp, end = 12.dp),
+             ) {
+                 ConversationStageCard(
+                     sessionState = uiState.sessionState,
+@@ -794,6 +782,7 @@ private fun ConversationSessionControls(
+     sessionState: SessionState,
+     onStartSession: () -> Unit,
+     onStopSession: () -> Unit,
++    onNavigateToLogin: (() -> Unit)?,
+     modifier: Modifier = Modifier,
+ ) {
+     val hapticFeedback = LocalHapticFeedback.current
+@@ -826,6 +815,14 @@ private fun ConversationSessionControls(
+                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                     maxLines = 2,
+                 )
++                onNavigateToLogin?.let { navigateToLogin ->
++                    ConversationActionChip(
++                        text = "\uB85C\uADF8\uC778",
++                        onClick = navigateToLogin,
++                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
++                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
++                    )
++                }
+             }
+ 
+             if (sessionState == SessionState.Idle) {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDto.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDto.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDto.kt
+@@ -136,19 +136,27 @@ data class LearningQuizAnswerResponseDto(
+     fun toDomain(
+         fallbackSessionId: Long,
+         fallbackQuestionId: Long,
+-    ): LearningQuizAnswerResult =
+-        LearningQuizAnswerResult(
++    ): LearningQuizAnswerResult {
++        val normalizedScore =
++            normalizeQuizAnswerScore(
++                recognizedText = recognizedText,
++                isCorrect = isCorrect,
++                star = star,
++            )
++
++        return LearningQuizAnswerResult(
+             sessionId = sessionId ?: fallbackSessionId,
+             questionId = questionId ?: fallbackQuestionId,
+             wordId = wordId ?: UNKNOWN_WORD_ID,
+             targetText = targetText.orEmpty(),
+-            recognizedText = recognizedText.orEmpty(),
+-            isCorrect = isCorrect ?: false,
+-            star = star ?: MIN_QUIZ_STAR,
++            recognizedText = normalizedScore.recognizedText,
++            isCorrect = normalizedScore.isCorrect,
++            star = normalizedScore.star,
+             feedback = feedback,
+             hasNext = hasNext ?: false,
+             nextQuestionNumber = nextQuestionNumber,
+         )
++    }
+ }
+ 
+ data class LearningQuizSessionStatusRequestDto(
+@@ -184,14 +192,17 @@ data class LearningQuizResultResponseDto(
+     @SerializedName("answers")
+     val answers: List<LearningQuizResultAnswerDto>,
+ ) {
+-    fun toDomain(): LearningQuizResult =
+-        LearningQuizResult(
++    fun toDomain(): LearningQuizResult {
++        val normalizedAnswers = answers.map { it.toDomain() }
++
++        return LearningQuizResult(
+             sessionId = sessionId,
+             totalQuestionCount = totalQuestionCount,
+-            correctCount = correctCount,
+-            totalStar = totalStar,
+-            answers = answers.map { it.toDomain() },
++            correctCount = normalizedAnswers.count { it.isCorrect },
++            totalStar = normalizedAnswers.sumOf { it.star },
++            answers = normalizedAnswers,
+         )
++    }
+ }
+ 
+ data class LearningQuizResultAnswerDto(
+@@ -210,18 +221,54 @@ data class LearningQuizResultAnswerDto(
+     @SerializedName("feedback")
+     val feedback: String? = null,
+ ) {
+-    fun toDomain(): LearningQuizResultAnswer =
+-        LearningQuizResultAnswer(
++    fun toDomain(): LearningQuizResultAnswer {
++        val normalizedScore =
++            normalizeQuizAnswerScore(
++                recognizedText = recognizedText,
++                isCorrect = isCorrect,
++                star = star,
++            )
++
++        return LearningQuizResultAnswer(
+             questionId = questionId,
+             wordId = wordId,
+             targetText = targetText,
+-            recognizedText = recognizedText,
+-            isCorrect = isCorrect,
+-            star = star,
++            recognizedText = normalizedScore.recognizedText,
++            isCorrect = normalizedScore.isCorrect,
++            star = normalizedScore.star,
+             feedback = feedback,
+         )
++    }
+ }
+ 
+ private const val DEFAULT_QUESTION_NUMBER = 1
+ private const val UNKNOWN_WORD_ID = -1L
+-private const val MIN_QUIZ_STAR = 1
++private const val DEFAULT_QUIZ_STAR = 1
++private const val NO_SPEECH_QUIZ_STAR = 0
++
++private data class NormalizedQuizAnswerScore(
++    val recognizedText: String,
++    val isCorrect: Boolean,
++    val star: Int,
++)
++
++private fun normalizeQuizAnswerScore(
++    recognizedText: String?,
++    isCorrect: Boolean?,
++    star: Int?,
++): NormalizedQuizAnswerScore {
++    val normalizedRecognizedText = recognizedText.orEmpty().trim()
++    if (normalizedRecognizedText.isBlank()) {
++        return NormalizedQuizAnswerScore(
++            recognizedText = "",
++            isCorrect = false,
++            star = NO_SPEECH_QUIZ_STAR,
++        )
++    }
++
++    return NormalizedQuizAnswerScore(
++        recognizedText = normalizedRecognizedText,
++        isCorrect = isCorrect ?: false,
++        star = star ?: DEFAULT_QUIZ_STAR,
++    )
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
+@@ -4,11 +4,7 @@ package com.ssafy.mobile.feature.quiz.presentation
+ 
+ import androidx.compose.animation.core.Animatable
+ import androidx.compose.animation.core.FastOutSlowInEasing
+-import androidx.compose.animation.core.RepeatMode
+ import androidx.compose.animation.core.Spring
+-import androidx.compose.animation.core.animateFloat
+-import androidx.compose.animation.core.infiniteRepeatable
+-import androidx.compose.animation.core.rememberInfiniteTransition
+ import androidx.compose.animation.core.spring
+ import androidx.compose.animation.core.tween
+ import androidx.compose.foundation.Image
+@@ -27,8 +23,6 @@ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.remember
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+-import androidx.compose.ui.draw.alpha
+-import androidx.compose.ui.draw.scale
+ import androidx.compose.ui.graphics.graphicsLayer
+ import androidx.compose.ui.res.painterResource
+ import androidx.compose.ui.text.font.FontWeight
+@@ -57,7 +51,8 @@ internal fun QuizStarResultCard(
+         modifier = modifier.fillMaxWidth(),
+     ) {
+         val eventKey = answer.feedbackEventKey()
+-        val isFailure = answer.isCorrect == false
++        val earnedStarCount = answer.normalizedStarCount()
++        val isFailure = answer.isFailureResult()
+ 
+         Column(
+             modifier = Modifier.fillMaxWidth(),
+@@ -69,8 +64,7 @@ internal fun QuizStarResultCard(
+             } else {
+                 StarRewardBurst(
+                     eventKey = eventKey,
+-                    isCorrect = answer.isCorrect == true,
+-                    star = answer.star,
++                    starCount = earnedStarCount,
+                 )
+             }
+             QuizFeedbackMascotMessage(
+@@ -120,36 +114,6 @@ private fun QuizFeedbackMascotMessage(
+     }
+ }
+ 
+-@Composable
+-private fun StarScoreIndicator(
+-    star: Int?,
+-    modifier: Modifier = Modifier,
+-) {
+-    val starCount = star?.coerceIn(MIN_STAR, MAX_STAR) ?: MIN_STAR
+-
+-    Row(
+-        modifier = modifier,
+-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+-        verticalAlignment = Alignment.CenterVertically,
+-    ) {
+-        repeat(MAX_STAR) { index ->
+-            Image(
+-                painter = painterResource(R.drawable.star_reward_small),
+-                contentDescription = null,
+-                modifier =
+-                    Modifier
+-                        .size(24.dp)
+-                        .alpha(if (index < starCount) 1f else EMPTY_STAR_ALPHA),
+-            )
+-        }
+-        AppBadge(
+-            text = star.toStarBadgeText(),
+-            tone = star.toStarBadgeTone(),
+-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp),
+-        )
+-    }
+-}
+-
+ @Composable
+ private fun FailureRewardBurst(modifier: Modifier = Modifier) {
+     Box(
+@@ -168,7 +132,7 @@ private fun FailureRewardBurst(modifier: Modifier = Modifier) {
+                     .offset(y = (-8).dp),
+         )
+         AppBadge(
+-            text = "실패",
++            text = "\uC544\uC26C\uC6CC\uC694",
+             tone = AppBadgeTone.Error,
+             modifier = Modifier.align(Alignment.BottomCenter),
+             contentPadding = PaddingValues(horizontal = 22.dp, vertical = 10.dp),
+@@ -179,35 +143,11 @@ private fun FailureRewardBurst(modifier: Modifier = Modifier) {
+ @Composable
+ private fun StarRewardBurst(
+     eventKey: String?,
+-    isCorrect: Boolean,
+-    star: Int?,
++    starCount: Int,
+     modifier: Modifier = Modifier,
+ ) {
+     val scale = remember(eventKey) { Animatable(0.7f) }
+     val rotation = remember(eventKey) { Animatable(-10f) }
+-    val infiniteTransition = rememberInfiniteTransition(label = "starRewardTwinkle")
+-    val sparkleScale =
+-        infiniteTransition.animateFloat(
+-            initialValue = 0.82f,
+-            targetValue = 1.12f,
+-            animationSpec =
+-                infiniteRepeatable(
+-                    animation = tween(durationMillis = 760, easing = FastOutSlowInEasing),
+-                    repeatMode = RepeatMode.Reverse,
+-                ),
+-            label = "sparkleScale",
+-        )
+-    val sparkleAlpha =
+-        infiniteTransition.animateFloat(
+-            initialValue = 0.55f,
+-            targetValue = 1f,
+-            animationSpec =
+-                infiniteRepeatable(
+-                    animation = tween(durationMillis = 620, easing = FastOutSlowInEasing),
+-                    repeatMode = RepeatMode.Reverse,
+-                ),
+-            label = "sparkleAlpha",
+-        )
+ 
+     LaunchedEffect(eventKey) {
+         if (eventKey == null) return@LaunchedEffect
+@@ -241,24 +181,18 @@ private fun StarRewardBurst(
+     }
+ 
+     StarRewardBurstContent(
+-        isCorrect = isCorrect,
+-        star = star,
++        starCount = starCount,
+         starScale = scale.value,
+         starRotation = rotation.value,
+-        sparkleScale = sparkleScale.value,
+-        sparkleAlpha = sparkleAlpha.value,
+         modifier = modifier,
+     )
+ }
+ 
+ @Composable
+ private fun StarRewardBurstContent(
+-    isCorrect: Boolean,
+-    star: Int?,
++    starCount: Int,
+     starScale: Float,
+     starRotation: Float,
+-    sparkleScale: Float,
+-    sparkleAlpha: Float,
+     modifier: Modifier = Modifier,
+ ) {
+     Box(
+@@ -268,122 +202,109 @@ private fun StarRewardBurstContent(
+                 .size(REWARD_BURST_SIZE.dp),
+         contentAlignment = Alignment.Center,
+     ) {
+-        RewardSparkle(
+-            modifier =
+-                Modifier
+-                    .align(Alignment.TopStart)
+-                    .offset(x = 26.dp, y = 10.dp),
+-            size = 34,
+-            scale = sparkleScale,
+-            alpha = sparkleAlpha,
+-        )
+-        RewardSparkle(
+-            modifier =
+-                Modifier
+-                    .align(Alignment.BottomEnd)
+-                    .offset(x = (-20).dp, y = (-6).dp),
+-            size = 30,
+-            scale = sparkleScale * 0.92f,
+-            alpha = sparkleAlpha,
+-        )
+-        Image(
+-            painter =
+-                painterResource(
+-                    if (isCorrect) {
+-                        R.drawable.star_reward_glow
+-                    } else {
+-                        R.drawable.star_reward_full
+-                    },
+-                ),
+-            contentDescription = null,
++        LargeStarRow(
++            starCount = starCount,
+             modifier =
+                 Modifier
+-                    .size(STAR_REWARD_IMAGE_SIZE.dp)
+                     .graphicsLayer {
+                         scaleX = starScale
+                         scaleY = starScale
+                         rotationZ = starRotation
+                     },
+         )
+-        StarScoreIndicator(
+-            star = star,
+-            modifier =
+-                Modifier
+-                    .align(Alignment.BottomCenter)
+-                    .offset(y = (-2).dp),
+-        )
+     }
+ }
+ 
+ @Composable
+-private fun RewardSparkle(
+-    size: Int,
+-    scale: Float,
+-    alpha: Float,
++private fun LargeStarRow(
++    starCount: Int,
+     modifier: Modifier = Modifier,
+ ) {
+-    Image(
+-        painter = painterResource(R.drawable.star_reward_small),
+-        contentDescription = null,
+-        modifier =
+-            modifier
+-                .size(size.dp)
+-                .scale(scale)
+-                .alpha(alpha),
+-    )
++    Row(
++        modifier = modifier,
++        horizontalArrangement = Arrangement.spacedBy(BIG_STAR_SPACING.dp),
++        verticalAlignment = Alignment.CenterVertically,
++    ) {
++        repeat(starCount.coerceIn(1, MAX_STAR)) {
++            Image(
++                painter = painterResource(R.drawable.star_reward_big),
++                contentDescription = null,
++                modifier = Modifier.size(BIG_STAR_SIZE.dp),
++            )
++        }
++    }
+ }
+ 
++private fun QuizAnswer.normalizedStarCount(): Int = star?.coerceIn(MIN_STAR, MAX_STAR) ?: MIN_STAR
++
++private fun QuizAnswer.isFailureResult(): Boolean =
++    star != null &&
++        normalizedStarCount() == MIN_STAR
++
++private fun QuizAnswer.hasEarnedStar(): Boolean = normalizedStarCount() > MIN_STAR
++
++private fun QuizAnswer.earnedStarText(): String =
++    when (normalizedStarCount()) {
++        1 -> "\uBCC4 1\uAC1C"
++        2 -> "\uBCC4 2\uAC1C"
++        3 -> "\uBCC4 3\uAC1C"
++        else -> "\uBCC4 0\uAC1C"
++    }
++
+ private fun QuizAnswer.toRewardTitle(): String =
+     when {
+-        star == null -> "확인하고 있어요"
+-        isCorrect == true -> "잘했어요!"
+-        else -> "실패했어요"
++        star == null -> "\uD655\uC778\uD558\uACE0 \uC788\uC5B4\uC694"
++        normalizedStarCount() == 1 -> "\uC88B\uC544\uC694!"
++        normalizedStarCount() == 2 -> "\uCC38 \uC798\uD588\uC5B4\uC694!"
++        normalizedStarCount() == MAX_STAR -> "\uC644\uBCBD\uD574\uC694!"
++        else -> "\uC544\uC26C\uC6CC\uC694 \u3160\u3160"
+     }
+ 
+ private fun QuizAnswer.toRewardDescription(remainingRetryCount: Int): String =
+     when {
+-        star == null -> "목소리를 듣고 별을 세고 있어요."
+-        isCorrect == true -> "별을 멋지게 모았어요."
++        star == null ->
++            "\uBAA9\uC18C\uB9AC\uB97C \uB4E3\uACE0 \uBCC4\uC744 " +
++                "\uC138\uACE0 \uC788\uC5B4\uC694."
++        normalizedStarCount() == MAX_STAR ->
++            "\uBCC4\uC744 \uBA4B\uC9C0\uAC8C " +
++                "\uBAA8\uC558\uC5B4\uC694."
++        normalizedStarCount() == 2 && remainingRetryCount > 0 ->
++            "\uBCC4 2\uAC1C\uC608\uC694. " +
++                "\uD55C \uBC88 \uB354 \uB9D0\uD574\uBCF4\uBA74 " +
++                "3\uAC1C\uAE4C\uC9C0 \uBC1B\uC744 \uC218 \uC788\uC5B4\uC694."
++        normalizedStarCount() == 1 && remainingRetryCount > 0 ->
++            "\uBCC4 1\uAC1C\uC608\uC694. " +
++                "\uD55C \uBC88 \uB354 \uB9D0\uD574\uBCF4\uBA74 " +
++                "\uB354 \uB9CE\uC740 \uBCC4\uC744 \uBC1B\uC744 \uC218 \uC788\uC5B4\uC694."
++        hasEarnedStar() -> "${earnedStarText()}\uB97C \uBC1B\uC558\uC5B4\uC694."
+         remainingRetryCount > 0 ->
+-            "다시 말해보거나 다음 문제로 넘어갈 수 있어요."
+-        else -> "다음 문제에서 다시 해봐요."
++            "\uB2E4\uC2DC \uB9D0\uD574\uBCF4\uAC70\uB098 " +
++                "\uB2E4\uC74C \uBB38\uC81C\uB85C \uB118\uC5B4\uAC08 \uC218 \uC788\uC5B4\uC694."
++        else -> "\uB2E4\uC74C \uBB38\uC81C\uC5D0\uC11C \uB2E4\uC2DC \uD574\uBD10\uC694."
+     }
+ 
+ private fun QuizAnswer.toFeedbackMascot(): SudaMascot =
+     when {
+         star == null -> SudaMascot.Loading
+-        isCorrect == true -> SudaMascot.Success3Star
++        normalizedStarCount() == MAX_STAR -> SudaMascot.Success3Star
++        normalizedStarCount() == 2 -> SudaMascot.Good2Star
++        normalizedStarCount() == 1 -> SudaMascot.Retry1Star
+         else -> SudaMascot.ErrorNetwork
+     }
+ 
+-private fun Int?.toStarBadgeText(): String =
+-    this
+-        ?.coerceIn(MIN_STAR, MAX_STAR)
+-        ?.let { "별 $it / $MAX_STAR" }
+-        ?: "채점 중"
+-
+-private fun Int?.toStarBadgeTone(): AppBadgeTone =
+-    when (this?.coerceIn(MIN_STAR, MAX_STAR)) {
+-        null -> AppBadgeTone.Neutral
+-        MAX_STAR -> AppBadgeTone.Success
+-        PASSING_STAR -> AppBadgeTone.Warning
+-        else -> AppBadgeTone.Error
+-    }
+-
+ private fun QuizAnswer.feedbackEventKey(): String? =
+     star?.let { "${questionId}_${attemptCount}_$it" }
+ 
+ private fun QuizAnswer.toFeedbackCue(): QuizFeedbackCue? =
+     when {
+         star == null -> null
+-        isCorrect == true -> QuizFeedbackCue.Correct
++        hasEarnedStar() -> QuizFeedbackCue.Correct
+         else -> QuizFeedbackCue.Retry
+     }
+ 
+ private const val MIN_STAR = 0
+-private const val PASSING_STAR = 2
+ private const val MAX_STAR = 3
+ private const val REWARD_BURST_SIZE = 152
+-private const val STAR_REWARD_IMAGE_SIZE = 132
++private const val BIG_STAR_SIZE = 46
++private const val BIG_STAR_SPACING = 6
+ private const val FAILURE_MASCOT_SIZE = 112
+-private const val EMPTY_STAR_ALPHA = 0.24f
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDtoTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDtoTest.kt
+--- /dev/null
++++ b/mobile/app/src/test/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDtoTest.kt
+@@ -0,0 +1,80 @@
++package com.ssafy.mobile.feature.learning.data.dto
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class LearningQuizDtoTest {
++    @Test
++    fun answerResponseWithBlankRecognizedTextBecomesFailedZeroStar() {
++        val result =
++            LearningQuizAnswerResponseDto(
++                recognizedText = "",
++                isCorrect = false,
++                star = 1,
++            ).toDomain(
++                fallbackSessionId = SESSION_ID,
++                fallbackQuestionId = QUESTION_ID,
++            )
++
++        assertEquals("", result.recognizedText)
++        assertFalse(result.isCorrect)
++        assertEquals(0, result.star)
++    }
++
++    @Test
++    fun answerResponseWithRecognizedTextKeepsReturnedScore() {
++        val result =
++            LearningQuizAnswerResponseDto(
++                recognizedText = "apple",
++                isCorrect = true,
++                star = 2,
++            ).toDomain(
++                fallbackSessionId = SESSION_ID,
++                fallbackQuestionId = QUESTION_ID,
++            )
++
++        assertEquals("apple", result.recognizedText)
++        assertTrue(result.isCorrect)
++        assertEquals(2, result.star)
++    }
++
++    @Test
++    fun resultResponseRecalculatesSummaryFromNormalizedAnswers() {
++        val result =
++            LearningQuizResultResponseDto(
++                sessionId = SESSION_ID,
++                totalQuestionCount = 2,
++                correctCount = 2,
++                totalStar = 4,
++                answers =
++                    listOf(
++                        LearningQuizResultAnswerDto(
++                            questionId = 1L,
++                            wordId = 101L,
++                            targetText = "apple",
++                            recognizedText = "",
++                            isCorrect = false,
++                            star = 1,
++                        ),
++                        LearningQuizResultAnswerDto(
++                            questionId = 2L,
++                            wordId = 102L,
++                            targetText = "banana",
++                            recognizedText = "banana",
++                            isCorrect = true,
++                            star = 3,
++                        ),
++                    ),
++            ).toDomain()
++
++        assertEquals(1, result.correctCount)
++        assertEquals(3, result.totalStar)
++        assertEquals(0, result.answers.first().star)
++        assertFalse(result.answers.first().isCorrect)
++    }
++}
++
++private const val SESSION_ID = 1L
++private const val QUESTION_ID = 2L
+
+

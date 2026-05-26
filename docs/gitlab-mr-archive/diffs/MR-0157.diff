@@ -1,0 +1,2200 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppTextField.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppTextField.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppTextField.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppTextField.kt
+@@ -3,15 +3,19 @@ package com.ssafy.mobile.core.ui.components
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.foundation.text.KeyboardActions
++import androidx.compose.foundation.text.KeyboardOptions
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.OutlinedTextField
+ import androidx.compose.material3.OutlinedTextFieldDefaults
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.input.VisualTransformation
+ import androidx.compose.ui.unit.dp
+ 
+ @Composable
++@Suppress("LongParameterList")
+ fun AppTextField(
+     value: String,
+     onValueChange: (String) -> Unit,
+@@ -19,12 +23,19 @@ fun AppTextField(
+     modifier: Modifier = Modifier,
+     enabled: Boolean = true,
+     isError: Boolean = false,
++    placeholder: String? = null,
+     supportingText: String? = null,
++    singleLine: Boolean = true,
++    visualTransformation: VisualTransformation = VisualTransformation.None,
++    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
++    keyboardActions: KeyboardActions = KeyboardActions.Default,
++    trailingIcon: (@Composable () -> Unit)? = null,
+ ) {
+     OutlinedTextField(
+         value = value,
+         onValueChange = onValueChange,
+         label = { Text(text = label) },
++        placeholder = placeholder?.let { { Text(text = it) } },
+         modifier =
+             modifier
+                 .fillMaxWidth()
+@@ -32,7 +43,11 @@ fun AppTextField(
+         enabled = enabled,
+         isError = isError,
+         supportingText = supportingText?.let { { Text(text = it) } },
+-        singleLine = true,
++        singleLine = singleLine,
++        visualTransformation = visualTransformation,
++        keyboardOptions = keyboardOptions,
++        keyboardActions = keyboardActions,
++        trailingIcon = trailingIcon,
+         shape = RoundedCornerShape(8.dp),
+         textStyle = MaterialTheme.typography.bodyLarge,
+         colors =
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/icons/SudaBottomNavIcons.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/icons/SudaBottomNavIcons.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/icons/SudaBottomNavIcons.kt
+@@ -0,0 +1,197 @@
++@file:Suppress("MagicNumber")
++
++package com.ssafy.mobile.core.ui.icons
++
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.graphics.PathFillType
++import androidx.compose.ui.graphics.SolidColor
++import androidx.compose.ui.graphics.vector.ImageVector
++import androidx.compose.ui.graphics.vector.path
++import androidx.compose.ui.unit.dp
++
++object SudaBottomNavIcons {
++    val Home: ImageVector
++        get() {
++            if (cachedHome != null) return cachedHome!!
++            cachedHome =
++                ImageVector
++                    .Builder(
++                        name = "SudaHome",
++                        defaultWidth = 24.dp,
++                        defaultHeight = 24.dp,
++                        viewportWidth = 24f,
++                        viewportHeight = 24f,
++                    ).apply {
++                        path(
++                            fill = SolidColor(Color.Black),
++                            pathFillType = PathFillType.NonZero,
++                        ) {
++                            moveTo(10f, 20f)
++                            lineTo(10f, 14f)
++                            lineTo(14f, 14f)
++                            lineTo(14f, 20f)
++                            lineTo(19f, 20f)
++                            lineTo(19f, 12f)
++                            lineTo(22f, 12f)
++                            lineTo(12f, 3f)
++                            lineTo(2f, 12f)
++                            lineTo(5f, 12f)
++                            lineTo(5f, 20f)
++                            close()
++                        }
++                    }.build()
++            return cachedHome!!
++        }
++
++    val Learning: ImageVector
++        get() {
++            if (cachedLearning != null) return cachedLearning!!
++            cachedLearning =
++                ImageVector
++                    .Builder(
++                        name = "SudaLearning",
++                        defaultWidth = 24.dp,
++                        defaultHeight = 24.dp,
++                        viewportWidth = 24f,
++                        viewportHeight = 24f,
++                    ).apply {
++                        path(
++                            fill = SolidColor(Color.Black),
++                            pathFillType = PathFillType.NonZero,
++                        ) {
++                            moveTo(4f, 5f)
++                            lineTo(10.5f, 5f)
++                            lineTo(12f, 6.2f)
++                            lineTo(13.5f, 5f)
++                            lineTo(20f, 5f)
++                            lineTo(20f, 18f)
++                            lineTo(13.2f, 18f)
++                            lineTo(12f, 19f)
++                            lineTo(10.8f, 18f)
++                            lineTo(4f, 18f)
++                            close()
++                        }
++                        path(
++                            fill = SolidColor(Color.White),
++                            pathFillType = PathFillType.NonZero,
++                        ) {
++                            moveTo(11.2f, 7.5f)
++                            lineTo(11.2f, 16.4f)
++                            lineTo(7f, 16.4f)
++                            lineTo(7f, 7.5f)
++                            close()
++                            moveTo(17f, 7.5f)
++                            lineTo(17f, 16.4f)
++                            lineTo(12.8f, 16.4f)
++                            lineTo(12.8f, 7.5f)
++                            close()
++                        }
++                    }.build()
++            return cachedLearning!!
++        }
++
++    val Report: ImageVector
++        get() {
++            if (cachedReport != null) return cachedReport!!
++            cachedReport =
++                ImageVector
++                    .Builder(
++                        name = "SudaReport",
++                        defaultWidth = 24.dp,
++                        defaultHeight = 24.dp,
++                        viewportWidth = 24f,
++                        viewportHeight = 24f,
++                    ).apply {
++                        path(
++                            fill = SolidColor(Color.Black),
++                            pathFillType = PathFillType.NonZero,
++                        ) {
++                            moveTo(4f, 20f)
++                            lineTo(4f, 11f)
++                            lineTo(8f, 11f)
++                            lineTo(8f, 20f)
++                            close()
++                            moveTo(10f, 20f)
++                            lineTo(10f, 5f)
++                            lineTo(14f, 5f)
++                            lineTo(14f, 20f)
++                            close()
++                            moveTo(16f, 20f)
++                            lineTo(16f, 8f)
++                            lineTo(20f, 8f)
++                            lineTo(20f, 20f)
++                            close()
++                        }
++                    }.build()
++            return cachedReport!!
++        }
++
++    val Conversation: ImageVector
++        get() {
++            if (cachedConversation != null) return cachedConversation!!
++            cachedConversation =
++                ImageVector
++                    .Builder(
++                        name = "SudaConversation",
++                        defaultWidth = 24.dp,
++                        defaultHeight = 24.dp,
++                        viewportWidth = 24f,
++                        viewportHeight = 24f,
++                    ).apply {
++                        path(
++                            fill = SolidColor(Color.Black),
++                            pathFillType = PathFillType.NonZero,
++                        ) {
++                            moveTo(4f, 5f)
++                            lineTo(20f, 5f)
++                            lineTo(20f, 16f)
++                            lineTo(14f, 16f)
++                            lineTo(10f, 20f)
++                            lineTo(10f, 16f)
++                            lineTo(4f, 16f)
++                            close()
++                        }
++                    }.build()
++            return cachedConversation!!
++        }
++
++    val Profile: ImageVector
++        get() {
++            if (cachedProfile != null) return cachedProfile!!
++            cachedProfile =
++                ImageVector
++                    .Builder(
++                        name = "SudaProfile",
++                        defaultWidth = 24.dp,
++                        defaultHeight = 24.dp,
++                        viewportWidth = 24f,
++                        viewportHeight = 24f,
++                    ).apply {
++                        path(
++                            fill = SolidColor(Color.Black),
++                            pathFillType = PathFillType.NonZero,
++                        ) {
++                            moveTo(12f, 12f)
++                            curveTo(14.21f, 12f, 16f, 10.21f, 16f, 8f)
++                            curveTo(16f, 5.79f, 14.21f, 4f, 12f, 4f)
++                            curveTo(9.79f, 4f, 8f, 5.79f, 8f, 8f)
++                            curveTo(8f, 10.21f, 9.79f, 12f, 12f, 12f)
++                            close()
++                            moveTo(12f, 14f)
++                            curveTo(9.33f, 14f, 4f, 15.34f, 4f, 18f)
++                            lineTo(4f, 20f)
++                            lineTo(20f, 20f)
++                            lineTo(20f, 18f)
++                            curveTo(20f, 15.34f, 14.67f, 14f, 12f, 14f)
++                            close()
++                        }
++                    }.build()
++            return cachedProfile!!
++        }
++
++    private var cachedHome: ImageVector? = null
++    private var cachedLearning: ImageVector? = null
++    private var cachedReport: ImageVector? = null
++    private var cachedConversation: ImageVector? = null
++    private var cachedProfile: ImageVector? = null
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/appentry/AppEntryRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/appentry/AppEntryRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/appentry/AppEntryRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/appentry/AppEntryRoute.kt
+@@ -7,8 +7,6 @@ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+-import androidx.compose.foundation.layout.size
+-import androidx.compose.material3.CircularProgressIndicator
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+@@ -24,8 +22,11 @@ import androidx.compose.ui.unit.sp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import com.ssafy.mobile.core.auth.AuthState
++import com.ssafy.mobile.core.ui.components.AppCard
++import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.core.ui.feedback.AppErrorText
+ 
+ @Composable
+ fun AppEntryRoute(
+@@ -86,18 +87,13 @@ private fun RestoringContent(modifier: Modifier = Modifier) {
+             color = MaterialTheme.colorScheme.primary,
+             fontWeight = FontWeight.Black,
+         )
+-        Spacer(modifier = Modifier.height(48.dp))
+-        CircularProgressIndicator(
+-            modifier = Modifier.size(36.dp),
+-            strokeWidth = 3.dp,
+-            color = MaterialTheme.colorScheme.primary,
+-        )
+-        Spacer(modifier = Modifier.height(24.dp))
+-        Text(
+-            text = "소중한 우리 아이와의 대화를 준비 중입니다.",
+-            style = MaterialTheme.typography.bodyLarge,
+-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+-            textAlign = TextAlign.Center,
++        Spacer(modifier = Modifier.height(28.dp))
++        AppLoadingIndicator(
++            modifier =
++                Modifier
++                    .fillMaxWidth()
++                    .height(112.dp),
++            message = "소중한 우리 아이와의 대화를 준비 중입니다.",
+         )
+     }
+ }
+@@ -117,38 +113,41 @@ private fun RestoreFailedContent(
+         horizontalAlignment = Alignment.CenterHorizontally,
+         verticalArrangement = Arrangement.Center,
+     ) {
+-        Text(
+-            text = "로그인 정보를\n불러오지 못했습니다",
+-            style = MaterialTheme.typography.headlineMedium,
+-            color = MaterialTheme.colorScheme.onSurface,
+-            textAlign = TextAlign.Center,
+-            fontWeight = FontWeight.Bold,
+-            lineHeight = 36.sp,
+-        )
+-        Spacer(modifier = Modifier.height(16.dp))
+-        Text(
+-            text = "일시적인 오류이거나 기기 보안 설정 문제일 수 있습니다.\n다시 시도하거나 로그인 화면으로 이동해 주세요.",
+-            style = MaterialTheme.typography.bodyMedium,
+-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+-            textAlign = TextAlign.Center,
+-        )
+-        Spacer(modifier = Modifier.height(48.dp))
+-        AppPrimaryButton(
+-            text = "다시 시도하기",
+-            onClick = onRetry,
+-            modifier = Modifier.fillMaxWidth(),
+-        )
+-        Spacer(modifier = Modifier.height(12.dp))
+-        AppSecondaryButton(
+-            text = "로그인 화면으로 이동",
+-            onClick = onNavigateToLogin,
+-            modifier = Modifier.fillMaxWidth(),
+-        )
+-        Spacer(modifier = Modifier.height(12.dp))
+-        AppSecondaryButton(
+-            text = "로그인 없이 소통 시작하기",
+-            onClick = onNavigateToConversation,
+-            modifier = Modifier.fillMaxWidth(),
+-        )
++        AppCard(modifier = Modifier.fillMaxWidth()) {
++            Text(
++                text = "로그인 정보를\n불러오지 못했습니다",
++                style = MaterialTheme.typography.headlineMedium,
++                color = MaterialTheme.colorScheme.onSurface,
++                textAlign = TextAlign.Center,
++                fontWeight = FontWeight.Bold,
++                lineHeight = 36.sp,
++                modifier = Modifier.fillMaxWidth(),
++            )
++            Spacer(modifier = Modifier.height(16.dp))
++            AppErrorText(
++                message =
++                    "일시적인 오류이거나 기기 보안 설정 문제일 수 있습니다.\n" +
++                        "다시 시도하거나 로그인 화면으로 이동해 주세요.",
++                modifier = Modifier.fillMaxWidth(),
++            )
++            Spacer(modifier = Modifier.height(28.dp))
++            AppPrimaryButton(
++                text = "다시 시도하기",
++                onClick = onRetry,
++                modifier = Modifier.fillMaxWidth(),
++            )
++            Spacer(modifier = Modifier.height(12.dp))
++            AppSecondaryButton(
++                text = "로그인 화면으로 이동",
++                onClick = onNavigateToLogin,
++                modifier = Modifier.fillMaxWidth(),
++            )
++            Spacer(modifier = Modifier.height(12.dp))
++            AppSecondaryButton(
++                text = "로그인 없이 소통 시작하기",
++                onClick = onNavigateToConversation,
++                modifier = Modifier.fillMaxWidth(),
++            )
++        }
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt
+@@ -2,7 +2,6 @@ package com.ssafy.mobile.feature.childprofile.presentation
+ 
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Column
+-import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+@@ -10,14 +9,13 @@ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.text.KeyboardOptions
+ import androidx.compose.material3.AlertDialog
+-import androidx.compose.material3.Button
+ import androidx.compose.material3.ButtonDefaults
+-import androidx.compose.material3.CircularProgressIndicator
++import androidx.compose.material3.ExperimentalMaterial3Api
+ import androidx.compose.material3.MaterialTheme
+-import androidx.compose.material3.OutlinedTextField
+ import androidx.compose.material3.Scaffold
+ import androidx.compose.material3.Text
+ import androidx.compose.material3.TextButton
++import androidx.compose.material3.TopAppBar
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+@@ -31,6 +29,12 @@ import androidx.compose.ui.text.input.KeyboardType
+ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppCard
++import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
++import com.ssafy.mobile.core.ui.components.AppPrimaryButton
++import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.core.ui.components.AppTextField
++import com.ssafy.mobile.core.ui.feedback.AppErrorText
+ 
+ @Composable
+ fun ChildProfileEditRoute(
+@@ -75,6 +79,7 @@ fun ChildProfileEditRoute(
+     )
+ }
+ 
++@OptIn(ExperimentalMaterial3Api::class)
+ @Composable
+ @Suppress("LongParameterList")
+ private fun ChildProfileEditScreen(
+@@ -105,20 +110,23 @@ private fun ChildProfileEditScreen(
+         )
+     }
+ 
+-    Scaffold { padding ->
++    Scaffold(
++        containerColor = MaterialTheme.colorScheme.background,
++        topBar = {
++            EditTopBar(
++                isEditMode = isEditMode,
++                enabled = !isSaving && !isLoading,
++                onBack = onBack,
++            )
++        },
++    ) { padding ->
+         Column(
+             modifier =
+                 modifier
+                     .fillMaxSize()
+                     .padding(padding)
+-                    .padding(24.dp),
++                    .padding(horizontal = 24.dp, vertical = 16.dp),
+         ) {
+-            EditHeader(
+-                isEditMode = isEditMode,
+-                enabled = !isSaving && !isLoading,
+-                onBack = onBack,
+-            )
+-
+             if (isLoading) {
+                 LoadingPlaceholder(modifier = Modifier.weight(1f))
+             } else if (isEditMode && !isProfileLoaded && uiState is ChildProfileEditUiState.Error) {
+@@ -128,7 +136,6 @@ private fun ChildProfileEditScreen(
+                     modifier = Modifier.weight(1f),
+                 )
+             } else {
+-                Spacer(modifier = Modifier.height(32.dp))
+                 EditForm(
+                     name = name,
+                     birthDate = birthDate,
+@@ -150,26 +157,27 @@ private fun ChildProfileEditScreen(
+     }
+ }
+ 
++@OptIn(ExperimentalMaterial3Api::class)
+ @Composable
+-private fun EditHeader(
++private fun EditTopBar(
+     isEditMode: Boolean,
+     enabled: Boolean,
+     onBack: () -> Unit,
+ ) {
+-    Row(
+-        modifier = Modifier.fillMaxWidth(),
+-        verticalAlignment = Alignment.CenterVertically,
+-        horizontalArrangement = Arrangement.SpaceBetween,
+-    ) {
+-        Text(
+-            text = if (isEditMode) "아이 프로필 수정" else "아이 프로필 추가",
+-            style = MaterialTheme.typography.headlineSmall,
+-            fontWeight = FontWeight.Bold,
+-        )
+-        TextButton(onClick = onBack, enabled = enabled) {
+-            Text("취소")
+-        }
+-    }
++    TopAppBar(
++        title = {
++            Text(
++                text = if (isEditMode) "아이 프로필 수정" else "아이 프로필 추가",
++                style = MaterialTheme.typography.titleLarge,
++                fontWeight = FontWeight.Bold,
++            )
++        },
++        actions = {
++            TextButton(onClick = onBack, enabled = enabled) {
++                Text("취소")
++            }
++        },
++    )
+ }
+ 
+ @Composable
+@@ -182,36 +190,52 @@ private fun EditForm(
+     onBirthDateChange: (String) -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+-    Column(modifier = modifier.fillMaxWidth()) {
+-        OutlinedTextField(
++    val isNameError = errorMessage?.contains("이름") == true
++    val isBirthDateError =
++        errorMessage?.let { message ->
++            message.contains("생년월일") ||
++                message.contains("날짜") ||
++                message.contains("나이") ||
++                message.contains("미래")
++        } == true
++
++    AppCard(modifier = modifier.fillMaxWidth()) {
++        Text(
++            text = "아이 정보",
++            style = MaterialTheme.typography.titleMedium,
++            fontWeight = FontWeight.SemiBold,
++            color = MaterialTheme.colorScheme.onSurface,
++        )
++        Spacer(modifier = Modifier.height(12.dp))
++
++        AppTextField(
+             value = name,
+             onValueChange = onNameChange,
+-            label = { Text("아이 이름") },
+-            placeholder = { Text("예: 민준") },
++            label = "아이 이름",
++            placeholder = "예: 민준",
+             modifier = Modifier.fillMaxWidth(),
+             enabled = !isSaving,
+-            singleLine = true,
++            isError = isNameError,
++            supportingText = if (isNameError) errorMessage else null,
+         )
+ 
+-        Spacer(modifier = Modifier.height(16.dp))
+-
+-        OutlinedTextField(
++        AppTextField(
+             value = birthDate,
+             onValueChange = onBirthDateChange,
+-            label = { Text("생년월일") },
+-            placeholder = { Text("예: 20200501") },
++            label = "생년월일",
++            placeholder = "예: 20200501",
+             modifier = Modifier.fillMaxWidth(),
+             enabled = !isSaving,
++            isError = isBirthDateError,
++            supportingText = if (isBirthDateError) errorMessage else null,
+             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+-            singleLine = true,
+         )
+ 
+-        if (errorMessage != null) {
++        if (errorMessage != null && !isNameError && !isBirthDateError) {
+             Spacer(modifier = Modifier.height(8.dp))
+-            Text(
+-                text = errorMessage,
+-                color = MaterialTheme.colorScheme.error,
+-                style = MaterialTheme.typography.bodySmall,
++            AppErrorText(
++                message = errorMessage,
++                modifier = Modifier.fillMaxWidth(),
+             )
+         }
+     }
+@@ -225,13 +249,13 @@ private fun EditActionButtons(
+     onDeleteRequest: () -> Unit,
+ ) {
+     Column(modifier = Modifier.fillMaxWidth()) {
+-        Button(
++        AppPrimaryButton(
++            text = if (isSaving) "저장 중..." else "저장하기",
+             onClick = onSave,
+             modifier = Modifier.fillMaxWidth(),
+             enabled = !isSaving,
+-        ) {
+-            Text(text = if (isSaving) "저장 중..." else "저장하기")
+-        }
++            loading = isSaving,
++        )
+ 
+         if (isEditMode) {
+             Spacer(modifier = Modifier.height(12.dp))
+@@ -252,15 +276,10 @@ private fun EditActionButtons(
+ 
+ @Composable
+ private fun LoadingPlaceholder(modifier: Modifier = Modifier) {
+-    Column(
++    AppLoadingIndicator(
+         modifier = modifier.fillMaxWidth(),
+-        verticalArrangement = Arrangement.Center,
+-        horizontalAlignment = Alignment.CenterHorizontally,
+-    ) {
+-        CircularProgressIndicator()
+-        Spacer(modifier = Modifier.height(16.dp))
+-        Text(text = "아이 정보를 불러오고 있어요...", style = MaterialTheme.typography.bodyMedium)
+-    }
++        message = "아이 정보를 불러오고 있어요.",
++    )
+ }
+ 
+ @Composable
+@@ -274,16 +293,15 @@ private fun ErrorPlaceholder(
+         verticalArrangement = Arrangement.Center,
+         horizontalAlignment = Alignment.CenterHorizontally,
+     ) {
+-        Text(
+-            text = message,
+-            color = MaterialTheme.colorScheme.error,
+-            style = MaterialTheme.typography.bodyMedium,
+-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
++        AppErrorText(
++            message = message,
++            modifier = Modifier.fillMaxWidth(),
+         )
+         Spacer(modifier = Modifier.height(16.dp))
+-        Button(onClick = onRetry) {
+-            Text("다시 시도")
+-        }
++        AppSecondaryButton(
++            text = "다시 시도",
++            onClick = onRetry,
++        )
+     }
+ }
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt
+@@ -15,14 +15,13 @@ import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.items
+ import androidx.compose.foundation.shape.CircleShape
+-import androidx.compose.material3.Button
+-import androidx.compose.material3.Card
+-import androidx.compose.material3.CardDefaults
+-import androidx.compose.material3.CircularProgressIndicator
++import androidx.compose.material3.ExperimentalMaterial3Api
+ import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Scaffold
+ import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.material3.TextButton
++import androidx.compose.material3.TopAppBar
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+@@ -30,14 +29,24 @@ import androidx.compose.runtime.mutableStateOf
+ import androidx.compose.runtime.remember
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.alpha
+ import androidx.compose.ui.text.font.FontWeight
+-import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import androidx.navigation.NavController
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
++import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
++import com.ssafy.mobile.core.ui.components.AppPrimaryButton
++import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.core.ui.feedback.AppEmptyState
++import com.ssafy.mobile.core.ui.feedback.AppErrorText
+ import com.ssafy.mobile.feature.childprofile.domain.model.ChildProfile
+ 
++@OptIn(ExperimentalMaterial3Api::class)
+ @Composable
+ fun ChildProfileSelectRoute(
+     navController: NavController,
+@@ -85,6 +94,7 @@ fun ChildProfileSelectRoute(
+     )
+ }
+ 
++@OptIn(ExperimentalMaterial3Api::class)
+ @Composable
+ private fun ChildProfileSelectScreen(
+     uiState: ChildProfileSelectUiState,
+@@ -95,51 +105,61 @@ private fun ChildProfileSelectScreen(
+     onNavigateToEdit: (Long) -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+-    Column(
+-        modifier =
+-            modifier
+-                .fillMaxSize()
+-                .padding(24.dp),
+-        horizontalAlignment = Alignment.CenterHorizontally,
+-    ) {
+-        Text(
+-            text = "아이 선택",
+-            style = MaterialTheme.typography.headlineMedium,
+-            color = MaterialTheme.colorScheme.onSurface,
+-        )
+-
+-        Spacer(modifier = Modifier.height(8.dp))
+-
+-        Text(
+-            text = "학습을 진행할 아이를 선택해 주세요.",
+-            style = MaterialTheme.typography.bodyMedium,
+-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+-        )
++    Scaffold(
++        modifier = modifier.fillMaxSize(),
++        containerColor = MaterialTheme.colorScheme.background,
++        topBar = {
++            TopAppBar(
++                title = {
++                    Text(
++                        text = "아이 선택",
++                        style = MaterialTheme.typography.titleLarge,
++                        fontWeight = FontWeight.Bold,
++                    )
++                },
++            )
++        },
++    ) { padding ->
++        Column(
++            modifier =
++                Modifier
++                    .fillMaxSize()
++                    .padding(padding)
++                    .padding(horizontal = 24.dp, vertical = 16.dp),
++            horizontalAlignment = Alignment.CenterHorizontally,
++        ) {
++            Text(
++                text = "학습을 진행할 아이를 선택해 주세요.",
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++                modifier = Modifier.fillMaxWidth(),
++            )
+ 
+-        Spacer(modifier = Modifier.height(32.dp))
++            Spacer(modifier = Modifier.height(20.dp))
+ 
+-        when (uiState) {
+-            is ChildProfileSelectUiState.Loading -> {
+-                LoadingContent()
+-            }
+-            is ChildProfileSelectUiState.Success -> {
+-                ProfileList(
+-                    profiles = uiState.profiles,
+-                    activeChildId = uiState.activeChildId,
+-                    isSelecting = isSelecting,
+-                    onProfileSelect = onProfileSelect,
+-                    onNavigateToCreate = onNavigateToCreate,
+-                    onNavigateToEdit = onNavigateToEdit,
+-                )
+-            }
+-            is ChildProfileSelectUiState.Empty -> {
+-                EmptyContent(onNavigateToCreate = onNavigateToCreate)
+-            }
+-            is ChildProfileSelectUiState.Error -> {
+-                ErrorContent(
+-                    message = uiState.message,
+-                    onRetry = onRetry,
+-                )
++            when (uiState) {
++                is ChildProfileSelectUiState.Loading -> {
++                    LoadingContent()
++                }
++                is ChildProfileSelectUiState.Success -> {
++                    ProfileList(
++                        profiles = uiState.profiles,
++                        activeChildId = uiState.activeChildId,
++                        isSelecting = isSelecting,
++                        onProfileSelect = onProfileSelect,
++                        onNavigateToCreate = onNavigateToCreate,
++                        onNavigateToEdit = onNavigateToEdit,
++                    )
++                }
++                is ChildProfileSelectUiState.Empty -> {
++                    EmptyContent(onNavigateToCreate = onNavigateToCreate)
++                }
++                is ChildProfileSelectUiState.Error -> {
++                    ErrorContent(
++                        message = uiState.message,
++                        onRetry = onRetry,
++                    )
++                }
+             }
+         }
+     }
+@@ -147,15 +167,7 @@ private fun ChildProfileSelectScreen(
+ 
+ @Composable
+ private fun LoadingContent() {
+-    Column(
+-        modifier = Modifier.fillMaxSize(),
+-        horizontalAlignment = Alignment.CenterHorizontally,
+-        verticalArrangement = Arrangement.Center,
+-    ) {
+-        CircularProgressIndicator()
+-        Spacer(modifier = Modifier.height(16.dp))
+-        Text(text = "목록을 불러오는 중입니다...")
+-    }
++    AppLoadingIndicator(message = "아이 목록을 불러오는 중입니다.")
+ }
+ 
+ @Composable
+@@ -184,13 +196,12 @@ private fun ProfileList(
+ 
+         item {
+             Spacer(modifier = Modifier.height(8.dp))
+-            TextButton(
++            AppPrimaryButton(
++                text = "아이 추가하기",
+                 onClick = onNavigateToCreate,
+                 modifier = Modifier.fillMaxWidth(),
+                 enabled = !isSelecting,
+-            ) {
+-                Text(text = "+ 아이 추가하기")
+-            }
++            )
+         }
+     }
+ }
+@@ -203,29 +214,19 @@ private fun ProfileItem(
+     onClick: () -> Unit,
+     onEditClick: () -> Unit,
+ ) {
+-    Card(
++    AppCard(
+         modifier =
+             Modifier
+                 .fillMaxWidth()
++                .alpha(if (enabled) 1f else DISABLED_ALPHA)
+                 .clickable(
+                     enabled = enabled,
+                     onClick = onClick,
+                 ),
+-        colors =
+-            CardDefaults.cardColors(
+-                containerColor =
+-                    if (isSelected) {
+-                        MaterialTheme.colorScheme.primaryContainer
+-                    } else {
+-                        MaterialTheme.colorScheme.surfaceVariant
+-                    },
+-            ),
+     ) {
+         Row(
+             modifier =
+-                Modifier
+-                    .padding(16.dp)
+-                    .fillMaxWidth(),
++                Modifier.fillMaxWidth(),
+             verticalAlignment = Alignment.CenterVertically,
+         ) {
+             Surface(
+@@ -252,6 +253,9 @@ private fun ProfileItem(
+                 Text(
+                     text = profile.name,
+                     style = MaterialTheme.typography.titleMedium,
++                    fontWeight = FontWeight.SemiBold,
++                    maxLines = 1,
++                    overflow = TextOverflow.Ellipsis,
+                 )
+                 if (profile.age != null) {
+                     Text(
+@@ -263,11 +267,9 @@ private fun ProfileItem(
+             }
+ 
+             if (isSelected) {
+-                Text(
++                AppBadge(
+                     text = "현재 선택됨",
+-                    style = MaterialTheme.typography.labelMedium,
+-                    color = MaterialTheme.colorScheme.primary,
+-                    fontWeight = FontWeight.Bold,
++                    tone = AppBadgeTone.Primary,
+                 )
+                 Spacer(modifier = Modifier.width(12.dp))
+             }
+@@ -292,15 +294,14 @@ private fun EmptyContent(onNavigateToCreate: () -> Unit) {
+         horizontalAlignment = Alignment.CenterHorizontally,
+         verticalArrangement = Arrangement.Center,
+     ) {
+-        Text(
+-            text = "등록된 아이가 없습니다.",
+-            style = MaterialTheme.typography.bodyLarge,
+-            textAlign = TextAlign.Center,
++        AppEmptyState(
++            message = "등록된 아이가 없습니다.",
++            modifier = Modifier.weight(1f),
++        )
++        AppPrimaryButton(
++            text = "아이 프로필 만들기",
++            onClick = onNavigateToCreate,
+         )
+-        Spacer(modifier = Modifier.height(24.dp))
+-        Button(onClick = onNavigateToCreate) {
+-            Text(text = "아이 프로필 만들기")
+-        }
+     }
+ }
+ 
+@@ -314,15 +315,16 @@ private fun ErrorContent(
+         horizontalAlignment = Alignment.CenterHorizontally,
+         verticalArrangement = Arrangement.Center,
+     ) {
+-        Text(
+-            text = message,
+-            style = MaterialTheme.typography.bodyLarge,
+-            color = MaterialTheme.colorScheme.error,
+-            textAlign = TextAlign.Center,
++        AppErrorText(
++            message = message,
++            modifier = Modifier.fillMaxWidth(),
+         )
+         Spacer(modifier = Modifier.height(16.dp))
+-        TextButton(onClick = onRetry) {
+-            Text(text = "다시 시도")
+-        }
++        AppSecondaryButton(
++            text = "다시 시도",
++            onClick = onRetry,
++        )
+     }
+ }
++
++private const val DISABLED_ALPHA = 0.5f
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt
+@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+-import androidx.compose.foundation.layout.width
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+@@ -25,8 +24,13 @@ import androidx.lifecycle.Lifecycle
+ import androidx.lifecycle.LifecycleEventObserver
+ import androidx.lifecycle.compose.LocalLifecycleOwner
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
++import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.core.ui.feedback.AppErrorText
+ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
+ 
+ @Composable
+@@ -64,7 +68,7 @@ fun HomeRoute(
+                     .fillMaxSize()
+                     .padding(horizontal = 24.dp, vertical = 32.dp),
+             horizontalAlignment = Alignment.CenterHorizontally,
+-            verticalArrangement = Arrangement.Center,
++            verticalArrangement = Arrangement.spacedBy(20.dp),
+         ) {
+             ActiveChildSection(
+                 state = uiState.activeChildState,
+@@ -72,36 +76,11 @@ fun HomeRoute(
+                 onRetryClick = viewModel::loadActiveChildProfile,
+             )
+ 
+-            Spacer(modifier = Modifier.weight(1f))
+-
+-            Text(
+-                text = "SUDA",
+-                style = MaterialTheme.typography.displayMedium,
+-                color = MaterialTheme.colorScheme.primary,
+-                fontWeight = FontWeight.Black,
+-                textAlign = TextAlign.Center,
+-            )
+-            Spacer(modifier = Modifier.height(12.dp))
+-            Text(
+-                text = "오늘도 즐겁게 말하고 배워볼까요?",
+-                style = MaterialTheme.typography.titleMedium,
+-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                textAlign = TextAlign.Center,
+-            )
+-            Spacer(modifier = Modifier.height(32.dp))
+-            AppPrimaryButton(
+-                text = "학습 시작",
+-                onClick = onStartLearning,
+-                modifier = Modifier.fillMaxWidth(),
++            HomeActionSection(
++                onStartLearning = onStartLearning,
++                onStartConversation = onStartConversation,
++                modifier = Modifier.weight(1f),
+             )
+-            Spacer(modifier = Modifier.height(12.dp))
+-            AppSecondaryButton(
+-                text = "소통 시작",
+-                onClick = onStartConversation,
+-                modifier = Modifier.fillMaxWidth(),
+-            )
+-
+-            Spacer(modifier = Modifier.weight(1f))
+         }
+     }
+ }
+@@ -113,80 +92,166 @@ private fun ActiveChildSection(
+     onRetryClick: () -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+-    Column(
+-        modifier = modifier.fillMaxWidth(),
+-        horizontalAlignment = Alignment.CenterHorizontally,
+-    ) {
++    AppCard(modifier = modifier.fillMaxWidth()) {
+         when (state) {
+             is ActiveChildProfileState.Loading -> {
+-                Text(
+-                    text = "아이 정보를 불러오는 중...",
+-                    style = MaterialTheme.typography.bodyMedium,
+-                )
++                ActiveChildLoadingContent()
+             }
+ 
+             is ActiveChildProfileState.Selected -> {
+-                val childDescription =
+-                    state.profile.age?.let { age ->
+-                        "${state.profile.name} (${age}세)"
+-                    } ?: state.profile.name
+-
+-                Row(
+-                    verticalAlignment = Alignment.CenterVertically,
+-                    horizontalArrangement = Arrangement.Center,
+-                ) {
+-                    Text(
+-                        text = childDescription,
+-                        style = MaterialTheme.typography.titleLarge,
+-                        fontWeight = FontWeight.Bold,
+-                    )
+-                    Spacer(modifier = Modifier.width(8.dp))
+-                    Text(
+-                        text = "아이와 함께하고 있어요",
+-                        style = MaterialTheme.typography.bodyMedium,
+-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                    )
+-                }
+-                Spacer(modifier = Modifier.height(8.dp))
+-                AppSecondaryButton(
+-                    text = "아이 변경",
+-                    onClick = onSwitchClick,
+-                    modifier = Modifier.height(36.dp),
++                SelectedActiveChildContent(
++                    state = state,
++                    onSwitchClick = onSwitchClick,
+                 )
+             }
+ 
+             is ActiveChildProfileState.Missing, is ActiveChildProfileState.NotFound -> {
+-                val message =
+-                    if (state is ActiveChildProfileState.NotFound) {
+-                        "선택된 아이 정보를 찾을 수 없습니다."
+-                    } else {
+-                        "선택된 아이가 없습니다."
+-                    }
+-                Text(
+-                    text = "$message 다시 선택해 주세요.",
+-                    style = MaterialTheme.typography.bodyMedium,
+-                    color = MaterialTheme.colorScheme.error,
+-                )
+-                Spacer(modifier = Modifier.height(8.dp))
+-                AppPrimaryButton(
+-                    text = "아이 선택하러 가기",
+-                    onClick = onSwitchClick,
+-                    modifier = Modifier.height(40.dp),
++                MissingActiveChildContent(
++                    state = state,
++                    onSwitchClick = onSwitchClick,
+                 )
+             }
+ 
+             is ActiveChildProfileState.Error -> {
+-                Text(
+-                    text = state.message,
+-                    style = MaterialTheme.typography.bodyMedium,
+-                    color = MaterialTheme.colorScheme.error,
+-                )
+-                Spacer(modifier = Modifier.height(8.dp))
+-                AppSecondaryButton(
+-                    text = "다시 시도",
+-                    onClick = onRetryClick,
++                ActiveChildErrorContent(
++                    message = state.message,
++                    onRetryClick = onRetryClick,
+                 )
+             }
+         }
+     }
+ }
++
++@Composable
++private fun ActiveChildLoadingContent() {
++    AppLoadingIndicator(
++        modifier =
++            Modifier
++                .fillMaxWidth()
++                .height(96.dp),
++        message = "아이 정보를 불러오는 중입니다.",
++    )
++}
++
++@Composable
++private fun SelectedActiveChildContent(
++    state: ActiveChildProfileState.Selected,
++    onSwitchClick: () -> Unit,
++) {
++    val childDescription =
++        state.profile.age?.let { age ->
++            "${state.profile.name} (${age}세)"
++        } ?: state.profile.name
++
++    Row(
++        modifier = Modifier.fillMaxWidth(),
++        horizontalArrangement = Arrangement.SpaceBetween,
++        verticalAlignment = Alignment.CenterVertically,
++    ) {
++        Column(modifier = Modifier.weight(1f)) {
++            Text(
++                text = childDescription,
++                style = MaterialTheme.typography.titleLarge,
++                fontWeight = FontWeight.Bold,
++                color = MaterialTheme.colorScheme.onSurface,
++            )
++            Spacer(modifier = Modifier.height(4.dp))
++            Text(
++                text = "아이와 함께하고 있어요",
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++            )
++        }
++        AppBadge(
++            text = "선택됨",
++            tone = AppBadgeTone.Primary,
++        )
++    }
++    Spacer(modifier = Modifier.height(16.dp))
++    AppSecondaryButton(
++        text = "아이 변경",
++        onClick = onSwitchClick,
++        modifier = Modifier.fillMaxWidth(),
++    )
++}
++
++@Composable
++private fun MissingActiveChildContent(
++    state: ActiveChildProfileState,
++    onSwitchClick: () -> Unit,
++) {
++    val message =
++        if (state is ActiveChildProfileState.NotFound) {
++            "선택된 아이 정보를 찾을 수 없습니다."
++        } else {
++            "선택된 아이가 없습니다."
++        }
++
++    AppErrorText(
++        message = "$message 다시 선택해 주세요.",
++        modifier = Modifier.fillMaxWidth(),
++    )
++    Spacer(modifier = Modifier.height(16.dp))
++    AppPrimaryButton(
++        text = "아이 선택하러 가기",
++        onClick = onSwitchClick,
++        modifier = Modifier.fillMaxWidth(),
++    )
++}
++
++@Composable
++private fun ActiveChildErrorContent(
++    message: String,
++    onRetryClick: () -> Unit,
++) {
++    AppErrorText(
++        message = message,
++        modifier = Modifier.fillMaxWidth(),
++    )
++    Spacer(modifier = Modifier.height(16.dp))
++    AppSecondaryButton(
++        text = "다시 시도",
++        onClick = onRetryClick,
++        modifier = Modifier.fillMaxWidth(),
++    )
++}
++
++@Composable
++private fun HomeActionSection(
++    onStartLearning: () -> Unit,
++    onStartConversation: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Column(
++        modifier = modifier.fillMaxWidth(),
++        horizontalAlignment = Alignment.CenterHorizontally,
++        verticalArrangement = Arrangement.Center,
++    ) {
++        Text(
++            text = "SUDA",
++            style = MaterialTheme.typography.displayMedium,
++            color = MaterialTheme.colorScheme.primary,
++            fontWeight = FontWeight.Black,
++            textAlign = TextAlign.Center,
++        )
++        Spacer(modifier = Modifier.height(12.dp))
++        Text(
++            text = "오늘도 즐겁게 말하고 배워볼까요?",
++            style = MaterialTheme.typography.titleMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            textAlign = TextAlign.Center,
++        )
++        Spacer(modifier = Modifier.height(32.dp))
++        AppPrimaryButton(
++            text = "학습 시작",
++            onClick = onStartLearning,
++            modifier = Modifier.fillMaxWidth(),
++        )
++        Spacer(modifier = Modifier.height(12.dp))
++        AppSecondaryButton(
++            text = "소통 시작",
++            onClick = onStartConversation,
++            modifier = Modifier.fillMaxWidth(),
++        )
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginRoute.kt
+@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.heightIn
+ import androidx.compose.foundation.layout.imePadding
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.rememberScrollState
+@@ -15,10 +16,9 @@ import androidx.compose.foundation.text.KeyboardActions
+ import androidx.compose.foundation.text.KeyboardOptions
+ import androidx.compose.foundation.verticalScroll
+ import androidx.compose.material3.Button
+-import androidx.compose.material3.CircularProgressIndicator
++import androidx.compose.material3.ButtonDefaults
+ import androidx.compose.material3.MaterialTheme
+-import androidx.compose.material3.OutlinedButton
+-import androidx.compose.material3.OutlinedTextField
++import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.material3.TextButton
+ import androidx.compose.runtime.Composable
+@@ -30,8 +30,10 @@ import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.focus.FocusDirection
++import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.platform.LocalFocusManager
++import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.input.ImeAction
+ import androidx.compose.ui.text.input.KeyboardType
+ import androidx.compose.ui.text.input.PasswordVisualTransformation
+@@ -41,6 +43,11 @@ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import com.navercorp.nid.NaverIdLoginSDK
++import com.ssafy.mobile.core.ui.components.AppCard
++import com.ssafy.mobile.core.ui.components.AppPrimaryButton
++import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.core.ui.components.AppTextField
++import com.ssafy.mobile.core.ui.feedback.AppErrorText
+ 
+ @Composable
+ fun LoginRoute(
+@@ -131,51 +138,61 @@ private fun LoginScreen(
+ ) {
+     val isLoading = uiState is LoginUiState.Loading
+ 
+-    Column(
+-        modifier =
+-            modifier
+-                .fillMaxSize()
+-                .verticalScroll(rememberScrollState())
+-                .padding(24.dp)
+-                .imePadding(),
+-        horizontalAlignment = Alignment.CenterHorizontally,
+-        verticalArrangement = Arrangement.Center,
++    Surface(
++        modifier = modifier.fillMaxSize(),
++        color = MaterialTheme.colorScheme.background,
+     ) {
+-        LoginHeader()
++        Column(
++            modifier =
++                Modifier
++                    .fillMaxSize()
++                    .verticalScroll(rememberScrollState())
++                    .padding(24.dp)
++                    .imePadding(),
++            horizontalAlignment = Alignment.CenterHorizontally,
++            verticalArrangement = Arrangement.Center,
++        ) {
++            LoginHeader()
+ 
+-        Spacer(modifier = Modifier.height(32.dp))
++            Spacer(modifier = Modifier.height(28.dp))
+ 
+-        LoginInputFields(
+-            email = email,
+-            password = password,
+-            emailError = emailError,
+-            passwordError = passwordError,
+-            isLoading = isLoading,
+-            onEmailChanged = onEmailChanged,
+-            onPasswordChanged = onPasswordChanged,
+-            onLoginClick = onLoginClick,
+-        )
++            AppCard(modifier = Modifier.fillMaxWidth()) {
++                LoginInputFields(
++                    email = email,
++                    password = password,
++                    emailError = emailError,
++                    passwordError = passwordError,
++                    isLoading = isLoading,
++                    onEmailChanged = onEmailChanged,
++                    onPasswordChanged = onPasswordChanged,
++                    onLoginClick = onLoginClick,
++                )
++
++                AppErrorText(
++                    message = (uiState as? LoginUiState.Error)?.message.orEmpty(),
++                    modifier = Modifier.fillMaxWidth(),
++                )
++
++                Spacer(modifier = Modifier.height(12.dp))
+ 
+-        Spacer(modifier = Modifier.height(16.dp))
++                LoginActionButtons(
++                    isLoading = isLoading,
++                    isNaverLoginEnabled = isNaverLoginEnabled,
++                    onLoginClick = onLoginClick,
++                    onSignupClick = onSignupClick,
++                    onNaverLoginClick = onNaverLoginClick,
++                )
++            }
+ 
+-        if (uiState is LoginUiState.Error) {
++            Spacer(modifier = Modifier.height(16.dp))
+             Text(
+-                text = uiState.message,
+-                color = MaterialTheme.colorScheme.error,
++                text = "보호자 계정으로 아이의 학습 기록과 프로필을 관리할 수 있어요.",
+                 style = MaterialTheme.typography.bodySmall,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                 textAlign = TextAlign.Center,
+                 modifier = Modifier.fillMaxWidth(),
+             )
+-            Spacer(modifier = Modifier.height(8.dp))
+         }
+-
+-        LoginActionButtons(
+-            isLoading = isLoading,
+-            isNaverLoginEnabled = isNaverLoginEnabled,
+-            onLoginClick = onLoginClick,
+-            onSignupClick = onSignupClick,
+-            onNaverLoginClick = onNaverLoginClick,
+-        )
+     }
+ }
+ 
+@@ -183,14 +200,23 @@ private fun LoginScreen(
+ private fun LoginHeader() {
+     Text(
+         text = "SUDA",
+-        style = MaterialTheme.typography.headlineLarge,
++        style = MaterialTheme.typography.displayMedium,
+         color = MaterialTheme.colorScheme.primary,
++        fontWeight = FontWeight.Black,
+     )
+     Spacer(modifier = Modifier.height(8.dp))
+     Text(
+         text = "보호자 로그인",
+-        style = MaterialTheme.typography.titleMedium,
++        style = MaterialTheme.typography.headlineSmall,
++        color = MaterialTheme.colorScheme.onSurface,
++        fontWeight = FontWeight.Bold,
++    )
++    Spacer(modifier = Modifier.height(8.dp))
++    Text(
++        text = "아이의 오늘 학습을 확인하고 이어갈 준비를 해요.",
++        style = MaterialTheme.typography.bodyMedium,
+         color = MaterialTheme.colorScheme.onSurfaceVariant,
++        textAlign = TextAlign.Center,
+     )
+ }
+ 
+@@ -209,17 +235,13 @@ private fun LoginInputFields(
+     val focusManager = LocalFocusManager.current
+     var passwordVisible by rememberSaveable { mutableStateOf(false) }
+ 
+-    OutlinedTextField(
++    AppTextField(
+         value = email,
+         onValueChange = onEmailChanged,
+-        label = { Text("이메일") },
+-        placeholder = { Text("example@email.com") },
++        label = "이메일",
++        placeholder = "example@email.com",
+         isError = emailError != null,
+-        supportingText =
+-            emailError?.let {
+-                { Text(text = it, color = MaterialTheme.colorScheme.error) }
+-            },
+-        singleLine = true,
++        supportingText = emailError,
+         enabled = !isLoading,
+         keyboardOptions =
+             KeyboardOptions(
+@@ -233,18 +255,12 @@ private fun LoginInputFields(
+         modifier = Modifier.fillMaxWidth(),
+     )
+ 
+-    Spacer(modifier = Modifier.height(8.dp))
+-
+-    OutlinedTextField(
++    AppTextField(
+         value = password,
+         onValueChange = onPasswordChanged,
+-        label = { Text("비밀번호") },
++        label = "비밀번호",
+         isError = passwordError != null,
+-        supportingText =
+-            passwordError?.let {
+-                { Text(text = it, color = MaterialTheme.colorScheme.error) }
+-            },
+-        singleLine = true,
++        supportingText = passwordError,
+         enabled = !isLoading,
+         visualTransformation =
+             if (passwordVisible) {
+@@ -281,41 +297,61 @@ private fun LoginActionButtons(
+     onSignupClick: () -> Unit,
+     onNaverLoginClick: () -> Unit,
+ ) {
+-    Button(
++    AppPrimaryButton(
++        text = "로그인",
+         onClick = onLoginClick,
+         enabled = !isLoading,
++        loading = isLoading,
+         modifier = Modifier.fillMaxWidth(),
+-    ) {
+-        if (isLoading) {
+-            CircularProgressIndicator(
+-                strokeWidth = 2.dp,
+-                color = MaterialTheme.colorScheme.onPrimary,
+-                modifier = Modifier.height(20.dp),
+-            )
+-        } else {
+-            Text(text = "로그인")
+-        }
+-    }
++    )
+ 
+     Spacer(modifier = Modifier.height(8.dp))
+ 
+-    OutlinedButton(
++    AppSecondaryButton(
++        text = "회원가입",
+         onClick = onSignupClick,
+         enabled = !isLoading,
+         modifier = Modifier.fillMaxWidth(),
+-    ) {
+-        Text(text = "회원가입")
+-    }
++    )
+ 
+-    Spacer(modifier = Modifier.height(24.dp))
++    Spacer(modifier = Modifier.height(16.dp))
+ 
+-    OutlinedButton(
++    NaverLoginButton(
+         onClick = onNaverLoginClick,
+         enabled = !isLoading && isNaverLoginEnabled,
+-        modifier = Modifier.fillMaxWidth(),
++    )
++}
++
++@Composable
++private fun NaverLoginButton(
++    onClick: () -> Unit,
++    enabled: Boolean,
++    modifier: Modifier = Modifier,
++) {
++    Button(
++        onClick = onClick,
++        enabled = enabled,
++        modifier =
++            modifier
++                .fillMaxWidth()
++                .heightIn(min = 52.dp),
++        shape = MaterialTheme.shapes.small,
++        colors =
++            ButtonDefaults.buttonColors(
++                containerColor = naverGreen,
++                contentColor = Color.White,
++                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
++                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
++            ),
+     ) {
+-        Text(text = "네이버로 로그인")
++        Text(
++            text = "네이버로 로그인",
++            style = MaterialTheme.typography.labelLarge,
++        )
+     }
+ }
+ 
+ private const val NAVER_USER_CANCEL_CODE = "user_cancel"
++
++@Suppress("MagicNumber")
++private val naverGreen = Color(0xFF03C75A)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt
+@@ -1,19 +1,18 @@
+ package com.ssafy.mobile.feature.mypage.presentation
+ 
+-import androidx.compose.foundation.background
+-import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.padding
+-import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.ExperimentalMaterial3Api
+ import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Scaffold
+ import androidx.compose.material3.SnackbarHost
+ import androidx.compose.material3.SnackbarHostState
+-import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
++import androidx.compose.material3.TopAppBar
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+@@ -22,11 +21,15 @@ import androidx.compose.runtime.remember
+ import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+-import androidx.compose.ui.draw.clip
++import androidx.compose.ui.draw.alpha
+ import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.core.ui.components.AppDialog
+ 
+ @Composable
+@@ -52,107 +55,167 @@ fun MyPageRoute(
+         }
+     }
+ 
+-    Surface(
++    MyPageScreen(
++        snackbarHostState = snackbarHostState,
++        onLogoutClick = { showLogoutDialog = true },
++        modifier = modifier,
++    )
++
++    if (showLogoutDialog) {
++        AppDialog(
++            title = "로그아웃할까요?",
++            message = "현재 기기의 로그인 정보와 선택된 아이 정보가 초기화됩니다.",
++            confirmText = "로그아웃",
++            dismissText = "취소",
++            onConfirm = {
++                showLogoutDialog = false
++                viewModel.logout()
++            },
++            onDismiss = { showLogoutDialog = false },
++        )
++    }
++}
++
++@OptIn(ExperimentalMaterial3Api::class)
++@Composable
++private fun MyPageScreen(
++    snackbarHostState: SnackbarHostState,
++    onLogoutClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Scaffold(
+         modifier = modifier.fillMaxSize(),
+-        color = MaterialTheme.colorScheme.background,
+-    ) {
++        containerColor = MaterialTheme.colorScheme.background,
++        topBar = {
++            TopAppBar(
++                title = {
++                    Text(
++                        text = "마이페이지",
++                        style = MaterialTheme.typography.titleLarge,
++                        fontWeight = FontWeight.Bold,
++                    )
++                },
++            )
++        },
++        snackbarHost = {
++            SnackbarHost(hostState = snackbarHostState)
++        },
++    ) { padding ->
+         Column(
+             modifier =
+                 Modifier
+                     .fillMaxSize()
+-                    .padding(24.dp),
++                    .padding(padding)
++                    .padding(horizontal = 24.dp, vertical = 16.dp),
+             verticalArrangement = Arrangement.spacedBy(16.dp),
+         ) {
+-            Text(
+-                text = "마이페이지",
+-                style = MaterialTheme.typography.headlineSmall,
+-                fontWeight = FontWeight.Bold,
+-            )
+             Text(
+                 text = "보호자 계정과 아이 프로필 설정이 이곳에 표시됩니다.",
+                 style = MaterialTheme.typography.bodyMedium,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+             )
+             MyPageMenuItem(
+-                title = "아이 프로필 (준비 중)",
++                title = "아이 프로필",
+                 description = "프로필 선택과 전환",
+                 onClick = {},
+                 enabled = false,
++                badgeText = "준비 중",
+             )
+             MyPageMenuItem(
+-                title = "앱 설정 (준비 중)",
++                title = "앱 설정",
+                 description = "권한, 알림, 학습 환경",
+                 onClick = {},
+                 enabled = false,
++                badgeText = "준비 중",
+             )
+             MyPageMenuItem(
+                 title = "로그아웃",
+                 description = "로컬 세션 초기화",
+-                onClick = { showLogoutDialog = true },
++                onClick = onLogoutClick,
++                badgeText = "위험",
++                badgeTone = AppBadgeTone.Error,
++                destructive = true,
+             )
+         }
+-
+-        SnackbarHost(hostState = snackbarHostState)
+-    }
+-
+-    if (showLogoutDialog) {
+-        AppDialog(
+-            title = "로그아웃할까요?",
+-            message = "현재 기기의 로그인 정보와 선택된 아이 정보가 초기화됩니다.",
+-            confirmText = "로그아웃",
+-            dismissText = "취소",
+-            onConfirm = {
+-                showLogoutDialog = false
+-                viewModel.logout()
+-            },
+-            onDismiss = { showLogoutDialog = false },
+-        )
+     }
+ }
+ 
+ private const val DISABLED_ALPHA = 0.5f
+ 
+ @Composable
++@Suppress("LongParameterList")
+ private fun MyPageMenuItem(
+     title: String,
+     description: String,
+     onClick: () -> Unit,
+     modifier: Modifier = Modifier,
+     enabled: Boolean = true,
++    badgeText: String? = null,
++    badgeTone: AppBadgeTone = AppBadgeTone.Neutral,
++    destructive: Boolean = false,
+ ) {
+     val alpha = if (enabled) 1f else DISABLED_ALPHA
++    val titleColor =
++        if (destructive) {
++            MaterialTheme.colorScheme.error
++        } else {
++            MaterialTheme.colorScheme.onSurface
++        }
+ 
+-    Row(
++    AppCard(
+         modifier =
+             modifier
+                 .fillMaxWidth()
+-                .clip(RoundedCornerShape(8.dp))
+-                .background(color = MaterialTheme.colorScheme.surface.copy(alpha = alpha))
+-                .clickable(enabled = enabled, onClick = onClick)
+-                .padding(horizontal = 18.dp, vertical = 16.dp),
+-        horizontalArrangement = Arrangement.SpaceBetween,
+-        verticalAlignment = Alignment.CenterVertically,
++                .alpha(alpha),
++        onClick = if (enabled) onClick else null,
+     ) {
+-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+-            Text(
+-                text = title,
+-                style = MaterialTheme.typography.titleMedium,
+-                fontWeight = FontWeight.SemiBold,
+-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha),
+-            )
+-            Text(
+-                text = description,
+-                style = MaterialTheme.typography.bodySmall,
+-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha),
+-            )
+-        }
+-        if (enabled) {
+-            Text(
+-                text = ">",
+-                style = MaterialTheme.typography.titleMedium,
+-                color = MaterialTheme.colorScheme.primary,
+-                fontWeight = FontWeight.Bold,
+-            )
++        Row(
++            modifier = Modifier.fillMaxWidth(),
++            horizontalArrangement = Arrangement.SpaceBetween,
++            verticalAlignment = Alignment.CenterVertically,
++        ) {
++            Column(
++                modifier = Modifier.weight(1f),
++                verticalArrangement = Arrangement.spacedBy(4.dp),
++            ) {
++                Text(
++                    text = title,
++                    style = MaterialTheme.typography.titleMedium,
++                    fontWeight = FontWeight.SemiBold,
++                    color = titleColor,
++                    maxLines = 1,
++                    overflow = TextOverflow.Ellipsis,
++                )
++                Text(
++                    text = description,
++                    style = MaterialTheme.typography.bodySmall,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                    maxLines = 1,
++                    overflow = TextOverflow.Ellipsis,
++                )
++            }
++
++            if (badgeText != null) {
++                AppBadge(
++                    text = badgeText,
++                    tone = badgeTone,
++                )
++            }
++
++            if (enabled) {
++                Text(
++                    text = ">",
++                    style = MaterialTheme.typography.titleMedium,
++                    color =
++                        if (destructive) {
++                            MaterialTheme.colorScheme.error
++                        } else {
++                            MaterialTheme.colorScheme.primary
++                        },
++                    fontWeight = FontWeight.Bold,
++                    modifier = Modifier.padding(start = 12.dp),
++                )
++            }
+         }
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupRoute.kt
+@@ -12,11 +12,8 @@ import androidx.compose.foundation.rememberScrollState
+ import androidx.compose.foundation.text.KeyboardActions
+ import androidx.compose.foundation.text.KeyboardOptions
+ import androidx.compose.foundation.verticalScroll
+-import androidx.compose.material3.Button
+-import androidx.compose.material3.CircularProgressIndicator
+ import androidx.compose.material3.MaterialTheme
+-import androidx.compose.material3.OutlinedButton
+-import androidx.compose.material3.OutlinedTextField
++import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.material3.TextButton
+ import androidx.compose.runtime.Composable
+@@ -29,6 +26,7 @@ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.focus.FocusDirection
+ import androidx.compose.ui.platform.LocalFocusManager
++import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.input.ImeAction
+ import androidx.compose.ui.text.input.KeyboardType
+ import androidx.compose.ui.text.input.PasswordVisualTransformation
+@@ -37,6 +35,11 @@ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppCard
++import com.ssafy.mobile.core.ui.components.AppPrimaryButton
++import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.core.ui.components.AppTextField
++import com.ssafy.mobile.core.ui.feedback.AppErrorText
+ 
+ @Composable
+ fun SignupRoute(
+@@ -102,55 +105,65 @@ private fun SignupScreen(
+ ) {
+     val isLoading = uiState is SignupUiState.Loading
+ 
+-    Column(
+-        modifier =
+-            modifier
+-                .fillMaxSize()
+-                .verticalScroll(rememberScrollState())
+-                .padding(24.dp)
+-                .imePadding(),
+-        horizontalAlignment = Alignment.CenterHorizontally,
+-        verticalArrangement = Arrangement.Center,
++    Surface(
++        modifier = modifier.fillMaxSize(),
++        color = MaterialTheme.colorScheme.background,
+     ) {
+-        SignupHeader()
++        Column(
++            modifier =
++                Modifier
++                    .fillMaxSize()
++                    .verticalScroll(rememberScrollState())
++                    .padding(24.dp)
++                    .imePadding(),
++            horizontalAlignment = Alignment.CenterHorizontally,
++            verticalArrangement = Arrangement.Center,
++        ) {
++            SignupHeader()
+ 
+-        Spacer(modifier = Modifier.height(32.dp))
++            Spacer(modifier = Modifier.height(28.dp))
+ 
+-        SignupInputFields(
+-            email = email,
+-            password = password,
+-            confirmPassword = confirmPassword,
+-            name = name,
+-            emailError = emailError,
+-            passwordError = passwordError,
+-            confirmPasswordError = confirmPasswordError,
+-            nameError = nameError,
+-            isLoading = isLoading,
+-            onEmailChanged = onEmailChanged,
+-            onPasswordChanged = onPasswordChanged,
+-            onConfirmPasswordChanged = onConfirmPasswordChanged,
+-            onNameChanged = onNameChanged,
+-            onSignupClick = onSignupClick,
+-        )
++            AppCard(modifier = Modifier.fillMaxWidth()) {
++                SignupInputFields(
++                    email = email,
++                    password = password,
++                    confirmPassword = confirmPassword,
++                    name = name,
++                    emailError = emailError,
++                    passwordError = passwordError,
++                    confirmPasswordError = confirmPasswordError,
++                    nameError = nameError,
++                    isLoading = isLoading,
++                    onEmailChanged = onEmailChanged,
++                    onPasswordChanged = onPasswordChanged,
++                    onConfirmPasswordChanged = onConfirmPasswordChanged,
++                    onNameChanged = onNameChanged,
++                    onSignupClick = onSignupClick,
++                )
+ 
+-        Spacer(modifier = Modifier.height(16.dp))
++                AppErrorText(
++                    message = (uiState as? SignupUiState.Error)?.message.orEmpty(),
++                    modifier = Modifier.fillMaxWidth(),
++                )
+ 
+-        if (uiState is SignupUiState.Error) {
++                Spacer(modifier = Modifier.height(12.dp))
++
++                SignupActionButtons(
++                    isLoading = isLoading,
++                    onSignupClick = onSignupClick,
++                    onNavigateToLogin = onNavigateToLogin,
++                )
++            }
++
++            Spacer(modifier = Modifier.height(16.dp))
+             Text(
+-                text = uiState.message,
+-                color = MaterialTheme.colorScheme.error,
++                text = "가입 후 로그인하면 아이 프로필을 만들고 학습을 시작할 수 있어요.",
+                 style = MaterialTheme.typography.bodySmall,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                 textAlign = TextAlign.Center,
+                 modifier = Modifier.fillMaxWidth(),
+             )
+-            Spacer(modifier = Modifier.height(8.dp))
+         }
+-
+-        SignupActionButtons(
+-            isLoading = isLoading,
+-            onSignupClick = onSignupClick,
+-            onNavigateToLogin = onNavigateToLogin,
+-        )
+     }
+ }
+ 
+@@ -158,14 +171,23 @@ private fun SignupScreen(
+ private fun SignupHeader() {
+     Text(
+         text = "SUDA",
+-        style = MaterialTheme.typography.headlineLarge,
++        style = MaterialTheme.typography.displayMedium,
+         color = MaterialTheme.colorScheme.primary,
++        fontWeight = FontWeight.Black,
+     )
+     Spacer(modifier = Modifier.height(8.dp))
+     Text(
+         text = "보호자 회원가입",
+-        style = MaterialTheme.typography.titleMedium,
++        style = MaterialTheme.typography.headlineSmall,
++        color = MaterialTheme.colorScheme.onSurface,
++        fontWeight = FontWeight.Bold,
++    )
++    Spacer(modifier = Modifier.height(8.dp))
++    Text(
++        text = "보호자 정보를 등록하고 아이의 학습 여정을 준비해요.",
++        style = MaterialTheme.typography.bodyMedium,
+         color = MaterialTheme.colorScheme.onSurfaceVariant,
++        textAlign = TextAlign.Center,
+     )
+ }
+ 
+@@ -191,17 +213,13 @@ private fun SignupInputFields(
+     var passwordVisible by rememberSaveable { mutableStateOf(false) }
+     var confirmPasswordVisible by rememberSaveable { mutableStateOf(false) }
+ 
+-    OutlinedTextField(
++    AppTextField(
+         value = email,
+         onValueChange = onEmailChanged,
+-        label = { Text("이메일") },
+-        placeholder = { Text("example@email.com") },
++        label = "이메일",
++        placeholder = "example@email.com",
+         isError = emailError != null,
+-        supportingText =
+-            emailError?.let {
+-                { Text(text = it, color = MaterialTheme.colorScheme.error) }
+-            },
+-        singleLine = true,
++        supportingText = emailError,
+         enabled = !isLoading,
+         keyboardOptions =
+             KeyboardOptions(
+@@ -215,19 +233,13 @@ private fun SignupInputFields(
+         modifier = Modifier.fillMaxWidth(),
+     )
+ 
+-    Spacer(modifier = Modifier.height(8.dp))
+-
+-    OutlinedTextField(
++    AppTextField(
+         value = name,
+         onValueChange = onNameChanged,
+-        label = { Text("보호자 이름") },
+-        placeholder = { Text("이름을 입력해 주세요") },
++        label = "보호자 이름",
++        placeholder = "이름을 입력해 주세요",
+         isError = nameError != null,
+-        supportingText =
+-            nameError?.let {
+-                { Text(text = it, color = MaterialTheme.colorScheme.error) }
+-            },
+-        singleLine = true,
++        supportingText = nameError,
+         enabled = !isLoading,
+         keyboardOptions =
+             KeyboardOptions(
+@@ -241,18 +253,12 @@ private fun SignupInputFields(
+         modifier = Modifier.fillMaxWidth(),
+     )
+ 
+-    Spacer(modifier = Modifier.height(8.dp))
+-
+-    OutlinedTextField(
++    AppTextField(
+         value = password,
+         onValueChange = onPasswordChanged,
+-        label = { Text("비밀번호") },
++        label = "비밀번호",
+         isError = passwordError != null,
+-        supportingText =
+-            passwordError?.let {
+-                { Text(text = it, color = MaterialTheme.colorScheme.error) }
+-            },
+-        singleLine = true,
++        supportingText = passwordError,
+         enabled = !isLoading,
+         visualTransformation =
+             if (passwordVisible) {
+@@ -277,18 +283,12 @@ private fun SignupInputFields(
+         modifier = Modifier.fillMaxWidth(),
+     )
+ 
+-    Spacer(modifier = Modifier.height(8.dp))
+-
+-    OutlinedTextField(
++    AppTextField(
+         value = confirmPassword,
+         onValueChange = onConfirmPasswordChanged,
+-        label = { Text("비밀번호 확인") },
++        label = "비밀번호 확인",
+         isError = confirmPasswordError != null,
+-        supportingText =
+-            confirmPasswordError?.let {
+-                { Text(text = it, color = MaterialTheme.colorScheme.error) }
+-            },
+-        singleLine = true,
++        supportingText = confirmPasswordError,
+         enabled = !isLoading,
+         visualTransformation =
+             if (confirmPasswordVisible) {
+@@ -323,29 +323,20 @@ private fun SignupActionButtons(
+     onSignupClick: () -> Unit,
+     onNavigateToLogin: () -> Unit,
+ ) {
+-    Button(
++    AppPrimaryButton(
++        text = "회원가입",
+         onClick = onSignupClick,
+         enabled = !isLoading,
++        loading = isLoading,
+         modifier = Modifier.fillMaxWidth(),
+-    ) {
+-        if (isLoading) {
+-            CircularProgressIndicator(
+-                strokeWidth = 2.dp,
+-                color = MaterialTheme.colorScheme.onPrimary,
+-                modifier = Modifier.height(20.dp),
+-            )
+-        } else {
+-            Text(text = "회원가입")
+-        }
+-    }
++    )
+ 
+     Spacer(modifier = Modifier.height(8.dp))
+ 
+-    OutlinedButton(
++    AppSecondaryButton(
++        text = "로그인으로 돌아가기",
+         onClick = onNavigateToLogin,
+         enabled = !isLoading,
+         modifier = Modifier.fillMaxWidth(),
+-    ) {
+-        Text(text = "로그인으로 돌아가기")
+-    }
++    )
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt b/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
+@@ -12,12 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.systemBarsPadding
+-import androidx.compose.material.icons.Icons
+-import androidx.compose.material.icons.rounded.Assessment
+-import androidx.compose.material.icons.rounded.Chat
+-import androidx.compose.material.icons.rounded.Home
+-import androidx.compose.material.icons.rounded.Person
+-import androidx.compose.material.icons.rounded.School
+ import androidx.compose.material3.CircularProgressIndicator
+ import androidx.compose.material3.Icon
+ import androidx.compose.material3.MaterialTheme
+@@ -50,6 +44,7 @@ import com.ssafy.mobile.core.navigation.Screen
+ import com.ssafy.mobile.core.permission.PermissionGuide
+ import com.ssafy.mobile.core.permission.PermissionHandler
+ import com.ssafy.mobile.core.permission.PermissionRequestState
++import com.ssafy.mobile.core.ui.icons.SudaBottomNavIcons
+ import com.ssafy.mobile.core.ui.theme.MobileTheme
+ import dagger.hilt.android.AndroidEntryPoint
+ 
+@@ -266,26 +261,26 @@ private val bottomNavigationItems =
+         BottomNavigationItem(
+             screen = Screen.Home,
+             label = "홈",
+-            icon = Icons.Rounded.Home,
++            icon = SudaBottomNavIcons.Home,
+         ),
+         BottomNavigationItem(
+             screen = Screen.LearningCategory,
+             label = "학습",
+-            icon = Icons.Rounded.School,
++            icon = SudaBottomNavIcons.Learning,
+         ),
+         BottomNavigationItem(
+             screen = Screen.ReportHome,
+             label = "리포트",
+-            icon = Icons.Rounded.Assessment,
++            icon = SudaBottomNavIcons.Report,
+         ),
+         BottomNavigationItem(
+             screen = Screen.Conversation,
+             label = "소통",
+-            icon = Icons.Rounded.Chat,
++            icon = SudaBottomNavIcons.Conversation,
+         ),
+         BottomNavigationItem(
+             screen = Screen.MyPage,
+             label = "마이",
+-            icon = Icons.Rounded.Person,
++            icon = SudaBottomNavIcons.Profile,
+         ),
+     )
+
+
+diff --git a/mobile/app/build.gradle.kts b/mobile/app/build.gradle.kts
+--- a/mobile/app/build.gradle.kts
++++ b/mobile/app/build.gradle.kts
+@@ -99,7 +99,6 @@ dependencies {
+     implementation(platform(libs.androidx.compose.bom))
+     implementation(libs.androidx.compose.ui)
+     implementation(libs.androidx.compose.ui.graphics)
+-    implementation(libs.androidx.compose.material.icons.extended)
+     implementation(libs.androidx.camera.core)
+     implementation(libs.androidx.camera.camera2)
+     implementation(libs.androidx.camera.lifecycle)
+
+
+diff --git a/mobile/gradle/libs.versions.toml b/mobile/gradle/libs.versions.toml
+--- a/mobile/gradle/libs.versions.toml
++++ b/mobile/gradle/libs.versions.toml
+@@ -45,7 +45,6 @@ androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "u
+ androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+ androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+ androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+-androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
+ retrofit-core = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
+ retrofit-converter-gson = { group = "com.squareup.retrofit2", name = "converter-gson", version.ref = "retrofit" }
+ okhttp-core = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+
+

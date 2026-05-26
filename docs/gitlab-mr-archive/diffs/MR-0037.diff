@@ -1,0 +1,340 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/model/TranslateDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/model/TranslateDto.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/model/TranslateDto.kt
+@@ -0,0 +1,47 @@
++package com.ssafy.mobile.feature.conversation.data.remote.model
++
++import com.google.gson.annotations.SerializedName
++
++/**
++ * 부모 수화 변환 요청 DTO
++ */
++data class SignToSpeechRequest(
++    @SerializedName("words") val words: List<String>,
++    @SerializedName("locale") val locale: String = "ko-KR",
++    @SerializedName("requestTts") val requestTts: Boolean = true,
++)
++
++/**
++ * 부모 수화 변환 응답 DTO
++ */
++data class SignToSpeechResponse(
++    @SerializedName("originalWords") val originalWords: List<String>,
++    @SerializedName("correctedText") val correctedText: String,
++    @SerializedName("audioBase64") val audioBase64: String?,
++    @SerializedName("audioMimeType") val audioMimeType: String?,
++    @SerializedName("corrected") val corrected: Boolean,
++)
++
++/**
++ * 자녀 발화 변환 응답 DTO
++ */
++data class SpeechToTextResponse(
++    @SerializedName("recognizedText") val recognizedText: String,
++    @SerializedName("correctedText") val correctedText: String,
++    @SerializedName("corrected") val corrected: Boolean,
++    @SerializedName("confidence") val confidence: Double?,
++    @SerializedName("locale") val locale: String?,
++)
++
++/**
++ * RFC 9457 표준 에러 응답 DTO
++ */
++data class ApiErrorResponse(
++    @SerializedName("type") val type: String,
++    @SerializedName("title") val title: String,
++    @SerializedName("status") val status: Int,
++    @SerializedName("detail") val detail: String,
++    @SerializedName("instance") val instance: String,
++    @SerializedName("code") val code: String,
++    @SerializedName("traceId") val traceId: String?,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/TranslateApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/TranslateApiService.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/TranslateApiService.kt
+@@ -0,0 +1,38 @@
++package com.ssafy.mobile.feature.conversation.data.remote
++
++import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechRequest
++import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechResponse
++import com.ssafy.mobile.feature.conversation.data.remote.model.SpeechToTextResponse
++import okhttp3.MultipartBody
++import retrofit2.Response
++import retrofit2.http.Body
++import retrofit2.http.Multipart
++import retrofit2.http.POST
++import retrofit2.http.Part
++import retrofit2.http.Query
++
++/**
++ * 번역 및 음성 변환 관련 Spring API 인터페이스
++ */
++interface TranslateApiService {
++    /**
++     * 부모 수화 단어열을 문장으로 보정하고 TTS 생성
++     */
++    @POST("v1/translation/sign-to-speech")
++    suspend fun translateSignToSpeech(
++        @Body request: SignToSpeechRequest,
++        @Query("dryRun") dryRun: Boolean = false,
++    ): Response<SignToSpeechResponse>
++
++    /**
++     * 자녀 발화 음성을 텍스트로 변환 및 문맥 보정
++     */
++    @Multipart
++    @POST("v1/translation/speech-to-text")
++    suspend fun translateSpeechToText(
++        @Part audioFile: MultipartBody.Part,
++        @Part("locale") locale: String? = "ko-KR",
++        @Part("audioMimeType") audioMimeType: String? = null,
++        @Query("dryRun") dryRun: Boolean = false,
++    ): Response<SpeechToTextResponse>
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DefaultTranslateRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DefaultTranslateRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DefaultTranslateRepository.kt
+@@ -0,0 +1,69 @@
++package com.ssafy.mobile.feature.conversation.data.repository
++
++import com.ssafy.mobile.feature.conversation.data.remote.TranslateApiService
++import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechRequest
++import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechResponse
++import com.ssafy.mobile.feature.conversation.data.remote.model.SpeechToTextResponse
++import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
++import java.io.File
++import java.io.IOException
++import javax.inject.Inject
++import okhttp3.MediaType.Companion.toMediaTypeOrNull
++import okhttp3.MultipartBody
++import okhttp3.RequestBody.Companion.asRequestBody
++
++/**
++ * TranslateRepository의 실제 구현체
++ */
++class DefaultTranslateRepository
++    @Inject
++    constructor(
++        private val apiService: TranslateApiService,
++    ) : TranslateRepository {
++        override suspend fun translateSignToSpeech(
++            words: List<String>,
++        ): Result<SignToSpeechResponse> =
++            runCatching {
++                val response =
++                    apiService.translateSignToSpeech(
++                        request = SignToSpeechRequest(words = words),
++                    )
++                if (response.isSuccessful) {
++                    response.body() ?: throw IllegalStateException(ERROR_EMPTY_BODY)
++                } else {
++                    // 에러 응답 처리 (추후 ApiErrorResponse 파싱 로직 추가 가능)
++                    throw IOException("$ERROR_API_PREFIX ${response.code()} ${response.message()}")
++                }
++            }
++
++        override suspend fun translateSpeechToText(
++            audioFile: File,
++            mimeType: String,
++        ): Result<SpeechToTextResponse> =
++            runCatching {
++                val requestFile = audioFile.asRequestBody(mimeType.toMediaTypeOrNull())
++                val body =
++                    MultipartBody.Part.createFormData(
++                        "audioFile",
++                        audioFile.name,
++                        requestFile,
++                    )
++
++                val response =
++                    apiService.translateSpeechToText(
++                        audioFile = body,
++                        audioMimeType = mimeType,
++                    )
++
++                if (response.isSuccessful) {
++                    response.body() ?: throw IllegalStateException(ERROR_EMPTY_BODY)
++                } else {
++                    throw IOException("$ERROR_API_PREFIX ${response.code()} ${response.message()}")
++                }
++            }
++
++        companion object {
++            private const val ERROR_EMPTY_BODY = "Empty response body"
++            private const val ERROR_API_PREFIX = "API Error:"
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+@@ -1,18 +1,36 @@
+ package com.ssafy.mobile.feature.conversation.di
+ 
+ import com.ssafy.mobile.core.vision.SignRecognitionEngine
++import com.ssafy.mobile.feature.conversation.data.remote.TranslateApiService
++import com.ssafy.mobile.feature.conversation.data.repository.DefaultTranslateRepository
++import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
+ import dagger.Binds
+ import dagger.Module
++import dagger.Provides
+ import dagger.hilt.InstallIn
+-import dagger.hilt.android.components.ViewModelComponent
+-import dagger.hilt.android.scopes.ViewModelScoped
++import dagger.hilt.components.SingletonComponent
++import javax.inject.Singleton
++import retrofit2.Retrofit
+ 
+ @Module
+-@InstallIn(ViewModelComponent::class)
++@InstallIn(SingletonComponent::class)
+ abstract class ConversationModule {
+     @Binds
+-    @ViewModelScoped
++    @Singleton
++    abstract fun bindTranslateRepository(
++        repository: DefaultTranslateRepository,
++    ): TranslateRepository
++
++    @Binds
++    @Singleton
+     abstract fun bindSignRecognitionEngine(
+-        fakeEngine: FakeSignRecognitionEngine,
++        engine: FakeSignRecognitionEngine,
+     ): SignRecognitionEngine
++
++    companion object {
++        @Provides
++        @Singleton
++        fun provideTranslateApiService(retrofit: Retrofit): TranslateApiService =
++            retrofit.create(TranslateApiService::class.java)
++    }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/repository/TranslateRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/repository/TranslateRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/repository/TranslateRepository.kt
+@@ -0,0 +1,23 @@
++package com.ssafy.mobile.feature.conversation.domain.repository
++
++import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechResponse
++import com.ssafy.mobile.feature.conversation.data.remote.model.SpeechToTextResponse
++import java.io.File
++
++/**
++ * 번역 및 음성 처리 도메인 Repository 인터페이스
++ */
++interface TranslateRepository {
++    /**
++     * 부모 수화 단어열을 문장으로 변환하고 TTS 결과 수신
++     */
++    suspend fun translateSignToSpeech(words: List<String>): Result<SignToSpeechResponse>
++
++    /**
++     * 자녀 발화 음성 파일을 텍스트로 변환
++     */
++    suspend fun translateSpeechToText(
++        audioFile: File,
++        mimeType: String,
++    ): Result<SpeechToTextResponse>
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -4,8 +4,10 @@ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
+ import com.ssafy.mobile.core.model.SignRecognitionEvent
+ import com.ssafy.mobile.core.vision.SignRecognitionEngine
++import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import javax.inject.Inject
++import kotlinx.coroutines.Job
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.StateFlow
+ import kotlinx.coroutines.flow.asStateFlow
+@@ -22,6 +24,7 @@ class ConversationViewModel
+     @Inject
+     constructor(
+         private val signRecognitionEngine: SignRecognitionEngine,
++        private val translateRepository: TranslateRepository,
+     ) : ViewModel() {
+         private val _sessionState = MutableStateFlow(SessionState.Idle)
+         val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
+@@ -29,8 +32,12 @@ class ConversationViewModel
+         private val _lastGlosses = MutableStateFlow<List<String>>(emptyList())
+         val lastGlosses: StateFlow<List<String>> = _lastGlosses.asStateFlow()
+ 
++        private val _translatedText = MutableStateFlow("")
++        val translatedText: StateFlow<String> = _translatedText.asStateFlow()
++
++        private var translationJob: Job? = null
++
+         init {
+-            // 엔진으로부터 들어오는 수어 인식 이벤트를 구독합니다.
+             viewModelScope.launch {
+                 signRecognitionEngine.events.collect { event ->
+                     if (_sessionState.value == SessionState.Active) {
+@@ -43,15 +50,37 @@ class ConversationViewModel
+         private fun handleEvent(event: SignRecognitionEvent) {
+             when (event) {
+                 is SignRecognitionEvent.Prediction -> {
+-                    _lastGlosses.value = _lastGlosses.value + event.gloss
++                    val currentGlosses = _lastGlosses.value + event.gloss
++                    _lastGlosses.value = currentGlosses
++
++                    if (currentGlosses.size >= MIN_WORDS_FOR_TRANSLATION) {
++                        requestTranslation(currentGlosses)
++                    }
+                 }
+-                is SignRecognitionEvent.NoHandsDetected -> {
+-                    // 필요 시 사용자에게 손이 보이지 않는다는 피드백 제공 로직 추가 가능
++                else -> {
++                    // 기타 상태(로딩 등)는 현재 처리하지 않음
+                 }
+-                else -> { /* 기타 상태(로딩 등) 처리 */ }
+             }
+         }
+ 
++        private fun requestTranslation(words: List<String>) {
++            // 이전 진행 중인 번역 요청이 있다면 취소하여 중복 및 순서 꼬임 방지
++            translationJob?.cancel()
++
++            translationJob =
++                viewModelScope.launch {
++                    translateRepository
++                        .translateSignToSpeech(words)
++                        .onSuccess { response ->
++                            _translatedText.value = response.correctedText
++                            // 번역 성공 시에만 단어 리스트 초기화
++                            _lastGlosses.value = emptyList()
++                        }.onFailure {
++                            // 향후 사용자에게 번역 실패 알림 제공 로직 추가 예정
++                        }
++                }
++        }
++
+         fun startSession() {
+             _sessionState.value = SessionState.Active
+             signRecognitionEngine.start()
+@@ -61,5 +90,11 @@ class ConversationViewModel
+             _sessionState.value = SessionState.Idle
+             signRecognitionEngine.stop()
+             _lastGlosses.value = emptyList()
++            _translatedText.value = ""
++            translationJob?.cancel()
++        }
++
++        companion object {
++            private const val MIN_WORDS_FOR_TRANSLATION = 3
+         }
+     }
+
+

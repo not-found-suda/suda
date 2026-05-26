@@ -1,0 +1,510 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapterFactory.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapterFactory.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapterFactory.kt
+@@ -0,0 +1,54 @@
++package com.ssafy.mobile.core.vision.inference
++
++import android.content.Context
++import java.io.IOException
++
++class SignInferenceAdapterFactory(
++    private val context: Context,
++    private val modelAssetPath: String = SignModelContract.MODEL_ASSET_PATH,
++    private val labelMapAssetPath: String = SignModelContract.LABEL_MAP_ASSET_PATH,
++) {
++    fun create(): SignInferenceAdapter {
++        val appContext = context.applicationContext
++        val assetState =
++            SignInferenceAssetState(
++                hasModel = appContext.hasAsset(modelAssetPath),
++                hasLabelMap = appContext.hasAsset(labelMapAssetPath),
++            )
++
++        return when (assetState.resolvePolicy()) {
++            SignInferenceAdapterPolicy.FAKE ->
++                FakeSignInferenceAdapter()
++            SignInferenceAdapterPolicy.TFLITE ->
++                TfliteSignInferenceAdapter.create(
++                    context = appContext,
++                    modelAssetPath = modelAssetPath,
++                    labelMapAssetPath = labelMapAssetPath,
++                )
++        }
++    }
++}
++
++data class SignInferenceAssetState(
++    val hasModel: Boolean,
++    val hasLabelMap: Boolean,
++)
++
++enum class SignInferenceAdapterPolicy {
++    FAKE,
++    TFLITE,
++}
++
++fun SignInferenceAssetState.resolvePolicy(): SignInferenceAdapterPolicy =
++    when {
++        !hasModel && !hasLabelMap -> SignInferenceAdapterPolicy.FAKE
++        hasModel && hasLabelMap -> SignInferenceAdapterPolicy.TFLITE
++        else -> error("TFLite model and label map assets must be provided together.")
++    }
++
++private fun Context.hasAsset(assetPath: String): Boolean =
++    try {
++        assets.open(assetPath).use { true }
++    } catch (_: IOException) {
++        false
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignLabelMap.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignLabelMap.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignLabelMap.kt
+@@ -0,0 +1,65 @@
++package com.ssafy.mobile.core.vision.inference
++
++class SignLabelMap private constructor(
++    private val labelsByIndex: Map<Int, String>,
++) {
++    fun glossFor(classIndex: Int): String =
++        labelsByIndex[classIndex] ?: SignModelContract.UNKNOWN_GLOSS
++
++    companion object {
++        fun parse(json: String): SignLabelMap {
++            val trimmedJson = json.trim()
++            val labels =
++                when {
++                    trimmedJson.startsWith('[') -> parseArrayLabels(trimmedJson)
++                    trimmedJson.contains(LABELS_PROPERTY) ->
++                        parseArrayLabels(
++                            extractLabelsArray(trimmedJson),
++                        )
++                    else -> parseIndexedLabels(trimmedJson)
++                }
++
++            require(labels.isNotEmpty()) {
++                "Label map must contain at least one gloss."
++            }
++
++            return SignLabelMap(labels)
++        }
++
++        private fun parseArrayLabels(jsonArray: String): Map<Int, String> =
++            STRING_VALUE_REGEX
++                .findAll(jsonArray)
++                .mapIndexed { index, matchResult ->
++                    index to matchResult.groupValues[STRING_VALUE_GROUP].unescapeJsonString()
++                }.toMap()
++
++        private fun parseIndexedLabels(jsonObject: String): Map<Int, String> =
++            INDEXED_LABEL_REGEX
++                .findAll(jsonObject)
++                .associate { matchResult ->
++                    val index = matchResult.groupValues[INDEX_GROUP].toInt()
++                    val gloss = matchResult.groupValues[INDEXED_LABEL_GROUP].unescapeJsonString()
++                    index to gloss
++                }
++
++        private fun extractLabelsArray(jsonObject: String): String {
++            val startIndex = jsonObject.indexOf('[')
++            val endIndex = jsonObject.lastIndexOf(']')
++            require(startIndex >= 0 && endIndex > startIndex) {
++                "Could not find labels array."
++            }
++            return jsonObject.substring(startIndex, endIndex + 1)
++        }
++
++        private fun String.unescapeJsonString(): String =
++            replace("\\\"", "\"")
++                .replace("\\\\", "\\")
++
++        private const val LABELS_PROPERTY = "\"labels\""
++        private const val STRING_VALUE_GROUP = 1
++        private const val INDEX_GROUP = 1
++        private const val INDEXED_LABEL_GROUP = 2
++        private val STRING_VALUE_REGEX = Regex("\"((?:\\\\.|[^\"])*)\"")
++        private val INDEXED_LABEL_REGEX = Regex("\"(\\d+)\"\\s*:\\s*\"((?:\\\\.|[^\"])*)\"")
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt
+@@ -1,10 +1,18 @@
+ package com.ssafy.mobile.core.vision.inference
+ 
+ object SignModelContract {
++    const val BATCH_SIZE = 1
+     const val SEQUENCE_LENGTH = 30
+     const val FEATURE_DIMENSION = 345
+     const val CLASS_COUNT = 110
+     const val CONFIDENCE_THRESHOLD = 0.85f
++    const val FLOAT_BYTE_SIZE = 4
++    const val FLAT_SEQUENCE_INPUT_SIZE = SEQUENCE_LENGTH * FEATURE_DIMENSION
++    const val MODEL_ASSET_PATH = "sign_model.tflite"
++    const val LABEL_MAP_ASSET_PATH = "label_map.json"
++    const val UNKNOWN_GLOSS = "unknown"
++    val inputShape: IntArray = intArrayOf(BATCH_SIZE, SEQUENCE_LENGTH, FEATURE_DIMENSION)
++    val outputShape: IntArray = intArrayOf(BATCH_SIZE, CLASS_COUNT)
+     val outputActivation: ModelOutputActivation = ModelOutputActivation.SOFTMAX_PROBABILITY
+ }
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/TfliteSignInferenceAdapter.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/TfliteSignInferenceAdapter.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/TfliteSignInferenceAdapter.kt
+@@ -0,0 +1,97 @@
++package com.ssafy.mobile.core.vision.inference
++
++import android.content.Context
++import java.nio.ByteBuffer
++import java.nio.ByteOrder
++import org.tensorflow.lite.DataType
++import org.tensorflow.lite.Interpreter
++
++class TfliteSignInferenceAdapter private constructor(
++    private val model: TfliteSignModel,
++) : SignInferenceAdapter {
++    private var isClosed = false
++
++    init {
++        model.interpreter.validateModelContract()
++    }
++
++    override fun predict(sequence: FloatArray): SignInferenceResult {
++        check(!isClosed) {
++            "TFLite sign inference adapter is already closed."
++        }
++        require(sequence.size == SignModelContract.FLAT_SEQUENCE_INPUT_SIZE) {
++            "Sequence input size must be ${SignModelContract.FLAT_SEQUENCE_INPUT_SIZE}."
++        }
++
++        val output =
++            Array(SignModelContract.BATCH_SIZE) {
++                FloatArray(SignModelContract.CLASS_COUNT)
++            }
++        model.interpreter.run(sequence.toInputBuffer(), output)
++        val prediction = SignModelOutput(output.first().toList()).topPrediction()
++
++        return SignInferenceResult(
++            gloss =
++                prediction?.let { result ->
++                    model.labelMap.glossFor(result.classIndex)
++                } ?: SignModelContract.UNKNOWN_GLOSS,
++            confidence = prediction?.confidence ?: MIN_CONFIDENCE,
++        )
++    }
++
++    override fun close() {
++        if (isClosed) {
++            return
++        }
++        isClosed = true
++        model.interpreter.close()
++    }
++
++    companion object {
++        fun create(
++            context: Context,
++            modelAssetPath: String = SignModelContract.MODEL_ASSET_PATH,
++            labelMapAssetPath: String = SignModelContract.LABEL_MAP_ASSET_PATH,
++        ): TfliteSignInferenceAdapter =
++            TfliteSignInferenceAdapter(
++                model =
++                    TfliteSignModelLoader(
++                        context = context.applicationContext,
++                        modelAssetPath = modelAssetPath,
++                        labelMapAssetPath = labelMapAssetPath,
++                    ).load(),
++            )
++
++        fun createOrFallback(context: Context): SignInferenceAdapter =
++            SignInferenceAdapterFactory(context).create()
++
++        private const val MIN_CONFIDENCE = 0f
++    }
++}
++
++private fun FloatArray.toInputBuffer(): ByteBuffer {
++    val inputBuffer =
++        ByteBuffer
++            .allocateDirect(size * SignModelContract.FLOAT_BYTE_SIZE)
++            .order(ByteOrder.nativeOrder())
++    forEach { value -> inputBuffer.putFloat(value) }
++    return inputBuffer.apply { rewind() }
++}
++
++private fun Interpreter.validateModelContract() {
++    val inputTensor = getInputTensor(0)
++    val outputTensor = getOutputTensor(0)
++
++    require(inputTensor.dataType() == DataType.FLOAT32) {
++        "TFLite input tensor must be FLOAT32."
++    }
++    require(outputTensor.dataType() == DataType.FLOAT32) {
++        "TFLite output tensor must be FLOAT32."
++    }
++    require(inputTensor.shape().contentEquals(SignModelContract.inputShape)) {
++        "TFLite input shape must be [1, 30, 345]."
++    }
++    require(outputTensor.shape().contentEquals(SignModelContract.outputShape)) {
++        "TFLite output shape must be [1, 110]."
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/TfliteSignModelLoader.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/TfliteSignModelLoader.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/TfliteSignModelLoader.kt
+@@ -0,0 +1,57 @@
++package com.ssafy.mobile.core.vision.inference
++
++import android.content.Context
++import java.nio.ByteBuffer
++import java.nio.ByteOrder
++import org.tensorflow.lite.Interpreter
++
++class TfliteSignModelLoader(
++    private val context: Context,
++    private val modelAssetPath: String = SignModelContract.MODEL_ASSET_PATH,
++    private val labelMapAssetPath: String = SignModelContract.LABEL_MAP_ASSET_PATH,
++) {
++    fun load(): TfliteSignModel {
++        val labelMap = SignLabelMap.parse(readAssetText(labelMapAssetPath))
++        val options =
++            Interpreter
++                .Options()
++                .setNumThreads(DEFAULT_THREAD_COUNT)
++        val interpreter =
++            Interpreter(
++                readDirectAssetBuffer(modelAssetPath),
++                options,
++            )
++        return TfliteSignModel(
++            interpreter = interpreter,
++            labelMap = labelMap,
++        )
++    }
++
++    private fun readDirectAssetBuffer(assetPath: String): ByteBuffer {
++        val bytes =
++            context.assets
++                .open(assetPath)
++                .use { inputStream -> inputStream.readBytes() }
++
++        return ByteBuffer
++            .allocateDirect(bytes.size)
++            .order(ByteOrder.nativeOrder())
++            .put(bytes)
++            .apply { rewind() }
++    }
++
++    private fun readAssetText(assetPath: String): String =
++        context.assets
++            .open(assetPath)
++            .bufferedReader(Charsets.UTF_8)
++            .use { reader -> reader.readText() }
++
++    private companion object {
++        const val DEFAULT_THREAD_COUNT = 2
++    }
++}
++
++class TfliteSignModel(
++    val interpreter: Interpreter,
++    val labelMap: SignLabelMap,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
+@@ -21,10 +21,12 @@ class RealSignRecognitionEngine(
+     private val predictionStabilizer: SignPredictionStabilizer = SignPredictionStabilizer(),
+ ) : SignRecognitionEngine {
+     @Inject
+-    constructor() : this(
++    constructor(
++        inferenceAdapter: SignInferenceAdapter,
++    ) : this(
+         featureEncoder = LandmarkFeatureEncoder(),
+         sequenceBuffer = SignSequenceBuffer(),
+-        inferenceAdapter = FakeSignInferenceAdapter(),
++        inferenceAdapter = inferenceAdapter,
+         noHandsDetectionTracker = NoHandsDetectionTracker(),
+         predictionStabilizer = SignPredictionStabilizer(),
+     )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+@@ -1,7 +1,10 @@
+ package com.ssafy.mobile.feature.conversation.di
+ 
++import android.content.Context
+ import com.ssafy.mobile.core.vision.RealSignRecognitionEngine
+ import com.ssafy.mobile.core.vision.SignRecognitionEngine
++import com.ssafy.mobile.core.vision.inference.SignInferenceAdapter
++import com.ssafy.mobile.core.vision.inference.TfliteSignInferenceAdapter
+ import com.ssafy.mobile.feature.conversation.data.remote.TranslateApiService
+ import com.ssafy.mobile.feature.conversation.data.repository.DefaultTranslateRepository
+ import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
+@@ -9,6 +12,7 @@ import dagger.Binds
+ import dagger.Module
+ import dagger.Provides
+ import dagger.hilt.InstallIn
++import dagger.hilt.android.qualifiers.ApplicationContext
+ import dagger.hilt.components.SingletonComponent
+ import javax.inject.Singleton
+ import retrofit2.Retrofit
+@@ -33,5 +37,11 @@ abstract class ConversationModule {
+         @Singleton
+         fun provideTranslateApiService(retrofit: Retrofit): TranslateApiService =
+             retrofit.create(TranslateApiService::class.java)
++
++        @Provides
++        @Singleton
++        fun provideSignInferenceAdapter(
++            @ApplicationContext context: Context,
++        ): SignInferenceAdapter = TfliteSignInferenceAdapter.createOrFallback(context)
+     }
+ }
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignInferenceAssetStateTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignInferenceAssetStateTest.kt
+--- /dev/null
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignInferenceAssetStateTest.kt
+@@ -0,0 +1,49 @@
++package com.ssafy.mobile.core.vision.inference
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertThrows
++import org.junit.Test
++
++class SignInferenceAssetStateTest {
++    @Test
++    fun usesFakeWhenModelAndLabelMapAreBothMissing() {
++        val policy =
++            SignInferenceAssetState(
++                hasModel = false,
++                hasLabelMap = false,
++            ).resolvePolicy()
++
++        assertEquals(SignInferenceAdapterPolicy.FAKE, policy)
++    }
++
++    @Test
++    fun usesTfliteWhenModelAndLabelMapAreBothPresent() {
++        val policy =
++            SignInferenceAssetState(
++                hasModel = true,
++                hasLabelMap = true,
++            ).resolvePolicy()
++
++        assertEquals(SignInferenceAdapterPolicy.TFLITE, policy)
++    }
++
++    @Test
++    fun rejectsModelWithoutLabelMap() {
++        assertThrows(IllegalStateException::class.java) {
++            SignInferenceAssetState(
++                hasModel = true,
++                hasLabelMap = false,
++            ).resolvePolicy()
++        }
++    }
++
++    @Test
++    fun rejectsLabelMapWithoutModel() {
++        assertThrows(IllegalStateException::class.java) {
++            SignInferenceAssetState(
++                hasModel = false,
++                hasLabelMap = true,
++            ).resolvePolicy()
++        }
++    }
++}
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignLabelMapTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignLabelMapTest.kt
+--- /dev/null
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignLabelMapTest.kt
+@@ -0,0 +1,38 @@
++package com.ssafy.mobile.core.vision.inference
++
++import org.junit.Assert.assertEquals
++import org.junit.Test
++
++class SignLabelMapTest {
++    @Test
++    fun parsesArrayLabelMap() {
++        val labelMap = SignLabelMap.parse("""["엄마", "밥", "먹다"]""")
++
++        assertEquals("엄마", labelMap.glossFor(0))
++        assertEquals("밥", labelMap.glossFor(1))
++        assertEquals("먹다", labelMap.glossFor(2))
++    }
++
++    @Test
++    fun parsesLabelsPropertyMap() {
++        val labelMap = SignLabelMap.parse("""{"labels":["엄마","밥"]}""")
++
++        assertEquals("엄마", labelMap.glossFor(0))
++        assertEquals("밥", labelMap.glossFor(1))
++    }
++
++    @Test
++    fun parsesIndexedObjectMap() {
++        val labelMap = SignLabelMap.parse("""{"0":"엄마","7":"좋아"}""")
++
++        assertEquals("엄마", labelMap.glossFor(0))
++        assertEquals("좋아", labelMap.glossFor(7))
++    }
++
++    @Test
++    fun returnsUnknownWhenIndexIsMissing() {
++        val labelMap = SignLabelMap.parse("""["엄마"]""")
++
++        assertEquals(SignModelContract.UNKNOWN_GLOSS, labelMap.glossFor(1))
++    }
++}
+
+
+diff --git a/mobile/app/build.gradle.kts b/mobile/app/build.gradle.kts
+--- a/mobile/app/build.gradle.kts
++++ b/mobile/app/build.gradle.kts
+@@ -98,6 +98,7 @@ dependencies {
+     implementation(libs.androidx.camera.lifecycle)
+     implementation(libs.androidx.camera.view)
+     implementation(libs.mediapipe.tasks.vision)
++    implementation(libs.tensorflow.lite)
+     implementation(libs.androidx.navigation.compose)
+     implementation(libs.androidx.hilt.navigation.compose)
+     implementation(libs.androidx.compose.ui.tooling.preview)
+
+
+diff --git a/mobile/gradle/libs.versions.toml b/mobile/gradle/libs.versions.toml
+--- a/mobile/gradle/libs.versions.toml
++++ b/mobile/gradle/libs.versions.toml
+@@ -20,6 +20,7 @@ navigationCompose = "2.8.7"
+ hiltNavigationCompose = "1.2.0"
+ cameraX = "1.4.2"
+ mediaPipeTasksVision = "0.10.33"
++tensorflowLite = "2.17.0"
+ 
+ [libraries]
+ androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+@@ -56,6 +57,7 @@ androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2",
+ androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "cameraX" }
+ androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "cameraX" }
+ mediapipe-tasks-vision = { group = "com.google.mediapipe", name = "tasks-vision", version.ref = "mediaPipeTasksVision" }
++tensorflow-lite = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tensorflowLite" }
+ 
+ [plugins]
+ android-application = { id = "com.android.application", version.ref = "agp" }
+
+

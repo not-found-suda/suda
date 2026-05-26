@@ -1,0 +1,749 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/config/OAuthProperties.java b/backend/src/main/java/com/ssafy/backend/domain/auth/config/OAuthProperties.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/config/OAuthProperties.java
+@@ -0,0 +1,9 @@
++package com.ssafy.backend.domain.auth.config;
++
++import org.springframework.boot.context.properties.ConfigurationProperties;
++
++@ConfigurationProperties(prefix = "oauth")
++public record OAuthProperties(Naver naver) {
++
++  public record Naver(String clientId, String clientSecret) {}
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/controller/AuthController.java b/backend/src/main/java/com/ssafy/backend/domain/auth/controller/AuthController.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/auth/controller/AuthController.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/controller/AuthController.java
+@@ -3,11 +3,13 @@ package com.ssafy.backend.domain.auth.controller;
+ import com.ssafy.backend.domain.auth.docs.AuthApiDocs;
+ import com.ssafy.backend.domain.auth.dto.LoginRequestDto;
+ import com.ssafy.backend.domain.auth.dto.LoginResponseDto;
++import com.ssafy.backend.domain.auth.dto.OAuthLoginRequestDto;
+ import com.ssafy.backend.domain.auth.dto.RefreshTokenRequestDto;
+ import com.ssafy.backend.domain.auth.dto.RefreshTokenResponseDto;
+ import com.ssafy.backend.domain.auth.dto.SignupRequestDto;
+ import com.ssafy.backend.domain.auth.dto.SignupResponseDto;
+ import com.ssafy.backend.domain.auth.service.AuthService;
++import com.ssafy.backend.domain.auth.service.OAuthService;
+ import jakarta.servlet.http.HttpServletRequest;
+ import jakarta.validation.Valid;
+ import org.springframework.http.HttpStatus;
+@@ -25,9 +27,11 @@ public class AuthController implements AuthApiDocs {
+   private static final String BEARER_PREFIX = "Bearer ";
+ 
+   private final AuthService authService;
++  private final OAuthService oAuthService;
+ 
+-  public AuthController(AuthService authService) {
++  public AuthController(AuthService authService, OAuthService oAuthService) {
+     this.authService = authService;
++    this.oAuthService = oAuthService;
+   }
+ 
+   @PostMapping("/signup")
+@@ -61,6 +65,13 @@ public class AuthController implements AuthApiDocs {
+     return ResponseEntity.noContent().build();
+   }
+ 
++  @PostMapping("/oauth/naver")
++  @Override
++  public ResponseEntity<LoginResponseDto> loginWithNaver(
++      @Valid @RequestBody OAuthLoginRequestDto requestDto) {
++    return ResponseEntity.ok(oAuthService.loginWithNaver(requestDto));
++  }
++
+   private String resolveAccessToken(HttpServletRequest request) {
+     String authorizationHeader = request.getHeader(AUTHORIZATION_HEADER);
+     if (authorizationHeader == null || !authorizationHeader.startsWith(BEARER_PREFIX)) {
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthApiDocs.java b/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthApiDocs.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthApiDocs.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthApiDocs.java
+@@ -2,6 +2,7 @@ package com.ssafy.backend.domain.auth.docs;
+ 
+ import com.ssafy.backend.domain.auth.dto.LoginRequestDto;
+ import com.ssafy.backend.domain.auth.dto.LoginResponseDto;
++import com.ssafy.backend.domain.auth.dto.OAuthLoginRequestDto;
+ import com.ssafy.backend.domain.auth.dto.RefreshTokenRequestDto;
+ import com.ssafy.backend.domain.auth.dto.RefreshTokenResponseDto;
+ import com.ssafy.backend.domain.auth.dto.SignupRequestDto;
+@@ -50,4 +51,21 @@ public interface AuthApiDocs {
+   @ApiErrorCodes({"COMMON_UNAUTHORIZED"})
+   @ApiResponse(responseCode = "204", description = "콘텐츠 없음")
+   ResponseEntity<Void> logout(RefreshTokenRequestDto requestDto, HttpServletRequest request);
++
++  @Operation(
++      summary = "네이버 OAuth 로그인",
++      description = "네이버 authorization code + PKCE 방식으로 소셜 로그인을 처리합니다.")
++  @ApiErrorCodes({
++    "VALIDATION_INVALID_INPUT",
++    "OAUTH_INVALID_AUTHORIZATION_CODE",
++    "OAUTH_EMAIL_ALREADY_EXISTS",
++    "AUTH_INACTIVE_ACCOUNT",
++    "SOCIAL_ACCOUNT_ALREADY_LINKED",
++    "OAUTH_PROVIDER_ERROR"
++  })
++  @ApiResponse(
++      responseCode = "200",
++      description = "성공",
++      content = @Content(schema = @Schema(implementation = LoginResponseDto.class)))
++  ResponseEntity<LoginResponseDto> loginWithNaver(OAuthLoginRequestDto request);
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/dto/OAuthLoginRequestDto.java b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/OAuthLoginRequestDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/OAuthLoginRequestDto.java
+@@ -0,0 +1,30 @@
++package com.ssafy.backend.domain.auth.dto;
++
++import io.swagger.v3.oas.annotations.media.Schema;
++import jakarta.validation.constraints.NotBlank;
++
++public record OAuthLoginRequestDto(
++    @NotBlank(message = "authorizationCode는 필수입니다.")
++        @Schema(
++            description = "네이버 authorization code",
++            example = "naver-authorization-code",
++            requiredMode = Schema.RequiredMode.REQUIRED)
++        String authorizationCode,
++    @NotBlank(message = "state는 필수입니다.")
++        @Schema(
++            description = "네이버 로그인 요청에 사용한 state",
++            example = "random-state",
++            requiredMode = Schema.RequiredMode.REQUIRED)
++        String state,
++    @NotBlank(message = "codeVerifier는 필수입니다.")
++        @Schema(
++            description = "PKCE code verifier",
++            example = "pkce-code-verifier",
++            requiredMode = Schema.RequiredMode.REQUIRED)
++        String codeVerifier,
++    @NotBlank(message = "redirectUri는 필수입니다.")
++        @Schema(
++            description = "네이버 authorize 요청에 사용한 redirect URI",
++            example = "com.ssafy.mobile://oauth/naver",
++            requiredMode = Schema.RequiredMode.REQUIRED)
++        String redirectUri) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/exception/OAuthErrorCode.java b/backend/src/main/java/com/ssafy/backend/domain/auth/exception/OAuthErrorCode.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/exception/OAuthErrorCode.java
+@@ -0,0 +1,42 @@
++package com.ssafy.backend.domain.auth.exception;
++
++import com.ssafy.backend.global.exception.ErrorCode;
++import org.springframework.http.HttpStatus;
++
++public enum OAuthErrorCode implements ErrorCode {
++  INVALID_AUTHORIZATION_CODE(
++      "OAUTH_INVALID_AUTHORIZATION_CODE", HttpStatus.UNAUTHORIZED, "유효하지 않은 네이버 인증 코드입니다."),
++  EMAIL_ALREADY_EXISTS(
++      "OAUTH_EMAIL_ALREADY_EXISTS", HttpStatus.CONFLICT, "이미 같은 이메일로 가입된 계정이 있습니다."),
++  PROVIDER_ERROR("OAUTH_PROVIDER_ERROR", HttpStatus.BAD_GATEWAY, "소셜 로그인 제공자 API 호출에 실패했습니다.");
++
++  private final String code;
++  private final HttpStatus httpStatus;
++  private final String message;
++
++  OAuthErrorCode(String code, HttpStatus httpStatus, String message) {
++    this.code = code;
++    this.httpStatus = httpStatus;
++    this.message = message;
++  }
++
++  @Override
++  public String getCode() {
++    return code;
++  }
++
++  @Override
++  public HttpStatus getHttpStatus() {
++    return httpStatus;
++  }
++
++  @Override
++  public String getDomainTitle() {
++    return "OAuth 오류";
++  }
++
++  @Override
++  public String getMessage() {
++    return message;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/AuthService.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/AuthService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/auth/service/AuthService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/AuthService.java
+@@ -68,15 +68,7 @@ public class AuthService {
+     }
+ 
+     TokenPair tokenPair = createTokenPair(user.id(), user.role());
+-    persistRefreshToken(tokenPair.refreshToken());
+-
+-    LoginResponseDto response =
+-        new LoginResponseDto(
+-            tokenPair.accessToken(),
+-            tokenPair.refreshToken(),
+-            "Bearer",
+-            jwtProperties.getAccessTokenTtlSeconds());
+-    return new LoginResult(response, tokenPair.refreshToken());
++    return toLoginResult(tokenPair);
+   }
+ 
+   @Transactional
+@@ -146,6 +138,12 @@ public class AuthService {
+     accessTokenBlacklistStore.blacklist(accessJti, Duration.ofSeconds(ttlSeconds));
+   }
+ 
++  @Transactional
++  public LoginResult issueLoginTokens(Long userId, Role role) {
++    TokenPair tokenPair = createTokenPair(userId, role);
++    return toLoginResult(tokenPair);
++  }
++
+   private boolean isValidPassword(String rawPassword, String storedPassword) {
+     if (rawPassword == null || storedPassword == null) {
+       return false;
+@@ -188,6 +186,17 @@ public class AuthService {
+         refreshJti, userId, Duration.ofSeconds(jwtProperties.getRefreshTokenTtlSeconds()));
+   }
+ 
++  private LoginResult toLoginResult(TokenPair tokenPair) {
++    persistRefreshToken(tokenPair.refreshToken());
++    LoginResponseDto response =
++        new LoginResponseDto(
++            tokenPair.accessToken(),
++            tokenPair.refreshToken(),
++            "Bearer",
++            jwtProperties.getAccessTokenTtlSeconds());
++    return new LoginResult(response, tokenPair.refreshToken());
++  }
++
+   public record LoginResult(LoginResponseDto response, String refreshToken) {}
+ 
+   public record RefreshTokenResult(RefreshTokenResponseDto response, String refreshToken) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/NaverOAuthClient.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/NaverOAuthClient.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/NaverOAuthClient.java
+@@ -0,0 +1,128 @@
++package com.ssafy.backend.domain.auth.service;
++
++import com.fasterxml.jackson.annotation.JsonProperty;
++import com.ssafy.backend.domain.auth.config.OAuthProperties;
++import com.ssafy.backend.domain.auth.exception.OAuthErrorCode;
++import com.ssafy.backend.global.exception.BusinessException;
++import org.springframework.http.HttpHeaders;
++import org.springframework.http.MediaType;
++import org.springframework.stereotype.Component;
++import org.springframework.util.LinkedMultiValueMap;
++import org.springframework.util.MultiValueMap;
++import org.springframework.web.client.RestClient;
++import org.springframework.web.client.RestClientException;
++import org.springframework.web.client.RestClientResponseException;
++
++@Component
++public class NaverOAuthClient {
++
++  private static final String NAVER_PROFILE_URL = "https://openapi.naver.com/v1/nid/me";
++  private static final String NAVER_TOKEN_URL = "https://nid.naver.com/oauth2/token";
++  private static final String SUCCESS_RESULT_CODE = "00";
++
++  private final RestClient restClient;
++  private final OAuthProperties oAuthProperties;
++
++  public NaverOAuthClient(RestClient restClient, OAuthProperties oAuthProperties) {
++    this.restClient = restClient;
++    this.oAuthProperties = oAuthProperties;
++  }
++
++  public NaverProfile getProfile(
++      String authorizationCode, String state, String codeVerifier, String redirectUri) {
++    NaverTokenResponse tokenResponse =
++        exchangeToken(authorizationCode, state, codeVerifier, redirectUri);
++    if (tokenResponse == null || isBlank(tokenResponse.accessToken())) {
++      throw new BusinessException(OAuthErrorCode.INVALID_AUTHORIZATION_CODE);
++    }
++    return getProfileByAccessToken(tokenResponse.accessToken());
++  }
++
++  private NaverTokenResponse exchangeToken(
++      String authorizationCode, String state, String codeVerifier, String redirectUri) {
++    OAuthProperties.Naver naver = oAuthProperties.naver();
++    if (naver == null || isBlank(naver.clientId()) || isBlank(naver.clientSecret())) {
++      throw new BusinessException(OAuthErrorCode.PROVIDER_ERROR);
++    }
++
++    MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
++    form.add("grant_type", "authorization_code");
++    form.add("client_id", naver.clientId());
++    form.add("client_secret", naver.clientSecret());
++    form.add("redirect_uri", redirectUri);
++    form.add("code", authorizationCode);
++    form.add("state", state);
++    form.add("code_verifier", codeVerifier);
++
++    try {
++      NaverTokenResponse response =
++          restClient
++              .post()
++              .uri(NAVER_TOKEN_URL)
++              .contentType(MediaType.APPLICATION_FORM_URLENCODED)
++              .accept(MediaType.APPLICATION_JSON)
++              .body(form)
++              .retrieve()
++              .body(NaverTokenResponse.class);
++
++      if (response == null || !isBlank(response.error())) {
++        throw new BusinessException(OAuthErrorCode.INVALID_AUTHORIZATION_CODE);
++      }
++      return response;
++    } catch (RestClientResponseException exception) {
++      if (exception.getStatusCode().is4xxClientError()) {
++        throw new BusinessException(OAuthErrorCode.INVALID_AUTHORIZATION_CODE);
++      }
++      throw new BusinessException(OAuthErrorCode.PROVIDER_ERROR);
++    } catch (RestClientException exception) {
++      throw new BusinessException(OAuthErrorCode.PROVIDER_ERROR);
++    }
++  }
++
++  private NaverProfile getProfileByAccessToken(String providerAccessToken) {
++    try {
++      NaverProfileResponse response =
++          restClient
++              .get()
++              .uri(NAVER_PROFILE_URL)
++              .header(HttpHeaders.AUTHORIZATION, "Bearer " + providerAccessToken)
++              .retrieve()
++              .body(NaverProfileResponse.class);
++
++      if (response == null
++          || !SUCCESS_RESULT_CODE.equals(response.resultcode())
++          || response.response() == null) {
++        throw new BusinessException(OAuthErrorCode.INVALID_AUTHORIZATION_CODE);
++      }
++
++      NaverProfile profile = response.response();
++      if (isBlank(profile.id()) || isBlank(profile.email())) {
++        throw new BusinessException(OAuthErrorCode.INVALID_AUTHORIZATION_CODE);
++      }
++      return profile;
++    } catch (RestClientResponseException exception) {
++      if (exception.getStatusCode().value() == 401) {
++        throw new BusinessException(OAuthErrorCode.INVALID_AUTHORIZATION_CODE);
++      }
++      throw new BusinessException(OAuthErrorCode.PROVIDER_ERROR);
++    } catch (RestClientException exception) {
++      throw new BusinessException(OAuthErrorCode.PROVIDER_ERROR);
++    }
++  }
++
++  private boolean isBlank(String value) {
++    return value == null || value.isBlank();
++  }
++
++  private record NaverProfileResponse(String resultcode, String message, NaverProfile response) {}
++
++  private record NaverTokenResponse(
++      @JsonProperty("access_token") String accessToken,
++      @JsonProperty("refresh_token") String refreshToken,
++      @JsonProperty("token_type") String tokenType,
++      @JsonProperty("expires_in") Long expiresIn,
++      String error,
++      @JsonProperty("error_description") String errorDescription) {}
++
++  public record NaverProfile(String id, String email, String nickname, String name) {}
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/OAuthLoginProcessor.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/OAuthLoginProcessor.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/OAuthLoginProcessor.java
+@@ -0,0 +1,93 @@
++package com.ssafy.backend.domain.auth.service;
++
++import com.ssafy.backend.domain.auth.dto.LoginResponseDto;
++import com.ssafy.backend.domain.auth.exception.AuthErrorCode;
++import com.ssafy.backend.domain.auth.exception.OAuthErrorCode;
++import com.ssafy.backend.domain.social.entity.SocialAccount;
++import com.ssafy.backend.domain.social.entity.SocialProvider;
++import com.ssafy.backend.domain.social.repository.SocialAccountRepository;
++import com.ssafy.backend.domain.user.entity.User;
++import com.ssafy.backend.domain.user.repository.UserRepository;
++import com.ssafy.backend.global.exception.BusinessException;
++import java.util.Locale;
++import java.util.UUID;
++import org.springframework.security.crypto.password.PasswordEncoder;
++import org.springframework.stereotype.Component;
++import org.springframework.transaction.annotation.Transactional;
++
++@Component
++public class OAuthLoginProcessor {
++
++  private static final int MAX_USER_NAME_LENGTH = 50;
++
++  private final SocialAccountRepository socialAccountRepository;
++  private final UserRepository userRepository;
++  private final PasswordEncoder passwordEncoder;
++  private final AuthService authService;
++
++  public OAuthLoginProcessor(
++      SocialAccountRepository socialAccountRepository,
++      UserRepository userRepository,
++      PasswordEncoder passwordEncoder,
++      AuthService authService) {
++    this.socialAccountRepository = socialAccountRepository;
++    this.userRepository = userRepository;
++    this.passwordEncoder = passwordEncoder;
++    this.authService = authService;
++  }
++
++  @Transactional
++  public LoginResponseDto loginWithNaverProfile(NaverOAuthClient.NaverProfile profile) {
++    User user = findOrCreateUser(profile);
++    if (!user.isActive()) {
++      throw new BusinessException(AuthErrorCode.INACTIVE_ACCOUNT);
++    }
++
++    return authService.issueLoginTokens(user.getId(), user.getRole()).response();
++  }
++
++  private User findOrCreateUser(NaverOAuthClient.NaverProfile profile) {
++    return socialAccountRepository
++        .findByProviderAndProviderUserId(SocialProvider.NAVER, profile.id())
++        .map(SocialAccount::getUser)
++        .orElseGet(() -> createUserAndSocialAccount(profile));
++  }
++
++  private User createUserAndSocialAccount(NaverOAuthClient.NaverProfile profile) {
++    String email = normalizeEmail(profile.email());
++    if (userRepository.existsByEmailIgnoreCase(email)) {
++      throw new BusinessException(OAuthErrorCode.EMAIL_ALREADY_EXISTS);
++    }
++
++    String name = resolveName(profile);
++    String encodedPassword = passwordEncoder.encode("oauth:" + UUID.randomUUID());
++    User user = userRepository.saveAndFlush(User.create(email, encodedPassword, name));
++    socialAccountRepository.saveAndFlush(
++        SocialAccount.create(user, SocialProvider.NAVER, profile.id(), email));
++    return user;
++  }
++
++  private String resolveName(NaverOAuthClient.NaverProfile profile) {
++    if (profile.name() != null && !profile.name().isBlank()) {
++      return limitName(profile.name().trim());
++    }
++    if (profile.nickname() != null && !profile.nickname().isBlank()) {
++      return limitName(profile.nickname().trim());
++    }
++    return limitName(normalizeEmail(profile.email()).split("@")[0]);
++  }
++
++  private String limitName(String name) {
++    if (name.length() <= MAX_USER_NAME_LENGTH) {
++      return name;
++    }
++    return name.substring(0, MAX_USER_NAME_LENGTH);
++  }
++
++  private String normalizeEmail(String email) {
++    if (email == null) {
++      return "";
++    }
++    return email.trim().toLowerCase(Locale.ROOT);
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/OAuthService.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/OAuthService.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/OAuthService.java
+@@ -0,0 +1,33 @@
++package com.ssafy.backend.domain.auth.service;
++
++import com.ssafy.backend.domain.auth.dto.LoginResponseDto;
++import com.ssafy.backend.domain.auth.dto.OAuthLoginRequestDto;
++import com.ssafy.backend.domain.auth.exception.OAuthErrorCode;
++import com.ssafy.backend.global.exception.BusinessException;
++import org.springframework.stereotype.Service;
++
++@Service
++public class OAuthService {
++
++  private final NaverOAuthClient naverOAuthClient;
++  private final OAuthLoginProcessor oAuthLoginProcessor;
++
++  public OAuthService(NaverOAuthClient naverOAuthClient, OAuthLoginProcessor oAuthLoginProcessor) {
++    this.naverOAuthClient = naverOAuthClient;
++    this.oAuthLoginProcessor = oAuthLoginProcessor;
++  }
++
++  public LoginResponseDto loginWithNaver(OAuthLoginRequestDto requestDto) {
++    if (requestDto == null) {
++      throw new BusinessException(OAuthErrorCode.INVALID_AUTHORIZATION_CODE);
++    }
++
++    NaverOAuthClient.NaverProfile profile =
++        naverOAuthClient.getProfile(
++            requestDto.authorizationCode(),
++            requestDto.state(),
++            requestDto.codeVerifier(),
++            requestDto.redirectUri());
++    return oAuthLoginProcessor.loginWithNaverProfile(profile);
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/social/entity/SocialAccount.java b/backend/src/main/java/com/ssafy/backend/domain/social/entity/SocialAccount.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/social/entity/SocialAccount.java
+@@ -0,0 +1,57 @@
++package com.ssafy.backend.domain.social.entity;
++
++import com.ssafy.backend.domain.user.entity.User;
++import com.ssafy.backend.global.entity.BaseEntity;
++import jakarta.persistence.Column;
++import jakarta.persistence.Entity;
++import jakarta.persistence.EnumType;
++import jakarta.persistence.Enumerated;
++import jakarta.persistence.FetchType;
++import jakarta.persistence.GeneratedValue;
++import jakarta.persistence.GenerationType;
++import jakarta.persistence.Id;
++import jakarta.persistence.JoinColumn;
++import jakarta.persistence.ManyToOne;
++import jakarta.persistence.Table;
++
++@Entity
++@Table(name = "social_accounts")
++public class SocialAccount extends BaseEntity {
++
++  @Id
++  @GeneratedValue(strategy = GenerationType.IDENTITY)
++  private Long id;
++
++  @ManyToOne(fetch = FetchType.LAZY, optional = false)
++  @JoinColumn(name = "user_id", nullable = false)
++  private User user;
++
++  @Enumerated(EnumType.STRING)
++  @Column(nullable = false, length = 30)
++  private SocialProvider provider;
++
++  @Column(name = "provider_user_id", nullable = false, length = 255)
++  private String providerUserId;
++
++  @Column(name = "provider_email", length = 255)
++  private String providerEmail;
++
++  protected SocialAccount() {}
++
++  private SocialAccount(
++      User user, SocialProvider provider, String providerUserId, String providerEmail) {
++    this.user = user;
++    this.provider = provider;
++    this.providerUserId = providerUserId;
++    this.providerEmail = providerEmail;
++  }
++
++  public static SocialAccount create(
++      User user, SocialProvider provider, String providerUserId, String providerEmail) {
++    return new SocialAccount(user, provider, providerUserId, providerEmail);
++  }
++
++  public User getUser() {
++    return user;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/social/entity/SocialProvider.java b/backend/src/main/java/com/ssafy/backend/domain/social/entity/SocialProvider.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/social/entity/SocialProvider.java
+@@ -0,0 +1,6 @@
++package com.ssafy.backend.domain.social.entity;
++
++public enum SocialProvider {
++  NAVER,
++  KAKAO
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/social/exception/SocialAccountErrorCode.java b/backend/src/main/java/com/ssafy/backend/domain/social/exception/SocialAccountErrorCode.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/social/exception/SocialAccountErrorCode.java
+@@ -0,0 +1,38 @@
++package com.ssafy.backend.domain.social.exception;
++
++import com.ssafy.backend.global.exception.ErrorCode;
++import org.springframework.http.HttpStatus;
++
++public enum SocialAccountErrorCode implements ErrorCode {
++  ALREADY_LINKED("SOCIAL_ACCOUNT_ALREADY_LINKED", HttpStatus.CONFLICT, "이미 다른 계정에 연동된 소셜 계정입니다.");
++
++  private final String code;
++  private final HttpStatus httpStatus;
++  private final String message;
++
++  SocialAccountErrorCode(String code, HttpStatus httpStatus, String message) {
++    this.code = code;
++    this.httpStatus = httpStatus;
++    this.message = message;
++  }
++
++  @Override
++  public String getCode() {
++    return code;
++  }
++
++  @Override
++  public HttpStatus getHttpStatus() {
++    return httpStatus;
++  }
++
++  @Override
++  public String getDomainTitle() {
++    return "소셜 계정 오류";
++  }
++
++  @Override
++  public String getMessage() {
++    return message;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/social/repository/SocialAccountRepository.java b/backend/src/main/java/com/ssafy/backend/domain/social/repository/SocialAccountRepository.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/social/repository/SocialAccountRepository.java
+@@ -0,0 +1,12 @@
++package com.ssafy.backend.domain.social.repository;
++
++import com.ssafy.backend.domain.social.entity.SocialAccount;
++import com.ssafy.backend.domain.social.entity.SocialProvider;
++import java.util.Optional;
++import org.springframework.data.jpa.repository.JpaRepository;
++
++public interface SocialAccountRepository extends JpaRepository<SocialAccount, Long> {
++
++  Optional<SocialAccount> findByProviderAndProviderUserId(
++      SocialProvider provider, String providerUserId);
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/exception/GlobalExceptionHandler.java b/backend/src/main/java/com/ssafy/backend/global/exception/GlobalExceptionHandler.java
+--- a/backend/src/main/java/com/ssafy/backend/global/exception/GlobalExceptionHandler.java
++++ b/backend/src/main/java/com/ssafy/backend/global/exception/GlobalExceptionHandler.java
+@@ -1,7 +1,9 @@
+ package com.ssafy.backend.global.exception;
+ 
+ import com.ssafy.backend.domain.auth.exception.AuthErrorCode;
++import com.ssafy.backend.domain.auth.exception.OAuthErrorCode;
+ import com.ssafy.backend.domain.child.exception.ChildProfileErrorCode;
++import com.ssafy.backend.domain.social.exception.SocialAccountErrorCode;
+ import jakarta.servlet.http.HttpServletRequest;
+ import jakarta.validation.ConstraintViolation;
+ import jakarta.validation.ConstraintViolationException;
+@@ -168,6 +170,17 @@ public class GlobalExceptionHandler {
+   public ResponseEntity<ProblemDetail> handleDataIntegrityViolation(
+       DataIntegrityViolationException exception, HttpServletRequest request) {
+     if (isDuplicateEmailViolation(exception)) {
++      if (isOAuthRequest(request)) {
++        OAuthErrorCode errorCode = OAuthErrorCode.EMAIL_ALREADY_EXISTS;
++        log.warn(
++            "Duplicate OAuth email violation: method={}, uri={}, code={}, message={}",
++            request.getMethod(),
++            request.getRequestURI(),
++            errorCode.getCode(),
++            errorCode.getMessage());
++        return ResponseEntity.status(errorCode.getHttpStatus())
++            .body(ProblemDetails.of(errorCode, request.getRequestURI()));
++      }
+       AuthErrorCode errorCode = AuthErrorCode.DUPLICATE_EMAIL;
+       log.warn(
+           "Duplicate email violation: method={}, uri={}, code={}, message={}",
+@@ -189,6 +202,17 @@ public class GlobalExceptionHandler {
+       return ResponseEntity.status(errorCode.getHttpStatus())
+           .body(ProblemDetails.of(errorCode, request.getRequestURI()));
+     }
++    if (isDuplicateSocialAccountViolation(exception)) {
++      SocialAccountErrorCode errorCode = SocialAccountErrorCode.ALREADY_LINKED;
++      log.warn(
++          "Duplicate social account violation: method={}, uri={}, code={}, message={}",
++          request.getMethod(),
++          request.getRequestURI(),
++          errorCode.getCode(),
++          errorCode.getMessage());
++      return ResponseEntity.status(errorCode.getHttpStatus())
++          .body(ProblemDetails.of(errorCode, request.getRequestURI()));
++    }
+ 
+     CommonErrorCode errorCode = CommonErrorCode.INTERNAL_SERVER_ERROR;
+     log.error(
+@@ -239,6 +263,10 @@ public class GlobalExceptionHandler {
+     return false;
+   }
+ 
++  private boolean isOAuthRequest(HttpServletRequest request) {
++    return request.getRequestURI() != null && request.getRequestURI().contains("/auth/oauth/");
++  }
++
+   private boolean isDuplicateChildProfileNameViolation(Throwable throwable) {
+     Throwable current = throwable;
+     while (current != null) {
+@@ -257,6 +285,26 @@ public class GlobalExceptionHandler {
+     return false;
+   }
+ 
++  private boolean isDuplicateSocialAccountViolation(Throwable throwable) {
++    Throwable current = throwable;
++    while (current != null) {
++      String message = current.getMessage();
++      if (message != null) {
++        String lower = message.toLowerCase();
++        boolean duplicateKey =
++            lower.contains("duplicate key") || lower.contains("unique constraint");
++        boolean socialAccountKey =
++            lower.contains("ux_social_accounts_provider_user")
++                || lower.contains("ux_social_accounts_user_provider");
++        if (duplicateKey && socialAccountKey) {
++          return true;
++        }
++      }
++      current = current.getCause();
++    }
++    return false;
++  }
++
+   private Map<String, String> toValidationErrorItem(FieldError fieldError) {
+     ValidationErrorCode errorCode = ValidationErrorCode.from(fieldError);
+     String message = resolveValidationMessage(fieldError, errorCode);
+
+
+diff --git a/backend/src/main/resources/application.yml b/backend/src/main/resources/application.yml
+--- a/backend/src/main/resources/application.yml
++++ b/backend/src/main/resources/application.yml
+@@ -42,6 +42,12 @@ external-api:
+     connect: 3s
+     read: 10s
+ 
++oauth:
++  naver:
++    client-id: "${NAVER_CLIENT_ID:}"
++    client-secret: "${NAVER_CLIENT_SECRET:}"
++
+ app:
+   asset:
+     cloud-front-domain: ${ASSET_CLOUDFRONT_DOMAIN:https://d14zyw67949hvk.cloudfront.net}
++
+
+

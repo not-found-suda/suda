@@ -1,0 +1,1581 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -139,7 +139,17 @@ fun MobileNavHost(
+             )
+         }
+ 
+-        composable(Screen.Quiz.route) {
++        composable(
++            route = Screen.Quiz.route,
++            arguments =
++                listOf(
++                    navArgument("categoryId") { type = NavType.LongType },
++                    navArgument("difficulty") {
++                        type = NavType.StringType
++                        defaultValue = "EASY"
++                    },
++                ),
++        ) {
+             quizQuestionRoute(
+                 modifier = Modifier.fillMaxSize(),
+             )
+@@ -206,6 +216,9 @@ fun MobileNavHost(
+                 onNavigateBack = {
+                     navController.popBackStack()
+                 },
++                onStartQuiz = { categoryId ->
++                    navController.navigate(Screen.Quiz.createRoute(categoryId))
++                },
+                 modifier = Modifier.fillMaxSize(),
+             )
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+@@ -15,7 +15,12 @@ sealed class Screen(
+ 
+     data object Home : Screen("home_route")
+ 
+-    data object Quiz : Screen("quiz_question_route")
++    data object Quiz : Screen("quiz_question_route/{categoryId}?difficulty={difficulty}") {
++        fun createRoute(
++            categoryId: Long,
++            difficulty: String = "EASY",
++        ) = "quiz_question_route/$categoryId?difficulty=${android.net.Uri.encode(difficulty)}"
++    }
+ 
+     data object Conversation : Screen("conversation_route")
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningQuizApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningQuizApiService.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningQuizApiService.kt
+@@ -0,0 +1,45 @@
++package com.ssafy.mobile.feature.learning.data.api
++
++import com.ssafy.mobile.feature.learning.data.dto.LearningQuizAnswerRequestDto
++import com.ssafy.mobile.feature.learning.data.dto.LearningQuizAnswerResponseDto
++import com.ssafy.mobile.feature.learning.data.dto.LearningQuizCurrentQuestionResponseDto
++import com.ssafy.mobile.feature.learning.data.dto.LearningQuizResultResponseDto
++import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionRequestDto
++import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionResponseDto
++import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionStatusRequestDto
++import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionStatusResponseDto
++import retrofit2.Response
++import retrofit2.http.Body
++import retrofit2.http.GET
++import retrofit2.http.PATCH
++import retrofit2.http.POST
++import retrofit2.http.Path
++
++interface LearningQuizApiService {
++    @POST("v1/learn/quizzes/sessions")
++    suspend fun createSession(
++        @Body request: LearningQuizSessionRequestDto,
++    ): Response<LearningQuizSessionResponseDto>
++
++    @GET("v1/learn/quizzes/sessions/{sessionId}/questions/current")
++    suspend fun getCurrentQuestion(
++        @Path("sessionId") sessionId: Long,
++    ): Response<LearningQuizCurrentQuestionResponseDto>
++
++    @POST("v1/learn/quizzes/sessions/{sessionId}/answers")
++    suspend fun submitAnswer(
++        @Path("sessionId") sessionId: Long,
++        @Body request: LearningQuizAnswerRequestDto,
++    ): Response<LearningQuizAnswerResponseDto>
++
++    @PATCH("v1/learn/quizzes/sessions/{sessionId}")
++    suspend fun updateSessionStatus(
++        @Path("sessionId") sessionId: Long,
++        @Body request: LearningQuizSessionStatusRequestDto,
++    ): Response<LearningQuizSessionStatusResponseDto>
++
++    @GET("v1/learn/quizzes/sessions/{sessionId}/result")
++    suspend fun getResult(
++        @Path("sessionId") sessionId: Long,
++    ): Response<LearningQuizResultResponseDto>
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningWordApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningWordApiService.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningWordApiService.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningWordApiService.kt
+@@ -1,6 +1,6 @@
+ package com.ssafy.mobile.feature.learning.data.api
+ 
+-import com.ssafy.mobile.feature.learning.data.dto.LearningWordDto
++import com.ssafy.mobile.feature.learning.data.dto.LearningWordsResponseDto
+ import retrofit2.Response
+ import retrofit2.http.GET
+ import retrofit2.http.Query
+@@ -10,5 +10,5 @@ interface LearningWordApiService {
+     suspend fun getWords(
+         @Query("categoryId") categoryId: Long,
+         @Query("difficulty") difficulty: String,
+-    ): Response<List<LearningWordDto>>
++    ): Response<LearningWordsResponseDto>
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDto.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDto.kt
+@@ -0,0 +1,193 @@
++package com.ssafy.mobile.feature.learning.data.dto
++
++import com.google.gson.annotations.SerializedName
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizAnswerResult
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizQuestion
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizResult
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizResultAnswer
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSession
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSessionStatus
++
++data class LearningQuizSessionRequestDto(
++    @SerializedName("categoryId")
++    val categoryId: Long,
++    @SerializedName("difficulty")
++    val difficulty: String,
++)
++
++data class LearningQuizSessionResponseDto(
++    @SerializedName("sessionId")
++    val sessionId: Long,
++    @SerializedName("categoryId")
++    val categoryId: Long,
++    @SerializedName("difficulty")
++    val difficulty: String,
++    @SerializedName("totalQuestionCount")
++    val totalQuestionCount: Int,
++    @SerializedName("currentQuestionNumber")
++    val currentQuestionNumber: Int,
++    @SerializedName("status")
++    val status: String,
++) {
++    fun toDomain(): LearningQuizSession =
++        LearningQuizSession(
++            sessionId = sessionId,
++            categoryId = categoryId,
++            difficulty = difficulty,
++            totalQuestionCount = totalQuestionCount,
++            currentQuestionNumber = currentQuestionNumber,
++            status = status,
++        )
++}
++
++data class LearningQuizCurrentQuestionResponseDto(
++    @SerializedName("sessionId")
++    val sessionId: Long,
++    @SerializedName("questionId")
++    val questionId: Long,
++    @SerializedName("wordId")
++    val wordId: Long,
++    @SerializedName("questionNumber")
++    val questionNumber: Int,
++    @SerializedName("totalQuestionCount")
++    val totalQuestionCount: Int,
++    @SerializedName("imageUrl")
++    val imageUrl: String,
++    @SerializedName("audioUrl")
++    val audioUrl: String? = null,
++    @SerializedName("targetText")
++    val targetText: String? = null,
++    @SerializedName("word")
++    val word: String? = null,
++    @SerializedName("displayText")
++    val displayText: String? = null,
++) {
++    fun toDomain(): LearningQuizQuestion =
++        LearningQuizQuestion(
++            sessionId = sessionId,
++            questionId = questionId,
++            wordId = wordId,
++            questionNumber = questionNumber,
++            totalQuestionCount = totalQuestionCount,
++            imageUrl = imageUrl,
++            audioUrl = audioUrl,
++            targetText = targetText ?: word ?: displayText,
++        )
++}
++
++data class LearningQuizAnswerRequestDto(
++    @SerializedName("questionId")
++    val questionId: Long,
++    @SerializedName("wordId")
++    val wordId: Long,
++    @SerializedName("recognizedText")
++    val recognizedText: String,
++)
++
++data class LearningQuizAnswerResponseDto(
++    @SerializedName("sessionId")
++    val sessionId: Long,
++    @SerializedName("questionId")
++    val questionId: Long,
++    @SerializedName("wordId")
++    val wordId: Long,
++    @SerializedName("targetText")
++    val targetText: String,
++    @SerializedName("recognizedText")
++    val recognizedText: String,
++    @SerializedName("isCorrect")
++    val isCorrect: Boolean,
++    @SerializedName("star")
++    val star: Int,
++    @SerializedName("feedback")
++    val feedback: String? = null,
++    @SerializedName("hasNext")
++    val hasNext: Boolean,
++    @SerializedName("nextQuestionNumber")
++    val nextQuestionNumber: Int? = null,
++) {
++    fun toDomain(): LearningQuizAnswerResult =
++        LearningQuizAnswerResult(
++            sessionId = sessionId,
++            questionId = questionId,
++            wordId = wordId,
++            targetText = targetText,
++            recognizedText = recognizedText,
++            isCorrect = isCorrect,
++            star = star,
++            feedback = feedback,
++            hasNext = hasNext,
++            nextQuestionNumber = nextQuestionNumber,
++        )
++}
++
++data class LearningQuizSessionStatusRequestDto(
++    @SerializedName("status")
++    val status: String,
++)
++
++data class LearningQuizSessionStatusResponseDto(
++    @SerializedName("sessionId")
++    val sessionId: Long,
++    @SerializedName("status")
++    val status: String,
++    @SerializedName("endedAt")
++    val endedAt: String,
++) {
++    fun toDomain(): LearningQuizSessionStatus =
++        LearningQuizSessionStatus(
++            sessionId = sessionId,
++            status = status,
++            endedAt = endedAt,
++        )
++}
++
++data class LearningQuizResultResponseDto(
++    @SerializedName("sessionId")
++    val sessionId: Long,
++    @SerializedName("totalQuestionCount")
++    val totalQuestionCount: Int,
++    @SerializedName("correctCount")
++    val correctCount: Int,
++    @SerializedName("totalStar")
++    val totalStar: Int,
++    @SerializedName("answers")
++    val answers: List<LearningQuizResultAnswerDto>,
++) {
++    fun toDomain(): LearningQuizResult =
++        LearningQuizResult(
++            sessionId = sessionId,
++            totalQuestionCount = totalQuestionCount,
++            correctCount = correctCount,
++            totalStar = totalStar,
++            answers = answers.map { it.toDomain() },
++        )
++}
++
++data class LearningQuizResultAnswerDto(
++    @SerializedName("questionId")
++    val questionId: Long,
++    @SerializedName("wordId")
++    val wordId: Long,
++    @SerializedName("targetText")
++    val targetText: String,
++    @SerializedName("recognizedText")
++    val recognizedText: String? = null,
++    @SerializedName("isCorrect")
++    val isCorrect: Boolean,
++    @SerializedName("star")
++    val star: Int,
++    @SerializedName("feedback")
++    val feedback: String? = null,
++) {
++    fun toDomain(): LearningQuizResultAnswer =
++        LearningQuizResultAnswer(
++            questionId = questionId,
++            wordId = wordId,
++            targetText = targetText,
++            recognizedText = recognizedText,
++            isCorrect = isCorrect,
++            star = star,
++            feedback = feedback,
++        )
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningWordDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningWordDto.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningWordDto.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningWordDto.kt
+@@ -18,6 +18,12 @@ data class LearningWordDto(
+     val audioUrl: String? = null,
+ )
+ 
++@Serializable
++data class LearningWordsResponseDto(
++    @SerialName("words")
++    val words: List<LearningWordDto>,
++)
++
+ fun LearningWordDto.toDomain(): LearningWord =
+     LearningWord(
+         id = wordId,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningQuizRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningQuizRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningQuizRepository.kt
+@@ -0,0 +1,146 @@
++package com.ssafy.mobile.feature.learning.data.repository
++
++import android.util.Log
++import com.ssafy.mobile.feature.learning.data.api.LearningQuizApiService
++import com.ssafy.mobile.feature.learning.data.dto.LearningQuizAnswerRequestDto
++import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionRequestDto
++import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionStatusRequestDto
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizAnswerResult
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizQuestion
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizResult
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSession
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSessionStatus
++import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizRepository
++import java.io.IOException
++import javax.inject.Inject
++import kotlin.coroutines.cancellation.CancellationException
++import retrofit2.Response
++
++private const val QUIZ_TAG = "RemoteLearningQuizRepo"
++private const val COMPLETED_STATUS = "COMPLETED"
++private const val HTTP_STATUS_BAD_REQUEST = 400
++private const val HTTP_STATUS_UNAUTHORIZED = 401
++private const val HTTP_STATUS_FORBIDDEN = 403
++private const val HTTP_STATUS_NOT_FOUND = 404
++private const val HTTP_STATUS_CONFLICT = 409
++private const val HTTP_STATUS_INTERNAL_SERVER_ERROR = 500
++private const val COMPLETED_ENDED_AT_FALLBACK = ""
++
++class RemoteLearningQuizRepository
++    @Inject
++    constructor(
++        private val apiService: LearningQuizApiService,
++    ) : LearningQuizRepository {
++        override suspend fun createSession(
++            categoryId: Long,
++            difficulty: String,
++        ): Result<LearningQuizSession> =
++            runCatchingNetwork("Failed to create quiz session") {
++                apiService
++                    .createSession(
++                        LearningQuizSessionRequestDto(
++                            categoryId = categoryId,
++                            difficulty = difficulty,
++                        ),
++                    ).toResult { response ->
++                        response.toDomain()
++                    }
++            }
++
++        override suspend fun getCurrentQuestion(sessionId: Long): Result<LearningQuizQuestion> =
++            runCatchingNetwork("Failed to load current quiz question") {
++                apiService.getCurrentQuestion(sessionId).toResult { response ->
++                    response.toDomain()
++                }
++            }
++
++        override suspend fun submitAnswer(
++            sessionId: Long,
++            questionId: Long,
++            wordId: Long,
++            recognizedText: String,
++        ): Result<LearningQuizAnswerResult> =
++            runCatchingNetwork("Failed to submit quiz answer") {
++                apiService
++                    .submitAnswer(
++                        sessionId = sessionId,
++                        request =
++                            LearningQuizAnswerRequestDto(
++                                questionId = questionId,
++                                wordId = wordId,
++                                recognizedText = recognizedText,
++                            ),
++                    ).toResult { response ->
++                        response.toDomain()
++                    }
++            }
++
++        override suspend fun completeSession(sessionId: Long): Result<LearningQuizSessionStatus> =
++            runCatchingNetwork("Failed to complete quiz session") {
++                val response =
++                    apiService.updateSessionStatus(
++                        sessionId = sessionId,
++                        request = LearningQuizSessionStatusRequestDto(COMPLETED_STATUS),
++                    )
++
++                if (response.code() == HTTP_STATUS_CONFLICT) {
++                    Result.success(
++                        LearningQuizSessionStatus(
++                            sessionId = sessionId,
++                            status = COMPLETED_STATUS,
++                            endedAt = COMPLETED_ENDED_AT_FALLBACK,
++                        ),
++                    )
++                } else {
++                    response.toResult { response ->
++                        response.toDomain()
++                    }
++                }
++            }
++
++        override suspend fun getResult(sessionId: Long): Result<LearningQuizResult> =
++            runCatchingNetwork("Failed to load quiz result") {
++                apiService.getResult(sessionId).toResult { response ->
++                    response.toDomain()
++                }
++            }
++
++        @Suppress("TooGenericExceptionCaught")
++        private suspend fun <T> runCatchingNetwork(
++            logMessage: String,
++            block: suspend () -> Result<T>,
++        ): Result<T> =
++            try {
++                block()
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: IOException) {
++                Log.e(QUIZ_TAG, logMessage, e)
++                Result.failure(IOException("네트워크 연결을 확인해 주세요."))
++            } catch (e: Exception) {
++                Log.e(QUIZ_TAG, logMessage, e)
++                Result.failure(IllegalStateException("퀴즈 요청 처리 중 오류가 발생했습니다."))
++            }
++
++        private fun <Dto, Domain> Response<Dto>.toResult(mapper: (Dto) -> Domain): Result<Domain> =
++            if (isSuccessful) {
++                body()?.let { responseBody ->
++                    Result.success(mapper(responseBody))
++                } ?: Result.failure(
++                    IllegalStateException("서버 응답이 비어 있습니다."),
++                )
++            } else {
++                Result.failure(IllegalStateException(errorMessage(code())))
++            }
++
++        private fun errorMessage(statusCode: Int): String =
++            when (statusCode) {
++                HTTP_STATUS_BAD_REQUEST -> "퀴즈 요청 값이 올바르지 않습니다."
++                HTTP_STATUS_UNAUTHORIZED -> "로그인이 필요합니다."
++                HTTP_STATUS_FORBIDDEN -> "퀴즈 요청 권한이 없습니다."
++                HTTP_STATUS_NOT_FOUND -> "퀴즈 세션 또는 문제를 찾을 수 없습니다."
++                HTTP_STATUS_CONFLICT -> "현재 퀴즈 상태에서는 요청을 처리할 수 없습니다."
++                HTTP_STATUS_INTERNAL_SERVER_ERROR -> "서버에서 퀴즈 요청 처리에 실패했습니다."
++                else -> "퀴즈 요청 처리 중 오류가 발생했습니다."
++            }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningWordRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningWordRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningWordRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningWordRepository.kt
+@@ -12,26 +12,28 @@ import kotlin.coroutines.cancellation.CancellationException
+ private const val TAG = "RemoteLearningWordRepo"
+ private const val HTTP_STATUS_UNAUTHORIZED = 401
+ private const val HTTP_STATUS_FORBIDDEN = 403
+-private const val DEFAULT_DIFFICULTY = "EASY"
+ 
+ class RemoteLearningWordRepository
+     @Inject
+     constructor(
+         private val apiService: LearningWordApiService,
+     ) : LearningWordRepository {
+-        override suspend fun getWords(categoryId: Long): Result<List<LearningWord>> =
++        override suspend fun getWords(
++            categoryId: Long,
++            difficulty: String,
++        ): Result<List<LearningWord>> =
+             try {
+                 val response =
+                     apiService.getWords(
+                         categoryId = categoryId,
+-                        difficulty = DEFAULT_DIFFICULTY,
++                        difficulty = difficulty,
+                     )
+ 
+                 if (response.isSuccessful) {
+                     val body =
+                         response.body()
+                             ?: return Result.failure(IllegalStateException("단어 목록 응답이 비어 있습니다."))
+-                    Result.success(body.map { it.toDomain() })
++                    Result.success(body.words.map { it.toDomain() })
+                 } else {
+                     val errorCode = response.code()
+                     val userMessage =
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/di/LearningModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/di/LearningModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/di/LearningModule.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/di/LearningModule.kt
+@@ -1,10 +1,13 @@
+ package com.ssafy.mobile.feature.learning.di
+ 
+ import com.ssafy.mobile.feature.learning.data.api.LearningCategoryApiService
++import com.ssafy.mobile.feature.learning.data.api.LearningQuizApiService
+ import com.ssafy.mobile.feature.learning.data.api.LearningWordApiService
+ import com.ssafy.mobile.feature.learning.data.repository.RemoteLearningCategoryRepository
++import com.ssafy.mobile.feature.learning.data.repository.RemoteLearningQuizRepository
+ import com.ssafy.mobile.feature.learning.data.repository.RemoteLearningWordRepository
+ import com.ssafy.mobile.feature.learning.domain.repository.LearningCategoryRepository
++import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizRepository
+ import com.ssafy.mobile.feature.learning.domain.repository.LearningWordRepository
+ import dagger.Binds
+ import dagger.Module
+@@ -29,6 +32,12 @@ internal abstract class LearningModule {
+         repository: RemoteLearningWordRepository,
+     ): LearningWordRepository
+ 
++    @Binds
++    @Singleton
++    abstract fun bindLearningQuizRepository(
++        repository: RemoteLearningQuizRepository,
++    ): LearningQuizRepository
++
+     companion object {
+         @Provides
+         @Singleton
+@@ -39,5 +48,10 @@ internal abstract class LearningModule {
+         @Singleton
+         fun provideLearningWordApiService(retrofit: Retrofit): LearningWordApiService =
+             retrofit.create(LearningWordApiService::class.java)
++
++        @Provides
++        @Singleton
++        fun provideLearningQuizApiService(retrofit: Retrofit): LearningQuizApiService =
++            retrofit.create(LearningQuizApiService::class.java)
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/model/LearningQuizModels.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/model/LearningQuizModels.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/model/LearningQuizModels.kt
+@@ -0,0 +1,58 @@
++package com.ssafy.mobile.feature.learning.domain.model
++
++data class LearningQuizSession(
++    val sessionId: Long,
++    val categoryId: Long,
++    val difficulty: String,
++    val totalQuestionCount: Int,
++    val currentQuestionNumber: Int,
++    val status: String,
++)
++
++data class LearningQuizQuestion(
++    val sessionId: Long,
++    val questionId: Long,
++    val wordId: Long,
++    val questionNumber: Int,
++    val totalQuestionCount: Int,
++    val imageUrl: String,
++    val audioUrl: String? = null,
++    val targetText: String? = null,
++)
++
++data class LearningQuizAnswerResult(
++    val sessionId: Long,
++    val questionId: Long,
++    val wordId: Long,
++    val targetText: String,
++    val recognizedText: String,
++    val isCorrect: Boolean,
++    val star: Int,
++    val feedback: String? = null,
++    val hasNext: Boolean,
++    val nextQuestionNumber: Int? = null,
++)
++
++data class LearningQuizSessionStatus(
++    val sessionId: Long,
++    val status: String,
++    val endedAt: String,
++)
++
++data class LearningQuizResult(
++    val sessionId: Long,
++    val totalQuestionCount: Int,
++    val correctCount: Int,
++    val totalStar: Int,
++    val answers: List<LearningQuizResultAnswer>,
++)
++
++data class LearningQuizResultAnswer(
++    val questionId: Long,
++    val wordId: Long,
++    val targetText: String,
++    val recognizedText: String? = null,
++    val isCorrect: Boolean,
++    val star: Int,
++    val feedback: String? = null,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningQuizRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningQuizRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningQuizRepository.kt
+@@ -0,0 +1,27 @@
++package com.ssafy.mobile.feature.learning.domain.repository
++
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizAnswerResult
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizQuestion
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizResult
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSession
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSessionStatus
++
++interface LearningQuizRepository {
++    suspend fun createSession(
++        categoryId: Long,
++        difficulty: String,
++    ): Result<LearningQuizSession>
++
++    suspend fun getCurrentQuestion(sessionId: Long): Result<LearningQuizQuestion>
++
++    suspend fun submitAnswer(
++        sessionId: Long,
++        questionId: Long,
++        wordId: Long,
++        recognizedText: String,
++    ): Result<LearningQuizAnswerResult>
++
++    suspend fun completeSession(sessionId: Long): Result<LearningQuizSessionStatus>
++
++    suspend fun getResult(sessionId: Long): Result<LearningQuizResult>
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningWordRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningWordRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningWordRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningWordRepository.kt
+@@ -3,5 +3,10 @@ package com.ssafy.mobile.feature.learning.domain.repository
+ import com.ssafy.mobile.feature.learning.domain.model.LearningWord
+ 
+ interface LearningWordRepository {
+-    suspend fun getWords(categoryId: Long): Result<List<LearningWord>>
++    suspend fun getWords(
++        categoryId: Long,
++        difficulty: String = DEFAULT_DIFFICULTY,
++    ): Result<List<LearningWord>>
+ }
++
++private const val DEFAULT_DIFFICULTY = "EASY"
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt
+@@ -1,6 +1,5 @@
+ package com.ssafy.mobile.feature.learning.presentation.wordlist
+ 
+-import android.widget.Toast
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+@@ -30,7 +29,6 @@ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.clip
+ import androidx.compose.ui.graphics.Brush
+-import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.text.style.TextOverflow
+@@ -46,19 +44,16 @@ import com.ssafy.mobile.feature.learning.domain.model.LearningWord
+ @Composable
+ fun LearningWordListRoute(
+     onNavigateBack: () -> Unit,
++    onStartQuiz: (Long) -> Unit,
+     modifier: Modifier = Modifier,
+     viewModel: LearningWordListViewModel = hiltViewModel(),
+ ) {
+     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+-    val context = LocalContext.current
+-
+     LearningWordListScreen(
+         categoryName = viewModel.categoryName,
+         uiState = uiState,
+         onBackClick = onNavigateBack,
+-        onWordClick = {
+-            Toast.makeText(context, "학습 시작 기능은 준비 중입니다.", Toast.LENGTH_SHORT).show()
+-        },
++        onWordClick = { onStartQuiz(viewModel.categoryId) },
+         onRetryClick = viewModel::loadWords,
+         modifier = modifier,
+     )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListViewModel.kt
+@@ -21,7 +21,7 @@ class LearningWordListViewModel
+         savedStateHandle: SavedStateHandle,
+         private val wordRepository: LearningWordRepository,
+     ) : ViewModel() {
+-        private val categoryId: Long = checkNotNull(savedStateHandle["categoryId"])
++        val categoryId: Long = checkNotNull(savedStateHandle["categoryId"])
+         val categoryName: String? = savedStateHandle["categoryName"]
+ 
+         private val _uiState =
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizAnswer.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizAnswer.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizAnswer.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizAnswer.kt
+@@ -5,4 +5,8 @@ data class QuizAnswer(
+     val sttText: String,
+     val star: Int,
+     val attemptCount: Int,
++    val isCorrect: Boolean = star >= PASSING_STAR,
++    val feedback: String? = null,
+ )
++
++private const val PASSING_STAR = 3
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizRetryPolicy.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizRetryPolicy.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizRetryPolicy.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizRetryPolicy.kt
+@@ -1,7 +1,7 @@
+ package com.ssafy.mobile.feature.quiz.domain.model
+ 
+ object QuizRetryPolicy {
+-    fun hasSuccessfulAnswer(answer: QuizAnswer?): Boolean = (answer?.star ?: 0) >= PASSING_STAR
++    fun hasSuccessfulAnswer(answer: QuizAnswer?): Boolean = answer?.isCorrect == true
+ 
+     fun remainingRetryCount(answer: QuizAnswer?): Int =
+         if (answer == null || hasSuccessfulAnswer(answer)) {
+@@ -20,6 +20,5 @@ object QuizRetryPolicy {
+         canSkipQuestion: Boolean,
+     ): Boolean = hasSuccessfulAnswer(answer) || isRetryLimitReached(answer) || canSkipQuestion
+ 
+-    private const val PASSING_STAR = 3
+     private const val MAX_ANSWER_ATTEMPTS = 3
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizSessionState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizSessionState.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizSessionState.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizSessionState.kt
+@@ -8,17 +8,21 @@ data class QuizSessionState(
+     val isFinished: Boolean = false,
+     val isLoading: Boolean = false,
+     val errorMessage: String? = null,
++    val sessionId: Long? = null,
++    val totalQuestionCountOverride: Int? = null,
++    val currentQuestionNumberOverride: Int? = null,
+ ) {
+     val totalQuestionCount: Int
+-        get() = questions.size
++        get() = totalQuestionCountOverride ?: questions.size
+ 
+     val currentQuestionNumber: Int
+         get() =
+-            when {
+-                questions.isEmpty() -> 0
+-                isFinished -> totalQuestionCount
+-                else -> currentQuestionIndex + 1
+-            }
++            currentQuestionNumberOverride
++                ?: when {
++                    questions.isEmpty() -> 0
++                    isFinished -> totalQuestionCount
++                    else -> currentQuestionIndex + 1
++                }
+ 
+     val currentQuestion: QuizQuestion?
+         get() = questions.getOrNull(currentQuestionIndex).takeUnless { isFinished }
+@@ -32,7 +36,7 @@ data class QuizSessionState(
+             }
+ 
+     val isLastQuestion: Boolean
+-        get() = questions.isNotEmpty() && currentQuestionIndex == questions.lastIndex
++        get() = questions.isNotEmpty() && currentQuestionNumber == totalQuestionCount
+ 
+     companion object {
+         private const val EMPTY_PROGRESS = 0f
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizAnswerSubmitState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizAnswerSubmitState.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizAnswerSubmitState.kt
+@@ -0,0 +1,17 @@
++package com.ssafy.mobile.feature.quiz.presentation
++
++sealed interface QuizAnswerSubmitState {
++    data object Idle : QuizAnswerSubmitState
++
++    data object Submitting : QuizAnswerSubmitState
++
++    data object Success : QuizAnswerSubmitState
++
++    data class CompletionPending(
++        val message: String,
++    ) : QuizAnswerSubmitState
++
++    data class Error(
++        val message: String,
++    ) : QuizAnswerSubmitState
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+@@ -1,4 +1,9 @@
+-@file:Suppress("MagicNumber")
++@file:Suppress(
++    "CyclomaticComplexMethod",
++    "FunctionNaming",
++    "LongParameterList",
++    "MagicNumber",
++)
+ 
+ package com.ssafy.mobile.feature.quiz.presentation
+ 
+@@ -27,35 +32,33 @@ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+-import androidx.compose.runtime.mutableStateOf
+-import androidx.compose.runtime.remember
+-import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.clip
+ import androidx.compose.ui.graphics.Brush
++import androidx.compose.ui.layout.ContentScale
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppNetworkImage
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+-import com.ssafy.mobile.feature.quiz.domain.model.MockQuizQuestions
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizQuestion
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizRetryPolicy
+-import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionReducer
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionState
+-import com.ssafy.mobile.feature.quiz.domain.model.QuizStarScorer
+ import kotlin.math.roundToInt
+ 
+ @Composable
+-fun quizQuestionRoute(modifier: Modifier = Modifier) {
+-    var quizState by remember {
+-        mutableStateOf(QuizSessionReducer.start(MockQuizQuestions.items))
+-    }
+-    val recordingViewModel: QuizRecordingViewModel = hiltViewModel()
++fun quizQuestionRoute(
++    modifier: Modifier = Modifier,
++    quizViewModel: QuizQuestionViewModel = hiltViewModel(),
++    recordingViewModel: QuizRecordingViewModel = hiltViewModel(),
++) {
++    val quizState by quizViewModel.quizState.collectAsStateWithLifecycle()
++    val answerSubmitState by quizViewModel.answerSubmitState.collectAsStateWithLifecycle()
+     val recordingStatus by recordingViewModel.status.collectAsStateWithLifecycle()
+     val recognizedText by recordingViewModel.recognizedText.collectAsStateWithLifecycle()
+     val recordingController =
+@@ -66,6 +69,7 @@ fun quizQuestionRoute(modifier: Modifier = Modifier) {
+                     QuizRecordingStatus.Recording,
+                     QuizRecordingStatus.FallbackRecording,
+                     -> recordingViewModel.stopListening()
++
+                     QuizRecordingStatus.Processing -> Unit
+                     else -> recordingViewModel.startListening()
+                 }
+@@ -79,21 +83,26 @@ fun quizQuestionRoute(modifier: Modifier = Modifier) {
+ 
+     LaunchedEffect(recognizedText) {
+         val sttText = recognizedText ?: return@LaunchedEffect
+-        quizState = submitSttAnswer(quizState, sttText)
++        quizViewModel.submitRecognizedText(sttText)
+         recordingViewModel.consumeRecognizedText()
+     }
+ 
+     QuizQuestionScreen(
+         state = quizState,
++        answerSubmitState = answerSubmitState,
+         recordingStatus = recordingController.status,
+         onAnswerClick = recordingController.onRecordButtonClick,
+         onNextClick = {
+             recordingController.reset()
+-            quizState = QuizSessionReducer.moveToNextQuestion(quizState)
++            quizViewModel.moveToNextQuestion()
+         },
+         onRestartClick = {
+             recordingController.reset()
+-            quizState = QuizSessionReducer.start(MockQuizQuestions.items)
++            quizViewModel.restart()
++        },
++        onRetryClick = {
++            recordingController.reset()
++            quizViewModel.retry()
+         },
+         modifier = modifier,
+     )
+@@ -102,10 +111,12 @@ fun quizQuestionRoute(modifier: Modifier = Modifier) {
+ @Composable
+ private fun QuizQuestionScreen(
+     state: QuizSessionState,
++    answerSubmitState: QuizAnswerSubmitState,
+     recordingStatus: QuizRecordingStatus,
+     onAnswerClick: () -> Unit,
+     onNextClick: () -> Unit,
+     onRestartClick: () -> Unit,
++    onRetryClick: () -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+     Surface(
+@@ -115,7 +126,7 @@ private fun QuizQuestionScreen(
+         when {
+             state.isLoading -> {
+                 QuizMessageState(
+-                    title = "문제를 불러오는 중이에요",
++                    title = "퀴즈를 불러오는 중이에요",
+                     description = "잠시만 기다려 주세요.",
+                     modifier = Modifier.fillMaxSize(),
+                 )
+@@ -123,10 +134,10 @@ private fun QuizQuestionScreen(
+ 
+             state.errorMessage != null -> {
+                 QuizMessageState(
+-                    title = "문제를 불러오지 못했어요",
++                    title = "퀴즈를 불러오지 못했어요",
+                     description = state.errorMessage,
+-                    actionText = "다시 시작",
+-                    onActionClick = onRestartClick,
++                    actionText = "다시 시도",
++                    onActionClick = onRetryClick,
+                     modifier = Modifier.fillMaxSize(),
+                 )
+             }
+@@ -134,7 +145,7 @@ private fun QuizQuestionScreen(
+             state.questions.isEmpty() -> {
+                 QuizMessageState(
+                     title = "준비된 문제가 없어요",
+-                    description = "학습할 단어가 추가되면 여기에서 시작할 수 있어요.",
++                    description = "이 카테고리에 준비된 퀴즈 문제가 아직 없어요.",
+                     modifier = Modifier.fillMaxSize(),
+                 )
+             }
+@@ -152,6 +163,7 @@ private fun QuizQuestionScreen(
+                 QuizQuestionContent(
+                     state = state,
+                     question = requireNotNull(state.currentQuestion),
++                    answerSubmitState = answerSubmitState,
+                     recordingStatus = recordingStatus,
+                     onAnswerClick = onAnswerClick,
+                     onNextClick = onNextClick,
+@@ -166,6 +178,7 @@ private fun QuizQuestionScreen(
+ private fun QuizQuestionContent(
+     state: QuizSessionState,
+     question: QuizQuestion,
++    answerSubmitState: QuizAnswerSubmitState,
+     recordingStatus: QuizRecordingStatus,
+     onAnswerClick: () -> Unit,
+     onNextClick: () -> Unit,
+@@ -191,6 +204,7 @@ private fun QuizQuestionContent(
+         QuizActionArea(
+             isLastQuestion = state.isLastQuestion,
+             recordingStatus = recordingStatus,
++            answerSubmitState = answerSubmitState,
+             answer =
+                 state.answers.firstOrNull {
+                     it.questionId == question.id
+@@ -275,7 +289,19 @@ private fun QuizQuestionCard(
+                     ),
+             contentAlignment = Alignment.Center,
+         ) {
+-            QuizImagePlaceholder(word = question.word)
++            AppNetworkImage(
++                imageUrl = question.imageUrl,
++                contentDescription = question.word,
++                fallbackText = question.word,
++                modifier = Modifier.fillMaxSize(),
++                contentScale = ContentScale.Fit,
++                placeholder = {
++                    QuizImagePlaceholder(
++                        word = question.word,
++                        modifier = Modifier.fillMaxSize(),
++                    )
++                },
++            )
+         }
+     }
+ }
+@@ -285,6 +311,8 @@ private fun QuizImagePlaceholder(
+     word: String,
+     modifier: Modifier = Modifier,
+ ) {
++    val displayText = word.takeIf { it.isNotBlank() }?.take(FIRST_LETTER_COUNT) ?: "?"
++
+     Column(
+         modifier = modifier.padding(24.dp),
+         horizontalAlignment = Alignment.CenterHorizontally,
+@@ -299,7 +327,7 @@ private fun QuizImagePlaceholder(
+             contentAlignment = Alignment.Center,
+         ) {
+             Text(
+-                text = word.take(FIRST_LETTER_COUNT),
++                text = displayText,
+                 style = MaterialTheme.typography.displaySmall,
+                 color = MaterialTheme.colorScheme.primary,
+                 fontWeight = FontWeight.Black,
+@@ -321,20 +349,23 @@ private fun QuizPrompt(
+     question: QuizQuestion,
+     modifier: Modifier = Modifier,
+ ) {
++    val targetText =
++        question.word.takeIf { it.isNotBlank() } ?: "그림을 보고 단어를 말해 주세요"
++
+     Column(
+         modifier = modifier.fillMaxWidth(),
+         horizontalAlignment = Alignment.CenterHorizontally,
+         verticalArrangement = Arrangement.spacedBy(8.dp),
+     ) {
+         Text(
+-            text = question.word,
+-            style = MaterialTheme.typography.displayMedium,
++            text = targetText,
++            style = MaterialTheme.typography.displaySmall,
+             fontWeight = FontWeight.Black,
+             color = MaterialTheme.colorScheme.onBackground,
+             textAlign = TextAlign.Center,
+         )
+         Text(
+-            text = "이 단어를 소리 내어 말해볼까요?",
++            text = "음성 인식 후 답변을 저장할게요",
+             style = MaterialTheme.typography.titleMedium,
+             color = MaterialTheme.colorScheme.onSurfaceVariant,
+             textAlign = TextAlign.Center,
+@@ -346,6 +377,7 @@ private fun QuizPrompt(
+ private fun QuizActionArea(
+     isLastQuestion: Boolean,
+     recordingStatus: QuizRecordingStatus,
++    answerSubmitState: QuizAnswerSubmitState,
+     answer: QuizAnswer?,
+     onAnswerClick: () -> Unit,
+     onNextClick: () -> Unit,
+@@ -356,18 +388,23 @@ private fun QuizActionArea(
+         recordingStatus == QuizRecordingStatus.Recording ||
+             recordingStatus == QuizRecordingStatus.FallbackRecording
+     val isProcessing = recordingStatus == QuizRecordingStatus.Processing
+-    val canSkipQuestion = recordingStatus.canSkipQuestion
++    val isSubmitting = answerSubmitState == QuizAnswerSubmitState.Submitting
++    val isCompletionPending = answerSubmitState is QuizAnswerSubmitState.CompletionPending
++    val canSkipQuestion = false
+     val hasSuccessfulAnswer = QuizRetryPolicy.hasSuccessfulAnswer(answer)
+     val remainingRetryCount = QuizRetryPolicy.remainingRetryCount(answer)
+     val retryLimitReached = QuizRetryPolicy.isRetryLimitReached(answer)
++    val canRecordAnswer =
++        !isProcessing &&
++            !isSubmitting &&
++            !isCompletionPending &&
++            !hasSuccessfulAnswer &&
++            !retryLimitReached
+     val canMoveNext =
+-        QuizRetryPolicy.canMoveNext(
+-            answer = answer,
+-            canSkipQuestion = canSkipQuestion,
+-        ) &&
++        (isCompletionPending || QuizRetryPolicy.canMoveNext(answer, canSkipQuestion)) &&
+             !isRecording &&
+-            !isProcessing
+-    val canRecordAnswer = !isProcessing && !retryLimitReached
++            !isProcessing &&
++            !isSubmitting
+ 
+     Column(
+         modifier = modifier.fillMaxWidth(),
+@@ -384,10 +421,11 @@ private fun QuizActionArea(
+             text =
+                 when {
+                     isRecording -> "말하기 완료"
+-                    isProcessing -> "녹음 확인 중"
+-                    retryLimitReached -> "재도전 완료"
++                    isProcessing -> "음성 인식 중..."
++                    isSubmitting -> "답변 저장 중..."
++                    isCompletionPending -> "답변 저장 완료"
+                     hasAnswered -> quizRetryButtonText(remainingRetryCount)
+-                    else -> "답변하기"
++                    else -> "말하기"
+                 },
+             onClick = onAnswerClick,
+             enabled = canRecordAnswer,
+@@ -395,13 +433,17 @@ private fun QuizActionArea(
+ 
+         AppSecondaryButton(
+             text =
+-                quizNextButtonText(
+-                    canSkipQuestion = canSkipQuestion,
+-                    hasAnswered = hasAnswered,
+-                    hasSuccessfulAnswer = hasSuccessfulAnswer,
+-                    retryLimitReached = retryLimitReached,
+-                    isLastQuestion = isLastQuestion,
+-                ),
++                if (isCompletionPending) {
++                    "결과 보기 다시 시도"
++                } else {
++                    quizNextButtonText(
++                        canSkipQuestion = canSkipQuestion,
++                        hasAnswered = hasAnswered,
++                        hasSuccessfulAnswer = hasSuccessfulAnswer,
++                        retryLimitReached = retryLimitReached,
++                        isLastQuestion = isLastQuestion,
++                    )
++                },
+             onClick = onNextClick,
+             enabled = canMoveNext,
+         )
+@@ -411,25 +453,42 @@ private fun QuizActionArea(
+             answerAttemptCount = answer?.attemptCount,
+             recognizedText = answer?.sttText,
+         )
++
++        AnswerSubmitStatusText(answerSubmitState)
+     }
+ }
+ 
+-private const val PERCENT_MAX = 100
+-private const val FIRST_LETTER_COUNT = 1
++@Composable
++private fun AnswerSubmitStatusText(
++    state: QuizAnswerSubmitState,
++    modifier: Modifier = Modifier,
++) {
++    val message =
++        when (state) {
++            QuizAnswerSubmitState.Idle -> null
++            QuizAnswerSubmitState.Submitting -> "답변을 저장하고 있어요..."
++            QuizAnswerSubmitState.Success -> "답변을 저장했어요."
++            is QuizAnswerSubmitState.CompletionPending -> state.message
++            is QuizAnswerSubmitState.Error -> state.message
++        }
+ 
+-private fun submitSttAnswer(
+-    state: QuizSessionState,
+-    sttText: String,
+-): QuizSessionState {
+-    val question = state.currentQuestion ?: return state
+-
+-    return QuizSessionReducer.submitCurrentAnswer(
+-        state = state,
+-        sttText = sttText,
+-        star =
+-            QuizStarScorer.score(
+-                targetWord = question.word,
+-                sttText = sttText,
+-            ),
+-    )
++    if (message != null) {
++        Text(
++            text = message,
++            modifier = modifier.fillMaxWidth(),
++            style = MaterialTheme.typography.bodySmall,
++            color =
++                if (state is QuizAnswerSubmitState.Error ||
++                    state is QuizAnswerSubmitState.CompletionPending
++                ) {
++                    MaterialTheme.colorScheme.error
++                } else {
++                    MaterialTheme.colorScheme.primary
++                },
++            textAlign = TextAlign.Center,
++        )
++    }
+ }
++
++private const val PERCENT_MAX = 100
++private const val FIRST_LETTER_COUNT = 1
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
+@@ -0,0 +1,344 @@
++package com.ssafy.mobile.feature.quiz.presentation
++
++import androidx.lifecycle.SavedStateHandle
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizAnswerResult
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizQuestion
++import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizRepository
++import com.ssafy.mobile.feature.learning.domain.repository.LearningWordRepository
++import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
++import com.ssafy.mobile.feature.quiz.domain.model.QuizQuestion
++import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionState
++import com.ssafy.mobile.feature.quiz.domain.model.QuizStarScorer
++import dagger.hilt.android.lifecycle.HiltViewModel
++import javax.inject.Inject
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++
++@HiltViewModel
++class QuizQuestionViewModel
++    @Inject
++    constructor(
++        savedStateHandle: SavedStateHandle,
++        private val quizRepository: LearningQuizRepository,
++        private val wordRepository: LearningWordRepository,
++    ) : ViewModel() {
++        private val categoryId: Long =
++            checkNotNull(savedStateHandle["categoryId"]) {
++                "Quiz route requires categoryId."
++            }
++        private val difficulty: String = savedStateHandle["difficulty"] ?: DEFAULT_DIFFICULTY
++        private var wordById: Map<Long, String> = emptyMap()
++        private var isCompletionPending = false
++
++        private val _quizState = MutableStateFlow(QuizSessionState(isLoading = true))
++        val quizState: StateFlow<QuizSessionState> = _quizState.asStateFlow()
++
++        private val _answerSubmitState =
++            MutableStateFlow<QuizAnswerSubmitState>(QuizAnswerSubmitState.Idle)
++        val answerSubmitState: StateFlow<QuizAnswerSubmitState> = _answerSubmitState.asStateFlow()
++
++        init {
++            startSession()
++        }
++
++        fun restart() {
++            _answerSubmitState.value = QuizAnswerSubmitState.Idle
++            wordById = emptyMap()
++            isCompletionPending = false
++            startSession()
++        }
++
++        fun retry() {
++            _answerSubmitState.value = QuizAnswerSubmitState.Idle
++            val sessionId = _quizState.value.sessionId
++            if (sessionId == null) {
++                restart()
++            } else {
++                loadCurrentQuestion(sessionId)
++            }
++        }
++
++        fun submitRecognizedText(recognizedText: String) {
++            val state = _quizState.value
++            val question = state.currentQuestion
++            val trimmedText = recognizedText.trim()
++            val canSubmitLocalAnswer =
++                _answerSubmitState.value != QuizAnswerSubmitState.Submitting &&
++                    !isCompletionPending &&
++                    question != null &&
++                    trimmedText.isNotBlank()
++
++            if (canSubmitLocalAnswer && question != null) {
++                if (question.word.isBlank()) {
++                    _answerSubmitState.value =
++                        QuizAnswerSubmitState.Error("문제 단어 정보를 확인할 수 없습니다.")
++                } else {
++                    val previousAnswer = state.answers.firstOrNull { it.questionId == question.id }
++                    val star =
++                        QuizStarScorer.score(
++                            targetWord = question.word,
++                            sttText = trimmedText,
++                        )
++                    val answer =
++                        QuizAnswer(
++                            questionId = question.id,
++                            sttText = trimmedText,
++                            star = star,
++                            attemptCount = (previousAnswer?.attemptCount ?: 0) + 1,
++                        )
++
++                    _quizState.value =
++                        state.copy(
++                            answers = state.answers.replaceAnswer(answer),
++                            retryCount = (answer.attemptCount - 1).coerceAtLeast(0),
++                        )
++                    _answerSubmitState.value = QuizAnswerSubmitState.Idle
++                }
++            }
++        }
++
++        fun moveToNextQuestion() {
++            if (_answerSubmitState.value != QuizAnswerSubmitState.Submitting) {
++                val sessionId = _quizState.value.sessionId
++                val state = _quizState.value
++                val question = state.currentQuestion
++                val answer =
++                    question?.let { currentQuestion ->
++                        state.answers.firstOrNull { it.questionId == currentQuestion.id }
++                    }
++
++                when {
++                    sessionId == null -> Unit
++                    isCompletionPending -> {
++                        viewModelScope.launch {
++                            _answerSubmitState.value = QuizAnswerSubmitState.Submitting
++                            completeSession(sessionId)
++                        }
++                    }
++                    question == null -> Unit
++                    answer == null -> {
++                        _answerSubmitState.value =
++                            QuizAnswerSubmitState.Error("답변을 먼저 저장해주세요.")
++                    }
++                    else -> {
++                        viewModelScope.launch {
++                            _answerSubmitState.value = QuizAnswerSubmitState.Submitting
++                            val result =
++                                withContext(Dispatchers.IO) {
++                                    quizRepository.submitAnswer(
++                                        sessionId = sessionId,
++                                        questionId = question.id,
++                                        wordId = question.wordId,
++                                        recognizedText = answer.sttText,
++                                    )
++                                }
++
++                            result
++                                .onSuccess { answerResult ->
++                                    applyAnswerResult(answerResult)
++                                    if (answerResult.hasNext) {
++                                        _answerSubmitState.value = QuizAnswerSubmitState.Success
++                                        loadCurrentQuestion(sessionId)
++                                    } else {
++                                        isCompletionPending = true
++                                        completeSession(sessionId)
++                                    }
++                                }.onFailure { throwable ->
++                                    _answerSubmitState.value =
++                                        QuizAnswerSubmitState.Error(
++                                            throwable.message ?: "답변 저장에 실패했습니다.",
++                                        )
++                                }
++                        }
++                    }
++                }
++            }
++        }
++
++        private fun startSession() {
++            viewModelScope.launch {
++                _quizState.value = QuizSessionState(isLoading = true)
++
++                val wordResult =
++                    withContext(Dispatchers.IO) {
++                        wordRepository.getWords(
++                            categoryId = categoryId,
++                            difficulty = difficulty,
++                        )
++                    }
++
++                wordResult
++                    .onSuccess { words ->
++                        wordById = words.associate { word -> word.id to word.word }
++                        val sessionResult =
++                            withContext(Dispatchers.IO) {
++                                quizRepository.createSession(
++                                    categoryId = categoryId,
++                                    difficulty = difficulty,
++                                )
++                            }
++
++                        sessionResult
++                            .onSuccess { session ->
++                                _quizState.value =
++                                    QuizSessionState(
++                                        isLoading = true,
++                                        sessionId = session.sessionId,
++                                        totalQuestionCountOverride = session.totalQuestionCount,
++                                        currentQuestionNumberOverride =
++                                            session.currentQuestionNumber,
++                                    )
++                                loadCurrentQuestion(session.sessionId)
++                            }.onFailure { throwable ->
++                                _quizState.value =
++                                    QuizSessionState(
++                                        errorMessage =
++                                            throwable.message ?: "퀴즈를 시작하지 못했습니다.",
++                                    )
++                            }
++                    }.onFailure { throwable ->
++                        _quizState.value =
++                            QuizSessionState(
++                                errorMessage =
++                                    throwable.message ?: "퀴즈 단어 정보를 불러오지 못했습니다.",
++                            )
++                    }
++            }
++        }
++
++        private fun loadCurrentQuestion(sessionId: Long) {
++            viewModelScope.launch {
++                _quizState.value = _quizState.value.copy(isLoading = true, errorMessage = null)
++                val questionResult =
++                    withContext(Dispatchers.IO) {
++                        quizRepository.getCurrentQuestion(sessionId)
++                    }
++
++                questionResult
++                    .onSuccess { question ->
++                        applyCurrentQuestion(question)
++                    }.onFailure { throwable ->
++                        _quizState.value =
++                            _quizState.value.copy(
++                                isLoading = false,
++                                errorMessage =
++                                    throwable.message ?: "퀴즈 문제를 불러오지 못했습니다.",
++                            )
++                    }
++            }
++        }
++
++        private fun applyCurrentQuestion(question: LearningQuizQuestion) {
++            val targetWord =
++                question.targetText
++                    ?.takeIf {
++                        it.isNotBlank()
++                    } ?: wordById[question.wordId]
++            if (targetWord.isNullOrBlank()) {
++                _quizState.value =
++                    _quizState.value.copy(
++                        isLoading = false,
++                        errorMessage = "퀴즈 문제 단어 정보를 불러오지 못했습니다.",
++                        sessionId = question.sessionId,
++                    )
++                _answerSubmitState.value =
++                    QuizAnswerSubmitState.Error("퀴즈 문제 단어 정보를 확인할 수 없습니다.")
++            } else {
++                val currentQuestion =
++                    QuizQuestion(
++                        id = question.questionId,
++                        wordId = question.wordId,
++                        categoryId = categoryId,
++                        word = targetWord,
++                        imageUrl = question.imageUrl,
++                    )
++                val questions =
++                    _quizState.value.questions
++                        .filterNot { it.id == currentQuestion.id } + currentQuestion
++
++                _quizState.value =
++                    _quizState.value.copy(
++                        questions = questions,
++                        currentQuestionIndex = questions.lastIndex,
++                        isLoading = false,
++                        isFinished = false,
++                        errorMessage = null,
++                        sessionId = question.sessionId,
++                        totalQuestionCountOverride = question.totalQuestionCount,
++                        currentQuestionNumberOverride = question.questionNumber,
++                    )
++                isCompletionPending = false
++                _answerSubmitState.value = QuizAnswerSubmitState.Idle
++            }
++        }
++
++        private fun applyAnswerResult(result: LearningQuizAnswerResult) {
++            val state = _quizState.value
++            val currentQuestion = state.currentQuestion
++            val updatedQuestions =
++                if (currentQuestion == null) {
++                    state.questions
++                } else {
++                    state.questions.map { question ->
++                        if (question.id == result.questionId) {
++                            question.copy(word = result.targetText)
++                        } else {
++                            question
++                        }
++                    }
++                }
++            val previousAnswer =
++                state.answers.firstOrNull { answer ->
++                    answer.questionId == result.questionId
++                }
++            val answer =
++                QuizAnswer(
++                    questionId = result.questionId,
++                    sttText = result.recognizedText,
++                    star = result.star,
++                    attemptCount = previousAnswer?.attemptCount ?: 1,
++                    isCorrect = result.isCorrect,
++                    feedback = result.feedback,
++                )
++
++            _quizState.value =
++                state.copy(
++                    questions = updatedQuestions,
++                    answers = state.answers.replaceAnswer(answer),
++                    retryCount = (answer.attemptCount - 1).coerceAtLeast(0),
++                )
++        }
++
++        private suspend fun completeSession(sessionId: Long) {
++            val result =
++                withContext(Dispatchers.IO) {
++                    quizRepository.completeSession(sessionId)
++                }
++
++            result
++                .onSuccess {
++                    isCompletionPending = false
++                    _quizState.value = _quizState.value.copy(isFinished = true)
++                    _answerSubmitState.value = QuizAnswerSubmitState.Success
++                }.onFailure { throwable ->
++                    isCompletionPending = true
++                    _answerSubmitState.value =
++                        QuizAnswerSubmitState.CompletionPending(
++                            throwable.message ?: "퀴즈 종료 처리에 실패했습니다. 다시 시도해주세요.",
++                        )
++                }
++        }
++
++        private fun List<QuizAnswer>.replaceAnswer(answer: QuizAnswer): List<QuizAnswer> =
++            filterNot { it.questionId == answer.questionId } + answer
++
++        private companion object {
++            const val DEFAULT_DIFFICULTY = "EASY"
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRetryText.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRetryText.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRetryText.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRetryText.kt
+@@ -17,7 +17,7 @@ internal fun quizNextButtonText(
+ 
+ internal fun quizRetryButtonText(remainingRetryCount: Int): String =
+     if (remainingRetryCount > 0) {
+-        "다시 말하기 (${remainingRetryCount}회 남음)"
++        "다시 말하기(${remainingRetryCount}번 남음)"
+     } else {
+         "다시 말하기"
+     }
+
+

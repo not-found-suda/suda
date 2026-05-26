@@ -1,0 +1,1787 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+@@ -12,7 +12,8 @@ import com.ssafy.mobile.feature.conversation.data.repository.DataStoreTranslatio
+ import com.ssafy.mobile.feature.conversation.data.repository.DefaultTranslateRepository
+ import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
+ import com.ssafy.mobile.feature.conversation.domain.repository.TranslationModeRepository
+-import com.ssafy.mobile.translation.GemmaOnDeviceTranslationEngine
++import com.ssafy.mobile.translation.OnDeviceTranslationEngine
++import com.ssafy.mobile.translation.QwenLiteRtTranslationEngine
+ import dagger.Binds
+ import dagger.Module
+ import dagger.Provides
+@@ -63,8 +64,8 @@ abstract class ConversationModule {
+ 
+         @Provides
+         @Singleton
+-        fun provideGemmaOnDeviceTranslationEngine(
++        fun provideOnDeviceTranslationEngine(
+             @ApplicationContext context: Context,
+-        ): GemmaOnDeviceTranslationEngine = GemmaOnDeviceTranslationEngine(context)
++        ): OnDeviceTranslationEngine = QwenLiteRtTranslationEngine(context)
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -20,7 +20,7 @@ import com.ssafy.mobile.feature.conversation.domain.model.TranslationFeedbackRea
+ import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
+ import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
+ import com.ssafy.mobile.feature.conversation.domain.repository.TranslationModeRepository
+-import com.ssafy.mobile.translation.GemmaOnDeviceTranslationEngine
++import com.ssafy.mobile.translation.OnDeviceTranslationEngine
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import java.io.File
+ import javax.inject.Inject
+@@ -72,7 +72,7 @@ class ConversationViewModel
+         private val networkMonitor: NetworkMonitor,
+         private val androidAudioRecorder: AndroidAudioRecorder,
+         private val localSignSentenceGenerator: LocalSignSentenceGenerator,
+-        private val gemmaOnDeviceTranslationEngine: GemmaOnDeviceTranslationEngine,
++        private val onDeviceTranslationEngine: OnDeviceTranslationEngine,
+     ) : ViewModel() {
+         private val _sessionState = MutableStateFlow(SessionState.Idle)
+         val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
+@@ -406,13 +406,13 @@ class ConversationViewModel
+ 
+             return runCatching {
+                 normalizeTranslatedSentence(
+-                    text = gemmaOnDeviceTranslationEngine.translate(glossText).koreanText,
++                    text = onDeviceTranslationEngine.translate(glossText).koreanText,
+                     sentenceType = sentenceType,
+                 )
+             }.getOrElse { throwable ->
+                 Log.w(
+                     TAG,
+-                    "On-device Gemma translation failed. Falling back to local generator.",
++                    "On-device on-device translation failed. Falling back to local generator.",
+                     throwable,
+                 )
+                 localSignSentenceGenerator
+@@ -452,9 +452,9 @@ class ConversationViewModel
+         private fun preloadOnDeviceTranslationEngine() {
+             viewModelScope.launch {
+                 runCatching {
+-                    gemmaOnDeviceTranslationEngine.load()
++                    onDeviceTranslationEngine.load()
+                 }.onFailure { throwable ->
+-                    Log.w(TAG, "On-device Gemma preload failed.", throwable)
++                    Log.w(TAG, "On-device on-device preload failed.", throwable)
+                 }
+             }
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt
+@@ -1,3 +1,5 @@
++@file:Suppress("TooManyFunctions")
++
+ package com.ssafy.mobile.feature.mypage.presentation
+ 
+ import androidx.compose.foundation.layout.Arrangement
+@@ -6,8 +8,11 @@ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.material3.Button
+ import androidx.compose.material3.ExperimentalMaterial3Api
++import androidx.compose.material3.LinearProgressIndicator
+ import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.OutlinedButton
+ import androidx.compose.material3.Scaffold
+ import androidx.compose.material3.SnackbarHost
+ import androidx.compose.material3.SnackbarHostState
+@@ -31,6 +36,7 @@ import com.ssafy.mobile.core.ui.components.AppBadge
+ import com.ssafy.mobile.core.ui.components.AppBadgeTone
+ import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.core.ui.components.AppDialog
++import java.util.Locale
+ 
+ @Composable
+ fun MyPageRoute(
+@@ -39,9 +45,15 @@ fun MyPageRoute(
+     viewModel: MyPageViewModel = hiltViewModel(),
+ ) {
+     val logoutState by viewModel.logoutState.collectAsStateWithLifecycle()
++    val aiModelState by viewModel.aiModelState.collectAsStateWithLifecycle()
+     var showLogoutDialog by remember { mutableStateOf(false) }
++    var showDeleteModelDialog by remember { mutableStateOf(false) }
+     val snackbarHostState = remember { SnackbarHostState() }
+ 
++    LaunchedEffect(Unit) {
++        viewModel.refreshAiModelState()
++    }
++
+     LaunchedEffect(logoutState) {
+         when (logoutState) {
+             is MyPageLogoutState.Success -> {
+@@ -57,6 +69,11 @@ fun MyPageRoute(
+ 
+     MyPageScreen(
+         snackbarHostState = snackbarHostState,
++        aiModelState = aiModelState,
++        onRefreshModelClick = viewModel::refreshAiModelState,
++        onDownloadModelClick = viewModel::downloadAiModel,
++        onCancelDownloadClick = viewModel::cancelAiModelDownload,
++        onDeleteModelClick = { showDeleteModelDialog = true },
+         onLogoutClick = { showLogoutDialog = true },
+         modifier = modifier,
+     )
+@@ -64,7 +81,7 @@ fun MyPageRoute(
+     if (showLogoutDialog) {
+         AppDialog(
+             title = "로그아웃할까요?",
+-            message = "현재 기기의 로그인 정보와 선택된 아이 정보가 초기화됩니다.",
++            message = "현재 기기의 로그인 정보와 선택한 아이 정보가 초기화됩니다.",
+             confirmText = "로그아웃",
+             dismissText = "취소",
+             onConfirm = {
+@@ -74,12 +91,32 @@ fun MyPageRoute(
+             onDismiss = { showLogoutDialog = false },
+         )
+     }
++
++    if (showDeleteModelDialog) {
++        AppDialog(
++            title = "모델을 삭제할까요?",
++            message = "기기에 저장된 온디바이스 AI 모델 파일이 삭제됩니다. 다시 사용하려면 모델을 다시 다운로드해야 합니다.",
++            confirmText = "삭제",
++            dismissText = "취소",
++            onConfirm = {
++                showDeleteModelDialog = false
++                viewModel.deleteAiModel()
++            },
++            onDismiss = { showDeleteModelDialog = false },
++        )
++    }
+ }
+ 
+ @OptIn(ExperimentalMaterial3Api::class)
+ @Composable
++@Suppress("LongParameterList")
+ private fun MyPageScreen(
+     snackbarHostState: SnackbarHostState,
++    aiModelState: AiModelUiState,
++    onRefreshModelClick: () -> Unit,
++    onDownloadModelClick: () -> Unit,
++    onCancelDownloadClick: () -> Unit,
++    onDeleteModelClick: () -> Unit,
+     onLogoutClick: () -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+@@ -110,7 +147,7 @@ private fun MyPageScreen(
+             verticalArrangement = Arrangement.spacedBy(16.dp),
+         ) {
+             Text(
+-                text = "보호자 계정과 아이 프로필 설정이 이곳에 표시됩니다.",
++                text = "보호자 계정, 아이 프로필, 앱 설정을 관리합니다.",
+                 style = MaterialTheme.typography.bodyMedium,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+             )
+@@ -128,6 +165,13 @@ private fun MyPageScreen(
+                 enabled = false,
+                 badgeText = "준비 중",
+             )
++            AiModelManagementCard(
++                state = aiModelState,
++                onRefreshClick = onRefreshModelClick,
++                onDownloadClick = onDownloadModelClick,
++                onCancelClick = onCancelDownloadClick,
++                onDeleteClick = onDeleteModelClick,
++            )
+             MyPageMenuItem(
+                 title = "로그아웃",
+                 description = "로컬 세션 초기화",
+@@ -140,7 +184,175 @@ private fun MyPageScreen(
+     }
+ }
+ 
++@Composable
++private fun AiModelManagementCard(
++    state: AiModelUiState,
++    onRefreshClick: () -> Unit,
++    onDownloadClick: () -> Unit,
++    onCancelClick: () -> Unit,
++    onDeleteClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    AppCard(
++        modifier = modifier.fillMaxWidth(),
++    ) {
++        Column(
++            verticalArrangement = Arrangement.spacedBy(12.dp),
++        ) {
++            Row(
++                modifier = Modifier.fillMaxWidth(),
++                horizontalArrangement = Arrangement.SpaceBetween,
++                verticalAlignment = Alignment.CenterVertically,
++            ) {
++                Column(
++                    modifier = Modifier.weight(1f),
++                    verticalArrangement = Arrangement.spacedBy(4.dp),
++                ) {
++                    Text(
++                        text = "온디바이스 AI 모델",
++                        style = MaterialTheme.typography.titleMedium,
++                        fontWeight = FontWeight.SemiBold,
++                    )
++                    Text(
++                        text = state.modelName,
++                        style = MaterialTheme.typography.bodySmall,
++                        color = MaterialTheme.colorScheme.onSurfaceVariant,
++                        maxLines = 1,
++                        overflow = TextOverflow.Ellipsis,
++                    )
++                }
++                AppBadge(
++                    text = state.status.label(),
++                    tone = state.status.badgeTone(),
++                )
++            }
++
++            Text(
++                text = state.message,
++                style = MaterialTheme.typography.bodySmall,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++            )
++
++            Text(
++                text =
++                    "용량: ${formatBytes(state.currentSizeBytes)} / " +
++                        formatBytes(state.expectedSizeBytes),
++                style = MaterialTheme.typography.bodySmall,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++            )
++
++            AiModelDownloadProgress(state = state)
++            AiModelActionButtons(
++                state = state,
++                onRefreshClick = onRefreshClick,
++                onDownloadClick = onDownloadClick,
++                onCancelClick = onCancelClick,
++                onDeleteClick = onDeleteClick,
++            )
++        }
++    }
++}
++
+ private const val DISABLED_ALPHA = 0.5f
++private const val BYTES_PER_MIB = 1024.0 * 1024.0
++private const val BYTES_PER_GIB = 1024.0 * 1024.0 * 1024.0
++private const val BYTES_PER_KIB = 1024.0
++private const val PERCENT_MAX = 100
++private const val SECONDS_PER_MINUTE = 60L
++private const val MILLIS_PER_SECOND = 1000L
++
++@Composable
++private fun AiModelDownloadProgress(state: AiModelUiState) {
++    if (state.status != AiModelDownloadStatus.Downloading) return
++
++    val progress = state.progressPercent?.coerceIn(0, PERCENT_MAX)
++    if (progress == null) {
++        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
++    } else {
++        LinearProgressIndicator(
++            progress = { progress / PERCENT_MAX.toFloat() },
++            modifier = Modifier.fillMaxWidth(),
++        )
++        Text(
++            text = "$progress%",
++            style = MaterialTheme.typography.labelSmall,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++        )
++    }
++    Text(
++        text =
++            listOfNotNull(
++                state.speedBytesPerSecond?.let { "속도 ${formatSpeed(it)}" },
++                state.remainingMillis?.let { "남은 시간 ${formatDuration(it)}" },
++            ).joinToString(" · ").ifBlank { "다운로드 정보를 계산하고 있습니다." },
++        style = MaterialTheme.typography.labelSmall,
++        color = MaterialTheme.colorScheme.onSurfaceVariant,
++    )
++}
++
++@Composable
++private fun AiModelActionButtons(
++    state: AiModelUiState,
++    onRefreshClick: () -> Unit,
++    onDownloadClick: () -> Unit,
++    onCancelClick: () -> Unit,
++    onDeleteClick: () -> Unit,
++) {
++    Row(
++        modifier = Modifier.fillMaxWidth(),
++        horizontalArrangement = Arrangement.spacedBy(8.dp),
++    ) {
++        if (state.status == AiModelDownloadStatus.Downloading) {
++            OutlinedButton(
++                onClick = onCancelClick,
++                modifier = Modifier.weight(1f),
++            ) {
++                Text("취소")
++            }
++            Button(
++                onClick = {},
++                enabled = false,
++                modifier = Modifier.weight(1f),
++            ) {
++                Text("다운로드 중")
++            }
++        } else if (state.canDelete) {
++            OutlinedButton(
++                onClick = onRefreshClick,
++                modifier = Modifier.weight(1f),
++            ) {
++                Text("모델 파일 확인")
++            }
++            OutlinedButton(
++                onClick = onDeleteClick,
++                modifier = Modifier.weight(1f),
++            ) {
++                Text("모델 삭제")
++            }
++        } else {
++            OutlinedButton(
++                onClick = onRefreshClick,
++                modifier = Modifier.weight(1f),
++            ) {
++                Text("모델 파일 확인")
++            }
++            Button(
++                onClick = onDownloadClick,
++                enabled = state.canDownload && !state.isDownloaded,
++                modifier = Modifier.weight(1f),
++            ) {
++                Text(state.downloadButtonText())
++            }
++        }
++    }
++}
++
++private fun AiModelUiState.downloadButtonText(): String =
++    when {
++        isDownloaded -> "준비 완료"
++        downloadUrl.isBlank() -> "URL 필요"
++        else -> "다운로드"
++    }
+ 
+ @Composable
+ @Suppress("LongParameterList")
+@@ -219,3 +431,52 @@ private fun MyPageMenuItem(
+         }
+     }
+ }
++
++private fun AiModelDownloadStatus.label(): String =
++    when (this) {
++        AiModelDownloadStatus.Ready -> "준비 완료"
++        AiModelDownloadStatus.Missing -> "미설치"
++        AiModelDownloadStatus.Downloading -> "다운로드 중"
++        AiModelDownloadStatus.Success -> "완료"
++        AiModelDownloadStatus.Canceled -> "취소됨"
++        AiModelDownloadStatus.Failed -> "실패"
++    }
++
++private fun AiModelDownloadStatus.badgeTone(): AppBadgeTone =
++    when (this) {
++        AiModelDownloadStatus.Ready,
++        AiModelDownloadStatus.Success,
++        -> AppBadgeTone.Success
++        AiModelDownloadStatus.Downloading -> AppBadgeTone.Warning
++        AiModelDownloadStatus.Canceled,
++        AiModelDownloadStatus.Missing,
++        -> AppBadgeTone.Neutral
++        AiModelDownloadStatus.Failed -> AppBadgeTone.Error
++    }
++
++private fun formatBytes(bytes: Long): String =
++    when {
++        bytes <= 0L -> "-"
++        bytes >= BYTES_PER_GIB -> String.format(Locale.US, "%.2fGB", bytes / BYTES_PER_GIB)
++        else -> String.format(Locale.US, "%.1fMB", bytes / BYTES_PER_MIB)
++    }
++
++private fun formatSpeed(bytesPerSecond: Long): String =
++    when {
++        bytesPerSecond >= BYTES_PER_GIB ->
++            String.format(Locale.US, "%.2fGB/s", bytesPerSecond / BYTES_PER_GIB)
++        bytesPerSecond >= BYTES_PER_MIB ->
++            String.format(Locale.US, "%.1fMB/s", bytesPerSecond / BYTES_PER_MIB)
++        else -> String.format(Locale.US, "%.0fKB/s", bytesPerSecond / BYTES_PER_KIB)
++    }
++
++private fun formatDuration(millis: Long): String {
++    val totalSeconds = (millis / MILLIS_PER_SECOND).coerceAtLeast(1L)
++    val minutes = totalSeconds / SECONDS_PER_MINUTE
++    val seconds = totalSeconds % SECONDS_PER_MINUTE
++    return if (minutes > 0L) {
++        "약 ${minutes}분 ${seconds}초"
++    } else {
++        "약 ${seconds}초"
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageViewModel.kt
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugRoute.kt
+@@ -676,12 +676,18 @@ private fun LlmDebugDialog(
+ ) {
+     Dialog(onDismissRequest = onDismiss) {
+         Surface(
+-            modifier = Modifier.fillMaxWidth(),
++            modifier =
++                Modifier
++                    .fillMaxWidth()
++                    .fillMaxHeight(0.92f),
+             color = llmPanelColor(uiState.llmStatus),
+             shape = RoundedCornerShape(18.dp),
+         ) {
+             Column(
+-                modifier = Modifier.padding(16.dp),
++                modifier =
++                    Modifier
++                        .verticalScroll(rememberScrollState())
++                        .padding(16.dp),
+                 verticalArrangement = Arrangement.spacedBy(10.dp),
+             ) {
+                 Row(
+@@ -726,6 +732,7 @@ private fun LlmDebugDialog(
+                     style = MaterialTheme.typography.bodySmall,
+                     color = Color(0xFFE2E8F0),
+                 )
++                LlmResultPanel(uiState = uiState)
+                 if (uiState.llmDetail.isNotBlank()) {
+                     Text(
+                         text = uiState.llmDetail,
+@@ -733,24 +740,43 @@ private fun LlmDebugDialog(
+                         color = Color(0xFFCBD5E1),
+                     )
+                 }
+-                uiState.llmOutput?.let { output ->
+-                    Surface(
+-                        color = Color(0xFF0F172A),
+-                        shape = RoundedCornerShape(12.dp),
+-                    ) {
+-                        Text(
+-                            text = output,
+-                            modifier = Modifier.padding(12.dp),
+-                            color = Color.White,
+-                            style = MaterialTheme.typography.bodyMedium,
+-                        )
+-                    }
+-                }
+             }
+         }
+     }
+ }
+ 
++@Composable
++private fun LlmResultPanel(uiState: SignDebugUiState) {
++    val resultText =
++        when {
++            uiState.llmOutput != null -> uiState.llmOutput
++            uiState.llmIsRunning -> "생성 중입니다. 완료되면 이 영역에 바로 표시됩니다."
++            else -> "아직 생성된 결과가 없습니다."
++        }
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        color = Color(0xFF0F172A),
++        shape = RoundedCornerShape(12.dp),
++    ) {
++        Column(
++            modifier = Modifier.padding(12.dp),
++            verticalArrangement = Arrangement.spacedBy(6.dp),
++        ) {
++            Text(
++                text = "생성 결과",
++                color = Color(0xFF93C5FD),
++                style = MaterialTheme.typography.labelMedium,
++                fontWeight = FontWeight.Bold,
++            )
++            Text(
++                text = resultText,
++                color = Color.White,
++                style = MaterialTheme.typography.bodyMedium,
++            )
++        }
++    }
++}
++
+ @OptIn(ExperimentalLayoutApi::class)
+ @Composable
+ private fun TuningCard(
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugViewModel.kt
+@@ -31,7 +31,7 @@ import com.ssafy.mobile.core.vision.feature.LandmarkFeatureSequenceResampler
+ import com.ssafy.mobile.core.vision.inference.SignInferenceResult
+ import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
+ import com.ssafy.mobile.core.vision.landmark.MediaPipeHolisticLandmarkExtractor
+-import com.ssafy.mobile.translation.GemmaOnDeviceTranslationEngine
++import com.ssafy.mobile.translation.OnDeviceTranslationEngine
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import dagger.hilt.android.qualifiers.ApplicationContext
+ import java.io.File
+@@ -105,7 +105,7 @@ class SignDebugViewModel
+     constructor(
+         @param:ApplicationContext private val appContext: Context,
+         private val signRecognitionEngine: SignRecognitionEngine,
+-        private val gemmaOnDeviceTranslationEngine: GemmaOnDeviceTranslationEngine,
++        private val onDeviceTranslationEngine: OnDeviceTranslationEngine,
+     ) : ViewModel() {
+         private val _uiState = MutableStateFlow(SignDebugUiState())
+         val uiState: StateFlow<SignDebugUiState> = _uiState.asStateFlow()
+@@ -149,8 +149,10 @@ class SignDebugViewModel
+                     it.copy(
+                         llmIsRunning = true,
+                         llmStatus = SignDebugLlmStatus.Running,
+-                        llmStage = "응답 생성 준비",
+-                        llmSummary = "규칙 기반 또는 Gemma로 문장을 생성하고 있습니다.",
++                        llmStage = "응답 생성 중",
++                        llmSummary =
++                            "규칙 기반 또는 Qwen2.5 LiteRT-LM으로 문장을 생성하고 있습니다. " +
++                                "GPU 초기화 및 첫 응답은 시간이 더 걸릴 수 있습니다.",
+                         llmDetail = buildLlmDebugSummary(),
+                         llmOutput = null,
+                     )
+@@ -158,7 +160,7 @@ class SignDebugViewModel
+ 
+                 runCatching {
+                     withContext(Dispatchers.Default) {
+-                        gemmaOnDeviceTranslationEngine.translate(gloss)
++                        onDeviceTranslationEngine.translate(gloss)
+                     }
+                 }.onSuccess { translationResult ->
+                     val totalElapsed = System.currentTimeMillis() - startedAt
+@@ -166,21 +168,29 @@ class SignDebugViewModel
+                         if (translationResult.usedRuleBased) {
+                             "규칙 기반"
+                         } else {
+-                            "Gemma"
++                            "Qwen2.5 LiteRT-LM"
+                         }
+                     _uiState.update {
+                         it.copy(
+                             llmIsRunning = false,
+                             llmStatus = SignDebugLlmStatus.Success,
+                             llmStage = "응답 생성 성공",
+-                            llmSummary = "모델 호출이 정상 완료되었습니다.",
++                            llmSummary =
++                                if (translationResult.koreanText.isBlank()) {
++                                    "모델 호출은 완료됐지만 표시할 문장이 비어 있습니다."
++                                } else {
++                                    "모델 호출이 정상 완료되었습니다."
++                                },
+                             llmDetail =
+                                 buildLlmDebugSummary() +
+                                     "\n처리 방식: $sourceLabel" +
+                                     "\n총 소요 시간: ${totalElapsed}ms" +
+                                     "\n생성 시간: ${translationResult.elapsedMs}ms" +
+                                     "\n원본 응답: ${translationResult.rawText.toSingleLinePreview()}",
+-                            llmOutput = translationResult.koreanText,
++                            llmOutput =
++                                translationResult.koreanText.ifBlank {
++                                    EMPTY_LLM_OUTPUT_MESSAGE
++                                },
+                         )
+                     }
+                 }.onFailure { throwable ->
+@@ -1156,28 +1166,28 @@ class SignDebugViewModel
+         private fun preloadLlm() {
+             viewModelScope.launch {
+                 runCatching {
+-                    gemmaOnDeviceTranslationEngine.load()
++                    onDeviceTranslationEngine.load()
+                 }.onFailure { throwable ->
+-                    Log.w(TAG_LLM, "Gemma preload failed in sign debug screen.", throwable)
++                    Log.w(TAG_LLM, "on-device preload failed in sign debug screen.", throwable)
+                 }
+             }
+         }
+ 
+         private fun buildLlmDebugSummary(): String =
+             buildString {
+-                appendLine("모델: ${gemmaOnDeviceTranslationEngine.debugModelAssetPath}")
++                appendLine("모델: ${onDeviceTranslationEngine.debugModelAssetPath}")
+                 appendLine(
+-                    "maxTokens: ${gemmaOnDeviceTranslationEngine.debugMaxTokens}, " +
+-                        "topK: ${gemmaOnDeviceTranslationEngine.debugTopK}",
++                    "maxTokens: ${onDeviceTranslationEngine.debugMaxTokens}, " +
++                        "topK: ${onDeviceTranslationEngine.debugTopK}",
+                 )
+-                appendLine("backend: ${gemmaOnDeviceTranslationEngine.debugBackendSummary}")
+-                gemmaOnDeviceTranslationEngine.debugPreparedModelPath?.let { preparedPath ->
++                appendLine("backend: ${onDeviceTranslationEngine.debugBackendSummary}")
++                onDeviceTranslationEngine.debugPreparedModelPath?.let { preparedPath ->
+                     appendLine("준비된 파일: $preparedPath")
+                 }
+-                if (gemmaOnDeviceTranslationEngine.debugPreparedEntryNames.isNotEmpty()) {
++                if (onDeviceTranslationEngine.debugPreparedEntryNames.isNotEmpty()) {
+                     append(
+                         "번들 엔트리: " +
+-                            gemmaOnDeviceTranslationEngine.debugPreparedEntryNames.joinToString(),
++                            onDeviceTranslationEngine.debugPreparedEntryNames.joinToString(),
+                     )
+                 }
+             }.trim()
+@@ -1229,6 +1239,7 @@ class SignDebugViewModel
+             const val PERCENT_MULTIPLIER = 100f
+             const val SHOW_REPLAY_RAW_PREDICTIONS = false
+             const val LOG_REPLAY_RAW_PREDICTIONS = false
++            const val EMPTY_LLM_OUTPUT_MESSAGE = "빈 응답입니다. 원본 응답과 로그를 확인하세요."
+             const val TAG_LLM = "SignDebugLLM"
+             const val TAG_REPLAY = "SignReplay"
+             const val TAG_REPLAY_FRAME = "SignReplayFrame"
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/translation/GemmaOnDeviceTranslationEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/translation/GemmaOnDeviceTranslationEngine.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/translation/GemmaOnDeviceTranslationEngine.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/translation/GemmaOnDeviceTranslationEngine.kt
+@@ -3,6 +3,7 @@ package com.ssafy.mobile.translation
+ import android.content.Context
+ import android.util.Log
+ import com.google.mediapipe.tasks.genai.llminference.LlmInference
++import com.ssafy.mobile.BuildConfig
+ import java.io.BufferedInputStream
+ import java.io.File
+ import java.io.FileOutputStream
+@@ -25,7 +26,7 @@ data class TranslationResult(
+ @Suppress("TooManyFunctions", "MagicNumber", "ReturnCount", "MaxLineLength", "LargeClass")
+ class GemmaOnDeviceTranslationEngine(
+     private val context: Context,
+-) {
++) : OnDeviceTranslationEngine {
+     private var llmInference: LlmInference? = null
+     private var loaded = false
+     private var lastPreparedModelPath: String? = null
+@@ -33,33 +34,45 @@ class GemmaOnDeviceTranslationEngine(
+     private var lastBackendSummary: String = "Not loaded"
+     private val loadMutex = Mutex()
+ 
+-    val debugModelAssetPath: String
++    override val debugModelAssetPath: String
+         get() = GEMMA_MODEL_ASSET_PATH
+ 
+-    val debugPreparedModelPath: String?
++    override val debugPreparedModelPath: String?
+         get() = lastPreparedModelPath
+ 
+-    val debugPreparedEntryNames: List<String>
++    override val debugPreparedEntryNames: List<String>
+         get() = lastPreparedEntryNames
+ 
+-    val debugMaxTokens: Int
++    override val debugMaxTokens: Int
+         get() = MAX_TOKENS
+ 
+-    val debugTopK: Int
++    override val debugTopK: Int
+         get() = TOP_K
+ 
+-    val debugBackendSummary: String
++    override val debugBackendSummary: String
+         get() = lastBackendSummary
+ 
+     @Suppress("TooGenericExceptionCaught")
+-    suspend fun load() =
++    override suspend fun load() =
+         withContext(Dispatchers.Default) {
+             loadMutex.withLock {
+-                if (loaded) return@withLock
++                if (loaded) {
++                    logDebug { "Gemma load skipped. backend=$lastBackendSummary" }
++                    return@withLock
++                }
+ 
++                val loadStart = System.currentTimeMillis()
++                logDebug {
++                    "Gemma load start. asset=$GEMMA_MODEL_ASSET_PATH, " +
++                        "maxTokens=$MAX_TOKENS, topK=$TOP_K"
++                }
+                 val preparedModel = copyAssetToFile(assetName = GEMMA_MODEL_ASSET_PATH)
+                 lastPreparedModelPath = preparedModel.modelPath
+                 lastPreparedEntryNames = preparedModel.entryNames
++                logDebug {
++                    "Gemma model prepared. path=${preparedModel.modelPath}, " +
++                        "entries=${preparedModel.entryNames.joinToString().toLogPreview()}"
++                }
+                 val backendCandidates =
+                     listOf(
+                         LlmInference.Backend.GPU,
+@@ -69,6 +82,7 @@ class GemmaOnDeviceTranslationEngine(
+                 var lastError: Exception? = null
+                 for (backend in backendCandidates) {
+                     try {
++                        logDebug { "Gemma backend init start. preferredBackend=$backend" }
+                         llmInference =
+                             LlmInference.createFromOptions(
+                                 context,
+@@ -79,6 +93,10 @@ class GemmaOnDeviceTranslationEngine(
+                             )
+                         lastBackendSummary = "preferredBackend=$backend"
+                         loaded = true
++                        logDebug {
++                            "Gemma backend init success. preferredBackend=$backend, " +
++                                "elapsedMs=${System.currentTimeMillis() - loadStart}"
++                        }
+                         break
+                     } catch (exception: Exception) {
+                         lastError = exception
+@@ -98,12 +116,21 @@ class GemmaOnDeviceTranslationEngine(
+             }
+         }
+ 
+-    suspend fun translate(glossText: String): TranslationResult =
++    override suspend fun translate(glossText: String): TranslationResult =
+         withContext(Dispatchers.Default) {
+             val normalizedGloss = normalizeGlossForPrompt(glossText)
+             val start = System.currentTimeMillis()
++            logDebug {
++                "Gemma translate request. gloss=${glossText.toLogPreview()}, " +
++                    "normalized=${normalizedGloss.toLogPreview()}"
++            }
+             tryRuleBasedTranslation(normalizedGloss)?.let { sentence ->
+                 val elapsed = System.currentTimeMillis() - start
++                logDebug {
++                    "Gemma translate rule-based result. " +
++                        "normalized=${normalizedGloss.toLogPreview()}, " +
++                        "result=${sentence.toLogPreview()}, elapsedMs=$elapsed"
++                }
+                 return@withContext TranslationResult(
+                     glossText = glossText,
+                     koreanText = sentence,
+@@ -118,6 +145,11 @@ class GemmaOnDeviceTranslationEngine(
+             }
+ 
+             val prompt = buildPrompt(normalizedGloss)
++            logDebug {
++                "Gemma inference start. normalized=${normalizedGloss.toLogPreview()}, " +
++                    "promptChars=${prompt.length}, " +
++                    "promptTail=${prompt.takeLast(LOG_PREVIEW_LIMIT).toLogPreview()}"
++            }
+             val raw =
+                 requireNotNull(llmInference) {
+                     "Gemma LLM must be loaded before translation."
+@@ -131,6 +163,12 @@ class GemmaOnDeviceTranslationEngine(
+                     raw = raw,
+                 )
+ 
++            logDebug {
++                "Gemma inference result. normalized=${normalizedGloss.toLogPreview()}, " +
++                    "raw=${raw.toLogPreview()}, cleaned=${cleaned.toLogPreview()}, " +
++                    "resolved=${resolved.toLogPreview()}, elapsedMs=$elapsed, " +
++                    "backend=$lastBackendSummary"
++            }
+             TranslationResult(
+                 glossText = glossText,
+                 koreanText = resolved,
+@@ -140,12 +178,27 @@ class GemmaOnDeviceTranslationEngine(
+             )
+         }
+ 
+-    fun close() {
++    override fun close() {
+         llmInference?.close()
+         llmInference = null
+         loaded = false
+     }
+ 
++    private fun logDebug(message: () -> String) {
++        if (BuildConfig.DEBUG) {
++            Log.d(TAG, message())
++        }
++    }
++
++    private fun String.toLogPreview(): String {
++        val singleLine = replace(Regex("\\s+"), " ").trim()
++        return if (singleLine.length <= LOG_PREVIEW_LIMIT) {
++            singleLine
++        } else {
++            "${singleLine.take(LOG_PREVIEW_LIMIT)}..."
++        }
++    }
++
+     private fun buildLlmOptions(
+         modelPath: String,
+         backend: LlmInference.Backend,
+@@ -209,9 +262,12 @@ class GemmaOnDeviceTranslationEngine(
+         val candidate = cleaned.ifBlank { raw.trim() }
+         if (looksLikeGlossEcho(glossText, candidate)) {
+             tryRuleBasedTranslation(glossText)?.let { return it }
++            fallbackGlossSentence(glossText)?.let { return it }
+         }
+ 
+-        return candidate
++        return candidate.ifBlank {
++            fallbackGlossSentence(glossText).orEmpty()
++        }
+     }
+ 
+     private fun looksLikeGlossEcho(
+@@ -249,12 +305,18 @@ class GemmaOnDeviceTranslationEngine(
+ 
+         return """
+             $START_OF_TURN_USER
+-            한국 수어 gloss를 자주 쓰는 자연스러운 한국어 한 문장으로 바꿔라.
+-            없는 부정은 추가하지 말고, 안/못/아니다는 부정으로 처리하라.
+-            어색하면 핵심 의미만 살려 짧고 일상적인 문장으로 만들어라.
+-            설명 없이 문장만 출력하라.
++            너는 한국 수어 gloss를 자연스러운 한국어 문장으로 바꾸는 변환기다.
++            아래 규칙을 반드시 지켜라.
++
++            1. 출력은 한국어 문장 하나만 쓴다.
++            2. Gloss, 한국어, 설명, 영어, 따옴표, 번호를 출력하지 않는다.
++            3. 입력 gloss에 없는 행동, 장소, 시제, 부정, 감정을 만들지 않는다.
++            4. gloss의 단어 순서가 어색하면 한국어 어순으로 자연스럽게 재배열한다.
++            5. 조사와 어미를 자연스럽게 붙인다. 예: 학교 가다 -> 학교에 간다.
++            6. 어제/오늘/지금/내일 같은 시간 표현이 있으면 시제에 반영한다.
++            7. 아니다/없다 같은 부정 표현이 있으면 부정문으로 바꾼다.
++            8. 명사만 있으면 "~입니다." 형태의 짧은 문장으로 답한다.
+ 
+-            예시:
+             $examplesBlock
+ 
+             Gloss: $glossText
+@@ -438,7 +500,7 @@ class GemmaOnDeviceTranslationEngine(
+ 
+     private fun selectFewShotExamples(glossText: String): List<FewShotExample> {
+         val glossTokens = tokenizeGloss(glossText)
+-        val exampleLimit = if (glossTokens.size <= SHORT_GLOSS_TOKEN_LIMIT) 2 else 1
++        val exampleLimit = if (glossTokens.size <= SHORT_GLOSS_TOKEN_LIMIT) 4 else 3
+ 
+         return FEW_SHOT_EXAMPLES
+             .map { example -> example to scoreExample(example, glossTokens) }
+@@ -480,6 +542,41 @@ class GemmaOnDeviceTranslationEngine(
+         return overlapScore + predicateScore + timeScore + negationScore
+     }
+ 
++    private fun fallbackGlossSentence(glossText: String): String? {
++        tryRuleBasedTranslation(glossText)?.let { return it }
++
++        val tokens =
++            tokenizeGloss(glossText)
++                .filterNot { token -> token.lowercase() in IGNORED_GLOSS_TOKENS }
++                .distinct()
++                .map(::normalizePredicateToken)
++        if (tokens.isEmpty()) return null
++
++        if (tokens.all { token -> token in NOUN_TOKENS }) {
++            return buildNounOnlySentence(tokens)
++        }
++
++        if (tokens.size == 1) {
++            STANDALONE_SENTENCES[tokens.first()]?.let { return it }
++        }
++
++        return null
++    }
++
++    private fun buildNounOnlySentence(tokens: List<String>): String {
++        val phrase =
++            when (tokens.size) {
++                1 -> tokens.first()
++                else ->
++                    tokens
++                        .dropLast(1)
++                        .joinToString(" ") { token -> token + companionParticle(token) } +
++                        " " +
++                        tokens.last()
++            }
++        return "${phrase}입니다."
++    }
++
+     private fun tokenizeGloss(glossText: String): List<String> =
+         glossText.split(' ').map { it.trim() }.filter { it.isNotBlank() }
+ 
+@@ -761,8 +858,9 @@ class GemmaOnDeviceTranslationEngine(
+         private const val HANGUL_START_CODE = 0xAC00
+         private const val HANGUL_END_CODE = 0xD7A3
+         const val GEMMA_MODEL_ASSET_PATH = "models/gemma3-1b-it-int4.task"
+-        const val MAX_TOKENS = 256
++        const val MAX_TOKENS = 1024
+         const val TOP_K = 1
++        const val LOG_PREVIEW_LIMIT = 300
+         const val TASK_HEADER_SIZE = 8
+         const val END_OF_CENTRAL_DIRECTORY_SIZE = 22
+         const val CENTRAL_DIRECTORY_ENTRY_FIXED_SIZE = 46
+@@ -788,6 +886,8 @@ class GemmaOnDeviceTranslationEngine(
+                 "너" to "너는",
+                 "엄마" to "엄마는",
+                 "아빠" to "아빠는",
++                "아이" to "아이는",
++                "아기" to "아기는",
+                 "친구" to "친구는",
+                 "선생님" to "선생님은",
+                 "할머니" to "할머니는",
+@@ -801,7 +901,8 @@ class GemmaOnDeviceTranslationEngine(
+         val MOVEMENT_PREDICATES = setOf("가다", "오다")
+         val COMPANION_PREDICATES = setOf("놀다")
+         val OBJECT_PREDICATES = setOf("먹다", "마시다", "만나다", "보다", "사다", "좋아하다", "싫어하다")
+-        val SUBJECT_COMPLEMENT_PREDICATES = setOf("아프다", "배고프다")
++        val SUBJECT_COMPLEMENT_PREDICATES =
++            setOf("좋다", "싫다", "아프다", "배고프다", "목마르다", "무섭다")
+         val VERB_FORMS =
+             mapOf(
+                 "가다" to VerbForms("간다", "갔다", "가지 않는다"),
+@@ -816,11 +917,47 @@ class GemmaOnDeviceTranslationEngine(
+                 "사다" to VerbForms("산다", "샀다", "사지 않는다"),
+                 "좋아하다" to VerbForms("좋아한다", "좋아했다", "좋아하지 않는다"),
+                 "싫어하다" to VerbForms("싫어한다", "싫어했다", "싫어하지 않는다"),
++                "좋다" to VerbForms("좋다", "좋았다", "좋지 않다"),
++                "싫다" to VerbForms("싫다", "싫었다", "싫지 않다"),
+                 "배고프다" to VerbForms("배고프다", "배고팠다", "배고프지 않다"),
+                 "아프다" to VerbForms("아프다", "아팠다", "아프지 않다"),
++                "목마르다" to VerbForms("목마르다", "목말랐다", "목마르지 않다"),
++                "무섭다" to VerbForms("무섭다", "무서웠다", "무섭지 않다"),
++            )
++        val IGNORED_GLOSS_TOKENS = setOf("none", "unknown", "<none>", "<unknown>")
++        val NOUN_TOKENS =
++            setOf(
++                "아기",
++                "아이",
++                "감기",
++                "기차",
++                "밥",
++                "손",
++                "장난감",
++                "병원",
++                "엄마",
++            )
++        val STANDALONE_SENTENCES =
++            mapOf(
++                "감사" to "감사합니다.",
++                "조심" to "조심하세요.",
++                "좋다" to "좋습니다.",
++                "싫다" to "싫습니다.",
++                "배고프다" to "배고픕니다.",
++                "목마르다" to "목마릅니다.",
++                "무섭다" to "무섭습니다.",
++                "아프다" to "아픕니다.",
+             )
+         val FEW_SHOT_EXAMPLES =
+             listOf(
++                FewShotExample("엄마", "엄마입니다."),
++                FewShotExample("기차", "기차입니다."),
++                FewShotExample("엄마 기차", "엄마와 기차입니다."),
++                FewShotExample("아이 좋다", "아이는 좋다."),
++                FewShotExample("아이 가다", "아이는 간다."),
++                FewShotExample("감사", "감사합니다."),
++                FewShotExample("아프다", "아픕니다."),
++                FewShotExample("배고프다", "배고픕니다."),
+                 FewShotExample("학교 가다 어제", "어제 학교에 갔다."),
+                 FewShotExample("나 학교 가다 내일", "나는 내일 학교에 간다."),
+                 FewShotExample("나 먹다 밥 어제", "나는 어제 밥을 먹었다."),
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/translation/OnDeviceModelConfig.kt b/mobile/app/src/main/java/com/ssafy/mobile/translation/OnDeviceModelConfig.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/translation/OnDeviceModelConfig.kt
+@@ -0,0 +1,10 @@
++package com.ssafy.mobile.translation
++
++object OnDeviceModelConfig {
++    const val MODEL_DIR_NAME = "models"
++    const val QWEN_MODEL_NAME = "Qwen2.5 1.5B Instruct"
++    const val QWEN_MODEL_FILE_NAME =
++        "Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm"
++    const val QWEN_MODEL_ASSET_PATH = "$MODEL_DIR_NAME/$QWEN_MODEL_FILE_NAME"
++    const val QWEN_MODEL_SIZE_BYTES = 1_597_931_520L
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/translation/OnDeviceModelDebugBootstrapper.kt b/mobile/app/src/main/java/com/ssafy/mobile/translation/OnDeviceModelDebugBootstrapper.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/translation/OnDeviceModelDebugBootstrapper.kt
+@@ -0,0 +1,53 @@
++package com.ssafy.mobile.translation
++
++import android.content.Context
++import android.util.Log
++import com.ssafy.mobile.BuildConfig
++import java.io.File
++import java.io.FileOutputStream
++import java.io.IOException
++
++object OnDeviceModelDebugBootstrapper {
++    fun prepareBundledDebugModel(context: Context) {
++        if (!BuildConfig.DEBUG) return
++
++        Thread {
++            runCatching {
++                copyBundledModelIfNeeded(context.applicationContext)
++            }.onFailure { exception ->
++                Log.w(TAG, "Failed to prepare bundled debug model.", exception)
++            }
++        }.apply {
++            name = "DebugModelBootstrapper"
++            isDaemon = true
++            start()
++        }
++    }
++
++    private fun copyBundledModelIfNeeded(context: Context) {
++        val targetFile = File(context.filesDir, OnDeviceModelConfig.QWEN_MODEL_FILE_NAME)
++        if (targetFile.isFile && targetFile.length() > MIN_VALID_MODEL_SIZE_BYTES) return
++
++        if (!hasBundledModelAsset(context)) return
++
++        targetFile.parentFile?.mkdirs()
++        context.assets.open(OnDeviceModelConfig.QWEN_MODEL_ASSET_PATH).use { input ->
++            FileOutputStream(targetFile, false).use { output ->
++                input.copyTo(output, BUFFER_SIZE)
++            }
++        }
++        Log.i(TAG, "Bundled debug model prepared: ${targetFile.absolutePath}")
++    }
++
++    private fun hasBundledModelAsset(context: Context): Boolean =
++        try {
++            context.assets.open(OnDeviceModelConfig.QWEN_MODEL_ASSET_PATH).close()
++            true
++        } catch (_: IOException) {
++            false
++        }
++
++    private const val TAG = "OnDeviceModelDebug"
++    private const val BUFFER_SIZE = 1024 * 1024
++    private const val MIN_VALID_MODEL_SIZE_BYTES = 1024L * 1024L
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/translation/OnDeviceTranslationEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/translation/OnDeviceTranslationEngine.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/translation/OnDeviceTranslationEngine.kt
+@@ -0,0 +1,16 @@
++package com.ssafy.mobile.translation
++
++interface OnDeviceTranslationEngine {
++    val debugModelAssetPath: String
++    val debugPreparedModelPath: String?
++    val debugPreparedEntryNames: List<String>
++    val debugMaxTokens: Int
++    val debugTopK: Int
++    val debugBackendSummary: String
++
++    suspend fun load()
++
++    suspend fun translate(glossText: String): TranslationResult
++
++    fun close()
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/translation/QwenLiteRtTranslationEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/translation/QwenLiteRtTranslationEngine.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/translation/QwenLiteRtTranslationEngine.kt
+@@ -0,0 +1,449 @@
++package com.ssafy.mobile.translation
++
++import android.content.Context
++import android.util.Log
++import com.google.ai.edge.litertlm.Backend
++import com.google.ai.edge.litertlm.Content
++import com.google.ai.edge.litertlm.Contents
++import com.google.ai.edge.litertlm.ConversationConfig
++import com.google.ai.edge.litertlm.Engine
++import com.google.ai.edge.litertlm.EngineConfig
++import com.google.ai.edge.litertlm.LogSeverity
++import com.google.ai.edge.litertlm.Message
++import com.google.ai.edge.litertlm.SamplerConfig
++import com.ssafy.mobile.BuildConfig
++import java.io.File
++import java.io.FileOutputStream
++import java.io.IOException
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
++import kotlinx.coroutines.withContext
++
++@Suppress("TooManyFunctions")
++class QwenLiteRtTranslationEngine(
++    private val context: Context,
++) : OnDeviceTranslationEngine {
++    private var engine: Engine? = null
++    private var loaded = false
++    private var lastPreparedModelPath: String? = null
++    private var lastBackendSummary: String = "Not loaded"
++    private val loadMutex = Mutex()
++
++    override val debugModelAssetPath: String
++        get() = OnDeviceModelConfig.QWEN_MODEL_ASSET_PATH
++
++    override val debugPreparedModelPath: String?
++        get() = lastPreparedModelPath
++
++    override val debugPreparedEntryNames: List<String>
++        get() = emptyList()
++
++    override val debugMaxTokens: Int
++        get() = MAX_NUM_TOKENS
++
++    override val debugTopK: Int
++        get() = TOP_K
++
++    override val debugBackendSummary: String
++        get() = lastBackendSummary
++
++    override suspend fun load() =
++        withContext(Dispatchers.Default) {
++            loadMutex.withLock {
++                if (loaded) {
++                    logDebug { "Qwen load skipped. backend=$lastBackendSummary" }
++                    return@withLock
++                }
++
++                val loadStart = System.currentTimeMillis()
++                val modelFile = resolveModelFile()
++                lastPreparedModelPath = modelFile.absolutePath
++                Engine.setNativeMinLogSeverity(LogSeverity.ERROR)
++
++                logDebug {
++                    "Qwen load start. path=${modelFile.absolutePath}, " +
++                        "sizeBytes=${modelFile.length()}, maxNumTokens=$MAX_NUM_TOKENS"
++                }
++
++                val loadedEngine = createEngineWithFallback(modelFile)
++                engine = loadedEngine.engine
++                loaded = true
++                lastBackendSummary =
++                    "LiteRT-LM ${loadedEngine.backendName}, " +
++                    "model=${OnDeviceModelConfig.QWEN_MODEL_FILE_NAME}"
++
++                logDebug {
++                    "Qwen load success. backend=${loadedEngine.backendName}, " +
++                        "elapsedMs=${System.currentTimeMillis() - loadStart}"
++                }
++            }
++        }
++
++    override suspend fun translate(glossText: String): TranslationResult =
++        withContext(Dispatchers.Default) {
++            val normalizedGloss = normalizeGloss(glossText)
++            val start = System.currentTimeMillis()
++            if (!loaded) {
++                load()
++            }
++
++            val prompt = buildUserPrompt(normalizedGloss)
++            logDebug {
++                "Qwen translate start. gloss=${normalizedGloss.toLogPreview()}, " +
++                    "promptChars=${prompt.length}"
++            }
++
++            val raw =
++                requireNotNull(engine) {
++                    "Qwen LiteRT-LM engine must be loaded before translation."
++                }.createConversation(buildConversationConfig()).use { conversation ->
++                    extractText(conversation.sendMessage(Message.user(prompt)))
++                }
++
++            val elapsed = System.currentTimeMillis() - start
++            val cleaned = cleanOutput(raw)
++            val resolved = cleaned.ifBlank { fallbackGlossSentence(normalizedGloss).orEmpty() }
++            logDebug {
++                "Qwen translate result. raw=${raw.toLogPreview()}, " +
++                    "cleaned=${cleaned.toLogPreview()}, " +
++                    "resolved=${resolved.toLogPreview()}, elapsedMs=$elapsed"
++            }
++
++            TranslationResult(
++                glossText = glossText,
++                koreanText = resolved,
++                rawText = raw,
++                usedRuleBased = cleaned.isBlank() && resolved.isNotBlank(),
++                elapsedMs = elapsed,
++            )
++        }
++
++    override fun close() {
++        engine?.close()
++        engine = null
++        loaded = false
++        lastBackendSummary = "Closed"
++    }
++
++    @Suppress("TooGenericExceptionCaught")
++    private fun createEngineWithFallback(modelFile: File): LoadedEngine {
++        val backendCandidates =
++            buildList {
++                if (ENABLE_GPU_BACKEND) {
++                    add(
++                        BackendCandidate(
++                            name = "GPU",
++                            backend = Backend.GPU(),
++                        ),
++                    )
++                }
++                add(
++                    BackendCandidate(
++                        name = "CPU",
++                        backend = Backend.CPU(numOfThreads = CPU_THREAD_COUNT),
++                    ),
++                )
++            }
++
++        var lastError: Exception? = null
++        for (candidate in backendCandidates) {
++            try {
++                logDebug { "Qwen backend init start. backend=${candidate.name}" }
++                val qwenEngine =
++                    Engine(
++                        EngineConfig(
++                            modelPath = modelFile.absolutePath,
++                            backend = candidate.backend,
++                            cacheDir = File(context.cacheDir, CACHE_DIR_NAME).absolutePath,
++                            maxNumTokens = MAX_NUM_TOKENS,
++                        ),
++                    ).also { engine -> engine.initialize() }
++
++                return LoadedEngine(
++                    engine = qwenEngine,
++                    backendName = candidate.name,
++                )
++            } catch (exception: Exception) {
++                lastError = exception
++                Log.w(
++                    TAG,
++                    "Qwen backend init failed. backend=${candidate.name}. Trying fallback.",
++                    exception,
++                )
++            }
++        }
++
++        lastError?.let { exception -> throw exception }
++        error("Failed to initialize Qwen LiteRT-LM engine.")
++    }
++
++    private fun buildConversationConfig(): ConversationConfig =
++        ConversationConfig(
++            systemInstruction = Contents.of(SYSTEM_INSTRUCTION),
++            samplerConfig =
++                SamplerConfig(
++                    topK = TOP_K,
++                    topP = TOP_P,
++                    temperature = TEMPERATURE,
++                ),
++        )
++
++    private fun buildUserPrompt(glossText: String): String =
++        """
++        다음 한국 수어 gloss를 자연스러운 한국어 한 문장으로 변환해.
++        출력은 변환된 한국어 문장 하나만 작성해.
++
++        Gloss: $glossText
++        한국어:
++        """.trimIndent()
++
++    private fun extractText(message: Message): String {
++        val textFromContents =
++            message.contents.contents
++                .filterIsInstance<Content.Text>()
++                .joinToString(separator = "") { content -> content.text }
++                .trim()
++
++        return textFromContents.ifBlank { message.toString() }.trim()
++    }
++
++    private fun cleanOutput(rawText: String): String {
++        val withoutThinking = removeThinkingBlock(rawText)
++        val meaningfulLine =
++            withoutThinking
++                .lineSequence()
++                .map { line ->
++                    line
++                        .trim()
++                        .removePrefix("한국어:")
++                        .removePrefix("Korean:")
++                        .removePrefix("정답:")
++                        .trim()
++                }.firstOrNull { line ->
++                    line.isNotBlank() &&
++                        !line.startsWith("<think>", ignoreCase = true) &&
++                        !line.startsWith("</think>", ignoreCase = true) &&
++                        !line.startsWith("Gloss:") &&
++                        !line.equals("user", ignoreCase = true) &&
++                        !line.equals("model", ignoreCase = true)
++                }.orEmpty()
++
++        return meaningfulLine
++            .substringBefore("Gloss:")
++            .trim()
++            .trim('"')
++    }
++
++    private fun removeThinkingBlock(rawText: String): String {
++        val removedClosedBlocks =
++            rawText.replace(
++                Regex(
++                    pattern = "<think>.*?</think>",
++                    options =
++                        setOf(
++                            RegexOption.IGNORE_CASE,
++                            RegexOption.DOT_MATCHES_ALL,
++                        ),
++                ),
++                "\n",
++            )
++        val openThinkIndex =
++            removedClosedBlocks.indexOf(
++                string = "<think>",
++                ignoreCase = true,
++            )
++        if (openThinkIndex < 0) return removedClosedBlocks
++
++        val closeThinkIndex =
++            removedClosedBlocks.indexOf(
++                string = "</think>",
++                startIndex = openThinkIndex,
++                ignoreCase = true,
++            )
++        return if (closeThinkIndex >= 0) {
++            removedClosedBlocks.removeRange(
++                startIndex = openThinkIndex,
++                endIndex = closeThinkIndex + THINK_CLOSE_TAG.length,
++            )
++        } else {
++            removedClosedBlocks.substring(0, openThinkIndex)
++        }
++    }
++
++    private fun fallbackGlossSentence(glossText: String): String? {
++        val tokens = normalizeGloss(glossText).split(' ').filter { token -> token.isNotBlank() }
++        return when {
++            tokens.isEmpty() -> null
++            tokens.size == 1 -> "${tokens.first()}입니다."
++            else -> buildFallbackSentence(tokens)
++        }
++    }
++
++    private fun buildFallbackSentence(tokens: List<String>): String? {
++        val subject = tokens.first()
++        val hasNegative = tokens.any { token -> token in NEGATIVE_TOKENS }
++        val verb = tokens.last { token -> token !in TIME_TOKENS && token !in NEGATIVE_TOKENS }
++        val objectTokens =
++            tokens
++                .drop(1)
++                .filter { token -> token !in TIME_TOKENS && token !in NEGATIVE_TOKENS }
++                .dropLast(1)
++        val timePhrase = tokens.firstOrNull { token -> token in TIME_TOKENS }
++        val objectPhrase = objectTokens.joinToString(" ").takeIf { phrase -> phrase.isNotBlank() }
++
++        return fallbackPredicate(verb, hasNegative)?.let { predicatePhrase ->
++            buildList {
++                add(subject + subjectParticle(subject))
++                timePhrase?.let(::add)
++                objectPhrase?.let { phrase -> add(phrase + objectParticle(phrase)) }
++                add(predicatePhrase)
++            }.joinToString(" ") + "."
++        }
++    }
++
++    private fun fallbackPredicate(
++        verb: String,
++        hasNegative: Boolean,
++    ): String? =
++        if (hasNegative) {
++            NEGATIVE_PREDICATES[verb]
++        } else {
++            AFFIRMATIVE_PREDICATES[verb]
++        }
++
++    private fun subjectParticle(token: String): String = if (hasBatchim(token)) "은" else "는"
++
++    private fun objectParticle(token: String): String = if (hasBatchim(token)) "을" else "를"
++
++    private fun hasBatchim(token: String): Boolean =
++        token.lastOrNull()?.let { lastChar ->
++            lastChar in HANGUL_START..HANGUL_END &&
++                (lastChar.code - HANGUL_START.code) % HANGUL_CYCLE != 0
++        } ?: false
++
++    private data class BackendCandidate(
++        val name: String,
++        val backend: Backend,
++    )
++
++    private data class LoadedEngine(
++        val engine: Engine,
++        val backendName: String,
++    )
++
++    private fun resolveModelFile(): File {
++        val externalModelFile =
++            context
++                .getExternalFilesDir(OnDeviceModelConfig.MODEL_DIR_NAME)
++                ?.resolve(OnDeviceModelConfig.QWEN_MODEL_FILE_NAME)
++        val internalModelFile = File(context.filesDir, OnDeviceModelConfig.QWEN_MODEL_FILE_NAME)
++
++        return externalModelFile.takeIfValidModel()
++            ?: internalModelFile.takeIfValidModel()
++            ?: copyAssetToInternalFile(internalModelFile)
++    }
++
++    private fun File?.takeIfValidModel(): File? =
++        this?.takeIf { file -> file.isFile && file.length() > 0 }
++
++    private fun copyAssetToInternalFile(outFile: File): File {
++        try {
++            context.assets.open(OnDeviceModelConfig.QWEN_MODEL_ASSET_PATH).use { assetInput ->
++                FileOutputStream(outFile, false).use { output ->
++                    assetInput.copyTo(output, BUFFER_SIZE)
++                }
++            }
++        } catch (exception: IOException) {
++            val modelFileName = OnDeviceModelConfig.QWEN_MODEL_FILE_NAME
++            throw IllegalStateException(
++                "Qwen model file is missing. Put $modelFileName under " +
++                    "app/src/main/assets/models or push it to app external files/models.",
++                exception,
++            )
++        }
++
++        require(outFile.length() > 0) {
++            "Qwen model file was copied but is empty: ${outFile.absolutePath}"
++        }
++        return outFile
++    }
++
++    private fun normalizeGloss(glossText: String): String =
++        glossText
++            .lineSequence()
++            .joinToString(" ") { line -> line.trim() }
++            .replace(Regex("\\s+"), " ")
++            .trim()
++
++    private fun logDebug(message: () -> String) {
++        if (BuildConfig.DEBUG) {
++            Log.d(TAG, message())
++        }
++    }
++
++    private fun String.toLogPreview(): String {
++        val singleLine = replace(Regex("\\s+"), " ").trim()
++        return if (singleLine.length <= LOG_PREVIEW_LIMIT) {
++            singleLine
++        } else {
++            "${singleLine.take(LOG_PREVIEW_LIMIT)}..."
++        }
++    }
++
++    private companion object {
++        private const val TAG = "QwenLiteRtLLM"
++        private const val CACHE_DIR_NAME = "litertlm-cache"
++        private const val MAX_NUM_TOKENS = 1024
++        private const val TOP_K = 1
++        private const val TOP_P = 0.9
++        private const val TEMPERATURE = 0.2
++        private const val CPU_THREAD_COUNT = 4
++        private const val ENABLE_GPU_BACKEND = true
++        private const val BUFFER_SIZE = 1024 * 1024
++        private const val LOG_PREVIEW_LIMIT = 300
++        private const val THINK_CLOSE_TAG = "</think>"
++        private const val HANGUL_CYCLE = 28
++        private const val HANGUL_START_CODE = 0xAC00
++        private const val HANGUL_END_CODE = 0xD7A3
++        private val HANGUL_START: Char = HANGUL_START_CODE.toChar()
++        private val HANGUL_END: Char = HANGUL_END_CODE.toChar()
++        private val NEGATIVE_TOKENS = setOf("아니다", "없다", "못", "안")
++        private val TIME_TOKENS = setOf("어제", "오늘", "내일", "지금")
++        private val NEGATIVE_PREDICATES =
++            mapOf(
++                "가다" to "가지 않습니다",
++                "오다" to "오지 않습니다",
++                "먹다" to "먹지 않습니다",
++                "마시다" to "마시지 않습니다",
++                "좋다" to "좋아하지 않습니다",
++                "좋아" to "좋아하지 않습니다",
++                "싫다" to "싫어하지 않습니다",
++                "싫어" to "싫어하지 않습니다",
++            )
++        private val AFFIRMATIVE_PREDICATES =
++            mapOf(
++                "가다" to "갑니다",
++                "오다" to "옵니다",
++                "먹다" to "먹습니다",
++                "마시다" to "마십니다",
++                "좋다" to "좋습니다",
++                "좋아" to "좋습니다",
++                "싫다" to "싫습니다",
++                "싫어" to "싫습니다",
++                "아프다" to "아픕니다",
++            )
++        private val SYSTEM_INSTRUCTION =
++            """
++            너는 한국 수어 gloss를 자연스러운 한국어 한 문장으로 바꾸는 변환기다.
++            규칙:
++            - 출력은 한국어 문장 하나만 쓴다.
++            - 설명, 영어, 따옴표, 번호를 쓰지 않는다.
++            - 입력에 없는 행동, 장소, 시제, 부정을 만들지 않는다.
++            - gloss의 단어 순서가 어색하면 한국어 어순으로 자연스럽게 바꾼다.
++            - 명사만 있으면 "~입니다." 형태로 답한다.
++            - 아니다, 없다, 못 같은 표현이 있으면 반드시 부정문으로 답한다.
++            - 어제, 오늘, 내일, 지금 같은 시간 표현이 있으면 반드시 반영한다.
++            """.trimIndent()
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/MobileApplication.kt b/mobile/app/src/main/java/com/ssafy/mobile/MobileApplication.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/MobileApplication.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/MobileApplication.kt
+@@ -2,6 +2,7 @@ package com.ssafy.mobile
+ 
+ import android.app.Application
+ import com.ssafy.mobile.feature.learning.data.repository.LearningQuizAnswerSubmissionQueueSyncer
++import com.ssafy.mobile.translation.OnDeviceModelDebugBootstrapper
+ import dagger.hilt.android.HiltAndroidApp
+ import javax.inject.Inject
+ 
+@@ -12,6 +13,7 @@ class MobileApplication : Application() {
+ 
+     override fun onCreate() {
+         super.onCreate()
++        OnDeviceModelDebugBootstrapper.prepareBundledDebugModel(this)
+         learningQuizAnswerSubmissionQueueSyncer.start()
+     }
+ }
+
+
+diff --git a/mobile/app/build.gradle.kts b/mobile/app/build.gradle.kts
+--- a/mobile/app/build.gradle.kts
++++ b/mobile/app/build.gradle.kts
+@@ -1,5 +1,6 @@
+ import io.gitlab.arturbosch.detekt.Detekt
+ import io.gitlab.arturbosch.detekt.DetektCreateBaselineTask
++import java.io.File
+ import java.util.Properties
+ 
+ // 모노레포 루트 .env 파일에서 환경변수 로드
+@@ -13,6 +14,31 @@ val mobileBaseUrl: String =
+ val naverClientId: String = envProps.getProperty("NAVER_CLIENT_ID", "")
+ val naverClientSecret: String = envProps.getProperty("NAVER_CLIENT_SECRET", "")
+ val naverClientName: String = envProps.getProperty("NAVER_CLIENT_NAME", "")
++val defaultSllmModelDownloadUrl =
++    "https://d14zyw67949hvk.cloudfront.net/models/sllm/qwen2.5-1.5b/qwen2.5-1.5b.litertlm"
++val sllmModelDownloadUrl: String =
++    envProps.getProperty("SLLM_MODEL_DOWNLOAD_URL", defaultSllmModelDownloadUrl)
++val localPropsFile = rootDir.resolve("local.properties")
++val localProps =
++    Properties().also { props ->
++        if (localPropsFile.exists()) props.load(localPropsFile.inputStream())
++    }
++val qwenModelFileName =
++    "Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm"
++val qwenDebugModelLocalPath: String =
++    localProps.getProperty(
++        "QWEN_MODEL_LOCAL_PATH",
++        rootDir.resolve("local-models/$qwenModelFileName").absolutePath,
++    )
++val mobileApplicationId = "com.ssafy.mobile"
++val debugQwenAssetsDir =
++    layout
++        .buildDirectory
++        .file("generated/debugQwenAssets")
++        .get()
++        .asFile
++val qwenDebugModelFile = File(qwenDebugModelLocalPath)
++val qwenDebugModelAssetsDir = debugQwenAssetsDir.resolve("models")
+ 
+ plugins {
+     alias(libs.plugins.android.application)
+@@ -28,7 +54,7 @@ android {
+     compileSdk = 35
+ 
+     defaultConfig {
+-        applicationId = "com.ssafy.mobile"
++        applicationId = mobileApplicationId
+         minSdk = 28
+         targetSdk = 35
+         versionCode = 1
+@@ -39,6 +65,11 @@ android {
+         buildConfigField("String", "NAVER_CLIENT_ID", "\"$naverClientId\"")
+         buildConfigField("String", "NAVER_CLIENT_SECRET", "\"$naverClientSecret\"")
+         buildConfigField("String", "NAVER_CLIENT_NAME", "\"$naverClientName\"")
++        buildConfigField(
++            "String",
++            "SLLM_MODEL_DOWNLOAD_URL",
++            "\"${sllmModelDownloadUrl.escapeBuildConfig()}\"",
++        )
+     }
+ 
+     buildTypes {
+@@ -62,8 +93,28 @@ android {
+         // local.properties path escaping can fail differently by host OS.
+         disable += "PropertyEscape"
+     }
++    packaging {
++        jniLibs {
++            pickFirsts +=
++                setOf(
++                    "lib/arm64-v8a/libLiteRt.so",
++                    "lib/arm64-v8a/libLiteRtClGlAccelerator.so",
++                    "lib/x86_64/libLiteRt.so",
++                    "lib/x86_64/libLiteRtClGlAccelerator.so",
++                )
++        }
++    }
++    sourceSets {
++        getByName("debug") {
++            assets.srcDir(debugQwenAssetsDir)
++        }
++    }
+ }
+ 
++fun String.escapeBuildConfig(): String =
++    replace("\\", "\\\\")
++        .replace("\"", "\\\"")
++
+ ksp {
+     arg("room.schemaLocation", "$projectDir/schemas")
+ }
+@@ -89,6 +140,35 @@ tasks.withType<DetektCreateBaselineTask>().configureEach {
+     jvmTarget = "21"
+ }
+ 
++val copyDebugQwenModelAssetName = "copyDebugQwenModelAsset"
++if (qwenDebugModelFile.isFile) {
++    tasks.register<Copy>(copyDebugQwenModelAssetName) {
++        group = "build"
++        description =
++            "Copies the local Qwen model into generated debug assets when the model file exists."
++        from(qwenDebugModelFile)
++        into(qwenDebugModelAssetsDir)
++        rename(qwenDebugModelFile.name, qwenModelFileName)
++    }
++} else {
++    tasks.register(copyDebugQwenModelAssetName) {
++        group = "build"
++        description = "No-op because no local Qwen model file exists for debug assets."
++    }
++}
++
++tasks.matching { task -> task.name == "mergeDebugAssets" }.configureEach {
++    dependsOn(copyDebugQwenModelAssetName)
++}
++
++tasks
++    .matching { task ->
++        task.name == "generateDebugLintReportModel" ||
++            task.name == "lintAnalyzeDebug"
++    }.configureEach {
++        dependsOn(copyDebugQwenModelAssetName)
++    }
++
+ dependencies {
+     implementation(libs.androidx.core.ktx)
+     implementation(libs.androidx.lifecycle.runtime.ktx)
+@@ -107,7 +187,8 @@ dependencies {
+         exclude(group = "com.google.protobuf", module = "protobuf-javalite")
+     }
+     implementation(libs.protobuf.java)
+-    implementation(libs.litert)
++    implementation(libs.litertlm.android)
++    implementation(libs.tensorflow.lite)
+     implementation(libs.androidx.navigation.compose)
+     implementation(libs.androidx.hilt.navigation.compose)
+     implementation(libs.naver.oauth)
+
+
+diff --git a/mobile/gradle/libs.versions.toml b/mobile/gradle/libs.versions.toml
+--- a/mobile/gradle/libs.versions.toml
++++ b/mobile/gradle/libs.versions.toml
+@@ -21,6 +21,8 @@ hiltNavigationCompose = "1.2.0"
+ cameraX = "1.4.2"
+ mediaPipeTasksVision = "0.10.33"
+ liteRt = "2.1.4"
++liteRtLm = "0.11.0-rc1"
++tensorflowLite = "2.17.0"
+ protobuf = "4.26.1"
+ coil = "2.7.0"
+ browser = "1.8.0"
+@@ -63,6 +65,8 @@ androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycl
+ androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "cameraX" }
+ mediapipe-tasks-vision = { group = "com.google.mediapipe", name = "tasks-vision", version.ref = "mediaPipeTasksVision" }
+ litert = { group = "com.google.ai.edge.litert", name = "litert", version.ref = "liteRt" }
++litertlm-android = { group = "com.google.ai.edge.litertlm", name = "litertlm-android", version.ref = "liteRtLm" }
++tensorflow-lite = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tensorflowLite" }
+ protobuf-java = { group = "com.google.protobuf", name = "protobuf-java", version.ref = "protobuf" }
+ coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+ androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "browser" }
+
+
+diff --git a/mobile/.gitignore b/mobile/.gitignore
+--- a/mobile/.gitignore
++++ b/mobile/.gitignore
+@@ -35,9 +35,12 @@ local.properties
+ # MediaPipe official model assets are downloaded locally.
+ /app/src/main/assets/models/holistic_landmarker.task
+ /app/src/main/assets/models/gemma3-1b-it-int4.task
++/app/src/main/assets/models/*.litertlm
+ 
+ # ONNX Runtime caused Android 16KB page-size issues in this project.
+ # Keep committed mobile models on the TFLite path unless this is revisited.
+ /app/src/main/assets/models/*.onnx
+ /app/src/main/assets/models/*.onnx.data
+ /app/src/main/assets/models/label_map_mvp_v3_24_intent.json
++
++/local-models/
+
+
+diff --git a/mobile/README.md b/mobile/README.md
+--- a/mobile/README.md
++++ b/mobile/README.md
+@@ -59,6 +59,27 @@ cd mobile
+ 
+ Android 디바이스가 인식되지 않으면 USB 디버깅과 `adb devices`를 먼저 확인하세요.
+ 
++### 디버그 빌드에 Qwen 모델 포함
++
++온디바이스 문장 변환용 Qwen 모델은 용량이 커서 Git에 포함하지 않습니다.
++개발 PC에 모델 파일이 이미 있다면 `mobile/local.properties`에 아래 값을 추가하면
++debug APK assets에 자동 포함됩니다.
++
++```properties
++QWEN_MODEL_LOCAL_PATH=C:/path/to/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm
++```
++
++또는 아래 기본 위치에 모델 파일을 둘 수 있습니다.
++
++```text
++mobile/local-models/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm
++```
++
++debug 앱 첫 실행 시 assets에 포함된 모델을 앱 내부 저장소로 복사합니다. 복사가
++끝나면 마이페이지에서 모델이 `준비 완료` 상태로 인식됩니다. 로컬 모델 파일이
++없으면 debug assets 포함은 건너뛰고, 앱의 마이페이지에서 모델을 직접 다운로드할
++수 있습니다.
++
+ ## 앱에서 확인하는 방법
+ 
+ 1. 앱 실행
+
+
+diff --git a/.env.example b/.env.example
+--- a/.env.example
++++ b/.env.example
+@@ -51,3 +51,6 @@ CLOVA_STT_LANGUAGE=Kor
+ NAVER_CLIENT_ID=your-naver-client-id
+ NAVER_CLIENT_SECRET=your-naver-client-secret
+ NAVER_CLIENT_NAME=SUDA
++
++# Mobile on-device sLLM model
++SLLM_MODEL_DOWNLOAD_URL=https://d14zyw67949hvk.cloudfront.net/models/sllm/qwen2.5-1.5b/qwen2.5-1.5b.litertlm
+
+

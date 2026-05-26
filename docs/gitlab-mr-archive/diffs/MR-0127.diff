@@ -1,0 +1,630 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -18,6 +18,7 @@ import com.ssafy.mobile.feature.learning.presentation.category.LearningCategoryR
+ import com.ssafy.mobile.feature.learning.presentation.wordlist.LearningWordListRoute
+ import com.ssafy.mobile.feature.login.presentation.LoginRoute
+ import com.ssafy.mobile.feature.mypage.presentation.MyPageRoute
++import com.ssafy.mobile.feature.quiz.presentation.QuizResultRoute
+ import com.ssafy.mobile.feature.quiz.presentation.quizQuestionRoute
+ import com.ssafy.mobile.feature.sign.presentation.SignDebugRoute
+ import com.ssafy.mobile.feature.signup.presentation.SignupRoute
+@@ -173,6 +174,39 @@ fun MobileNavHost(
+                 ),
+         ) {
+             quizQuestionRoute(
++                onNavigateToResult = { sessionId, cid, diff ->
++                    navController.navigate(Screen.QuizResult.createRoute(sessionId, cid, diff)) {
++                        popUpTo(Screen.Quiz.route) { inclusive = true }
++                    }
++                },
++                modifier = Modifier.fillMaxSize(),
++            )
++        }
++
++        composable(
++            route = Screen.QuizResult.route,
++            arguments =
++                listOf(
++                    navArgument("sessionId") { type = NavType.LongType },
++                    navArgument("categoryId") { type = NavType.LongType },
++                    navArgument("difficulty") { type = NavType.StringType },
++                ),
++        ) { backStackEntry ->
++            val categoryId = backStackEntry.arguments?.getLong("categoryId") ?: 0L
++            val difficulty = backStackEntry.arguments?.getString("difficulty") ?: "EASY"
++
++            QuizResultRoute(
++                onRestartQuiz = {
++                    navController.navigate(Screen.Quiz.createRoute(categoryId, difficulty)) {
++                        popUpTo(Screen.QuizResult.route) { inclusive = true }
++                    }
++                },
++                onNavigateToHome = {
++                    navController.navigate(Screen.LearningCategory.route) {
++                        popUpTo(Screen.LearningCategory.route) { inclusive = false }
++                        launchSingleTop = true
++                    }
++                },
+                 modifier = Modifier.fillMaxSize(),
+             )
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+@@ -26,6 +26,16 @@ sealed class Screen(
+         ) = "quiz_question_route/$categoryId?difficulty=${android.net.Uri.encode(difficulty)}"
+     }
+ 
++    data object QuizResult :
++        Screen("quiz_result/{sessionId}?categoryId={categoryId}&difficulty={difficulty}") {
++        fun createRoute(
++            sessionId: Long,
++            categoryId: Long,
++            difficulty: String,
++        ) = "quiz_result/$sessionId?categoryId=$categoryId" +
++            "&difficulty=${android.net.Uri.encode(difficulty)}"
++    }
++
+     data object Conversation : Screen("conversation_route")
+ 
+     data object MyPage : Screen("my_page_route")
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+@@ -53,6 +53,7 @@ import kotlin.math.roundToInt
+ 
+ @Composable
+ fun quizQuestionRoute(
++    onNavigateToResult: (Long, Long, String) -> Unit,
+     modifier: Modifier = Modifier,
+     quizViewModel: QuizQuestionViewModel = hiltViewModel(),
+     recordingViewModel: QuizRecordingViewModel = hiltViewModel(),
+@@ -87,6 +88,19 @@ fun quizQuestionRoute(
+         recordingViewModel.consumeRecognizedText()
+     }
+ 
++    LaunchedEffect(quizState.isFinished) {
++        if (quizState.isFinished) {
++            val sessionId = quizState.sessionId
++            if (sessionId != null) {
++                onNavigateToResult(
++                    sessionId,
++                    quizViewModel.categoryId,
++                    quizViewModel.difficulty,
++                )
++            }
++        }
++    }
++
+     QuizQuestionScreen(
+         state = quizState,
+         answerSubmitState = answerSubmitState,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
+@@ -31,11 +31,11 @@ class QuizQuestionViewModel
+         private val wordRepository: LearningWordRepository,
+         private val queueSyncer: LearningQuizAnswerSubmissionQueueSyncer,
+     ) : ViewModel() {
+-        private val categoryId: Long =
++        val categoryId: Long =
+             checkNotNull(savedStateHandle["categoryId"]) {
+                 "Quiz route requires categoryId."
+             }
+-        private val difficulty: String = savedStateHandle["difficulty"] ?: DEFAULT_DIFFICULTY
++        val difficulty: String = savedStateHandle["difficulty"] ?: DEFAULT_DIFFICULTY
+         private var wordById: Map<Long, String> = emptyMap()
+         private var isCompletionPending = false
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultRoute.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultRoute.kt
+@@ -0,0 +1,387 @@
++package com.ssafy.mobile.feature.quiz.presentation
++
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.layout.width
++import androidx.compose.foundation.lazy.LazyColumn
++import androidx.compose.foundation.lazy.items
++import androidx.compose.foundation.shape.CircleShape
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.Card
++import androidx.compose.material3.CardDefaults
++import androidx.compose.material3.ExperimentalMaterial3Api
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Scaffold
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.material3.TopAppBar
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.getValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.clip
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.sp
++import androidx.hilt.navigation.compose.hiltViewModel
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppPrimaryButton
++import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizResult
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizResultAnswer
++
++@Composable
++fun QuizResultRoute(
++    onRestartQuiz: () -> Unit,
++    onNavigateToHome: () -> Unit,
++    modifier: Modifier = Modifier,
++    viewModel: QuizResultViewModel = hiltViewModel(),
++) {
++    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
++
++    QuizResultScreen(
++        uiState = uiState,
++        onRestartQuiz = onRestartQuiz,
++        onNavigateToHome = onNavigateToHome,
++        onRetryLoad = viewModel::loadQuizResult,
++        modifier = modifier,
++    )
++}
++
++@OptIn(ExperimentalMaterial3Api::class)
++@Composable
++private fun QuizResultScreen(
++    uiState: QuizResultUiState,
++    onRestartQuiz: () -> Unit,
++    onNavigateToHome: () -> Unit,
++    onRetryLoad: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Scaffold(
++        modifier = modifier.fillMaxSize(),
++        topBar = {
++            TopAppBar(
++                title = {
++                    Text(
++                        text = "퀴즈 결과",
++                        style = MaterialTheme.typography.titleLarge,
++                        fontWeight = FontWeight.Bold,
++                    )
++                },
++            )
++        },
++    ) { padding ->
++        Box(
++            modifier =
++                Modifier
++                    .fillMaxSize()
++                    .padding(padding),
++        ) {
++            when (uiState) {
++                is QuizResultUiState.Loading -> {
++                    QuizMessageState(
++                        title = "결과를 불러오는 중이에요",
++                        description = "잠시만 기다려 주세요.",
++                        modifier = Modifier.fillMaxSize(),
++                    )
++                }
++
++                is QuizResultUiState.Success -> {
++                    QuizResultContent(
++                        result = uiState.result,
++                        onRestartQuiz = onRestartQuiz,
++                        onNavigateToHome = onNavigateToHome,
++                        modifier = Modifier.fillMaxSize(),
++                    )
++                }
++
++                is QuizResultUiState.Error -> {
++                    QuizMessageState(
++                        title = "결과를 불러오지 못했어요",
++                        description = uiState.message,
++                        actionText = "다시 시도",
++                        onActionClick = onRetryLoad,
++                        modifier = Modifier.fillMaxSize(),
++                    )
++                }
++            }
++        }
++    }
++}
++
++@Composable
++private fun QuizResultContent(
++    result: LearningQuizResult,
++    onRestartQuiz: () -> Unit,
++    onNavigateToHome: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Column(modifier = modifier) {
++        LazyColumn(
++            modifier = Modifier.weight(1f),
++            contentPadding = PaddingValues(24.dp),
++            verticalArrangement = Arrangement.spacedBy(16.dp),
++        ) {
++            item {
++                QuizResultHeaderCard(
++                    correctCount = result.correctCount,
++                    totalCount = result.totalQuestionCount,
++                    totalStar = result.totalStar,
++                )
++            }
++
++            item {
++                Spacer(modifier = Modifier.height(8.dp))
++                Text(
++                    text = "문항별 결과",
++                    style = MaterialTheme.typography.titleMedium,
++                    fontWeight = FontWeight.Bold,
++                )
++            }
++
++            items(result.answers) { answer ->
++                QuizAnswerResultItem(answer = answer)
++            }
++
++            item {
++                Spacer(modifier = Modifier.height(16.dp))
++            }
++        }
++
++        Surface(
++            modifier = Modifier.fillMaxWidth(),
++            tonalElevation = 8.dp,
++            shadowElevation = 8.dp,
++        ) {
++            Column(
++                modifier =
++                    Modifier
++                        .padding(24.dp)
++                        .fillMaxWidth(),
++                verticalArrangement = Arrangement.spacedBy(12.dp),
++            ) {
++                AppPrimaryButton(
++                    text = "다시 풀기",
++                    onClick = onRestartQuiz,
++                    modifier = Modifier.fillMaxWidth(),
++                )
++                AppSecondaryButton(
++                    text = "학습 홈으로",
++                    onClick = onNavigateToHome,
++                    modifier = Modifier.fillMaxWidth(),
++                )
++            }
++        }
++    }
++}
++
++@Composable
++private fun QuizResultHeaderCard(
++    correctCount: Int,
++    totalCount: Int,
++    totalStar: Int,
++) {
++    Card(
++        modifier = Modifier.fillMaxWidth(),
++        shape = RoundedCornerShape(24.dp),
++        colors =
++            CardDefaults.cardColors(
++                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
++            ),
++    ) {
++        Row(
++            modifier = Modifier.padding(24.dp),
++            verticalAlignment = Alignment.CenterVertically,
++            horizontalArrangement = Arrangement.SpaceEvenly,
++        ) {
++            ResultStatItem(
++                label = "맞힌 문제",
++                value = "$correctCount / $totalCount",
++                iconEmoji = "✅",
++            )
++            Box(
++                modifier =
++                    Modifier
++                        .width(1.dp)
++                        .height(40.dp)
++                        .background(
++                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.1f),
++                        ),
++            )
++            ResultStatItem(
++                label = "획득한 별",
++                value = "$totalStar",
++                iconEmoji = "⭐",
++            )
++        }
++    }
++}
++
++@Composable
++private fun ResultStatItem(
++    label: String,
++    value: String,
++    iconEmoji: String,
++) {
++    Column(horizontalAlignment = Alignment.CenterHorizontally) {
++        Text(
++            text = iconEmoji,
++            fontSize = 24.sp,
++        )
++        Spacer(modifier = Modifier.height(4.dp))
++        Text(
++            text = label,
++            style = MaterialTheme.typography.labelMedium,
++            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
++        )
++        Text(
++            text = value,
++            style = MaterialTheme.typography.titleLarge,
++            fontWeight = FontWeight.Black,
++            color = MaterialTheme.colorScheme.onPrimaryContainer,
++        )
++    }
++}
++
++@Composable
++private fun QuizAnswerResultItem(answer: LearningQuizResultAnswer) {
++    Card(
++        modifier = Modifier.fillMaxWidth(),
++        shape = RoundedCornerShape(20.dp),
++        colors =
++            CardDefaults.cardColors(
++                containerColor = MaterialTheme.colorScheme.surface,
++            ),
++        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
++    ) {
++        Column(
++            modifier = Modifier.padding(18.dp),
++            verticalArrangement = Arrangement.spacedBy(10.dp),
++        ) {
++            Row(
++                modifier = Modifier.fillMaxWidth(),
++                verticalAlignment = Alignment.CenterVertically,
++            ) {
++                QuizAnswerStatusIcon(isCorrect = answer.isCorrect)
++
++                Spacer(modifier = Modifier.width(12.dp))
++
++                Text(
++                    text = answer.targetText,
++                    style = MaterialTheme.typography.titleMedium,
++                    fontWeight = FontWeight.Bold,
++                    modifier = Modifier.weight(1f),
++                    maxLines = 1,
++                    overflow = TextOverflow.Ellipsis,
++                )
++
++                QuizAnswerStarRating(star = answer.star)
++            }
++
++            QuizAnswerRecognizedText(recognizedText = answer.recognizedText)
++
++            if (!answer.feedback.isNullOrBlank()) {
++                Text(
++                    text = "💡 ${answer.feedback}",
++                    style = MaterialTheme.typography.bodySmall,
++                    color = MaterialTheme.colorScheme.primary,
++                    modifier = Modifier.padding(horizontal = 4.dp),
++                )
++            }
++        }
++    }
++}
++
++@Composable
++private fun QuizAnswerStatusIcon(isCorrect: Boolean) {
++    Box(
++        modifier =
++            Modifier
++                .size(36.dp)
++                .clip(CircleShape)
++                .background(
++                    if (isCorrect) {
++                        MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
++                    } else {
++                        MaterialTheme.colorScheme.error.copy(alpha = 0.1f)
++                    },
++                ),
++        contentAlignment = Alignment.Center,
++    ) {
++        Text(
++            text = if (isCorrect) "⭕" else "❌",
++            fontSize = 16.sp,
++        )
++    }
++}
++
++@Composable
++private fun QuizAnswerStarRating(star: Int) {
++    val normalizedStar = star.coerceIn(0, MAX_STAR_COUNT)
++    Row(verticalAlignment = Alignment.CenterVertically) {
++        repeat(normalizedStar) {
++            Text(text = "⭐", fontSize = 14.sp)
++        }
++        repeat(MAX_STAR_COUNT - normalizedStar) {
++            Text(
++                text = "⭐",
++                fontSize = 14.sp,
++                color = Color.Gray.copy(alpha = 0.3f),
++            )
++        }
++    }
++}
++
++@Composable
++private fun QuizAnswerRecognizedText(recognizedText: String?) {
++    val hasRecognizedText = !recognizedText.isNullOrBlank()
++    val displayText = if (hasRecognizedText) recognizedText!! else "음성 인식 결과가 없어요"
++
++    Column(
++        modifier =
++            Modifier
++                .fillMaxWidth()
++                .clip(RoundedCornerShape(12.dp))
++                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
++                .padding(12.dp),
++        verticalArrangement = Arrangement.spacedBy(4.dp),
++    ) {
++        Text(
++            text = "내 답변",
++            style = MaterialTheme.typography.labelSmall,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++        )
++        Text(
++            text = displayText,
++            style = MaterialTheme.typography.bodyMedium,
++            fontWeight =
++                if (hasRecognizedText) {
++                    FontWeight.Medium
++                } else {
++                    FontWeight.Normal
++                },
++            color =
++                if (hasRecognizedText) {
++                    MaterialTheme.colorScheme.onSurface
++                } else {
++                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
++                },
++            maxLines = 2,
++            overflow = TextOverflow.Ellipsis,
++        )
++    }
++}
++
++private const val MAX_STAR_COUNT = 3
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultUiState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultUiState.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultUiState.kt
+@@ -0,0 +1,15 @@
++package com.ssafy.mobile.feature.quiz.presentation
++
++import com.ssafy.mobile.feature.learning.domain.model.LearningQuizResult
++
++sealed interface QuizResultUiState {
++    data object Loading : QuizResultUiState
++
++    data class Success(
++        val result: LearningQuizResult,
++    ) : QuizResultUiState
++
++    data class Error(
++        val message: String,
++    ) : QuizResultUiState
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultViewModel.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultViewModel.kt
+@@ -0,0 +1,83 @@
++package com.ssafy.mobile.feature.quiz.presentation
++
++import androidx.lifecycle.SavedStateHandle
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizRepository
++import dagger.hilt.android.lifecycle.HiltViewModel
++import javax.inject.Inject
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++
++@HiltViewModel
++class QuizResultViewModel
++    @Inject
++    constructor(
++        savedStateHandle: SavedStateHandle,
++        private val quizRepository: LearningQuizRepository,
++    ) : ViewModel() {
++        private val sessionId: Long =
++            checkNotNull(savedStateHandle["sessionId"]) {
++                "QuizResult route requires sessionId."
++            }
++
++        private val _uiState = MutableStateFlow<QuizResultUiState>(QuizResultUiState.Loading)
++        val uiState: StateFlow<QuizResultUiState> = _uiState.asStateFlow()
++
++        private var fetchJob: Job? = null
++
++        init {
++            loadQuizResult()
++        }
++
++        fun loadQuizResult() {
++            if (fetchJob?.isActive == true) return
++
++            fetchJob =
++                viewModelScope.launch {
++                    _uiState.value = QuizResultUiState.Loading
++                    val result =
++                        withContext(Dispatchers.IO) {
++                            quizRepository.getResult(sessionId)
++                        }
++
++                    result
++                        .onSuccess { quizResult ->
++                            _uiState.value = QuizResultUiState.Success(quizResult)
++                        }.onFailure { throwable ->
++                            if (throwable is CancellationException) throw throwable
++                            _uiState.value =
++                                QuizResultUiState.Error(
++                                    mapThrowableToMessage(throwable),
++                                )
++                        }
++                }
++        }
++
++        private fun mapThrowableToMessage(throwable: Throwable): String {
++            val message = throwable.message ?: ""
++            return when {
++                message.contains("401") || message.contains("로그인이 필요합니다") ->
++                    "세션이 만료되었습니다. 다시 로그인해 주세요."
++
++                message.contains("403") || message.contains("퀴즈 요청 권한이 없습니다") ->
++                    "결과를 조회할 권한이 없습니다."
++
++                message.contains("404") || message.contains("퀴즈 세션 또는 문제를 찾을 수 없습니다") ->
++                    "퀴즈 세션을 찾을 수 없습니다."
++
++                message.contains("409") ||
++                    message.contains("LEARN_QUIZ_NOT_COMPLETED") ||
++                    message.contains("현재 퀴즈 상태에서는 요청을 처리할 수 없습니다")
++                -> "퀴즈가 아직 완료되지 않았어요."
++
++                else -> "퀴즈 결과를 불러오지 못했습니다."
++            }
++        }
++    }
+
+

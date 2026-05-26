@@ -1,0 +1,2026 @@
+﻿diff --git a/ai/models/tcn_mobile/best_sign_model_v6_float16.tflite b/ai/models/tcn_mobile/best_sign_model_v6_float16.tflite
+--- /dev/null
++++ b/ai/models/tcn_mobile/best_sign_model_v6_float16.tflite
+Binary files /dev/null and b/ai/models/tcn_mobile/best_sign_model_v6_float16.tflite differ
+
+
+diff --git a/ai/models/tcn_mobile/best_sign_model_v6_float32.tflite b/ai/models/tcn_mobile/best_sign_model_v6_float32.tflite
+--- /dev/null
++++ b/ai/models/tcn_mobile/best_sign_model_v6_float32.tflite
+Binary files /dev/null and b/ai/models/tcn_mobile/best_sign_model_v6_float32.tflite differ
+
+
+diff --git a/ai/models/tcn_mobile/label_map_v6.json b/ai/models/tcn_mobile/label_map_v6.json
+--- /dev/null
++++ b/ai/models/tcn_mobile/label_map_v6.json
+@@ -0,0 +1,25 @@
++{
++    "0": "걷다",
++    "1": "가다",
++    "2": "주다",
++    "3": "돕다",
++    "4": "배고프다",
++    "5": "아기",
++    "6": "좋다",
++    "7": "싫다",
++    "8": "감기",
++    "9": "기차",
++    "10": "놀다",
++    "11": "목마르다",
++    "12": "무섭다",
++    "13": "밥",
++    "14": "손",
++    "15": "아프다",
++    "16": "웃다",
++    "17": "장난감",
++    "18": "조심",
++    "19": "병원",
++    "20": "엄마",
++    "21": "감사",
++    "22": "none"
++}
+\ No newline at end of file
+
+
+diff --git a/ai/models/tcn_mobile/train_config_v6.json b/ai/models/tcn_mobile/train_config_v6.json
+--- /dev/null
++++ b/ai/models/tcn_mobile/train_config_v6.json
+@@ -0,0 +1,240 @@
++{
++    "run_idx": 2,
++    "data_dir": "/home/j-k14a404/Kim/Ondevice_training_v6/processed_npy_v6",
++    "model_dir_name": "v6_24words_tcn",
++    "model_type": "tcn",
++    "epochs": 120,
++    "batch_size": 16,
++    "learning_rate": 0.001,
++    "weight_decay": 0.0,
++    "input_dim": 332,
++    "max_len": 30,
++    "d_model": 128,
++    "num_heads": 8,
++    "num_layers": 3,
++    "num_workers": 2,
++    "pin_memory": true,
++    "persistent_workers": true,
++    "use_class_weights": false,
++    "use_scheduler": false,
++    "scheduler_factor": 0.5,
++    "scheduler_patience": 12,
++    "use_balanced_sampler": false,
++    "single_batch_check_steps": 200,
++    "use_early_stopping": true,
++    "early_stopping_patience": 25,
++    "early_stopping_min_delta": 0.001,
++    "classes": [
++        "걷다",
++        "가다",
++        "주다",
++        "돕다",
++        "배고프다",
++        "아기",
++        "좋다",
++        "싫다",
++        "감기",
++        "기차",
++        "놀다",
++        "목마르다",
++        "무섭다",
++        "밥",
++        "손",
++        "아프다",
++        "웃다",
++        "장난감",
++        "조심",
++        "병원",
++        "엄마",
++        "감사",
++        "none"
++    ],
++    "stats": {
++        "class_counts": {
++            "걷다": 80,
++            "가다": 80,
++            "주다": 80,
++            "돕다": 80,
++            "배고프다": 80,
++            "아기": 80,
++            "좋다": 80,
++            "싫다": 80,
++            "감기": 80,
++            "기차": 80,
++            "놀다": 80,
++            "목마르다": 80,
++            "무섭다": 80,
++            "밥": 80,
++            "손": 80,
++            "아프다": 80,
++            "웃다": 80,
++            "장난감": 80,
++            "조심": 80,
++            "병원": 75,
++            "엄마": 75,
++            "감사": 80,
++            "none": 60
++        },
++        "variant_counts": {
++            "걷다/걷다": 80,
++            "가다/가다": 80,
++            "주다/주다": 80,
++            "돕다/돕다": 80,
++            "배고프다/배고프다": 80,
++            "아기/아기": 80,
++            "좋다/좋다": 80,
++            "싫다/싫다": 80,
++            "감기/감기": 80,
++            "기차/기차": 80,
++            "놀다/놀다": 80,
++            "목마르다/목마르다": 80,
++            "무섭다/무섭다": 80,
++            "밥/밥": 80,
++            "손/손": 80,
++            "아프다/아프다": 80,
++            "웃다/웃다": 80,
++            "장난감/장난감": 80,
++            "조심/조심": 80,
++            "병원/병원": 75,
++            "엄마/엄마": 75,
++            "감사/감사": 80,
++            "none/none": 60
++        },
++        "priority_file_keywords": [
++            "_FRONT",
++            "_LEFT",
++            "_RIGHT"
++        ],
++        "priority_file_counts": {
++            "걷다": 0,
++            "가다": 0,
++            "주다": 0,
++            "돕다": 0,
++            "배고프다": 0,
++            "아기": 0,
++            "좋다": 0,
++            "싫다": 0,
++            "감기": 0,
++            "기차": 0,
++            "놀다": 0,
++            "목마르다": 0,
++            "무섭다": 0,
++            "밥": 0,
++            "손": 0,
++            "아프다": 0,
++            "웃다": 0,
++            "장난감": 0,
++            "조심": 0,
++            "병원": 0,
++            "엄마": 0,
++            "감사": 0,
++            "none": 60
++        },
++        "train_class_counts": {
++            "걷다": 120,
++            "가다": 120,
++            "주다": 120,
++            "돕다": 120,
++            "배고프다": 120,
++            "아기": 120,
++            "좋다": 120,
++            "싫다": 120,
++            "감기": 120,
++            "기차": 120,
++            "놀다": 120,
++            "목마르다": 120,
++            "무섭다": 120,
++            "밥": 120,
++            "손": 120,
++            "아프다": 120,
++            "웃다": 120,
++            "장난감": 120,
++            "조심": 120,
++            "병원": 120,
++            "엄마": 120,
++            "감사": 120,
++            "none": 120
++        },
++        "val_class_counts": {
++            "걷다": 16,
++            "가다": 16,
++            "주다": 16,
++            "돕다": 16,
++            "배고프다": 16,
++            "아기": 16,
++            "좋다": 16,
++            "싫다": 16,
++            "감기": 16,
++            "기차": 16,
++            "놀다": 16,
++            "목마르다": 16,
++            "무섭다": 16,
++            "밥": 16,
++            "손": 16,
++            "아프다": 16,
++            "웃다": 16,
++            "장난감": 16,
++            "조심": 16,
++            "병원": 15,
++            "엄마": 15,
++            "감사": 16,
++            "none": 12
++        },
++        "target_variants": {},
++        "max_files_per_class": {},
++        "file_sample_seed": 42,
++        "total_size": 3122,
++        "original_total_size": 1810,
++        "train_size": 2760,
++        "original_train_size": 1448,
++        "val_size": 362,
++        "stratified_split": true,
++        "balanced_sampling": false,
++        "use_augmentation": true,
++        "normalize_mode": "none",
++        "target_samples_per_class": 120,
++        "augmentation_counts": {
++            "걷다": 56,
++            "가다": 56,
++            "주다": 56,
++            "돕다": 56,
++            "배고프다": 56,
++            "아기": 56,
++            "좋다": 56,
++            "싫다": 56,
++            "감기": 56,
++            "기차": 56,
++            "놀다": 56,
++            "목마르다": 56,
++            "무섭다": 56,
++            "밥": 56,
++            "손": 56,
++            "아프다": 56,
++            "웃다": 56,
++            "장난감": 56,
++            "조심": 56,
++            "병원": 60,
++            "엄마": 60,
++            "감사": 56,
++            "none": 72
++        },
++        "augmentation": {
++            "seed": 2026,
++            "noise_std": 0.005,
++            "time_scale_range": [
++                0.95,
++                1.05
++            ],
++            "time_shift_range": [
++                -2,
++                2
++            ]
++        },
++        "dataloader": {
++            "num_workers": 2,
++            "pin_memory": true,
++            "persistent_workers": true
++        },
++        "skipped_file_count": 0
++    }
++}
+\ No newline at end of file
+
+
+diff --git a/ai/src/sign2text_tcn/inference_realtime_tflite_v6.py b/ai/src/sign2text_tcn/inference_realtime_tflite_v6.py
+--- /dev/null
++++ b/ai/src/sign2text_tcn/inference_realtime_tflite_v6.py
+@@ -0,0 +1,511 @@
++import argparse
++import json
++import time
++from collections import Counter, deque
++from datetime import datetime
++from pathlib import Path
++
++import cv2
++import mediapipe as mp
++import numpy as np
++
++try:
++    import tensorflow as tf
++except ImportError:
++    print("TensorFlow is not installed. Please install it with `pip install tensorflow`.")
++    raise SystemExit(1)
++
++from PIL import Image, ImageDraw, ImageFont
++
++INPUT_DIM = 332
++LANDMARK_DIM = 282
++MAX_LEN = 30
++CONFIDENCE_THRESHOLD = 0.80
++PREDICTION_SMOOTHING = 5
++STABLE_MIN_COUNT = 4
++
++BASE_DIR = Path(__file__).resolve().parent / "models"
++DEFAULT_MODEL_DIR = "v6_24words_tcn_2"
++
++NEUTRAL_FACE_WINDOW = 45
++MIN_NEUTRAL_FACE_SAMPLES = 15
++QUESTION_EYEBROW_DELTA_THRESHOLD = 0.055
++
++LEFT_EYEBROW_IDXS = [70, 63, 105, 66]
++RIGHT_EYEBROW_IDXS = [336, 296, 334, 293]
++LEFT_EYE_CENTER_IDXS = [33, 133]
++RIGHT_EYE_CENTER_IDXS = [362, 263]
++
++BASE_FACE_IDXS = [
++    70, 63, 105, 66,
++    336, 296, 334, 293,
++    33, 160, 158, 133, 153, 144,
++    362, 385, 387, 263, 373, 380,
++    61, 146, 91, 181, 84, 17, 314, 405, 321, 375,
++]
++FACEPLUS_IDXS = [
++    1, 4,
++    152,
++    234, 454,
++    172, 397,
++    148, 377,
++    13, 14,
++    78, 308,
++    82, 312,
++]
++FACE_IDXS = BASE_FACE_IDXS + FACEPLUS_IDXS
++POSE_IDXS = [0, 7, 8, 11, 12, 13, 14]
++HAND_TIP_IDXS = [4, 8, 12, 16, 20]
++FACE_ANCHOR_IDXS = [1, 13, 152, 234, 454]
++
++LEFT_SHOULDER_IDX = 90
++RIGHT_SHOULDER_IDX = 91
++
++
++def resolve_from_base(path):
++    path = Path(path)
++    if path.is_absolute():
++        return path
++    return (BASE_DIR / path).resolve()
++
++
++def _flatten_landmarks(landmarks, idxs):
++    return np.array(
++        [[landmarks[idx].x, landmarks[idx].y, landmarks[idx].z] for idx in idxs],
++        dtype=np.float32,
++    ).flatten()
++
++
++def _hand_array(hand_landmarks):
++    if not hand_landmarks:
++        return np.zeros((21, 3), dtype=np.float32), False
++    points = np.array([[lm.x, lm.y, lm.z] for lm in hand_landmarks.landmark], dtype=np.float32)
++    return points, True
++
++
++def _hand_face_distances(left_hand, left_present, right_hand, right_present, face_landmarks):
++    if not face_landmarks:
++        return np.zeros(len(HAND_TIP_IDXS) * 2 * len(FACE_ANCHOR_IDXS), dtype=np.float32)
++
++    anchors = np.array(
++        [
++            [face_landmarks.landmark[idx].x, face_landmarks.landmark[idx].y, face_landmarks.landmark[idx].z]
++            for idx in FACE_ANCHOR_IDXS
++        ],
++        dtype=np.float32,
++    )
++
++    features = []
++    for hand_points, is_present in ((left_hand, left_present), (right_hand, right_present)):
++        if not is_present:
++            features.extend([0.0] * (len(HAND_TIP_IDXS) * len(FACE_ANCHOR_IDXS)))
++            continue
++
++        for tip_idx in HAND_TIP_IDXS:
++            tip = hand_points[tip_idx]
++            features.extend(np.linalg.norm(anchors - tip, axis=1).tolist())
++
++    return np.array(features, dtype=np.float32)
++
++
++def extract_keypoints(results, last_pose, last_face, normalize_mode):
++    left_hand, left_present = _hand_array(results.left_hand_landmarks)
++    right_hand, right_present = _hand_array(results.right_hand_landmarks)
++    lh = left_hand.flatten()
++    rh = right_hand.flatten()
++
++    if results.face_landmarks:
++        face = _flatten_landmarks(results.face_landmarks.landmark, FACE_IDXS)
++        last_face = face
++    else:
++        face = last_face if last_face is not None else np.zeros(len(FACE_IDXS) * 3, dtype=np.float32)
++
++    if results.pose_landmarks:
++        pose = _flatten_landmarks(results.pose_landmarks.landmark, POSE_IDXS)
++        last_pose = pose
++    else:
++        pose = last_pose if last_pose is not None else np.zeros(len(POSE_IDXS) * 3, dtype=np.float32)
++
++    distances = _hand_face_distances(
++        left_hand,
++        left_present,
++        right_hand,
++        right_present,
++        results.face_landmarks,
++    )
++
++    feature = np.concatenate([lh, rh, face, pose, distances]).astype(np.float32)
++    if feature.shape[0] != INPUT_DIM:
++        raise ValueError(f"Unexpected feature dim: {feature.shape[0]} != {INPUT_DIM}")
++
++    return normalize_features(feature, normalize_mode), last_pose, last_face
++
++
++def normalize_features(feature, normalize_mode):
++    if normalize_mode in ("none", "raw", "off"):
++        return np.array(feature, dtype=np.float32)
++
++    landmarks = feature[:LANDMARK_DIM].reshape(-1, 3)
++    distances = feature[LANDMARK_DIM:]
++
++    l_shoulder = landmarks[LEFT_SHOULDER_IDX]
++    r_shoulder = landmarks[RIGHT_SHOULDER_IDX]
++    shoulder_center = (l_shoulder + r_shoulder) / 2.0
++
++    shoulder_width = np.linalg.norm(l_shoulder - r_shoulder)
++    if shoulder_width < 1e-6:
++        shoulder_width = 1.0
++
++    normalized_landmarks = (landmarks - shoulder_center) / shoulder_width
++    normalized_distances = distances / shoulder_width
++    return np.concatenate([normalized_landmarks.flatten(), normalized_distances]).astype(np.float32)
++
++
++def get_normalized_eyebrow_gap(results):
++    if not results.face_landmarks:
++        return None
++
++    landmarks = results.face_landmarks.landmark
++    left_eye = np.mean([[landmarks[idx].x, landmarks[idx].y] for idx in LEFT_EYE_CENTER_IDXS], axis=0)
++    right_eye = np.mean([[landmarks[idx].x, landmarks[idx].y] for idx in RIGHT_EYE_CENTER_IDXS], axis=0)
++    eye_distance = np.linalg.norm(left_eye - right_eye)
++    if eye_distance < 1e-6:
++        return None
++
++    eyebrow_y = np.mean([landmarks[idx].y for idx in LEFT_EYEBROW_IDXS + RIGHT_EYEBROW_IDXS])
++    eye_y = np.mean([landmarks[idx].y for idx in LEFT_EYE_CENTER_IDXS + RIGHT_EYE_CENTER_IDXS])
++    return float((eye_y - eyebrow_y) / eye_distance)
++
++
++def classify_sentence_type(current_gap, neutral_gaps):
++    if current_gap is None or len(neutral_gaps) < MIN_NEUTRAL_FACE_SAMPLES:
++        return "평서문", 0.0, None
++
++    neutral_gap = float(np.median(neutral_gaps))
++    eyebrow_delta = current_gap - neutral_gap
++
++    if eyebrow_delta >= QUESTION_EYEBROW_DELTA_THRESHOLD:
++        return "의문문", eyebrow_delta, neutral_gap
++
++    return "평서문", eyebrow_delta, neutral_gap
++
++
++def has_visible_hand(results):
++    return results.left_hand_landmarks is not None or results.right_hand_landmarks is not None
++
++
++def pad_sequence(sequence, max_len=MAX_LEN):
++    frames = np.array(sequence, dtype=np.float32)
++    if len(frames) == 0:
++        return np.zeros((max_len, INPUT_DIM), dtype=np.float32)
++
++    if len(frames) > max_len:
++        indices = np.linspace(0, len(frames) - 1, max_len, dtype=int)
++        return frames[indices]
++
++    if len(frames) < 15:
++        indices = np.linspace(0, len(frames) - 1, max_len)
++        upsampled = np.zeros((max_len, INPUT_DIM), dtype=np.float32)
++        for i, float_idx in enumerate(indices):
++            low = int(np.floor(float_idx))
++            high = int(np.ceil(float_idx))
++            weight = float_idx - low
++            if low == high:
++                upsampled[i] = frames[low]
++            else:
++                upsampled[i] = frames[low] * (1 - weight) + frames[high] * weight
++        return upsampled
++
++    pad_len = max_len - len(frames)
++    padding = np.repeat(frames[-1:], pad_len, axis=0)
++    return np.vstack((frames, padding)).astype(np.float32)
++
++
++def draw_text(frame, lines):
++    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
++    draw = ImageDraw.Draw(image)
++
++    try:
++        font = ImageFont.truetype("malgun.ttf", 30)
++    except Exception:
++        font = ImageFont.load_default()
++
++    y = 25
++    for line in lines:
++        draw.text((25, y), line, font=font, fill=(0, 255, 0))
++        y += 38
++
++    return cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
++
++
++def build_inference_payload(probs, label_map, confidence_threshold):
++    max_idx = int(np.argmax(probs))
++    top_indices = np.argsort(probs)[::-1]
++    second_idx = int(top_indices[1]) if len(top_indices) > 1 else None
++
++    confidence = float(probs[max_idx])
++    second_confidence = float(probs[second_idx]) if second_idx is not None else None
++    margin = confidence - second_confidence if second_confidence is not None else confidence
++    raw_gloss = label_map[max_idx]
++    accepted = confidence >= confidence_threshold
++
++    return {
++        "gloss": raw_gloss if accepted else "unknown",
++        "rawGloss": raw_gloss,
++        "confidence": confidence,
++        "margin": float(margin),
++        "classIndex": max_idx,
++        "secondGloss": label_map[second_idx] if second_idx is not None else None,
++        "secondConfidence": second_confidence,
++        "accepted": accepted,
++        "rejectionReason": None if accepted else "low_confidence",
++    }
++
++
++def dump_utterance(output_dir, glosses, sentence_type, segment_frames, sequence_snapshot, inference_result):
++    if not glosses or not segment_frames or sequence_snapshot is None:
++        return
++
++    output_dir.mkdir(parents=True, exist_ok=True)
++    payload = {
++        "createdAt": datetime.now().isoformat(timespec="milliseconds"),
++        "glosses": list(glosses),
++        "sentenceType": sentence_type,
++        "segmentFrameCount": len(segment_frames),
++        "segmentHandFrameCount": sum(1 for frame in segment_frames if frame["hasHands"]),
++        "segmentTimestampsMs": [frame["timestampMs"] for frame in segment_frames],
++        "segmentHasHands": [frame["hasHands"] for frame in segment_frames],
++        "sequenceTimestampsMs": sequence_snapshot["timestampsMs"],
++        "inference": inference_result,
++        "sequenceFrames": sequence_snapshot["frames"],
++    }
++
++    safe_glosses = "_".join(glosses) if glosses else "empty"
++    filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]}_{safe_glosses}.json"
++    target_path = output_dir / filename
++    target_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
++    print(f"Debug dump saved: {target_path}")
++
++
++def parse_args():
++    parser = argparse.ArgumentParser(description="Realtime webcam inference for V6 TFLite models.")
++    parser.add_argument("--model-dir", default=DEFAULT_MODEL_DIR, help="Model directory")
++    parser.add_argument(
++        "--precision",
++        choices=["float32", "float16"],
++        default="float16",
++        help="Precision of the tflite model to load",
++    )
++    parser.add_argument(
++        "--dump-dir",
++        default=None,
++        help="Optional directory for PC TFLite utterance dumps. Defaults to <model_dir>/pc-sign-pipeline-dumps",
++    )
++    return parser.parse_args()
++
++
++def main():
++    args = parse_args()
++    model_dir = resolve_from_base(args.model_dir)
++    dump_dir = Path(args.dump_dir).resolve() if args.dump_dir else (model_dir / "pc-sign-pipeline-dumps")
++
++    tflite_path = model_dir / f"best_sign_model_v6_{args.precision}.tflite"
++    config_path = model_dir / "train_config_v6.json"
++    label_map_path = model_dir / "label_map_v6.json"
++
++    if not tflite_path.exists() or not config_path.exists() or not label_map_path.exists():
++        print(f"Model files not found in {model_dir}. Please make sure you copied the .tflite files here!")
++        print(f"Missing: {tflite_path}")
++        return
++
++    with open(config_path, "r", encoding="utf-8") as f:
++        config = json.load(f)
++
++    with open(label_map_path, "r", encoding="utf-8") as f:
++        label_map_raw = json.load(f)
++        label_map = {int(k): v for k, v in label_map_raw.items()}
++
++    normalize_mode = config["stats"].get("normalize_mode", "shoulder")
++    num_classes = len(label_map)
++
++    print(f"Loading TFLite model from {tflite_path} ...")
++    interpreter = tf.lite.Interpreter(model_path=str(tflite_path))
++    interpreter.allocate_tensors()
++    input_details = interpreter.get_input_details()
++    output_details = interpreter.get_output_details()
++
++    print(f"Loaded {args.precision} TFLite model!")
++    print(f"Normalize Mode: {normalize_mode}")
++    print(f"Classes: {num_classes}")
++    print(f"Dump Dir: {dump_dir}")
++
++    mp_holistic = mp.solutions.holistic
++    mp_drawing = mp.solutions.drawing_utils
++    cap = cv2.VideoCapture(0)
++
++    frame_window = deque(maxlen=MAX_LEN)
++    prediction_window = deque(maxlen=PREDICTION_SMOOTHING)
++
++    current_action = "none"
++    current_confidence = 0.0
++    last_pose = None
++    last_face = None
++
++    locked_action = "none"
++    locked_time = 0.0
++    last_logged_action = None
++
++    missing_hand_frames = 0
++    sentence_buffer = []
++    segment_frames = []
++    last_sequence_snapshot = None
++    last_inference_result = None
++
++    neutral_gaps = deque(maxlen=NEUTRAL_FACE_WINDOW)
++    sentence_is_question = False
++
++    with mp_holistic.Holistic(
++        static_image_mode=False,
++        min_detection_confidence=0.5,
++        min_tracking_confidence=0.5,
++    ) as holistic:
++        while cap.isOpened():
++            success, frame = cap.read()
++            if not success:
++                break
++
++            image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
++            results = holistic.process(image_rgb)
++
++            hand_visible = has_visible_hand(results)
++            eyebrow_gap = get_normalized_eyebrow_gap(results)
++            frame_timestamp_ms = int(time.time() * 1000)
++            segment_frames.append({
++                "timestampMs": frame_timestamp_ms,
++                "hasHands": hand_visible,
++            })
++
++            if not hand_visible:
++                missing_hand_frames += 1
++                if eyebrow_gap is not None:
++                    neutral_gaps.append(eyebrow_gap)
++            else:
++                missing_hand_frames = 0
++                current_sentence_type, _, _ = classify_sentence_type(eyebrow_gap, neutral_gaps)
++                if current_sentence_type == "의문문":
++                    sentence_is_question = True
++
++            if missing_hand_frames > 15:
++                if sentence_buffer:
++                    final_type = "의문문" if sentence_is_question else "평서문"
++                    print(f"\n✨ === 최종 문장: {' '.join(sentence_buffer)} ({final_type}) === ✨\n")
++                    dump_utterance(
++                        output_dir=dump_dir,
++                        glosses=sentence_buffer,
++                        sentence_type=final_type,
++                        segment_frames=segment_frames,
++                        sequence_snapshot=last_sequence_snapshot,
++                        inference_result=last_inference_result,
++                    )
++                    sentence_buffer.clear()
++                    sentence_is_question = False
++
++                frame_window.clear()
++                prediction_window.clear()
++                current_action = "none"
++                current_confidence = 0.0
++                last_pose = None
++                last_face = None
++                last_logged_action = None
++                segment_frames.clear()
++                last_sequence_snapshot = None
++                last_inference_result = None
++            else:
++                keypoints, last_pose, last_face = extract_keypoints(results, last_pose, last_face, normalize_mode)
++                frame_window.append(keypoints)
++
++            if len(frame_window) >= 15:
++                input_array = pad_sequence(frame_window)
++                input_tensor = np.expand_dims(input_array, axis=0).astype(np.float32)
++
++                interpreter.set_tensor(input_details[0]["index"], input_tensor)
++                interpreter.invoke()
++                probs = interpreter.get_tensor(output_details[0]["index"])[0]
++
++                inference_payload = build_inference_payload(probs, label_map, CONFIDENCE_THRESHOLD)
++                predicted_label = inference_payload["rawGloss"]
++                current_confidence = inference_payload["confidence"]
++                last_inference_result = inference_payload
++                last_sequence_snapshot = {
++                    "timestampsMs": [frame["timestampMs"] for frame in segment_frames[-len(input_array):]],
++                    "frames": input_array.astype(np.float32).tolist(),
++                }
++
++                if current_confidence >= CONFIDENCE_THRESHOLD:
++                    prediction_window.append(predicted_label)
++                else:
++                    prediction_window.clear()
++                    prediction_window.append("none")
++
++                if prediction_window:
++                    candidate, count = Counter(prediction_window).most_common(1)[0]
++                    if candidate == "none" or count >= STABLE_MIN_COUNT:
++                        current_action = candidate
++
++                        if current_action != "none":
++                            if current_action != last_logged_action:
++                                print(f"👉 Detected: {current_action} (Confidence: {current_confidence:.3f})")
++                                locked_action = current_action
++                                locked_time = time.time()
++                                last_logged_action = current_action
++
++                                if not sentence_buffer or sentence_buffer[-1] != current_action:
++                                    sentence_buffer.append(current_action)
++                        else:
++                            last_logged_action = None
++
++            if time.time() - locked_time > 2.0:
++                locked_action = "none"
++
++            mp_drawing.draw_landmarks(frame, results.pose_landmarks, mp_holistic.POSE_CONNECTIONS)
++            mp_drawing.draw_landmarks(frame, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
++            mp_drawing.draw_landmarks(frame, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
++
++            sentence_str = " ".join(sentence_buffer) if sentence_buffer else ""
++            type_str = "의문문" if sentence_is_question else "평서문"
++
++            display_frame = cv2.flip(frame, 1)
++            display_frame = draw_text(
++                display_frame,
++                [
++                    f"Model: TFLite V6 ({args.precision})",
++                    f"Live Pred: {current_action} ({current_confidence:.2f})",
++                    f"Result: {locked_action if locked_action != 'none' else ''}",
++                    f"Buffer: {sentence_str} ({type_str})",
++                    f"Frames: {len(frame_window)}/{MAX_LEN}",
++                    "Quit: q",
++                ],
++            )
++
++            cv2.imshow("V6 TFLite Real-time Inference", display_frame)
++
++            if cv2.waitKey(1) & 0xFF == ord("q"):
++                break
++
++    if sentence_buffer:
++        final_type = "의문문" if sentence_is_question else "평서문"
++        dump_utterance(
++            output_dir=dump_dir,
++            glosses=sentence_buffer,
++            sentence_type=final_type,
++            segment_frames=segment_frames,
++            sequence_snapshot=last_sequence_snapshot,
++            inference_result=last_inference_result,
++        )
++
++    cap.release()
++    cv2.destroyAllWindows()
++
++
++if __name__ == "__main__":
++    main()
+
+
+diff --git a/ai/src/sign2text_tcn/inference_realtime_v6.py b/ai/src/sign2text_tcn/inference_realtime_v6.py
+--- /dev/null
++++ b/ai/src/sign2text_tcn/inference_realtime_v6.py
+@@ -0,0 +1,396 @@
++﻿import argparse
++import json
++import os
++import time
++from collections import Counter, deque
++from pathlib import Path
++
++import cv2
++import mediapipe as mp
++import numpy as np
++import torch
++from PIL import Image, ImageDraw, ImageFont
++
++from model import build_ksl_model_v6
++
++INPUT_DIM = 332
++LANDMARK_DIM = 282
++MAX_LEN = 30
++CONFIDENCE_THRESHOLD = 0.80
++PREDICTION_SMOOTHING = 5
++STABLE_MIN_COUNT = 4
++
++BASE_DIR = Path(__file__).resolve().parent / "models"
++DEFAULT_MODEL_DIR = "v6_24words_tcn_2"
++
++NEUTRAL_FACE_WINDOW = 45
++MIN_NEUTRAL_FACE_SAMPLES = 15
++QUESTION_EYEBROW_DELTA_THRESHOLD = 0.055
++
++LEFT_EYEBROW_IDXS = [70, 63, 105, 66]
++RIGHT_EYEBROW_IDXS = [336, 296, 334, 293]
++LEFT_EYE_CENTER_IDXS = [33, 133]
++RIGHT_EYE_CENTER_IDXS = [362, 263]
++
++BASE_FACE_IDXS = [
++    70, 63, 105, 66,
++    336, 296, 334, 293,
++    33, 160, 158, 133, 153, 144,
++    362, 385, 387, 263, 373, 380,
++    61, 146, 91, 181, 84, 17, 314, 405, 321, 375,
++]
++FACEPLUS_IDXS = [
++    1, 4,
++    152,
++    234, 454,
++    172, 397,
++    148, 377,
++    13, 14,
++    78, 308,
++    82, 312,
++]
++FACE_IDXS = BASE_FACE_IDXS + FACEPLUS_IDXS
++POSE_IDXS = [0, 7, 8, 11, 12, 13, 14]
++HAND_TIP_IDXS = [4, 8, 12, 16, 20]
++FACE_ANCHOR_IDXS = [1, 13, 152, 234, 454]
++
++LEFT_SHOULDER_IDX = 90
++RIGHT_SHOULDER_IDX = 91
++
++def resolve_from_base(path):
++    path = Path(path)
++    if path.is_absolute():
++        return path
++    return (BASE_DIR / path).resolve()
++
++def _flatten_landmarks(landmarks, idxs):
++    return np.array(
++        [[landmarks[idx].x, landmarks[idx].y, landmarks[idx].z] for idx in idxs],
++        dtype=np.float32,
++    ).flatten()
++
++def _hand_array(hand_landmarks):
++    if not hand_landmarks:
++        return np.zeros((21, 3), dtype=np.float32), False
++    points = np.array([[lm.x, lm.y, lm.z] for lm in hand_landmarks.landmark], dtype=np.float32)
++    return points, True
++
++def _hand_face_distances(left_hand, left_present, right_hand, right_present, face_landmarks):
++    if not face_landmarks:
++        return np.zeros(len(HAND_TIP_IDXS) * 2 * len(FACE_ANCHOR_IDXS), dtype=np.float32)
++
++    anchors = np.array(
++        [
++            [face_landmarks.landmark[idx].x, face_landmarks.landmark[idx].y, face_landmarks.landmark[idx].z]
++            for idx in FACE_ANCHOR_IDXS
++        ],
++        dtype=np.float32,
++    )
++
++    features = []
++    for hand_points, is_present in ((left_hand, left_present), (right_hand, right_present)):
++        if not is_present:
++            features.extend([0.0] * (len(HAND_TIP_IDXS) * len(FACE_ANCHOR_IDXS)))
++            continue
++
++        for tip_idx in HAND_TIP_IDXS:
++            tip = hand_points[tip_idx]
++            features.extend(np.linalg.norm(anchors - tip, axis=1).tolist())
++
++    return np.array(features, dtype=np.float32)
++
++def extract_keypoints(results, last_pose, last_face, normalize_mode):
++    left_hand, left_present = _hand_array(results.left_hand_landmarks)
++    right_hand, right_present = _hand_array(results.right_hand_landmarks)
++    lh = left_hand.flatten()
++    rh = right_hand.flatten()
++
++    if results.face_landmarks:
++        face = _flatten_landmarks(results.face_landmarks.landmark, FACE_IDXS)
++        last_face = face
++    else:
++        face = last_face if last_face is not None else np.zeros(len(FACE_IDXS) * 3, dtype=np.float32)
++
++    if results.pose_landmarks:
++        pose = _flatten_landmarks(results.pose_landmarks.landmark, POSE_IDXS)
++        last_pose = pose
++    else:
++        pose = last_pose if last_pose is not None else np.zeros(len(POSE_IDXS) * 3, dtype=np.float32)
++
++    distances = _hand_face_distances(
++        left_hand, left_present, right_hand, right_present, results.face_landmarks
++    )
++
++    feature = np.concatenate([lh, rh, face, pose, distances]).astype(np.float32)
++    if feature.shape[0] != INPUT_DIM:
++        raise ValueError(f"Unexpected feature dim: {feature.shape[0]} != {INPUT_DIM}")
++
++    return normalize_features(feature, normalize_mode), last_pose, last_face
++
++def normalize_features(feature, normalize_mode):
++    if normalize_mode in ("none", "raw", "off"):
++        return np.array(feature, dtype=np.float32)
++
++    landmarks = feature[:LANDMARK_DIM].reshape(-1, 3)
++    distances = feature[LANDMARK_DIM:]
++
++    l_shoulder = landmarks[LEFT_SHOULDER_IDX]
++    r_shoulder = landmarks[RIGHT_SHOULDER_IDX]
++    shoulder_center = (l_shoulder + r_shoulder) / 2.0
++
++    shoulder_width = np.linalg.norm(l_shoulder - r_shoulder)
++    if shoulder_width < 1e-6:
++        shoulder_width = 1.0
++
++    normalized_landmarks = (landmarks - shoulder_center) / shoulder_width
++    normalized_distances = distances / shoulder_width
++    return np.concatenate([normalized_landmarks.flatten(), normalized_distances]).astype(np.float32)
++
++def get_normalized_eyebrow_gap(results):
++    if not results.face_landmarks:
++        return None
++
++    landmarks = results.face_landmarks.landmark
++    left_eye = np.mean([[landmarks[idx].x, landmarks[idx].y] for idx in LEFT_EYE_CENTER_IDXS], axis=0)
++    right_eye = np.mean([[landmarks[idx].x, landmarks[idx].y] for idx in RIGHT_EYE_CENTER_IDXS], axis=0)
++    eye_distance = np.linalg.norm(left_eye - right_eye)
++    if eye_distance < 1e-6:
++        return None
++
++    eyebrow_y = np.mean([landmarks[idx].y for idx in LEFT_EYEBROW_IDXS + RIGHT_EYEBROW_IDXS])
++    eye_y = np.mean([landmarks[idx].y for idx in LEFT_EYE_CENTER_IDXS + RIGHT_EYE_CENTER_IDXS])
++    return float((eye_y - eyebrow_y) / eye_distance)
++
++def classify_sentence_type(current_gap, neutral_gaps):
++    if current_gap is None or len(neutral_gaps) < MIN_NEUTRAL_FACE_SAMPLES:
++        return "?됱꽌臾?, 0.0, None
++
++    neutral_gap = float(np.median(neutral_gaps))
++    eyebrow_delta = current_gap - neutral_gap
++
++    if eyebrow_delta >= QUESTION_EYEBROW_DELTA_THRESHOLD:
++        return "?섎Ц臾?, eyebrow_delta, neutral_gap
++
++    return "?됱꽌臾?, eyebrow_delta, neutral_gap
++
++def has_visible_hand(results):
++    return results.left_hand_landmarks is not None or results.right_hand_landmarks is not None
++
++def pad_sequence(sequence, max_len=MAX_LEN):
++    frames = np.array(sequence, dtype=np.float32)
++    if len(frames) == 0:
++        return np.zeros((max_len, INPUT_DIM), dtype=np.float32)
++
++    if len(frames) > max_len:
++        indices = np.linspace(0, len(frames) - 1, max_len, dtype=int)
++        return frames[indices]
++
++    if len(frames) < 15:
++        indices = np.linspace(0, len(frames) - 1, max_len)
++        upsampled = np.zeros((max_len, INPUT_DIM), dtype=np.float32)
++        for i, float_idx in enumerate(indices):
++            low = int(np.floor(float_idx))
++            high = int(np.ceil(float_idx))
++            weight = float_idx - low
++            if low == high:
++                upsampled[i] = frames[low]
++            else:
++                upsampled[i] = frames[low] * (1 - weight) + frames[high] * weight
++        return upsampled
++
++    pad_len = max_len - len(frames)
++    padding = np.repeat(frames[-1:], pad_len, axis=0)
++    return np.vstack((frames, padding)).astype(np.float32)
++
++def draw_text(frame, lines):
++    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
++    draw = ImageDraw.Draw(image)
++
++    try:
++        font = ImageFont.truetype("malgun.ttf", 30)
++    except Exception:
++        font = ImageFont.load_default()
++
++    y = 25
++    for line in lines:
++        draw.text((25, y), line, font=font, fill=(0, 255, 0))
++        y += 38
++
++    return cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
++
++def parse_args():
++    parser = argparse.ArgumentParser(description="Realtime webcam inference for V6 PyTorch models.")
++    parser.add_argument("--model-dir", default=DEFAULT_MODEL_DIR, help="Model directory under Transformer_v5_Impl/models")
++    return parser.parse_args()
++
++def main():
++    args = parse_args()
++    model_dir = resolve_from_base(args.model_dir)
++
++    model_path = model_dir / "best_sign_model_v6.pt"
++    config_path = model_dir / "train_config_v6.json"
++    label_map_path = model_dir / "label_map_v6.json"
++
++    if not model_path.exists() or not config_path.exists() or not label_map_path.exists():
++        print(f"Model files not found in {model_dir}.")
++        return
++
++    with open(config_path, "r", encoding="utf-8") as f:
++        config = json.load(f)
++
++    with open(label_map_path, "r", encoding="utf-8") as f:
++        label_map_raw = json.load(f)
++        label_map = {int(k): v for k, v in label_map_raw.items()}
++
++    model_type = config.get("model_type", "tcn")
++    normalize_mode = config["stats"].get("normalize_mode", "shoulder")
++    num_classes = len(label_map)
++
++    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
++    model = build_ksl_model_v6(model_type=model_type, num_classes=num_classes)
++    model.load_state_dict(torch.load(model_path, map_location=device))
++    model.to(device)
++    model.eval()
++
++    print(f"Loaded {model_type} model from {model_dir}")
++    print(f"Normalize Mode: {normalize_mode}")
++    print(f"Classes: {num_classes}")
++
++    mp_holistic = mp.solutions.holistic
++    mp_drawing = mp.solutions.drawing_utils
++    cap = cv2.VideoCapture(0)
++
++    frame_window = deque(maxlen=MAX_LEN)
++    prediction_window = deque(maxlen=PREDICTION_SMOOTHING)
++
++    current_action = "none"
++    current_confidence = 0.0
++    last_pose = None
++    last_face = None
++
++    # 理쒖쥌 ?뺤젙???⑥뼱? ??꾩뒪?ы봽 (2珥??좎???
++    locked_action = "none"
++    locked_time = 0.0
++    last_logged_action = None
++
++    missing_hand_frames = 0
++    sentence_buffer = [] # 臾몄옣 ?꾩쟻??踰꾪띁
++
++    neutral_gaps = deque(maxlen=NEUTRAL_FACE_WINDOW)
++    sentence_is_question = False
++
++    with mp_holistic.Holistic(
++        static_image_mode=False, min_detection_confidence=0.5, min_tracking_confidence=0.5,
++    ) as holistic:
++        while cap.isOpened():
++            success, frame = cap.read()
++            if not success:
++                break
++
++            image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
++            results = holistic.process(image_rgb)
++
++            hand_visible = has_visible_hand(results)
++            eyebrow_gap = get_normalized_eyebrow_gap(results)
++
++            if not hand_visible:
++                missing_hand_frames += 1
++                if eyebrow_gap is not None:
++                    neutral_gaps.append(eyebrow_gap)
++            else:
++                missing_hand_frames = 0
++                current_sentence_type, current_eyebrow_delta, current_neutral_gap = classify_sentence_type(
++                    eyebrow_gap, neutral_gaps
++                )
++                if current_sentence_type == "?섎Ц臾?:
++                    sentence_is_question = True
++
++            # ?먯씠 15?꾨젅????0.5珥? ?댁긽 ?곗냽?쇰줈 ??蹂댁씪 ?뚮쭔 珥덇린??
++            if missing_hand_frames > 15:
++                # ?먯씠 ?щ씪吏硫?吏湲덇퉴吏 紐⑥? ?⑥뼱?ㅼ쓣 臾몄옣?쇰줈 異쒕젰
++                if sentence_buffer:
++                    final_type = "?섎Ц臾? if sentence_is_question else "?됱꽌臾?
++                    print(f"\n??=== 理쒖쥌 臾몄옣: {' '.join(sentence_buffer)} ({final_type}) === ??n")
++                    sentence_buffer.clear()
++                    sentence_is_question = False
++
++                frame_window.clear()
++                prediction_window.clear()
++                current_action = "none"
++                current_confidence = 0.0
++                last_pose = None
++                last_face = None
++                last_logged_action = None
++            else:
++                # ?먯씠 ?좉퉸 ??蹂댁뿬??鍮?醫뚰몴(0)濡?梨꾩썙???먯쓽 ?먮쫫???좎???
++                keypoints, last_pose, last_face = extract_keypoints(results, last_pose, last_face, normalize_mode)
++                frame_window.append(keypoints)
++
++            # 30?꾨젅?꾩쓣 ??湲곕떎由ъ? ?딄퀬 15?꾨젅??0.5珥?留?紐⑥뿬??諛붾줈 蹂닿컙(upsample)?섏뿬 異붾줎 ?쒖옉
++            if len(frame_window) >= 15:
++                input_array = pad_sequence(frame_window)
++                input_tensor = torch.tensor(input_array, dtype=torch.float32).unsqueeze(0).to(device)
++
++                with torch.no_grad():
++                    outputs = model(input_tensor, return_probs=True)
++                    probs = outputs[0].cpu().numpy()
++
++                max_idx = np.argmax(probs)
++                predicted_label = label_map[max_idx]
++                current_confidence = probs[max_idx]
++
++                if current_confidence >= CONFIDENCE_THRESHOLD:
++                    prediction_window.append(predicted_label)
++                else:
++                    prediction_window.clear()
++                    prediction_window.append("none")
++
++                if prediction_window:
++                    candidate, count = Counter(prediction_window).most_common(1)[0]
++                    if candidate == "none" or count >= STABLE_MIN_COUNT:
++                        current_action = candidate
++
++                        # none???꾨땶 ?덈줈???⑥뼱媛 ?뺤젙?섏뿀????
++                        if current_action != "none":
++                            if current_action != last_logged_action:
++                                print(f"?몛 Detected: {current_action} (Confidence: {current_confidence:.3f})")
++                                locked_action = current_action
++                                locked_time = time.time()
++                                last_logged_action = current_action
++
++                                # 臾몄옣 踰꾪띁???⑥뼱 異붽? (以묐났 諛⑹?)
++                                if not sentence_buffer or sentence_buffer[-1] != current_action:
++                                    sentence_buffer.append(current_action)
++                        else:
++                            last_logged_action = None
++
++            # 2珥덇? 吏?섎㈃ ?꾩썙二쇰뜕 ?⑥뼱瑜?吏?
++            if time.time() - locked_time > 2.0:
++                locked_action = "none"
++
++            mp_drawing.draw_landmarks(frame, results.pose_landmarks, mp_holistic.POSE_CONNECTIONS)
++            mp_drawing.draw_landmarks(frame, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
++            mp_drawing.draw_landmarks(frame, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
++
++            display_frame = cv2.flip(frame, 1)
++            display_frame = draw_text(
++                display_frame,
++                [
++                    f"Model: {model_type.upper()} ({normalize_mode})",
++                    f"Live Pred: {current_action} ({current_confidence:.2f})",
++                    f"Result: {locked_action if locked_action != 'none' else ''}",
++                    f"Frames: {len(frame_window)}/{MAX_LEN}",
++                    "Quit: q",
++                ],
++            )
++
++            cv2.imshow("V6 Real-time Inference", display_frame)
++
++            if cv2.waitKey(1) & 0xFF == ord("q"):
++                break
++
++    cap.release()
++    cv2.destroyAllWindows()
++
++if __name__ == "__main__":
++    main()
+
+
+diff --git a/ai/src/sign2text_tcn/local_zip_to_npy_pipeline.py b/ai/src/sign2text_tcn/local_zip_to_npy_pipeline.py
+--- /dev/null
++++ b/ai/src/sign2text_tcn/local_zip_to_npy_pipeline.py
+@@ -0,0 +1,193 @@
++import argparse
++import json
++import os
++import shutil
++import tempfile
++import zipfile
++from collections import Counter, defaultdict
++from pathlib import Path
++
++from aihub_to_local_npy_pipeline import (
++    DEFAULT_BATCH_SIZE,
++    DEFAULT_MAX_WORKERS,
++    DEFAULT_OUTPUT_DIR,
++    DEFAULT_TASKS_PER_CHILD,
++    get_int_env,
++    process_jobs_in_batches,
++)
++from target_words_v6 import TARGET_WORDS
++
++
++DEFAULT_ZIP_PATTERN = "*real_word_video.zip"
++DEFAULT_MAPPING = "AI_Hub_Video_Mapping_v6.json"
++
++
++def load_filename_to_label(mapping_path):
++    with Path(mapping_path).open("r", encoding="utf-8") as f:
++        mapping = json.load(f)
++
++    filename_to_label = {}
++    label_counts = {}
++    for label in TARGET_WORDS:
++        videos = mapping.get(label, [])
++        label_counts[label] = len(videos)
++        for video in videos:
++            filename_to_label[video["filename"]] = label
++
++    return filename_to_label, label_counts
++
++
++def find_zip_files(zip_roots, zip_pattern):
++    zip_files = []
++    zip_counts = {}
++
++    for zip_root in zip_roots:
++        matches = sorted(zip_root.rglob(zip_pattern))
++        zip_counts[str(zip_root)] = len(matches)
++        zip_files.extend(matches)
++
++    return sorted(dict.fromkeys(zip_files)), zip_counts
++
++
++def scan_zip_members(zip_files):
++    filename_files = defaultdict(list)
++    zip_member_count = Counter()
++
++    for zip_path in zip_files:
++        with zipfile.ZipFile(zip_path, "r") as archive:
++            for member in archive.namelist():
++                filename = os.path.basename(member)
++                if not filename.lower().endswith(".mp4"):
++                    continue
++
++                filename_files[filename].append((zip_path, member, filename))
++                zip_member_count[zip_path.name] += 1
++
++    return filename_files, zip_member_count
++
++
++def output_path_for(output_dir, base_label, filename):
++    return output_dir / base_label / (Path(filename).stem + ".npy")
++
++
++def extract_members_to_temp(filename_to_label, filename_files, output_dir, temp_dir, overwrite):
++    jobs = []
++    counters = Counter()
++
++    for filename, base_label in filename_to_label.items():
++        matches = filename_files.get(filename, [])
++        if not matches:
++            counters[f"missing_in_zip/{base_label}"] += 1
++            continue
++
++        for zip_path, member, matched_filename in matches[:1]:
++            output_path = output_path_for(output_dir, base_label, matched_filename)
++            if output_path.exists() and not overwrite:
++                counters[f"skipped_existing/{base_label}"] += 1
++                continue
++
++            temp_label_dir = temp_dir / base_label
++            temp_label_dir.mkdir(parents=True, exist_ok=True)
++            temp_video_path = temp_label_dir / matched_filename
++
++            with zipfile.ZipFile(zip_path, "r") as archive:
++                with archive.open(member) as source, temp_video_path.open("wb") as target:
++                    shutil.copyfileobj(source, target)
++
++            jobs.append((temp_video_path, output_path))
++            counters[f"pending/{base_label}"] += 1
++
++    return jobs, counters
++
++
++def parse_args():
++    parser = argparse.ArgumentParser(
++        description="Create local npy files from pre-downloaded AIHub word ZIP files."
++    )
++    parser.add_argument(
++        "--zip-root",
++        action="append",
++        required=True,
++        help=(
++            "Root directory containing *_real_word_video.zip files. "
++            "Pass this option multiple times to scan split AIHub folders."
++        ),
++    )
++    parser.add_argument(
++        "--mapping",
++        default=DEFAULT_MAPPING,
++        help=f"Mapping JSON path. Default: {DEFAULT_MAPPING}",
++    )
++    parser.add_argument("--zip-pattern", default=DEFAULT_ZIP_PATTERN)
++    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
++    parser.add_argument("--overwrite", action="store_true")
++    parser.add_argument("--max-workers", type=int, default=get_int_env("ONDEVICE_MAX_WORKERS", DEFAULT_MAX_WORKERS))
++    parser.add_argument("--batch-size", type=int, default=get_int_env("ONDEVICE_BATCH_SIZE", DEFAULT_BATCH_SIZE))
++    parser.add_argument(
++        "--tasks-per-child",
++        type=int,
++        default=get_int_env("ONDEVICE_TASKS_PER_CHILD", DEFAULT_TASKS_PER_CHILD),
++    )
++    return parser.parse_args()
++
++
++def main():
++    args = parse_args()
++    zip_roots = [Path(root).expanduser().resolve() for root in args.zip_root]
++    mapping_path = Path(args.mapping).resolve()
++    output_dir = Path(args.output_dir).resolve()
++    output_dir.mkdir(parents=True, exist_ok=True)
++
++    missing_roots = [zip_root for zip_root in zip_roots if not zip_root.exists()]
++    if missing_roots:
++        missing = "\n".join(str(zip_root) for zip_root in missing_roots)
++        raise FileNotFoundError(f"zip root not found:\n{missing}")
++    if not mapping_path.exists():
++        raise FileNotFoundError(f"mapping not found: {mapping_path}")
++
++    zip_files, zip_counts = find_zip_files(zip_roots, args.zip_pattern)
++    if not zip_files:
++        roots = "\n".join(str(zip_root) for zip_root in zip_roots)
++        raise FileNotFoundError(f"No ZIP files found: roots=\n{roots}\npattern={args.zip_pattern}")
++
++    print("ZIP roots:")
++    for zip_root in zip_roots:
++        print(f"- {zip_root}: {zip_counts.get(str(zip_root), 0)}")
++    print(f"ZIP files: {len(zip_files)}")
++    print(f"Mapping: {mapping_path}")
++    print(f"Output dir: {output_dir}")
++
++    filename_to_label, label_counts = load_filename_to_label(mapping_path)
++    filename_files, _ = scan_zip_members(zip_files)
++
++    print("Mapping target counts:")
++    for label in TARGET_WORDS:
++        print(f"- {label}: {label_counts.get(label, 0)}")
++
++    with tempfile.TemporaryDirectory(prefix="local_zip_mp4_") as temp_root:
++        jobs, counters = extract_members_to_temp(
++            filename_to_label=filename_to_label,
++            filename_files=filename_files,
++            output_dir=output_dir,
++            temp_dir=Path(temp_root),
++            overwrite=args.overwrite,
++        )
++
++        print(f"Pending local ZIP mp4 files: {len(jobs)}")
++        print("Counters:")
++        for key, value in sorted(counters.items()):
++            print(f"- {key}: {value}")
++
++        if jobs:
++            process_jobs_in_batches(
++                jobs,
++                max_workers=max(args.max_workers, 1),
++                batch_size=max(args.batch_size, args.max_workers, 1),
++                tasks_per_child=max(args.tasks_per_child, 1),
++            )
++
++    print("Local ZIP to npy generation complete.")
++
++
++if __name__ == "__main__":
++    main()
+
+
+diff --git a/ai/src/sign2text_tcn/target_words_v6.py b/ai/src/sign2text_tcn/target_words_v6.py
+--- /dev/null
++++ b/ai/src/sign2text_tcn/target_words_v6.py
+@@ -0,0 +1,25 @@
++TARGET_WORDS = [
++    "걷다",
++    "가다",
++    "주다",
++    "돕다",
++    "배고프다",
++    "아기",
++    "좋다",
++    "싫다",
++    "감기",
++    "기차",
++    "놀다",
++    "목마르다",
++    "무섭다",
++    "밥",
++    "손",
++    "아프다",
++    "웃다",
++    "장난감",
++    "조심",
++    "병원",
++    "엄마",
++    "감사",
++    "none",
++]
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/docs/QuizControllerDocs.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/docs/QuizControllerDocs.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/docs/QuizControllerDocs.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/docs/QuizControllerDocs.java
+@@ -74,7 +74,10 @@ recognizedText를 빈 문자열로 처리하여 1점 답변으로 저장합니
+       @Parameter(description = "현재 문제 ID", example = "101") @RequestParam Long questionId,
+       @Parameter(description = "아이 음성 파일. 무음/미전송 가능", content = @Content(mediaType = "audio/webm"))
+           @RequestPart(value = "audioFile", required = false)
+-          MultipartFile audioFile);
++          MultipartFile audioFile,
++      @Parameter(description = "STT 없이 저장할 인식 텍스트. 무음 오답 처리 시 빈 문자열 전달")
++          @RequestPart(value = "recognizedText", required = false)
++          String recognizedText);
+ 
+   @Operation(
+       summary = "퀴즈 결과 조회",
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/QuizController.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/QuizController.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/QuizController.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/QuizController.java
+@@ -48,9 +48,10 @@ public class QuizController implements QuizControllerDocs {
+       Authentication authentication,
+       @PathVariable Long sessionId,
+       @RequestParam Long questionId,
+-      @RequestPart(value = "audioFile", required = false) MultipartFile audioFile) {
++      @RequestPart(value = "audioFile", required = false) MultipartFile audioFile,
++      @RequestPart(value = "recognizedText", required = false) String recognizedText) {
+     return quizService.submitAnswer(
+-        resolveUserId(authentication), sessionId, questionId, audioFile);
++        resolveUserId(authentication), sessionId, questionId, audioFile, recognizedText);
+   }
+ 
+   @Override
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizService.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizService.java
+@@ -142,7 +142,11 @@ public class QuizService {
+ 
+   @Transactional
+   public QuizAnswerResponse submitAnswer(
+-      Long userId, Long sessionId, Long questionId, MultipartFile audioFile) {
++      Long userId,
++      Long sessionId,
++      Long questionId,
++      MultipartFile audioFile,
++      String submittedRecognizedText) {
+     QuizSession session = getOwnedSession(sessionId, userId);
+ 
+     if (session.isCompleted()) {
+@@ -165,7 +169,7 @@ public class QuizService {
+     Learn word = question.getWord();
+     String targetText = word.getDisplayText();
+ 
+-    String recognizedText = transcribeOrEmpty(audioFile);
++    String recognizedText = transcribeOrEmpty(audioFile, submittedRecognizedText);
+     QuizGrade grade = quizGradingService.grade(targetText, recognizedText);
+ 
+     QuizAnswer answer =
+@@ -290,7 +294,11 @@ public class QuizService {
+     }
+   }
+ 
+-  private String transcribeOrEmpty(MultipartFile audioFile) {
++  private String transcribeOrEmpty(MultipartFile audioFile, String submittedRecognizedText) {
++    if (submittedRecognizedText != null) {
++      return submittedRecognizedText.strip();
++    }
++
+     if (audioFile == null || audioFile.isEmpty()) {
+       return "";
+     }
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/child/service/ChildOwnershipServiceTest.java b/backend/src/test/java/com/ssafy/backend/domain/child/service/ChildOwnershipServiceTest.java
+--- a/backend/src/test/java/com/ssafy/backend/domain/child/service/ChildOwnershipServiceTest.java
++++ b/backend/src/test/java/com/ssafy/backend/domain/child/service/ChildOwnershipServiceTest.java
+@@ -156,7 +156,7 @@ class ChildOwnershipServiceTest {
+     givenSessionOfUnownedOrInactiveChild();
+ 
+     assertChildNotFoundAndVerifyOwnership(
+-        () -> quizService.submitAnswer(USER_ID, SESSION_ID, 1L, null));
++        () -> quizService.submitAnswer(USER_ID, SESSION_ID, 1L, null, null));
+     verify(quizSessionRepository).findById(SESSION_ID);
+     verifyNoInteractions(quizQuestionRepository, quizAnswerRepository);
+   }
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/learn/quiz/service/QuizServiceFlowTest.java b/backend/src/test/java/com/ssafy/backend/domain/learn/quiz/service/QuizServiceFlowTest.java
+--- a/backend/src/test/java/com/ssafy/backend/domain/learn/quiz/service/QuizServiceFlowTest.java
++++ b/backend/src/test/java/com/ssafy/backend/domain/learn/quiz/service/QuizServiceFlowTest.java
+@@ -98,6 +98,13 @@ class QuizServiceFlowTest {
+               setId(session, SESSION_ID);
+               return session;
+             });
++    when(quizQuestionRepository.save(any(QuizQuestion.class)))
++        .thenAnswer(
++            invocation -> {
++              QuizQuestion question = invocation.getArgument(0);
++              setId(question, QUESTION_ID + question.getQuestionNumber() - 1);
++              return question;
++            });
+ 
+     QuizSessionCreateResponse response = quizService.createSession(USER_ID, request);
+ 
+@@ -161,7 +168,7 @@ class QuizServiceFlowTest {
+     givenOwnedSession(session);
+ 
+     assertBusinessError(
+-        () -> quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile()),
++        () -> quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile(), null),
+         QuizErrorCode.SESSION_ALREADY_COMPLETED);
+     verifyNoInteractions(quizQuestionRepository, quizAnswerRepository, clovaSttClient);
+   }
+@@ -178,7 +185,7 @@ class QuizServiceFlowTest {
+     when(quizQuestionRepository.findById(QUESTION_ID)).thenReturn(Optional.of(question));
+ 
+     assertBusinessError(
+-        () -> quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile()),
++        () -> quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile(), null),
+         QuizErrorCode.QUESTION_NOT_IN_SESSION);
+     verifyNoInteractions(clovaSttClient, quizGradingService);
+   }
+@@ -194,7 +201,7 @@ class QuizServiceFlowTest {
+     when(quizQuestionRepository.findById(QUESTION_ID)).thenReturn(Optional.of(question));
+ 
+     assertBusinessError(
+-        () -> quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile()),
++        () -> quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile(), null),
+         QuizErrorCode.QUESTION_ALREADY_ANSWERED);
+     verifyNoInteractions(clovaSttClient, quizGradingService);
+   }
+@@ -215,7 +222,7 @@ class QuizServiceFlowTest {
+         .thenReturn(Optional.of(currentQuestion));
+ 
+     assertBusinessError(
+-        () -> quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile()),
++        () -> quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile(), null),
+         QuizErrorCode.NOT_CURRENT_QUESTION);
+     verifyNoInteractions(clovaSttClient, quizGradingService);
+   }
+@@ -241,7 +248,7 @@ class QuizServiceFlowTest {
+     when(quizQuestionRepository.existsBySessionIdAndAnsweredFalse(SESSION_ID)).thenReturn(true);
+ 
+     QuizAnswerResponse response =
+-        quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile());
++        quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile(), null);
+ 
+     assertThat(response.hasNext()).isTrue();
+     assertThat(response.nextQuestionNumber()).isEqualTo(2);
+@@ -283,7 +290,7 @@ class QuizServiceFlowTest {
+     when(quizQuestionRepository.existsBySessionIdAndAnsweredFalse(SESSION_ID)).thenReturn(false);
+ 
+     QuizAnswerResponse response =
+-        quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile());
++        quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile(), null);
+ 
+     assertThat(response.hasNext()).isFalse();
+     assertThat(response.nextQuestionNumber()).isNull();
+@@ -303,7 +310,7 @@ class QuizServiceFlowTest {
+ 
+   @Test
+   @DisplayName("음성 인식 실패 시 답변 제출을 실패 처리한다")
+-  void submitAnswerRejectsSttFailure() {
++  void submitAnswerSavesEmptyRecognizedTextWhenSttFails() {
+     QuizSession session = quizSession(1);
+     QuizQuestion question = question(session, learn(WORD_ID, "사과"), 1);
+     setId(question, QUESTION_ID);
+@@ -315,12 +322,27 @@ class QuizServiceFlowTest {
+         .thenReturn(Optional.of(question));
+     when(clovaSttClient.transcribe(any(MultipartFile.class), eq("ko-KR"), eq("audio/wav")))
+         .thenThrow(new RuntimeException("stt failed"));
++    when(quizGradingService.grade(any(String.class), eq("")))
++        .thenReturn(new QuizGrade(false, 1, "틀렸어요.", "인식 결과 없음", 0.0));
++    when(quizQuestionRepository.existsBySessionIdAndAnsweredFalse(SESSION_ID)).thenReturn(false);
+ 
+-    assertBusinessError(
+-        () -> quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile()),
+-        QuizErrorCode.STT_FAILED);
+-    verify(quizAnswerRepository, never()).save(any());
+-    verifyNoInteractions(quizGradingService);
++    QuizAnswerResponse response =
++        quizService.submitAnswer(USER_ID, SESSION_ID, QUESTION_ID, audioFile(), null);
++
++    assertThat(response.recognizedText()).isEmpty();
++    assertThat(response.isCorrect()).isFalse();
++    assertThat(response.star()).isEqualTo(1);
++    assertThat(response.hasNext()).isFalse();
++    assertThat(question.isAnswered()).isTrue();
++    assertThat(session.getCorrectCount()).isZero();
++    assertThat(session.getTotalStar()).isEqualTo(1);
++    assertThat(session.getStatus()).isEqualTo(QuizSessionStatus.COMPLETED);
++
++    verify(quizGradingService).grade(any(String.class), eq(""));
++    QuizAnswer savedAnswer = captureSavedAnswer();
++    assertThat(savedAnswer.getRecognizedText()).isEmpty();
++    assertThat(savedAnswer.isCorrect()).isFalse();
++    assertThat(savedAnswer.getStar()).isEqualTo(1);
+   }
+ 
+   @Test
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DataStoreTranslationModeRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DataStoreTranslationModeRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DataStoreTranslationModeRepository.kt
+@@ -0,0 +1,41 @@
++package com.ssafy.mobile.feature.conversation.data.repository
++
++import android.content.Context
++import androidx.datastore.core.DataStore
++import androidx.datastore.preferences.core.Preferences
++import androidx.datastore.preferences.core.edit
++import androidx.datastore.preferences.core.stringPreferencesKey
++import androidx.datastore.preferences.preferencesDataStore
++import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
++import com.ssafy.mobile.feature.conversation.domain.repository.TranslationModeRepository
++import dagger.hilt.android.qualifiers.ApplicationContext
++import javax.inject.Inject
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.distinctUntilChanged
++import kotlinx.coroutines.flow.map
++
++private val Context.translationModeDataStore: DataStore<Preferences> by preferencesDataStore(
++    name = "translation_mode_prefs",
++)
++
++class DataStoreTranslationModeRepository
++    @Inject
++    constructor(
++        @param:ApplicationContext private val context: Context,
++    ) : TranslationModeRepository {
++        override val translationMode: Flow<TranslationMode> =
++            context.translationModeDataStore.data
++                .map { preferences ->
++                    TranslationMode.fromStorageValue(preferences[KEY_TRANSLATION_MODE])
++                }.distinctUntilChanged()
++
++        override suspend fun saveTranslationMode(mode: TranslationMode) {
++            context.translationModeDataStore.edit { preferences ->
++                preferences[KEY_TRANSLATION_MODE] = mode.name
++            }
++        }
++
++        private companion object {
++            val KEY_TRANSLATION_MODE = stringPreferencesKey("translation_mode")
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/repository/TranslationModeRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/repository/TranslationModeRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/repository/TranslationModeRepository.kt
+@@ -0,0 +1,10 @@
++package com.ssafy.mobile.feature.conversation.domain.repository
++
++import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
++import kotlinx.coroutines.flow.Flow
++
++interface TranslationModeRepository {
++    val translationMode: Flow<TranslationMode>
++
++    suspend fun saveTranslationMode(mode: TranslationMode)
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
+@@ -2,11 +2,9 @@
+ 
+ package com.ssafy.mobile.feature.quiz.presentation
+ 
+-import android.content.Context
+ import androidx.lifecycle.SavedStateHandle
+ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
+-import com.ssafy.mobile.core.audio.WavFileHeader
+ import com.ssafy.mobile.core.session.ActiveChildStorage
+ import com.ssafy.mobile.feature.learning.domain.model.DEFAULT_LEARNING_DIFFICULTY
+ import com.ssafy.mobile.feature.learning.domain.model.DEFAULT_QUIZ_QUESTION_COUNT
+@@ -21,9 +19,7 @@ import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizQuestion
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionState
+ import dagger.hilt.android.lifecycle.HiltViewModel
+-import dagger.hilt.android.qualifiers.ApplicationContext
+ import java.io.File
+-import java.io.FileOutputStream
+ import javax.inject.Inject
+ import kotlinx.coroutines.CancellationException
+ import kotlinx.coroutines.Dispatchers
+@@ -42,7 +38,6 @@ class QuizQuestionViewModel
+     @Inject
+     constructor(
+         savedStateHandle: SavedStateHandle,
+-        @param:ApplicationContext private val appContext: Context,
+         private val quizRepository: LearningQuizRepository,
+         private val wordRepository: LearningWordRepository,
+         private val activeChildStorage: ActiveChildStorage,
+@@ -164,19 +159,17 @@ class QuizQuestionViewModel
+                 }
+             if (previousAnswer?.isScored == true) return
+ 
+-            val silentAudioFile = createSilentAudioFile(question.id)
+             val fallbackAnswer =
+                 QuizAnswer(
+                     questionId = question.id,
+                     sttText = "",
+                     attemptCount = (previousAnswer?.attemptCount ?: 0) + 1,
+-                    audioFile = silentAudioFile,
+-                    audioMimeType = silentAudioFile?.let { QUIZ_AUDIO_MIME_TYPE },
++                    audioFile = null,
++                    audioMimeType = null,
+                 )
+ 
+             previousAnswer
+                 ?.audioFile
+-                ?.takeIf { it != silentAudioFile }
+                 ?.delete()
+             _quizState.value =
+                 state.copy(
+@@ -207,11 +200,20 @@ class QuizQuestionViewModel
+             }
+ 
+             transitionToFailedAnswer(
+-                sessionId = sessionId,
+-                question = question,
+                 answer = answer,
+                 feedback = QUIZ_SUBMIT_FAILED_FEEDBACK,
+             )
++            viewModelScope.launch {
++                submitFallbackIncorrectAnswerToServer(
++                    sessionId = sessionId,
++                    question = question,
++                )
++            }
++            scheduleAutoAdvanceAfterIncorrectAnswer(
++                sessionId = sessionId,
++                questionId = question.id,
++                expectedSubmitState = QuizAnswerSubmitState.TimedOut::class.java,
++            )
+         }
+ 
+         fun moveToNextQuestion() {
+@@ -691,14 +693,47 @@ class QuizQuestionViewModel
+                             )
+                         }
+                     }.onFailure { throwable ->
+-                        _answerSubmitState.value =
+-                            QuizAnswerSubmitState.SaveFailed(
+-                                throwable.message ?: "답변 저장에 실패했습니다. 다시 시도해주세요.",
+-                            )
++                        transitionToFailedAnswer(
++                            answer = answer,
++                            feedback = throwable.message ?: QUIZ_SUBMIT_FAILED_FEEDBACK,
++                            message = QUIZ_SUBMIT_FAILED_MESSAGE,
++                        )
++                        submitFallbackIncorrectAnswerToServer(
++                            sessionId = sessionId,
++                            question = question,
++                        )
++                        scheduleAutoAdvanceAfterIncorrectAnswer(
++                            sessionId = sessionId,
++                            questionId = question.id,
++                            expectedSubmitState = QuizAnswerSubmitState.TimedOut::class.java,
++                        )
+                     }
+             }
+         }
+ 
++        private suspend fun submitFallbackIncorrectAnswerToServer(
++            sessionId: Long,
++            question: QuizQuestion,
++        ) {
++            val fallbackResult =
++                withContext(Dispatchers.IO) {
++                    quizRepository.submitAnswer(
++                        sessionId = sessionId,
++                        questionId = question.id,
++                        audioFile = null,
++                        audioMimeType = null,
++                    )
++                }
++
++            fallbackResult.onSuccess { answerResult ->
++                applyAnswerResult(answerResult)
++                _answerSubmitState.value =
++                    QuizAnswerSubmitState.TimedOut(
++                        QUIZ_SUBMIT_FAILED_MESSAGE,
++                    )
++            }
++        }
++
+         private fun handleTimedOutSubmission(
+             sessionId: Long,
+             question: QuizQuestion,
+@@ -709,8 +744,6 @@ class QuizQuestionViewModel
+             timeoutFeedback: String,
+         ) {
+             transitionToFailedAnswer(
+-                sessionId = sessionId,
+-                question = question,
+                 answer = answer,
+                 feedback = timeoutFeedback,
+                 message = timeoutMessage,
+@@ -726,8 +759,6 @@ class QuizQuestionViewModel
+         }
+ 
+         private fun transitionToFailedAnswer(
+-            sessionId: Long,
+-            question: QuizQuestion,
+             answer: QuizAnswer,
+             feedback: String,
+             message: String = QUIZ_SUBMIT_FAILED_MESSAGE,
+@@ -740,11 +771,6 @@ class QuizQuestionViewModel
+             )
+             _quizState.value = _quizState.value.copy(errorMessage = null)
+             _answerSubmitState.value = QuizAnswerSubmitState.TimedOut(message)
+-            scheduleAutoAdvanceAfterIncorrectAnswer(
+-                sessionId = sessionId,
+-                questionId = question.id,
+-                expectedSubmitState = QuizAnswerSubmitState.TimedOut::class.java,
+-            )
+         }
+ 
+         @Suppress("ComplexCondition")
+@@ -784,25 +810,6 @@ class QuizQuestionViewModel
+                     currentAnswer.nextQuestionNumber
+                         ?: state.localNextQuestionNumber(questionId)
+                         ?: state.currentQuestionNumber + 1
+-                val hasLocalNextQuestion =
+-                    state.resolveNextQuestionIndex(
+-                        currentQuestionId = questionId,
+-                        nextQuestionNumber = nextQuestionNumber,
+-                    ) != null
+-
+-                if (
+-                    expectedSubmitState == QuizAnswerSubmitState.TimedOut::class.java &&
+-                    !hasLocalNextQuestion &&
+-                    !state.hasCompletePrefetchedQuestionSet()
+-                ) {
+-                    requestNextQuestionAfterTimeout(
+-                        sessionId = sessionId,
+-                        timedOutQuestionId = questionId,
+-                        immediate = true,
+-                    )
+-                    return@launch
+-                }
+-
+                 advanceToNextQuestion(
+                     sessionId = sessionId,
+                     currentQuestionId = questionId,
+@@ -811,45 +818,6 @@ class QuizQuestionViewModel
+             }
+         }
+ 
+-        private fun requestNextQuestionAfterTimeout(
+-            sessionId: Long,
+-            timedOutQuestionId: Long,
+-            immediate: Boolean = false,
+-        ) {
+-            viewModelScope.launch {
+-                if (!immediate) {
+-                    delay(QUIZ_TIMEOUT_FEEDBACK_DELAY_MS)
+-                }
+-
+-                if (_answerSubmitState.value !is QuizAnswerSubmitState.TimedOut) {
+-                    return@launch
+-                }
+-
+-                _quizState.value =
+-                    _quizState.value.copy(
+-                        errorMessage = null,
+-                    )
+-
+-                repeat(QUIZ_NEXT_QUESTION_POLL_ATTEMPTS) {
+-                    val result =
+-                        withContext(Dispatchers.IO) {
+-                            quizRepository.getCurrentQuestion(sessionId)
+-                        }
+-                    val nextQuestion = result.getOrNull()
+-                    if (nextQuestion != null && nextQuestion.questionId != timedOutQuestionId) {
+-                        applyCurrentQuestion(nextQuestion)
+-                        return@launch
+-                    }
+-                    delay(QUIZ_NEXT_QUESTION_POLL_DELAY_MS)
+-                }
+-
+-                if (_answerSubmitState.value is QuizAnswerSubmitState.TimedOut) {
+-                    _answerSubmitState.value =
+-                        QuizAnswerSubmitState.TimedOut(QUIZ_NEXT_QUESTION_DELAY_MESSAGE)
+-                }
+-            }
+-        }
+-
+         private fun awaitLateSubmitResult(
+             sessionId: Long,
+             questionId: Long,
+@@ -884,25 +852,11 @@ class QuizQuestionViewModel
+                                 answerResult.nextQuestionNumber
+                                     ?: state.localNextQuestionNumber(questionId)
+                                     ?: state.currentQuestionNumber + 1
+-                            val hasLocalNextQuestion =
+-                                state.resolveNextQuestionIndex(
+-                                    currentQuestionId = questionId,
+-                                    nextQuestionNumber = nextQuestionNumber,
+-                                ) != null
+-
+-                            if (hasLocalNextQuestion || state.hasCompletePrefetchedQuestionSet()) {
+-                                advanceToNextQuestion(
+-                                    sessionId = sessionId,
+-                                    currentQuestionId = questionId,
+-                                    nextQuestionNumber = nextQuestionNumber,
+-                                )
+-                            } else {
+-                                requestNextQuestionAfterTimeout(
+-                                    sessionId = sessionId,
+-                                    timedOutQuestionId = questionId,
+-                                    immediate = true,
+-                                )
+-                            }
++                            advanceToNextQuestion(
++                                sessionId = sessionId,
++                                currentQuestionId = questionId,
++                                nextQuestionNumber = nextQuestionNumber,
++                            )
+                         } else {
+                             _answerSubmitState.value = QuizAnswerSubmitState.Submitting
+                             isCompletionPending = true
+@@ -949,28 +903,6 @@ class QuizQuestionViewModel
+                 )
+         }
+ 
+-        private fun createSilentAudioFile(questionId: Long): File? =
+-            runCatching {
+-                File
+-                    .createTempFile(
+-                        "$QUIZ_SILENT_AUDIO_PREFIX$questionId",
+-                        QUIZ_SILENT_AUDIO_SUFFIX,
+-                        appContext.cacheDir,
+-                    ).apply {
+-                        FileOutputStream(this).use { outputStream ->
+-                            outputStream.write(
+-                                WavFileHeader.create(
+-                                    pcmDataSize = QUIZ_SILENT_PCM_SIZE_BYTES.toLong(),
+-                                    sampleRate = QUIZ_AUDIO_SAMPLE_RATE,
+-                                    channelCount = QUIZ_AUDIO_CHANNEL_COUNT,
+-                                    bitsPerSample = QUIZ_AUDIO_BITS_PER_SAMPLE,
+-                                ),
+-                            )
+-                            outputStream.write(ByteArray(QUIZ_SILENT_PCM_SIZE_BYTES))
+-                        }
+-                    }
+-            }.getOrNull()
+-
+         private suspend fun completeSession(sessionId: Long) {
+             val result =
+                 withContext(Dispatchers.IO) {
+@@ -1135,18 +1067,10 @@ private const val RESUME_SESSION_ID_NONE = -1L
+ private const val UNKNOWN_QUIZ_WORD_ID = -1L
+ private const val QUIZ_SUBMIT_TIMEOUT_MS = 5_000L
+ private const val QUIZ_FAILED_ANSWER_DISPLAY_MS = 700L
+-private const val QUIZ_TIMEOUT_FEEDBACK_DELAY_MS = 450L
+ private const val QUIZ_NEXT_QUESTION_POLL_DELAY_MS = 350L
+ private const val QUIZ_NEXT_QUESTION_POLL_ATTEMPTS = 18
+ private const val QUIZ_NEXT_QUESTION_LOAD_FAILED_MESSAGE =
+     "다음 문제를 준비하지 못했습니다. 다시 시도해 주세요."
+-private const val QUIZ_AUDIO_SAMPLE_RATE = 16_000
+-private const val QUIZ_AUDIO_CHANNEL_COUNT = 1
+-private const val QUIZ_AUDIO_BITS_PER_SAMPLE = 16
+-private const val QUIZ_SILENT_PCM_SIZE_BYTES = 32_000
+-private const val QUIZ_AUDIO_MIME_TYPE = "audio/wav"
+-private const val QUIZ_SILENT_AUDIO_PREFIX = "quiz_silence_"
+-private const val QUIZ_SILENT_AUDIO_SUFFIX = ".wav"
+ private const val QUIZ_SUBMIT_FAILED_MESSAGE = "실패!"
+ private const val QUIZ_SUBMIT_FAILED_FEEDBACK = "틀렸어요."
+ private const val QUIZ_SUBMIT_TIMEOUT_MESSAGE =
+@@ -1154,5 +1078,3 @@ private const val QUIZ_SUBMIT_TIMEOUT_MESSAGE =
+ private const val QUIZ_SUBMIT_TIMEOUT_FEEDBACK = "채점 시간이 길어 오답으로 처리했어요."
+ private const val QUIZ_LATE_SUBMIT_TIMEOUT_MESSAGE =
+     "다음 문제를 준비하는 데 시간이 걸리고 있어요. 잠시만 기다려 주세요."
+-private const val QUIZ_NEXT_QUESTION_DELAY_MESSAGE =
+-    "다음 문제를 아직 준비하지 못했어요. 잠시 후 자동으로 넘어가요."
+
+

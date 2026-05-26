@@ -1,0 +1,378 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapter.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapter.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapter.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapter.kt
+@@ -9,14 +9,18 @@ interface SignInferenceAdapter {
+ data class SignInferenceResult(
+     val gloss: String,
+     val confidence: Float,
++    val margin: Float = MAX_CONFIDENCE,
+ ) {
+     init {
+         require(confidence in MIN_CONFIDENCE..MAX_CONFIDENCE) {
+             "Confidence must be between $MIN_CONFIDENCE and $MAX_CONFIDENCE."
+         }
++        require(margin in MIN_CONFIDENCE..MAX_CONFIDENCE) {
++            "Margin must be between $MIN_CONFIDENCE and $MAX_CONFIDENCE."
++        }
+     }
+ 
+-    private companion object {
++    companion object {
+         const val MIN_CONFIDENCE = 0f
+         const val MAX_CONFIDENCE = 1f
+     }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt
+@@ -6,6 +6,7 @@ object SignModelContract {
+     const val FEATURE_DIMENSION = 332
+     const val CLASS_COUNT = 7
+     const val CONFIDENCE_THRESHOLD = 0.75f
++    const val MARGIN_THRESHOLD = 0.08f
+     const val FLOAT_BYTE_SIZE = 4
+     const val FLAT_SEQUENCE_INPUT_SIZE = SEQUENCE_LENGTH * FEATURE_DIMENSION
+     val MODEL_ASSET_PATH = SignModelVariant.DEFAULT.modelAssetPath
+@@ -36,11 +37,22 @@ data class SignModelOutput(
+                 ModelOutputActivation.LOGITS -> values.toSoftmaxProbabilities()
+                 ModelOutputActivation.PROBABILITIES -> values
+             }
+-        val indexedConfidence = probabilities.withIndex().maxByOrNull { it.value } ?: return null
++        val rankedProbabilities =
++            probabilities
++                .withIndex()
++                .sortedByDescending { indexedValue -> indexedValue.value }
++        val indexedConfidence = rankedProbabilities.firstOrNull() ?: return null
++        val nextConfidence =
++            rankedProbabilities.getOrNull(1)?.value
++                ?: SignInferenceResult.MIN_CONFIDENCE
++        val margin = indexedConfidence.value - nextConfidence
+         return SignModelPrediction(
+             classIndex = indexedConfidence.index,
+             confidence = indexedConfidence.value,
+-            isConfident = indexedConfidence.value >= SignModelContract.CONFIDENCE_THRESHOLD,
++            margin = margin,
++            isConfident =
++                indexedConfidence.value >= SignModelContract.CONFIDENCE_THRESHOLD &&
++                    margin >= SignModelContract.MARGIN_THRESHOLD,
+         )
+     }
+ }
+@@ -48,6 +60,7 @@ data class SignModelOutput(
+ data class SignModelPrediction(
+     val classIndex: Int,
+     val confidence: Float,
++    val margin: Float,
+     val isConfident: Boolean,
+ )
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/TfliteSignInferenceAdapter.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/TfliteSignInferenceAdapter.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/TfliteSignInferenceAdapter.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/TfliteSignInferenceAdapter.kt
+@@ -42,6 +42,7 @@ class TfliteSignInferenceAdapter private constructor(
+                     model.labelMap.glossFor(result.classIndex)
+                 } ?: SignModelContract.UNKNOWN_GLOSS,
+             confidence = prediction?.confidence ?: MIN_CONFIDENCE,
++            margin = prediction?.margin ?: MIN_CONFIDENCE,
+         )
+     }
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
+@@ -79,6 +79,7 @@ class RealSignRecognitionEngine(
+         predictionStabilizer =
+             SignPredictionStabilizer(
+                 confidenceThreshold = config.confidenceThreshold,
++                marginThreshold = config.marginThreshold,
+                 windowSize = config.smoothingWindowSize,
+                 requiredVotes = config.smoothingRequiredVotes,
+                 emitCooldownMs = config.emitCooldownMs,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPredictionStabilizer.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPredictionStabilizer.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPredictionStabilizer.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPredictionStabilizer.kt
+@@ -6,6 +6,7 @@ import java.util.ArrayDeque
+ 
+ class SignPredictionStabilizer(
+     private val confidenceThreshold: Float = SignModelContract.CONFIDENCE_THRESHOLD,
++    private val marginThreshold: Float = SignModelContract.MARGIN_THRESHOLD,
+     private val windowSize: Int = DEFAULT_WINDOW_SIZE,
+     private val requiredVotes: Int = DEFAULT_REQUIRED_VOTES,
+     private val emitCooldownMs: Long = DEFAULT_EMIT_COOLDOWN_MS,
+@@ -19,6 +20,9 @@ class SignPredictionStabilizer(
+         require(confidenceThreshold in MIN_CONFIDENCE..MAX_CONFIDENCE) {
+             "Confidence threshold must be between $MIN_CONFIDENCE and $MAX_CONFIDENCE."
+         }
++        require(marginThreshold in MIN_CONFIDENCE..MAX_CONFIDENCE) {
++            "Margin threshold must be between $MIN_CONFIDENCE and $MAX_CONFIDENCE."
++        }
+         require(windowSize > 0) {
+             "Prediction window size must be greater than 0."
+         }
+@@ -34,16 +38,25 @@ class SignPredictionStabilizer(
+         result: SignInferenceResult,
+         timestampMs: Long = Long.MAX_VALUE,
+     ): StableSignPrediction? {
+-        addPrediction(toVoteCandidate(result))
+-        val candidate = findStableCandidate()
+-        if (candidate != null && candidate.gloss != lastEmittedGloss && canEmitAt(timestampMs)) {
+-            lastEmittedGloss = candidate.gloss
+-            lastEmittedAtMs = timestampMs
++        var stablePrediction: StableSignPrediction? = null
++        if (canVote(result)) {
++            addPrediction(result)
++            val candidate = findStableCandidate()
++            if (
++                candidate != null &&
++                candidate.gloss != lastEmittedGloss &&
++                canEmitAt(timestampMs)
++            ) {
++                lastEmittedGloss = candidate.gloss
++                lastEmittedAtMs = timestampMs
++                recentPredictions.clear()
++                stablePrediction = candidate
++            }
++        } else {
+             recentPredictions.clear()
+-            return candidate
+         }
+ 
+-        return null
++        return stablePrediction
+     }
+ 
+     fun reset() {
+@@ -59,18 +72,10 @@ class SignPredictionStabilizer(
+             timestampMs - previousEmittedAtMs >= emitCooldownMs
+     }
+ 
+-    private fun toVoteCandidate(result: SignInferenceResult): SignInferenceResult =
+-        if (
+-            result.confidence >= confidenceThreshold &&
++    private fun canVote(result: SignInferenceResult): Boolean =
++        result.confidence >= confidenceThreshold &&
++            result.margin >= marginThreshold &&
+             result.gloss.trim().lowercase() !in ignoredGlosses
+-        ) {
+-            result
+-        } else {
+-            SignInferenceResult(
+-                gloss = NONE_GLOSS,
+-                confidence = 0f,
+-            )
+-        }
+ 
+     private fun addPrediction(result: SignInferenceResult) {
+         if (recentPredictions.size == windowSize) {
+@@ -118,8 +123,8 @@ class SignPredictionStabilizer(
+     )
+ 
+     companion object {
+-        const val DEFAULT_WINDOW_SIZE = 5
+-        const val DEFAULT_REQUIRED_VOTES = 3
++        const val DEFAULT_WINDOW_SIZE = 6
++        const val DEFAULT_REQUIRED_VOTES = 4
+         const val DEFAULT_EMIT_COOLDOWN_MS = 1_000L
+         const val MIN_CONFIDENCE = 0f
+         const val MAX_CONFIDENCE = 1f
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionConfig.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionConfig.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionConfig.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionConfig.kt
+@@ -7,6 +7,7 @@ data class SignRecognitionConfig(
+     val sequenceLength: Int = SignModelContract.SEQUENCE_LENGTH,
+     val minimumHandFrameRatio: Float = SignSequenceBuffer.DEFAULT_MINIMUM_HAND_FRAME_RATIO,
+     val confidenceThreshold: Float = SignModelContract.CONFIDENCE_THRESHOLD,
++    val marginThreshold: Float = SignModelContract.MARGIN_THRESHOLD,
+     val smoothingWindowSize: Int = SignPredictionStabilizer.DEFAULT_WINDOW_SIZE,
+     val smoothingRequiredVotes: Int = SignPredictionStabilizer.DEFAULT_REQUIRED_VOTES,
+     val emitCooldownMs: Long = SignPredictionStabilizer.DEFAULT_EMIT_COOLDOWN_MS,
+@@ -21,6 +22,9 @@ data class SignRecognitionConfig(
+         require(confidenceThreshold in MIN_CONFIDENCE..MAX_CONFIDENCE) {
+             "Confidence threshold must be between $MIN_CONFIDENCE and $MAX_CONFIDENCE."
+         }
++        require(marginThreshold in MIN_CONFIDENCE..MAX_CONFIDENCE) {
++            "Margin threshold must be between $MIN_CONFIDENCE and $MAX_CONFIDENCE."
++        }
+         require(smoothingWindowSize > 0) {
+             "Smoothing window size must be greater than 0."
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugViewModel.kt
+@@ -291,8 +291,8 @@ class SignDebugViewModel
+                 )
+             val TARGET_FPS_OPTIONS = listOf(10, 15, 24, 30)
+             val FRAME_INTERVAL_OPTIONS = listOf(1, 2, 3, 4)
+-            val THRESHOLD_OPTIONS = listOf(0.70f, 0.80f, 0.90f, 0.95f)
+-            val SMOOTHING_OPTIONS = listOf(3, 5, 7)
++            val THRESHOLD_OPTIONS = listOf(0.70f, 0.75f, 0.80f, 0.90f)
++            val SMOOTHING_OPTIONS = listOf(4, 6, 8)
+             const val DEBUG_METRICS_UPDATE_INTERVAL_MILLIS = 100L
+         }
+     }
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignModelOutputTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignModelOutputTest.kt
+--- a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignModelOutputTest.kt
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignModelOutputTest.kt
+@@ -18,6 +18,7 @@ class SignModelOutputTest {
+         assertEquals(ModelOutputActivation.PROBABILITIES, SignModelContract.outputActivation)
+         assertEquals(EXPECTED_CLASS_INDEX, prediction?.classIndex)
+         assertTrue((prediction?.confidence ?: 0f) > SignModelContract.CONFIDENCE_THRESHOLD)
++        assertTrue((prediction?.margin ?: 0f) > SignModelContract.MARGIN_THRESHOLD)
+         assertTrue(prediction?.isConfident == true)
+     }
+ 
+@@ -34,10 +35,28 @@ class SignModelOutputTest {
+         assertFalse(prediction?.isConfident == true)
+     }
+ 
++    @Test
++    fun marksLowTopMarginAsNotConfident() {
++        val probabilities =
++            MutableList(SignModelContract.CLASS_COUNT) { LOW_PROBABILITY }.also {
++                it[EXPECTED_CLASS_INDEX] = HIGH_PROBABILITY
++                it[SECOND_CLASS_INDEX] = HIGH_PROBABILITY - LOW_MARGIN
++            }
++
++        val prediction = SignModelOutput(probabilities).topPrediction()
++
++        assertEquals(EXPECTED_CLASS_INDEX, prediction?.classIndex)
++        assertEquals(LOW_MARGIN, prediction?.margin ?: 0f, FLOAT_DELTA)
++        assertFalse(prediction?.isConfident == true)
++    }
++
+     private companion object {
+         const val EXPECTED_CLASS_INDEX = 3
++        const val SECOND_CLASS_INDEX = 2
+         const val LOW_PROBABILITY = 0.01f
+         const val HIGH_PROBABILITY = 0.9f
+         const val LOW_TOP_PROBABILITY = 0.5f
++        const val LOW_MARGIN = 0.05f
++        const val FLOAT_DELTA = 0.0001f
+     }
+ }
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/SignPredictionStabilizerTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/SignPredictionStabilizerTest.kt
+--- a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/SignPredictionStabilizerTest.kt
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/SignPredictionStabilizerTest.kt
+@@ -13,6 +13,13 @@ class SignPredictionStabilizerTest {
+         assertNull(stabilizer.onPrediction(createPrediction(confidence = LOW_CONFIDENCE)))
+     }
+ 
++    @Test
++    fun treatsLowMarginPredictionAsNone() {
++        val stabilizer = createStabilizer()
++
++        assertNull(stabilizer.onPrediction(createPrediction(margin = LOW_MARGIN)))
++    }
++
+     @Test
+     fun treatsNoneOrUnknownPredictionAsNone() {
+         val stabilizer = createStabilizer()
+@@ -22,17 +29,41 @@ class SignPredictionStabilizerTest {
+     }
+ 
+     @Test
+-    fun waitsForRequiredVotesBeforeEmittingCurrentModePrediction() {
++    fun waitsForRequiredVotesBeforeEmittingPrediction() {
+         val stabilizer = createStabilizer()
+ 
+-        assertNull(stabilizer.onPrediction(createPrediction(gloss = TEST_GLOSS)))
+-        assertNull(stabilizer.onPrediction(createPrediction(gloss = TEST_GLOSS)))
++        repeat(REQUIRED_VOTES - 1) {
++            assertNull(stabilizer.onPrediction(createPrediction(gloss = TEST_GLOSS)))
++        }
+         val stablePrediction = stabilizer.onPrediction(createPrediction(gloss = TEST_GLOSS))
+ 
+         assertEquals(TEST_GLOSS, stablePrediction?.gloss)
+         assertEquals(DEFAULT_CONFIDENCE, stablePrediction?.confidence ?: 0f, FLOAT_DELTA)
+     }
+ 
++    @Test
++    fun clearsPredictionWindowWhenPredictionDoesNotPassThresholds() {
++        val stabilizer = createStabilizer()
++
++        repeat(REQUIRED_VOTES - 1) {
++            assertNull(stabilizer.onPrediction(createPrediction(gloss = TEST_GLOSS)))
++        }
++        assertNull(
++            stabilizer.onPrediction(
++                createPrediction(
++                    gloss = TEST_GLOSS,
++                    margin = LOW_MARGIN,
++                ),
++            ),
++        )
++        repeat(REQUIRED_VOTES - 1) {
++            assertNull(stabilizer.onPrediction(createPrediction(gloss = TEST_GLOSS)))
++        }
++        val stablePrediction = stabilizer.onPrediction(createPrediction(gloss = TEST_GLOSS))
++
++        assertEquals(TEST_GLOSS, stablePrediction?.gloss)
++    }
++
+     @Test
+     fun suppressesRepeatedSameGloss() {
+         val stabilizer = createStabilizer()
+@@ -49,6 +80,7 @@ class SignPredictionStabilizerTest {
+         val stabilizer =
+             SignPredictionStabilizer(
+                 confidenceThreshold = CONFIDENCE_THRESHOLD,
++                marginThreshold = MARGIN_THRESHOLD,
+                 windowSize = WINDOW_SIZE,
+                 requiredVotes = REQUIRED_VOTES,
+                 emitCooldownMs = EMIT_COOLDOWN_MS,
+@@ -91,6 +123,7 @@ class SignPredictionStabilizerTest {
+     private fun createStabilizer(): SignPredictionStabilizer =
+         SignPredictionStabilizer(
+             confidenceThreshold = CONFIDENCE_THRESHOLD,
++            marginThreshold = MARGIN_THRESHOLD,
+             windowSize = WINDOW_SIZE,
+             requiredVotes = REQUIRED_VOTES,
+         )
+@@ -98,21 +131,26 @@ class SignPredictionStabilizerTest {
+     private fun createPrediction(
+         gloss: String = TEST_GLOSS,
+         confidence: Float = DEFAULT_CONFIDENCE,
++        margin: Float = DEFAULT_MARGIN,
+     ): SignInferenceResult =
+         SignInferenceResult(
+             gloss = gloss,
+             confidence = confidence,
++            margin = margin,
+         )
+ 
+     private companion object {
+         const val TEST_GLOSS = "mom"
+         const val OTHER_GLOSS = "dad"
+-        const val CONFIDENCE_THRESHOLD = 0.8f
++        const val CONFIDENCE_THRESHOLD = 0.75f
++        const val MARGIN_THRESHOLD = 0.08f
+         const val DEFAULT_CONFIDENCE = 0.9f
+-        const val LOW_CONFIDENCE = 0.79f
++        const val DEFAULT_MARGIN = 0.2f
++        const val LOW_CONFIDENCE = 0.7f
++        const val LOW_MARGIN = 0.05f
+         const val FLOAT_DELTA = 0.0001f
+-        const val WINDOW_SIZE = 5
+-        const val REQUIRED_VOTES = 3
++        const val WINDOW_SIZE = 6
++        const val REQUIRED_VOTES = 4
+         const val EMIT_COOLDOWN_MS = 1_000L
+     }
+ }
+
+

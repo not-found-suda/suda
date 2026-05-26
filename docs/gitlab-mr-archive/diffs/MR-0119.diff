@@ -1,0 +1,215 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizService.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizService.java
+@@ -19,6 +19,7 @@ import com.ssafy.backend.domain.learn.quiz.repository.QuizQuestionRepository;
+ import com.ssafy.backend.domain.learn.quiz.repository.QuizSessionRepository;
+ import com.ssafy.backend.domain.learn.repository.LearnRepository;
+ import com.ssafy.backend.global.exception.BusinessException;
++import com.ssafy.backend.global.storage.AssetUrlResolver;
+ import java.util.List;
+ import org.springframework.stereotype.Service;
+ import org.springframework.transaction.annotation.Transactional;
+@@ -37,6 +38,7 @@ public class QuizService {
+   private final ChildProfileRepository childProfileRepository;
+   private final ClovaSttClient clovaSttClient;
+   private final QuizGradingService quizGradingService;
++  private final AssetUrlResolver assetUrlResolver;
+ 
+   public QuizService(
+       QuizSessionRepository quizSessionRepository,
+@@ -45,7 +47,8 @@ public class QuizService {
+       LearnRepository learnRepository,
+       ChildProfileRepository childProfileRepository,
+       ClovaSttClient clovaSttClient,
+-      QuizGradingService quizGradingService) {
++      QuizGradingService quizGradingService,
++      AssetUrlResolver assetUrlResolver) {
+     this.quizSessionRepository = quizSessionRepository;
+     this.quizQuestionRepository = quizQuestionRepository;
+     this.quizAnswerRepository = quizAnswerRepository;
+@@ -53,6 +56,7 @@ public class QuizService {
+     this.childProfileRepository = childProfileRepository;
+     this.clovaSttClient = clovaSttClient;
+     this.quizGradingService = quizGradingService;
++    this.assetUrlResolver = assetUrlResolver;
+   }
+ 
+   @Transactional
+@@ -111,7 +115,7 @@ public class QuizService {
+         word.getId(),
+         question.getQuestionNumber(),
+         session.getTotalQuestionCount(),
+-        word.getImageUrl());
++        assetUrlResolver.toUrl(word.getImageUrl()));
+   }
+ 
+   @Transactional
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/service/LearnService.java b/backend/src/main/java/com/ssafy/backend/domain/learn/service/LearnService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/service/LearnService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/service/LearnService.java
+@@ -9,6 +9,7 @@ import com.ssafy.backend.domain.learn.dto.response.LearnWordResponse;
+ import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
+ import com.ssafy.backend.domain.learn.repository.LearnCategoryRepository;
+ import com.ssafy.backend.domain.learn.repository.LearnRepository;
++import com.ssafy.backend.global.storage.AssetUrlResolver;
+ import java.util.Arrays;
+ import org.springframework.stereotype.Service;
+ import org.springframework.transaction.annotation.Transactional;
+@@ -21,11 +22,15 @@ public class LearnService {
+ 
+   private final LearnCategoryRepository learnCategoryRepository;
+   private final LearnRepository learnRepository;
++  private final AssetUrlResolver assetUrlResolver;
+ 
+   public LearnService(
+-      LearnCategoryRepository learnCategoryRepository, LearnRepository learnRepository) {
++      LearnCategoryRepository learnCategoryRepository,
++      LearnRepository learnRepository,
++      AssetUrlResolver assetUrlResolver) {
+     this.learnCategoryRepository = learnCategoryRepository;
+     this.learnRepository = learnRepository;
++    this.assetUrlResolver = assetUrlResolver;
+   }
+ 
+   public LearnCategoryListResponse getCategories() {
+@@ -37,7 +42,7 @@ public class LearnService {
+                         category.getId(),
+                         category.getName(),
+                         category.getDescription(),
+-                        category.getThumbnailUrl()))
++                        assetUrlResolver.toUrl(category.getThumbnailUrl())))
+             .toList());
+   }
+ 
+@@ -63,8 +68,8 @@ public class LearnService {
+                         word.getId(),
+                         word.getWord(),
+                         word.getDisplayText(),
+-                        word.getImageUrl(),
+-                        word.getAudioUrl()))
++                        assetUrlResolver.toUrl(word.getImageUrl()),
++                        assetUrlResolver.toUrl(word.getAudioUrl())))
+             .toList());
+   }
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/storage/AssetUrlResolver.java b/backend/src/main/java/com/ssafy/backend/global/storage/AssetUrlResolver.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/storage/AssetUrlResolver.java
+@@ -0,0 +1,37 @@
++package com.ssafy.backend.global.storage;
++
++import org.springframework.beans.factory.annotation.Value;
++import org.springframework.stereotype.Component;
++
++@Component
++public class AssetUrlResolver {
++
++  private final String cloudFrontDomain;
++
++  public AssetUrlResolver(@Value("${app.asset.cloud-front-domain}") String cloudFrontDomain) {
++    this.cloudFrontDomain = removeTrailingSlash(cloudFrontDomain);
++  }
++
++  public String toUrl(String keyOrUrl) {
++    if (keyOrUrl == null || keyOrUrl.isBlank()) {
++      return null;
++    }
++
++    String normalized = keyOrUrl.trim();
++
++    // 이미 완전한 URL이면 그대로 반환
++    if (normalized.startsWith("http://") || normalized.startsWith("https://")) {
++      return normalized;
++    }
++
++    return cloudFrontDomain + "/" + removeLeadingSlash(normalized);
++  }
++
++  private String removeTrailingSlash(String value) {
++    return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
++  }
++
++  private String removeLeadingSlash(String value) {
++    return value.startsWith("/") ? value.substring(1) : value;
++  }
++}
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260508135000__convert_learn_asset_urls_to_keys.sql b/backend/src/main/resources/db/migration/V20260508135000__convert_learn_asset_urls_to_keys.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260508135000__convert_learn_asset_urls_to_keys.sql
+@@ -0,0 +1,55 @@
++-- learn_categories.thumbnail_url: S3 URL -> object key
++UPDATE learn_categories
++SET thumbnail_url = REPLACE(
++  thumbnail_url,
++  'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/',
++  ''
++                    )
++WHERE thumbnail_url LIKE 'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/%';
++
++-- learn_categories.thumbnail_url: CloudFront URL -> object key
++UPDATE learn_categories
++SET thumbnail_url = REPLACE(
++  thumbnail_url,
++  'https://d14zyw67949hvk.cloudfront.net/',
++  ''
++                    )
++WHERE thumbnail_url LIKE 'https://d14zyw67949hvk.cloudfront.net/%';
++
++
++-- learn.image_url: S3 URL -> object key
++UPDATE learn
++SET image_url = REPLACE(
++  image_url,
++  'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/',
++  ''
++                )
++WHERE image_url LIKE 'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/%';
++
++-- learn.image_url: CloudFront URL -> object key
++UPDATE learn
++SET image_url = REPLACE(
++  image_url,
++  'https://d14zyw67949hvk.cloudfront.net/',
++  ''
++                )
++WHERE image_url LIKE 'https://d14zyw67949hvk.cloudfront.net/%';
++
++
++-- learn.audio_url: S3 URL -> object key
++UPDATE learn
++SET audio_url = REPLACE(
++  audio_url,
++  'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/',
++  ''
++                )
++WHERE audio_url LIKE 'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/%';
++
++-- learn.audio_url: CloudFront URL -> object key
++UPDATE learn
++SET audio_url = REPLACE(
++  audio_url,
++  'https://d14zyw67949hvk.cloudfront.net/',
++  ''
++                )
++WHERE audio_url LIKE 'https://d14zyw67949hvk.cloudfront.net/%';
+
+
+diff --git a/backend/src/main/resources/application.yml b/backend/src/main/resources/application.yml
+--- a/backend/src/main/resources/application.yml
++++ b/backend/src/main/resources/application.yml
+@@ -41,3 +41,7 @@ external-api:
+   timeout:
+     connect: 3s
+     read: 10s
++
++app:
++  asset:
++    cloud-front-domain: ${ASSET_CLOUDFRONT_DOMAIN:https://d14zyw67949hvk.cloudfront.net}
+
+

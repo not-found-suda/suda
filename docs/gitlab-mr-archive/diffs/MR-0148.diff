@@ -1,0 +1,1511 @@
+﻿diff --git a/docs/troubleshooting/hwisu/troubleshooting.md b/docs/troubleshooting/hwisu/troubleshooting.md
+--- a/docs/troubleshooting/hwisu/troubleshooting.md
++++ b/docs/troubleshooting/hwisu/troubleshooting.md
+@@ -1,18 +1,433 @@
+-# hwisu 트러블슈팅
++# Troubleshooting - hwisu
++
++이 문서는 APP-A 작업 중 반복해서 마주칠 수 있는 문제와 해결 과정을 정리한 개인 트러블슈팅 노트다.
+ 
+ ## 기록 규칙
+ 
+ - 문제를 발견한 날짜, 작업 브랜치, 재현 절차를 함께 남긴다.
+ - 원인과 해결 방법이 확정되지 않았으면 "가설"로 구분해서 적는다.
+ - 로그나 에러 메시지는 필요한 부분만 붙이고, Secret/Env/개인정보는 제외한다.
++- 모바일에서 직접 해결할 수 있는 일과 백엔드에 요청해야 하는 일을 구분해서 남긴다.
++
++## 2026-05-12 - 로컬 백엔드 접속 IP 설정 오류
++
++### 상황
++
++- 작업 위치나 Wi-Fi가 바뀐 뒤 모바일 앱에서 로그인/API 호출이 실패했다.
++- 앱에서는 "네트워크 연결을 확인해 주세요." 계열 메시지가 표시되었다.
++
++### 재현 절차
++
++- 휴대폰과 백엔드 서버 실행 PC를 같은 Wi-Fi에 연결한다.
++- `.env`의 `MOBILE_API_BASE_URL`을 이전 네트워크 IP 또는 WSL 가상 어댑터 IP로 둔다.
++- 앱에서 로그인 또는 보호 API 호출을 시도한다.
++
++### 원인
++
++- 실기기는 PC의 WSL 가상 어댑터 IP(`172.26.x.x`)에 접근할 수 없다.
++- 실기기 테스트에서는 Wi-Fi 어댑터의 IPv4 주소를 사용해야 한다.
++- Android Emulator라면 `10.0.2.2`를 사용할 수 있지만, 실제 휴대폰에서는 PC의 같은 네트워크 IP가 필요하다.
++
++### 해결
++
++- Windows에서 `ipconfig`로 현재 Wi-Fi IPv4를 확인한다.
++- `.env`의 `MOBILE_API_BASE_URL`을 아래 형태로 수정한다.
++
++```properties
++MOBILE_API_BASE_URL=http://{PC_WIFI_IPV4}:8080/api/
++```
++
++### 재발 방지 / 체크 포인트
++
++- 작업 장소나 Wi-Fi가 바뀌면 `.env`의 API Base URL을 먼저 확인한다.
++- 백엔드 서버가 `0.0.0.0` 또는 외부 접속 가능한 인터페이스로 떠 있는지도 확인한다.
++- 방화벽이 8080 포트를 막고 있지 않은지 확인한다.
++
++### 관련 작업
++
++- 네이버 로그인 실기기 QA
++- 학습/리포트 API 실기기 QA
++
++## 2026-05-12 - Flyway 미적용으로 학습 카테고리 API 500 발생
++
++### 상황
++
++- 로그인 후 학습 탭 진입 시 "카테고리를 불러오지 못했습니다. 다시 시도해주세요."가 계속 표시되었다.
++- Logcat에서는 `GET /api/v1/learn/categories`가 500으로 실패했다.
++
++### 재현 절차
++
++- 로컬 백엔드 DB가 최신 migration이 적용되지 않은 상태에서 앱 실행
++- 로그인 후 학습 탭 진입
++
++### 원인
++
++- 백엔드 로컬 환경에서 Flyway migration이 비활성화되어 DB schema/seed가 최신 코드와 맞지 않았다.
++
++### 해결
++
++- 백엔드 `.env`에 아래 설정을 추가하고 백엔드를 재실행했다.
++
++```properties
++SPRING_FLYWAY_ENABLED=true
++```
++
++### 재발 방지 / 체크 포인트
++
++- API가 500이면 모바일 DTO 문제로 단정하지 말고 백엔드 로그와 DB migration 상태를 함께 확인한다.
++- 로컬 DB를 새로 만들거나 백엔드 브랜치를 전환한 뒤에는 Flyway 적용 여부를 확인한다.
++
++### 관련 작업
++
++- S14P31A404-237 학습 카테고리 선택 화면
++- S14P31A404-238 카테고리별 단어 목록 화면
++
++## 2026-05-12 - API 응답 wrapper 불일치로 Gson 역직렬화 실패
++
++### 상황
++
++- API는 200 OK를 반환하지만 화면에는 오류 상태가 표시되었다.
++- Logcat에 아래와 유사한 Gson 에러가 발생했다.
++
++```text
++Expected BEGIN_OBJECT but was BEGIN_ARRAY at line 1 column 2 path $
++```
++
++또는 반대로:
++
++```text
++Expected BEGIN_ARRAY but was BEGIN_OBJECT
++```
++
++### 재현 절차
++
++- 백엔드 응답이 `{ "categories": [...] }`, `{ "words": [...] }`, `{ "children": [...] }` 같은 wrapper 형태인데 모바일 DTO가 `List<T>`를 직접 기대한다.
++- 또는 백엔드는 배열을 직접 내려주는데 모바일 DTO가 wrapper를 기대한다.
++
++### 원인
++
++- 모바일 Retrofit 반환 타입과 백엔드 실제 JSON shape이 맞지 않았다.
++- 문서/브랜치/머지 순서에 따라 wrapper 도입 시점이 달라지며 발생했다.
++
++### 해결
++
++- 백엔드 실제 응답 기준으로 DTO를 맞췄다.
++- 예시:
++  - 아이 목록: `ChildProfileListResponseDto(children: List<ChildProfileResponseDto>)`
++  - 단어 목록: `LearningWordsResponseDto(words: List<LearningWordDto>)`
++  - 리포트 카테고리: `ReportCategoryProgressListResponseDto(categories: List<ReportCategoryProgressDto>)`
++
++### 재발 방지 / 체크 포인트
++
++- API 연동 전에는 Swagger/Notion 문서뿐 아니라 최신 develop 또는 MR의 Controller/Response DTO도 확인한다.
++- Logcat에서 200 OK 후 Gson 에러가 발생하면 wrapper 불일치를 가장 먼저 의심한다.
++- MR 리뷰 시 "백엔드 MR만 먼저 머지되면 모바일 DTO와 계약이 맞는가"를 체크한다.
++
++### 관련 작업
++
++- S14P31A404-238 카테고리별 단어 목록 화면
++- S14P31A404-296 아이 프로필 API 연동
++- S14P31A404-243 리포트 홈 요약 API 연동
++- S14P31A404-244 리포트 취약 단어 목록 화면
++- S14P31A404-264 리포트 카테고리별 진행도 화면
++
++## 2026-05-12 - Retrofit endpoint에 `api/` 중복 포함
++
++### 상황
++
++- 특정 API 호출이 예상 경로가 아니라 `/api/api/v1/...` 형태로 조합될 위험이 있었다.
++
++### 원인
++
++- `.env`의 `MOBILE_API_BASE_URL`이 `http://host:8080/api/` 형태다.
++- Retrofit service endpoint에 `api/v1/...`를 쓰면 최종 URL이 `/api/api/v1/...`로 중복된다.
++
++### 해결
++
++- Retrofit endpoint는 `v1/...` 형태로 작성한다.
++
++```kotlin
++@POST("v1/auth/refresh")
++```
++
++### 재발 방지 / 체크 포인트
++
++- 모바일 Base URL에 이미 `/api/`가 포함되어 있음을 기억한다.
++- 새 API service를 만들 때 기존 service의 endpoint 작성 패턴을 먼저 확인한다.
++
++### 관련 작업
++
++- S14P31A404-294 모바일 인증 API 최신 명세 반영
++- 학습/리포트 API 전반
++
++## 2026-05-12 - 네이버 로그인 PKCE 방식 실패 및 SDK 방식 전환
++
++### 상황
++
++- 네이버 로그인 버튼 클릭 시 네이버 인증 화면에서 "SUDA 서비스 설정에 오류가 있어서 로그인할 수 없습니다." 계열 화면이 표시되었다.
++- 기존 구현은 Authorization Code + PKCE + Custom Tabs + custom scheme redirect 구조였다.
++
++### 원인
++
++- 네이버 Android 환경에서는 개발자 콘솔에서 웹 callback URL 기반 PKCE 흐름을 그대로 쓰기 어렵고, Android SDK 기반 로그인이 더 적합하다는 결론이 났다.
++- 백엔드도 최종적으로 provider access token 검증 방식으로 전환했다.
++
++### 해결
++
++- 모바일은 네이버 Android SDK를 통해 provider access token을 발급받는다.
++- 백엔드에는 아래 body로 전달한다.
++
++```json
++{
++  "providerAccessToken": "..."
++}
++```
++
++- 백엔드는 provider access token으로 네이버 프로필 API를 호출하고, 우리 서비스 accessToken/refreshToken을 발급한다.
++
++### 재발 방지 / 체크 포인트
++
++- AndroidManifest의 PKCE redirect intent-filter와 MainActivity redirect 처리 로직은 SDK 방식에서는 필요 없다.
++- 모바일에는 `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`, `NAVER_CLIENT_NAME`이 필요하다.
++- 네이버 개발자 콘솔에 Android 패키지명 `com.ssafy.mobile`과 테스트 계정 등록 여부를 확인한다.
++- 백엔드 실패 시 status만 보지 말고 Problem Details의 `code`, `traceId`, `instance`를 로그/예외에 보존한다.
++
++### 관련 작업
++
++- S14P31A404-233 네이버 SDK 기반 로그인 연동
++
++## 2026-05-12 - 비로그인 소통 기능이 앱 전체 로그인 가드에 막힘
++
++### 상황
++
++- 서비스 기획상 양방향 소통 기능은 비로그인 사용자도 사용할 수 있어야 했다.
++- 하지만 앱 시작 시 로그인하지 않으면 모든 기능이 막히는 구조였다.
++
++### 원인
++
++- 앱 진입점과 하단 탭 접근 제어가 전체 인증 상태 중심으로 구성되어 있었다.
++- Conversation 화면과 translation API가 비로그인 허용 정책임에도 모바일에서 로그인 범위를 넓게 잡고 있었다.
++
++### 해결
++
++- AppEntry에서 비로그인 사용자를 Conversation으로 진입시켰다.
++- 하단 탭에서 Conversation은 비로그인 허용, Home/Learning/Report/MyPage는 로그인 필요 화면으로 분기했다.
++- Conversation API는 `@Named("NoAuth") Retrofit`을 사용하도록 정리했다.
++- 백엔드 미구현 상태인 translation feedback 신고 버튼은 feature flag로 숨겼다.
++
++### 재발 방지 / 체크 포인트
++
++- 기능별 인증 정책을 먼저 확인한다.
++- 보호자/아이/학습/리포트처럼 개인 데이터가 필요한 기능과 공개 기능을 분리한다.
++- 비로그인 허용 API는 AuthInterceptor가 붙은 Retrofit을 쓰지 않도록 주의한다.
++
++### 관련 작업
++
++- S14P31A404-224 로그인 범위 수정 작업
++
++## 2026-05-12 - S3/CloudFront 이미지 및 오디오 리소스 접근 실패
++
++### 상황
++
++- 학습 이미지 또는 단어 음성 URL이 내려와도 로딩/재생이 실패할 수 있었다.
++- S3 URL 직접 접근 시 `AccessDenied`가 발생했다.
++
++### 원인
++
++- S3 object 접근 권한 또는 CloudFront URL 변환 정책이 정리되기 전이었다.
++- 일부 데이터는 object key가 아니라 이미 http(s) URL일 가능성도 있었다.
++
++### 해결
++
++- 모바일 이미지 로딩은 `AppNetworkImage`로 통합하고 null/blank/error fallback UI를 제공했다.
++- 단어장 음성 재생은 `audioUrl` 접근 실패 시 사용자에게 "재생 실패" 상태를 보여주고 학습 진행은 막지 않도록 했다.
++- 백엔드는 리소스 key를 CloudFront URL로 변환하고, 이미 URL인 값은 그대로 반환하도록 방어 로직을 추가했다.
++
++### 재발 방지 / 체크 포인트
++
++- 리소스 API 응답의 URL은 모바일에서 그대로 접근 가능한 public URL이어야 한다.
++- URL이 없거나 접근 실패해도 UI 레이아웃이 깨지지 않아야 한다.
++- `imageUrl`, `thumbnailUrl`, `audioUrl`은 null/blank 방어가 필요하다.
++
++### 관련 작업
++
++- S14P31A404-239 S3 학습 이미지 로딩 및 실패 대체 UI 구현
++- S14P31A404-240 단어장 음성 재생 및 카드형 학습 화면 구현
++- 백엔드 S14P31A404-319 학습 이미지 및 음성 리소스 key 기반 URL 변환
++
++## 2026-05-12 - 퀴즈 current question에 targetText가 없어 words 선조회에 의존
++
++### 상황
++
++- 퀴즈 화면에서 문제 단어 텍스트를 표시하고 로컬 상태를 구성하기 위해 퀴즈 시작 전에 `GET /learn/words`를 먼저 호출했다.
++- 단어 목록 조회가 실패하면 퀴즈 세션 생성 자체가 막힐 수 있었다.
++
++### 원인
++
++- 기존 current question 응답에는 `wordId`와 `imageUrl`만 있고 정답 단어 텍스트가 없었다.
++- 모바일은 `wordId -> word` 매핑을 만들기 위해 별도 words 조회에 의존했다.
++- 서버가 랜덤 퀴즈 세션을 생성하므로 words 목록과 실제 세션 문제가 항상 일치한다고 보장하기 어렵다.
++
++### 해결
++
++- 백엔드 current question 응답에 `targetText`를 추가했다.
++- 모바일은 current question의 `targetText`를 기준으로 문제 단어를 표시하도록 수정했다.
++- 퀴즈 시작 전 words 선조회와 `LearningWordRepository` 의존성을 제거했다.
++
++### 재발 방지 / 체크 포인트
++
++- 퀴즈 진행에 필요한 데이터는 current question 응답 하나로 충분해야 한다.
++- 랜덤 세션/랜덤 문제를 다루는 API에서 별도 목록 조회 결과를 매핑 기준으로 삼지 않는다.
++- 응답 필드 누락 시 백엔드 API 계약을 먼저 보강한다.
++
++### 관련 작업
++
++- S14P31A404-302 퀴즈 현재 문제 targetText 반영 및 words 선조회 제거
++- 백엔드 S14P31A404-361 퀴즈 현재 문제 응답에 targetText 추가
++
++## 2026-05-12 - 퀴즈 답변 제출 JSON 방식과 백엔드 Multipart 방식 불일치
++
++### 상황
++
++- 퀴즈 답변 제출 시 "서버에서 퀴즈 요청 처리에 실패했습니다."가 표시되며 진행이 막혔다.
++
++### 원인
++
++- 모바일 초기 구현은 로컬 STT 결과인 `recognizedText`를 JSON으로 제출하는 임시 흐름이었다.
++- 백엔드 최종 구현은 `multipart/form-data`로 음성 파일을 받고, 서버에서 Clova STT 및 채점을 수행하는 구조였다.
++
++### 해결
++
++- 모바일 답변 제출을 multipart 방식으로 전환했다.
++- 요청:
++
++```text
++POST /api/v1/learn/quizzes/sessions/{sessionId}/answers
++Content-Type: multipart/form-data
++
++questionId: form field
++audioFile: file part, part name "audioFile"
++```
++
++- AndroidAudioRecorder로 WAV 파일을 만들고 `audio/wav` MIME과 `.wav` 파일명을 맞췄다.
++- 서버 응답의 `recognizedText`, `star`, `isCorrect`, `feedback`, `hasNext`, `nextQuestionNumber`를 UI 기준으로 사용했다.
++
++### 재발 방지 / 체크 포인트
++
++- API가 파일 업로드인지 JSON 제출인지 먼저 확인한다.
++- 파일 part name, MIME, 확장자가 실제 생성 파일과 맞는지 확인한다.
++- 답변 저장 실패 상태에서도 새 녹음을 허용해 같은 실패 파일만 반복 제출하지 않도록 한다.
++- 기존 JSON 오프라인 큐는 multipart 파일 재전송과 계약이 달라 별도 설계가 필요하다.
++
++### 관련 작업
++
++- S14P31A404-276 퀴즈 답변 제출 서버 채점 흐름 정렬
++- S14P31A404-303 퀴즈 답변 제출 Multipart 서버 채점 연동
++
++## 2026-05-12 - 로컬 퀴즈 채점과 서버 채점이 혼재
++
++### 상황
++
++- 모바일에서 `QuizStarScorer`로 로컬 채점을 수행하고, 서버도 답변을 채점하는 구조가 섞였다.
++- 서버 응답과 모바일 로컬 판정이 달라질 수 있었다.
++
++### 원인
++
++- 백엔드 채점 API가 완성되기 전 모바일에서 임시 로컬 채점 로직을 사용했다.
++- 이후 백엔드가 STT/채점 결과를 내려주도록 구현되며 기준이 서버로 이동했다.
++
++### 해결
++
++- 실제 서비스 플로우에서 `QuizStarScorer.score()` 호출을 제거했다.
++- `QuizAnswer.star`, `isCorrect`를 nullable로 두고 서버 응답 전/후 상태를 구분했다.
++- 제출 중에는 "답변을 확인하고 있어요" 상태를 보여줬다.
++- 다음 문제 이동은 서버 채점 결과가 반영된 뒤에만 허용했다.
++- `QuizStarScorer`는 즉시 삭제하지 않고 `@Deprecated` 처리해 히스토리와 테스트 맥락을 남겼다.
++
++### 재발 방지 / 체크 포인트
++
++- 채점 결과의 Single Source of Truth는 서버 응답이다.
++- 서버 응답 전에는 확정 별점/정답 여부를 UI에 표시하지 않는다.
++- 중복 제출 방지를 위해 코루틴 시작 전 `Submitting` 상태를 먼저 세팅한다.
++
++### 관련 작업
++
++- S14P31A404-276 퀴즈 답변 제출 서버 채점 흐름 정렬
++
++## 2026-05-12 - 리포트 API 계약 변경 대응
++
++### 상황
++
++- 리포트 API 명세가 구현 중 여러 차례 변경되었다.
++- summary, weak words, categories, sessions API마다 page 기준, 집계 기준, 필드명 차이가 있었다.
++
++### 주요 변경/확정 사항
++
++- summary
++  - `totalSessionCount` 제거
++  - `completedSessionCount`만 사용
++  - 완료된 퀴즈 세션(`COMPLETED`)만 집계
++  - 기록 없음은 `200 OK` + count 0 / rate 0.0 / latest null / empty list
++- averageStar
++  - 퀴즈 별점 정책과 동일하게 1~3점 기준
++- 시간 필드
++  - offset 없는 `LocalDateTime`
++  - 서버 기준 KST로 표시
++- pagination
++  - `page=1`이 첫 페이지
++  - 응답 page도 1-base
++- categories
++  - 초기 구현은 완료된 퀴즈 기록이 있는 카테고리만 반환
++  - `sessionCount` 제거, `completedSessionCount`만 사용
++
++### 해결
++
++- 모바일 DTO와 domain model을 최신 필드 기준으로 정렬했다.
++- summary/weak words/category progress 화면에서 완료된 기록 기준 데이터를 표시했다.
++- 기간/카테고리/난이도 필터는 S14P31A404-267로 분리했다.
++
++### 재발 방지 / 체크 포인트
++
++- 리포트 API는 필드명과 집계 기준이 화면 의미에 직접 연결되므로 MR마다 DTO diff를 확인한다.
++- count 필드 타입이 백엔드에서 Long이면 모바일 DTO/domain도 Long으로 맞춘다.
++- page 기준이 0-base인지 1-base인지 반드시 확인한다.
++
++### 관련 작업
++
++- S14P31A404-243 리포트 홈 요약 API 연동
++- S14P31A404-244 리포트 취약 단어 목록 화면 구현
++- S14P31A404-264 리포트 카테고리별 진행도 화면 구현
++
++## 2026-05-12 - CI 실패 원인이 현재 MR과 무관한 flaky test였던 사례
++
++### 상황
++
++- 퀴즈 multipart MR에서 GitLab CI가 실패했다.
++- 실패 로그의 실제 실패 지점은 퀴즈 코드가 아니라 sign 테스트였다.
++
++### 실패 로그 요약
++
++```text
++RealSignRecognitionEngineTest > emitsPredictionWhenSequenceIsReady FAILED
++kotlinx.coroutines.TimeoutCancellationException
++```
++
++### 원인
++
++- 해당 MR 변경 범위와 직접 관련 없는 수어 인식 테스트 timeout이었다.
++- 로컬 단독 재실행 시 통과하여 flaky 가능성이 높았다.
++
++### 해결
++
++- failed job 로그에서 실제 실패 test class/method를 확인했다.
++- 변경 파일과 실패 테스트의 관련성을 분리해서 리뷰어에게 설명했다.
++
++### 재발 방지 / 체크 포인트
+ 
+-## 기록
++- CI 실패 시 전체 로그에서 `FAILED` test method를 먼저 찾는다.
++- ktlint/detekt/compile 실패인지, unit test timeout인지 구분한다.
++- 변경 범위와 무관한 flaky 가능성이 있더라도 로컬 재현 여부를 확인하고 기록한다.
+ 
+-### YYYY-MM-DD - 제목
++### 관련 작업
+ 
+-- 작업 브랜치:
+-- 상황:
+-- 재현 절차:
+-- 원인:
+-- 해결:
+-- 참고:
++- S14P31A404-303 퀴즈 답변 제출 Multipart 서버 채점 연동
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -24,6 +24,7 @@ import com.ssafy.mobile.feature.quiz.presentation.quizQuestionRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportCategoryProgressRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportHomeRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportPlaceholderRoute
++import com.ssafy.mobile.feature.report.presentation.ReportQuizSessionsRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportWeakWordsRoute
+ import com.ssafy.mobile.feature.sign.presentation.SignDebugRoute
+ import com.ssafy.mobile.feature.signup.presentation.SignupRoute
+@@ -340,6 +341,9 @@ fun MobileNavHost(
+                 onNavigateToCategoryProgress = {
+                     navController.navigate(Screen.ReportCategoryProgress.route)
+                 },
++                onNavigateToQuizSessions = {
++                    navController.navigate(Screen.ReportQuizSessions.route)
++                },
+                 onSwitchChild = {
+                     navController.navigate(Screen.ChildSelect.route)
+                 },
+@@ -374,5 +378,15 @@ fun MobileNavHost(
+                 modifier = Modifier.fillMaxSize(),
+             )
+         }
++
++        composable(Screen.ReportQuizSessions.route) {
++            ReportQuizSessionsRoute(
++                onNavigateBack = { navController.popBackStack() },
++                onSwitchChild = {
++                    navController.navigate(Screen.ChildSelect.route)
++                },
++                modifier = Modifier.fillMaxSize(),
++            )
++        }
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+@@ -63,4 +63,6 @@ sealed class Screen(
+     data object ReportWeakWords : Screen("report_weak_words_route")
+ 
+     data object ReportCategoryProgress : Screen("report_category_progress_route")
++
++    data object ReportQuizSessions : Screen("report_quiz_sessions_route")
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
+@@ -1,6 +1,7 @@
+ package com.ssafy.mobile.feature.report.data.api
+ 
+ import com.ssafy.mobile.feature.report.data.dto.ReportCategoryProgressListResponseDto
++import com.ssafy.mobile.feature.report.data.dto.ReportQuizSessionListResponseDto
+ import com.ssafy.mobile.feature.report.data.dto.ReportSummaryResponseDto
+ import com.ssafy.mobile.feature.report.data.dto.ReportWeakWordListResponseDto
+ import retrofit2.Response
+@@ -27,4 +28,11 @@ interface ReportApiService {
+         @Query("from") from: String? = null,
+         @Query("to") to: String? = null,
+     ): Response<ReportCategoryProgressListResponseDto>
++
++    @GET("v1/children/{childId}/reports/sessions")
++    suspend fun getQuizSessions(
++        @Path("childId") childId: Long,
++        @Query("page") page: Int,
++        @Query("size") size: Int,
++    ): Response<ReportQuizSessionListResponseDto>
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportQuizSessionDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportQuizSessionDto.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportQuizSessionDto.kt
+@@ -0,0 +1,67 @@
++package com.ssafy.mobile.feature.report.data.dto
++
++import com.google.gson.annotations.SerializedName
++import com.ssafy.mobile.feature.report.domain.model.ReportQuizSession
++import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionPage
++
++data class ReportQuizSessionListResponseDto(
++    @SerializedName("content")
++    val content: List<ReportQuizSessionDto> = emptyList(),
++    @SerializedName("page")
++    val page: Int,
++    @SerializedName("size")
++    val size: Int,
++    @SerializedName("totalElements")
++    val totalElements: Long,
++    @SerializedName("totalPages")
++    val totalPages: Int,
++)
++
++data class ReportQuizSessionDto(
++    @SerializedName("sessionId")
++    val sessionId: Long,
++    @SerializedName("categoryId")
++    val categoryId: Long,
++    @SerializedName("categoryName")
++    val categoryName: String,
++    @SerializedName("difficulty")
++    val difficulty: String,
++    @SerializedName("totalQuestionCount")
++    val totalQuestionCount: Int,
++    @SerializedName("correctCount")
++    val correctCount: Int,
++    @SerializedName("accuracyRate")
++    val accuracyRate: Double,
++    @SerializedName("averageStar")
++    val averageStar: Double,
++    @SerializedName("status")
++    val status: String,
++    @SerializedName("startedAt")
++    val startedAt: String? = null,
++    @SerializedName("endedAt")
++    val endedAt: String? = null,
++)
++
++fun ReportQuizSessionListResponseDto.toDomain(): ReportQuizSessionPage =
++    ReportQuizSessionPage(
++        sessions = content.map { it.toDomain() },
++        page = page,
++        size = size,
++        totalElements = totalElements,
++        totalPages = totalPages,
++    )
++
++fun ReportQuizSessionDto.toDomain(): ReportQuizSession =
++    ReportQuizSession(
++        sessionId = sessionId,
++        categoryId = categoryId,
++        categoryName = categoryName,
++        difficulty = difficulty,
++        totalQuestionCount = totalQuestionCount,
++        correctCount = correctCount,
++        accuracyRate = accuracyRate,
++        averageStar = averageStar,
++        status = status,
++        startedAt = startedAt,
++        endedAt = endedAt,
++    )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
+@@ -4,6 +4,7 @@ import android.util.Log
+ import com.ssafy.mobile.feature.report.data.api.ReportApiService
+ import com.ssafy.mobile.feature.report.data.dto.toDomain
+ import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgressPage
++import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionPage
+ import com.ssafy.mobile.feature.report.domain.model.ReportSummary
+ import com.ssafy.mobile.feature.report.domain.model.ReportWeakWordPage
+ import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
+@@ -136,6 +137,47 @@ class RemoteReportRepository
+                 Result.failure(IllegalStateException("카테고리별 리포트를 불러오는 중 오류가 발생했습니다."))
+             }
+ 
++        override suspend fun getQuizSessions(
++            childId: Long,
++            page: Int,
++            size: Int,
++        ): Result<ReportQuizSessionPage> =
++            try {
++                val response =
++                    apiService.getQuizSessions(
++                        childId = childId,
++                        page = page,
++                        size = size,
++                    )
++
++                if (response.isSuccessful) {
++                    val body =
++                        response.body()
++                            ?: return Result.failure(IllegalStateException("퀴즈 기록 응답이 비어 있습니다."))
++                    Result.success(body.toDomain())
++                } else {
++                    Result.failure(
++                        IllegalStateException(
++                            errorMessage(
++                                statusCode = response.code(),
++                                defaultMessage = "퀴즈 기록을 불러오지 못했습니다.",
++                            ),
++                        ),
++                    )
++                }
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: IOException) {
++                Log.e(TAG, "Report quiz sessions network error", e)
++                Result.failure(IOException("네트워크 연결을 확인해 주세요."))
++            } catch (
++                @Suppress("TooGenericExceptionCaught")
++                e: Exception,
++            ) {
++                Log.e(TAG, "Report quiz sessions unknown error", e)
++                Result.failure(IllegalStateException("퀴즈 기록을 불러오는 중 오류가 발생했습니다."))
++            }
++
+         private fun errorMessage(
+             statusCode: Int,
+             defaultMessage: String,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportQuizSession.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportQuizSession.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportQuizSession.kt
+@@ -0,0 +1,26 @@
++package com.ssafy.mobile.feature.report.domain.model
++
++data class ReportQuizSessionPage(
++    val sessions: List<ReportQuizSession>,
++    val page: Int,
++    val size: Int,
++    val totalElements: Long,
++    val totalPages: Int,
++) {
++    val hasSessions: Boolean
++        get() = sessions.isNotEmpty()
++}
++
++data class ReportQuizSession(
++    val sessionId: Long,
++    val categoryId: Long,
++    val categoryName: String,
++    val difficulty: String,
++    val totalQuestionCount: Int,
++    val correctCount: Int,
++    val accuracyRate: Double,
++    val averageStar: Double,
++    val status: String,
++    val startedAt: String?,
++    val endedAt: String?,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
+@@ -1,6 +1,7 @@
+ package com.ssafy.mobile.feature.report.domain.repository
+ 
+ import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgressPage
++import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionPage
+ import com.ssafy.mobile.feature.report.domain.model.ReportSummary
+ import com.ssafy.mobile.feature.report.domain.model.ReportWeakWordPage
+ 
+@@ -18,4 +19,10 @@ interface ReportRepository {
+         from: String? = null,
+         to: String? = null,
+     ): Result<ReportCategoryProgressPage>
++
++    suspend fun getQuizSessions(
++        childId: Long,
++        page: Int,
++        size: Int,
++    ): Result<ReportQuizSessionPage>
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
+@@ -44,6 +44,7 @@ fun ReportHomeRoute(
+     onNavigateToSummary: () -> Unit,
+     onNavigateToWeakWords: () -> Unit,
+     onNavigateToCategoryProgress: () -> Unit,
++    onNavigateToQuizSessions: () -> Unit,
+     onSwitchChild: () -> Unit,
+     modifier: Modifier = Modifier,
+     viewModel: ReportHomeViewModel = hiltViewModel(),
+@@ -72,6 +73,7 @@ fun ReportHomeRoute(
+                 onNavigateToSummary = onNavigateToSummary,
+                 onNavigateToWeakWords = onNavigateToWeakWords,
+                 onNavigateToCategoryProgress = onNavigateToCategoryProgress,
++                onNavigateToQuizSessions = onNavigateToQuizSessions,
+                 onSwitchChild = onSwitchChild,
+                 onRetryClick = viewModel::loadActiveChildProfile,
+             ),
+@@ -83,6 +85,7 @@ private data class ReportHomeActions(
+     val onNavigateToSummary: () -> Unit,
+     val onNavigateToWeakWords: () -> Unit,
+     val onNavigateToCategoryProgress: () -> Unit,
++    val onNavigateToQuizSessions: () -> Unit,
+     val onSwitchChild: () -> Unit,
+     val onRetryClick: () -> Unit,
+ )
+@@ -164,6 +167,16 @@ private fun ReportHomeScreen(
+                 enabled = isMenuEnabled,
+             )
+ 
++            Spacer(modifier = Modifier.height(12.dp))
++
++            ReportMenuCard(
++                title = "퀴즈 기록",
++                description = "아이가 풀어본 퀴즈 기록을 최신순으로 볼 수 있어요.",
++                iconEmoji = "🧩",
++                onClick = actions.onNavigateToQuizSessions,
++                enabled = isMenuEnabled,
++            )
++
+             Spacer(modifier = Modifier.height(32.dp))
+         }
+     }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionCard.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionCard.kt
+@@ -0,0 +1,152 @@
++package com.ssafy.mobile.feature.report.presentation
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.feature.report.domain.model.ReportQuizSession
++import java.util.Locale
++
++@Composable
++fun ReportQuizSessionCard(session: ReportQuizSession) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = QUIZ_SESSION_CARD_ALPHA),
++    ) {
++        Column(modifier = Modifier.padding(18.dp)) {
++            Row(
++                modifier = Modifier.fillMaxWidth(),
++                verticalAlignment = Alignment.CenterVertically,
++            ) {
++                Column(modifier = Modifier.weight(1f)) {
++                    Text(
++                        text = "${session.categoryName} 퀴즈",
++                        style = MaterialTheme.typography.titleMedium,
++                        fontWeight = FontWeight.Bold,
++                        maxLines = 1,
++                        overflow = TextOverflow.Ellipsis,
++                    )
++                    Text(
++                        text =
++                            "${session.difficulty.toDifficultyLabel()} · " +
++                                session.status.toStatusLabel(),
++                        style = MaterialTheme.typography.bodySmall,
++                        color = MaterialTheme.colorScheme.onSurfaceVariant,
++                        maxLines = 1,
++                        overflow = TextOverflow.Ellipsis,
++                    )
++                }
++                Text(
++                    text = "${session.correctCount}/${session.totalQuestionCount}",
++                    style = MaterialTheme.typography.labelLarge,
++                    color = MaterialTheme.colorScheme.primary,
++                )
++            }
++
++            Spacer(modifier = Modifier.height(14.dp))
++            ReportQuizSessionMetricRow(session = session)
++            Spacer(modifier = Modifier.height(10.dp))
++            Text(
++                text = session.toDateLabel(),
++                style = MaterialTheme.typography.bodySmall,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++            )
++        }
++    }
++}
++
++@Composable
++private fun ReportQuizSessionMetricRow(session: ReportQuizSession) {
++    Row(
++        modifier = Modifier.fillMaxWidth(),
++        horizontalArrangement = Arrangement.spacedBy(8.dp),
++    ) {
++        ReportQuizSessionMetric(
++            title = "정답",
++            value = "${session.correctCount}개",
++            modifier = Modifier.weight(1f),
++        )
++        ReportQuizSessionMetric(
++            title = "정답률",
++            value = String.format(Locale.KOREA, "%.1f%%", session.accuracyRate),
++            modifier = Modifier.weight(1f),
++        )
++        ReportQuizSessionMetric(
++            title = "평균 별점",
++            value = String.format(Locale.KOREA, "%.1f/3", session.averageStar),
++            modifier = Modifier.weight(1f),
++        )
++    }
++}
++
++@Composable
++private fun ReportQuizSessionMetric(
++    title: String,
++    value: String,
++    modifier: Modifier = Modifier,
++) {
++    Surface(
++        modifier = modifier,
++        shape = MaterialTheme.shapes.small,
++        color = MaterialTheme.colorScheme.surface,
++    ) {
++        Column(
++            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
++            horizontalAlignment = Alignment.CenterHorizontally,
++        ) {
++            Text(
++                text = title,
++                style = MaterialTheme.typography.labelSmall,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++                maxLines = 1,
++            )
++            Text(
++                text = value,
++                style = MaterialTheme.typography.labelMedium,
++                fontWeight = FontWeight.Bold,
++                maxLines = 1,
++            )
++        }
++    }
++}
++
++private fun ReportQuizSession.toDateLabel(): String =
++    when {
++        !endedAt.isNullOrBlank() -> "완료 ${endedAt.toReportDateLabel()}"
++        !startedAt.isNullOrBlank() -> "시작 ${startedAt.toReportDateLabel()}"
++        else -> "날짜 정보 없음"
++    }
++
++private fun String.toReportDateLabel(): String = take(ISO_DATE_LENGTH).replace("-", ".")
++
++private fun String.toDifficultyLabel(): String =
++    when (this) {
++        "EASY" -> "쉬움"
++        "NORMAL" -> "보통"
++        "HARD" -> "어려움"
++        else -> this
++    }
++
++private fun String.toStatusLabel(): String =
++    when (this) {
++        "COMPLETED" -> "완료"
++        "STARTED" -> "진행 중"
++        "ABANDONED" -> "중단"
++        else -> this
++    }
++
++private const val QUIZ_SESSION_CARD_ALPHA = 0.45f
++private const val ISO_DATE_LENGTH = 10
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsRoute.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsRoute.kt
+@@ -0,0 +1,358 @@
++package com.ssafy.mobile.feature.report.presentation
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.lazy.LazyColumn
++import androidx.compose.foundation.lazy.LazyListScope
++import androidx.compose.foundation.lazy.items
++import androidx.compose.material3.ExperimentalMaterial3Api
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Scaffold
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.material3.TextButton
++import androidx.compose.material3.TopAppBar
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.DisposableEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import androidx.hilt.navigation.compose.hiltViewModel
++import androidx.lifecycle.Lifecycle
++import androidx.lifecycle.LifecycleEventObserver
++import androidx.lifecycle.compose.LocalLifecycleOwner
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppPrimaryButton
++import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
++import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionPage
++
++@OptIn(ExperimentalMaterial3Api::class)
++@Composable
++fun ReportQuizSessionsRoute(
++    onNavigateBack: () -> Unit,
++    onSwitchChild: () -> Unit,
++    modifier: Modifier = Modifier,
++    viewModel: ReportQuizSessionsViewModel = hiltViewModel(),
++) {
++    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
++    val lifecycleOwner = LocalLifecycleOwner.current
++
++    DisposableEffect(lifecycleOwner) {
++        val observer =
++            LifecycleEventObserver { _, event ->
++                if (event == Lifecycle.Event.ON_RESUME) {
++                    viewModel.loadActiveChildProfile()
++                }
++            }
++        lifecycleOwner.lifecycle.addObserver(observer)
++        onDispose {
++            lifecycleOwner.lifecycle.removeObserver(observer)
++        }
++    }
++
++    Scaffold(
++        modifier = modifier.fillMaxSize(),
++        topBar = {
++            TopAppBar(
++                title = {
++                    Text(
++                        text = "퀴즈 기록",
++                        style = MaterialTheme.typography.titleLarge,
++                        fontWeight = FontWeight.Bold,
++                    )
++                },
++                navigationIcon = {
++                    TextButton(onClick = onNavigateBack) {
++                        Text(
++                            text = "뒤로",
++                            style = MaterialTheme.typography.bodyLarge,
++                            color = MaterialTheme.colorScheme.primary,
++                        )
++                    }
++                },
++            )
++        },
++    ) { padding ->
++        ReportQuizSessionsContent(
++            activeChildState = uiState.activeChildState,
++            quizSessionsState = uiState.quizSessionsState,
++            onRetryClick = viewModel::loadActiveChildProfile,
++            onLoadMoreClick = viewModel::loadMoreQuizSessions,
++            onSwitchChild = onSwitchChild,
++            modifier =
++                Modifier
++                    .fillMaxSize()
++                    .padding(padding),
++        )
++    }
++}
++
++@Composable
++private fun ReportQuizSessionsContent(
++    activeChildState: ActiveChildProfileState,
++    quizSessionsState: ReportQuizSessionsState,
++    onRetryClick: () -> Unit,
++    onLoadMoreClick: () -> Unit,
++    onSwitchChild: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    LazyColumn(
++        modifier = modifier,
++        contentPadding = PaddingValues(24.dp),
++        verticalArrangement = Arrangement.spacedBy(12.dp),
++    ) {
++        item {
++            ReportQuizSessionsIntro(activeChildState = activeChildState)
++        }
++
++        when (activeChildState) {
++            ActiveChildProfileState.Loading ->
++                item {
++                    ReportQuizSessionsStatusCard(message = "아이 정보를 불러오는 중...")
++                }
++
++            is ActiveChildProfileState.Selected ->
++                quizSessionsItems(
++                    state = quizSessionsState,
++                    onRetryClick = onRetryClick,
++                    onLoadMoreClick = onLoadMoreClick,
++                )
++
++            ActiveChildProfileState.Missing ->
++                item {
++                    ReportQuizSessionsActionCard(
++                        message = "리포트를 보려면 아이를 먼저 선택해 주세요.",
++                        buttonText = "아이 선택하기",
++                        onClick = onSwitchChild,
++                    )
++                }
++
++            ActiveChildProfileState.NotFound ->
++                item {
++                    ReportQuizSessionsActionCard(
++                        message = "선택된 아이 정보를 찾을 수 없습니다.",
++                        buttonText = "아이 다시 선택하기",
++                        onClick = onSwitchChild,
++                    )
++                }
++
++            is ActiveChildProfileState.Error ->
++                item {
++                    ReportQuizSessionsErrorCard(
++                        message = activeChildState.message,
++                        onRetryClick = onRetryClick,
++                    )
++                }
++        }
++    }
++}
++
++private fun LazyListScope.quizSessionsItems(
++    state: ReportQuizSessionsState,
++    onRetryClick: () -> Unit,
++    onLoadMoreClick: () -> Unit,
++) {
++    when (state) {
++        ReportQuizSessionsState.Idle,
++        ReportQuizSessionsState.Loading,
++        ->
++            item {
++                ReportQuizSessionsStatusCard(message = "퀴즈 기록을 불러오는 중...")
++            }
++
++        ReportQuizSessionsState.Empty ->
++            item {
++                ReportQuizSessionsStatusCard(
++                    message = "아직 퀴즈 기록이 없어요.\n퀴즈를 완료하면 기록을 모아볼 수 있어요.",
++                )
++            }
++
++        is ReportQuizSessionsState.Error ->
++            item {
++                ReportQuizSessionsErrorCard(
++                    message = state.message,
++                    onRetryClick = onRetryClick,
++                )
++            }
++
++        is ReportQuizSessionsState.Success -> {
++            item {
++                ReportQuizSessionsSummary(page = state.page)
++            }
++            items(
++                items = state.page.sessions,
++                key = { session -> session.sessionId },
++            ) { session ->
++                ReportQuizSessionCard(session = session)
++            }
++            item {
++                ReportQuizSessionsMoreSection(
++                    state = state,
++                    onLoadMoreClick = onLoadMoreClick,
++                )
++            }
++        }
++    }
++}
++
++@Composable
++private fun ReportQuizSessionsIntro(activeChildState: ActiveChildProfileState) {
++    val selectedProfile = (activeChildState as? ActiveChildProfileState.Selected)?.profile
++    Column(modifier = Modifier.fillMaxWidth()) {
++        Text(
++            text = selectedProfile?.let { "${it.name}의 퀴즈 기록" } ?: "퀴즈 기록",
++            style = MaterialTheme.typography.headlineSmall,
++            fontWeight = FontWeight.Bold,
++            maxLines = 1,
++            overflow = TextOverflow.Ellipsis,
++        )
++        Spacer(modifier = Modifier.height(6.dp))
++        Text(
++            text = "아이의 퀴즈 풀이 기록을 최신순으로 정리했어요.",
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++        )
++    }
++}
++
++@Composable
++private fun ReportQuizSessionsSummary(page: ReportQuizSessionPage) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = QUIZ_SUMMARY_ALPHA),
++    ) {
++        Text(
++            text = "총 ${page.totalElements}개의 퀴즈 기록이 있어요.",
++            modifier = Modifier.padding(18.dp),
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSecondaryContainer,
++        )
++    }
++}
++
++@Composable
++private fun ReportQuizSessionsMoreSection(
++    state: ReportQuizSessionsState.Success,
++    onLoadMoreClick: () -> Unit,
++) {
++    val hasMore = state.page.page < state.page.totalPages
++
++    Column(
++        modifier = Modifier.fillMaxWidth(),
++        horizontalAlignment = Alignment.CenterHorizontally,
++    ) {
++        state.loadMoreErrorMessage?.let { message ->
++            Text(
++                text = message,
++                style = MaterialTheme.typography.bodySmall,
++                color = MaterialTheme.colorScheme.error,
++                textAlign = TextAlign.Center,
++            )
++            Spacer(modifier = Modifier.height(8.dp))
++        }
++
++        if (hasMore) {
++            AppSecondaryButton(
++                text = if (state.isLoadingMore) "불러오는 중..." else "더 보기",
++                onClick = onLoadMoreClick,
++                enabled = !state.isLoadingMore,
++                modifier = Modifier.height(40.dp),
++            )
++        }
++    }
++}
++
++@Composable
++private fun ReportQuizSessionsStatusCard(message: String) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = QUIZ_STATUS_ALPHA),
++    ) {
++        Text(
++            text = message,
++            modifier = Modifier.padding(20.dp),
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            textAlign = TextAlign.Center,
++        )
++    }
++}
++
++@Composable
++private fun ReportQuizSessionsErrorCard(
++    message: String,
++    onRetryClick: () -> Unit,
++) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = QUIZ_ERROR_ALPHA),
++    ) {
++        Column(
++            modifier = Modifier.padding(20.dp),
++            horizontalAlignment = Alignment.CenterHorizontally,
++        ) {
++            Text(
++                text = message,
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.error,
++                textAlign = TextAlign.Center,
++            )
++            Spacer(modifier = Modifier.height(12.dp))
++            AppSecondaryButton(
++                text = "다시 시도",
++                onClick = onRetryClick,
++                modifier = Modifier.height(36.dp),
++            )
++        }
++    }
++}
++
++@Composable
++private fun ReportQuizSessionsActionCard(
++    message: String,
++    buttonText: String,
++    onClick: () -> Unit,
++) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = QUIZ_ACTION_ALPHA),
++    ) {
++        Column(
++            modifier = Modifier.padding(20.dp),
++            horizontalAlignment = Alignment.CenterHorizontally,
++        ) {
++            Text(
++                text = message,
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.onPrimaryContainer,
++                textAlign = TextAlign.Center,
++            )
++            Spacer(modifier = Modifier.height(12.dp))
++            AppPrimaryButton(
++                text = buttonText,
++                onClick = onClick,
++                modifier = Modifier.height(40.dp),
++            )
++        }
++    }
++}
++
++private const val QUIZ_SUMMARY_ALPHA = 0.35f
++private const val QUIZ_STATUS_ALPHA = 0.5f
++private const val QUIZ_ERROR_ALPHA = 0.4f
++private const val QUIZ_ACTION_ALPHA = 0.35f
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsViewModel.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsViewModel.kt
+@@ -0,0 +1,223 @@
++package com.ssafy.mobile.feature.report.presentation
++
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileManager
++import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
++import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionPage
++import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
++import dagger.hilt.android.lifecycle.HiltViewModel
++import javax.inject.Inject
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++
++data class ReportQuizSessionsUiState(
++    val activeChildState: ActiveChildProfileState = ActiveChildProfileState.Loading,
++    val quizSessionsState: ReportQuizSessionsState = ReportQuizSessionsState.Idle,
++)
++
++private data class QuizSessionsLoadMoreRequest(
++    val childId: Long,
++    val quizSessionsState: ReportQuizSessionsState.Success,
++)
++
++sealed interface ReportQuizSessionsState {
++    data object Idle : ReportQuizSessionsState
++
++    data object Loading : ReportQuizSessionsState
++
++    data object Empty : ReportQuizSessionsState
++
++    data class Success(
++        val page: ReportQuizSessionPage,
++        val isLoadingMore: Boolean = false,
++        val loadMoreErrorMessage: String? = null,
++    ) : ReportQuizSessionsState
++
++    data class Error(
++        val message: String,
++    ) : ReportQuizSessionsState
++}
++
++@HiltViewModel
++class ReportQuizSessionsViewModel
++    @Inject
++    constructor(
++        private val activeChildProfileManager: ActiveChildProfileManager,
++        private val reportRepository: ReportRepository,
++    ) : ViewModel() {
++        private val _uiState = MutableStateFlow(ReportQuizSessionsUiState())
++        val uiState: StateFlow<ReportQuizSessionsUiState> = _uiState.asStateFlow()
++
++        private var loadJob: Job? = null
++        private var loadMoreJob: Job? = null
++
++        init {
++            loadActiveChildProfile()
++        }
++
++        fun loadActiveChildProfile() {
++            loadJob?.cancel()
++            loadMoreJob?.cancel()
++            loadJob =
++                viewModelScope.launch {
++                    _uiState.value =
++                        _uiState.value.copy(
++                            activeChildState = ActiveChildProfileState.Loading,
++                            quizSessionsState = ReportQuizSessionsState.Idle,
++                        )
++
++                    val state =
++                        withContext(Dispatchers.IO) {
++                            activeChildProfileManager.getActiveChildProfile()
++                        }
++
++                    _uiState.value =
++                        _uiState.value.copy(
++                            activeChildState = state,
++                            quizSessionsState =
++                                if (state is ActiveChildProfileState.Selected) {
++                                    ReportQuizSessionsState.Loading
++                                } else {
++                                    ReportQuizSessionsState.Idle
++                                },
++                        )
++
++                    if (state is ActiveChildProfileState.Selected) {
++                        loadQuizSessions(childId = state.profile.childId)
++                    }
++                }
++        }
++
++        fun loadMoreQuizSessions() {
++            val request = createLoadMoreRequest(state = _uiState.value) ?: return
++            val childId = request.childId
++            val quizSessionsState = request.quizSessionsState
++
++            loadMoreJob?.cancel()
++            loadMoreJob =
++                viewModelScope.launch {
++                    _uiState.value =
++                        _uiState.value.copy(
++                            quizSessionsState =
++                                quizSessionsState.copy(
++                                    isLoadingMore = true,
++                                    loadMoreErrorMessage = null,
++                                ),
++                        )
++
++                    val nextPage = quizSessionsState.page.page + 1
++                    val result =
++                        withContext(Dispatchers.IO) {
++                            reportRepository.getQuizSessions(
++                                childId = childId,
++                                page = nextPage,
++                                size = DEFAULT_QUIZ_SESSIONS_PAGE_SIZE,
++                            )
++                        }
++
++                    if (!isSameActiveChild(childId = childId)) {
++                        return@launch
++                    }
++
++                    _uiState.value =
++                        result.fold(
++                            onSuccess = { page ->
++                                _uiState.value.copy(
++                                    quizSessionsState =
++                                        quizSessionsState.copy(
++                                            page =
++                                                page.copy(
++                                                    sessions =
++                                                        quizSessionsState.page.sessions +
++                                                            page.sessions,
++                                                ),
++                                            isLoadingMore = false,
++                                        ),
++                                )
++                            },
++                            onFailure = { throwable ->
++                                _uiState.value.copy(
++                                    quizSessionsState =
++                                        quizSessionsState.copy(
++                                            isLoadingMore = false,
++                                            loadMoreErrorMessage =
++                                                throwable.message ?: "퀴즈 기록을 더 불러오지 못했습니다.",
++                                        ),
++                                )
++                            },
++                        )
++                }
++        }
++
++        private suspend fun loadQuizSessions(childId: Long) {
++            val result =
++                withContext(Dispatchers.IO) {
++                    reportRepository.getQuizSessions(
++                        childId = childId,
++                        page = FIRST_PAGE,
++                        size = DEFAULT_QUIZ_SESSIONS_PAGE_SIZE,
++                    )
++                }
++
++            if (!isSameActiveChild(childId = childId)) {
++                return
++            }
++
++            _uiState.value =
++                result.fold(
++                    onSuccess = { page ->
++                        _uiState.value.copy(
++                            quizSessionsState =
++                                if (page.hasSessions) {
++                                    ReportQuizSessionsState.Success(page)
++                                } else {
++                                    ReportQuizSessionsState.Empty
++                                },
++                        )
++                    },
++                    onFailure = { throwable ->
++                        _uiState.value.copy(
++                            quizSessionsState =
++                                ReportQuizSessionsState.Error(
++                                    throwable.message ?: "퀴즈 기록을 불러오지 못했습니다.",
++                                ),
++                        )
++                    },
++                )
++        }
++
++        private fun isSameActiveChild(childId: Long): Boolean {
++            val activeChildState = _uiState.value.activeChildState
++            return activeChildState is ActiveChildProfileState.Selected &&
++                activeChildState.profile.childId == childId
++        }
++
++        private fun createLoadMoreRequest(
++            state: ReportQuizSessionsUiState,
++        ): QuizSessionsLoadMoreRequest? {
++            val childState = state.activeChildState as? ActiveChildProfileState.Selected
++            val quizSessionsState = state.quizSessionsState as? ReportQuizSessionsState.Success
++            if (childState == null || quizSessionsState == null) {
++                return null
++            }
++
++            val hasMore = quizSessionsState.page.page < quizSessionsState.page.totalPages
++            return if (!quizSessionsState.isLoadingMore && hasMore) {
++                QuizSessionsLoadMoreRequest(
++                    childId = childState.profile.childId,
++                    quizSessionsState = quizSessionsState,
++                )
++            } else {
++                null
++            }
++        }
++    }
++
++private const val FIRST_PAGE = 1
++private const val DEFAULT_QUIZ_SESSIONS_PAGE_SIZE = 20
+
+

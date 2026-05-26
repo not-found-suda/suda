@@ -1,0 +1,543 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizMessageStates.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizMessageStates.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizMessageStates.kt
+@@ -0,0 +1,85 @@
++package com.ssafy.mobile.feature.quiz.presentation
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.Card
++import androidx.compose.material3.CardDefaults
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.core.ui.components.AppPrimaryButton
++
++@Composable
++internal fun QuizFinishedState(
++    solvedCount: Int,
++    totalCount: Int,
++    onRestartClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    QuizMessageState(
++        title = "퀴즈를 모두 풀었어요",
++        description = "$totalCount 문제 중 $solvedCount 문제를 답변했어요.",
++        actionText = "다시 시작",
++        onActionClick = onRestartClick,
++        modifier = modifier,
++    )
++}
++
++@Composable
++internal fun QuizMessageState(
++    title: String,
++    description: String,
++    modifier: Modifier = Modifier,
++    actionText: String? = null,
++    onActionClick: (() -> Unit)? = null,
++) {
++    Box(
++        modifier = modifier.padding(24.dp),
++        contentAlignment = Alignment.Center,
++    ) {
++        Card(
++            modifier = Modifier.fillMaxWidth(),
++            shape = RoundedCornerShape(28.dp),
++            colors =
++                CardDefaults.cardColors(
++                    containerColor = MaterialTheme.colorScheme.surface,
++                ),
++            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
++        ) {
++            Column(
++                modifier = Modifier.padding(28.dp),
++                horizontalAlignment = Alignment.CenterHorizontally,
++                verticalArrangement = Arrangement.spacedBy(14.dp),
++            ) {
++                Text(
++                    text = title,
++                    style = MaterialTheme.typography.headlineSmall,
++                    fontWeight = FontWeight.Bold,
++                    textAlign = TextAlign.Center,
++                )
++                Text(
++                    text = description,
++                    style = MaterialTheme.typography.bodyMedium,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                    textAlign = TextAlign.Center,
++                )
++
++                if (actionText != null && onActionClick != null) {
++                    AppPrimaryButton(
++                        text = actionText,
++                        onClick = onActionClick,
++                    )
++                }
++            }
++        }
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+@@ -49,29 +49,24 @@ fun quizQuestionRoute(modifier: Modifier = Modifier) {
+     var quizState by remember {
+         mutableStateOf(QuizSessionReducer.start(MockQuizQuestions.items))
+     }
++    val recordingController =
++        rememberQuizRecordingController(
++            currentQuestionId = quizState.currentQuestion?.id,
++            onSubmitRecording = {
++                quizState = submitMockAnswer(quizState)
++            },
++        )
+ 
+     QuizQuestionScreen(
+         state = quizState,
+-        onAnswerClick = {
+-            val question = quizState.currentQuestion
+-            val answerText = question?.word.orEmpty()
+-            val submitState =
+-                if (question != null && quizState.answers.any { it.questionId == question.id }) {
+-                    QuizSessionReducer.retryCurrentQuestion(quizState)
+-                } else {
+-                    quizState
+-                }
+-            quizState =
+-                QuizSessionReducer.submitCurrentAnswer(
+-                    state = submitState,
+-                    sttText = answerText,
+-                    star = MOCK_SUCCESS_STAR,
+-                )
+-        },
++        recordingStatus = recordingController.status,
++        onAnswerClick = recordingController.onRecordButtonClick,
+         onNextClick = {
++            recordingController.reset()
+             quizState = QuizSessionReducer.moveToNextQuestion(quizState)
+         },
+         onRestartClick = {
++            recordingController.reset()
+             quizState = QuizSessionReducer.start(MockQuizQuestions.items)
+         },
+         modifier = modifier,
+@@ -79,8 +74,9 @@ fun quizQuestionRoute(modifier: Modifier = Modifier) {
+ }
+ 
+ @Composable
+-fun QuizQuestionScreen(
++private fun QuizQuestionScreen(
+     state: QuizSessionState,
++    recordingStatus: QuizRecordingStatus,
+     onAnswerClick: () -> Unit,
+     onNextClick: () -> Unit,
+     onRestartClick: () -> Unit,
+@@ -130,6 +126,7 @@ fun QuizQuestionScreen(
+                 QuizQuestionContent(
+                     state = state,
+                     question = requireNotNull(state.currentQuestion),
++                    recordingStatus = recordingStatus,
+                     onAnswerClick = onAnswerClick,
+                     onNextClick = onNextClick,
+                     modifier = Modifier.fillMaxSize(),
+@@ -143,6 +140,7 @@ fun QuizQuestionScreen(
+ private fun QuizQuestionContent(
+     state: QuizSessionState,
+     question: QuizQuestion,
++    recordingStatus: QuizRecordingStatus,
+     onAnswerClick: () -> Unit,
+     onNextClick: () -> Unit,
+     modifier: Modifier = Modifier,
+@@ -166,6 +164,7 @@ private fun QuizQuestionContent(
+ 
+         QuizActionArea(
+             isLastQuestion = state.isLastQuestion,
++            recordingStatus = recordingStatus,
+             answerAttemptCount =
+                 state.answers
+                     .firstOrNull {
+@@ -321,114 +320,68 @@ private fun QuizPrompt(
+ @Composable
+ private fun QuizActionArea(
+     isLastQuestion: Boolean,
++    recordingStatus: QuizRecordingStatus,
+     answerAttemptCount: Int?,
+     onAnswerClick: () -> Unit,
+     onNextClick: () -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+     val hasAnswered = answerAttemptCount != null
++    val isRecording = recordingStatus == QuizRecordingStatus.Recording
++    val isProcessing = recordingStatus == QuizRecordingStatus.Processing
++    val canSkipQuestion = recordingStatus.canSkipQuestion
++    val canMoveNext = (hasAnswered || canSkipQuestion) && !isRecording && !isProcessing
+ 
+     Column(
+         modifier = modifier.fillMaxWidth(),
+         verticalArrangement = Arrangement.spacedBy(12.dp),
+     ) {
+         AppPrimaryButton(
+-            text = if (hasAnswered) "다시 말하기" else "답변하기",
++            text =
++                when {
++                    isRecording -> "말하기 완료"
++                    isProcessing -> "녹음 확인 중"
++                    hasAnswered -> "다시 말하기"
++                    else -> "답변하기"
++                },
+             onClick = onAnswerClick,
++            enabled = !isProcessing,
+         )
+ 
+         AppSecondaryButton(
+-            text = if (isLastQuestion) "결과 보기" else "다음 문제",
++            text =
++                when {
++                    canSkipQuestion -> "이번 문제 넘어가기"
++                    isLastQuestion -> "결과 보기"
++                    else -> "다음 문제"
++                },
+             onClick = onNextClick,
+-            enabled = hasAnswered,
++            enabled = canMoveNext,
+         )
+ 
+-        if (!hasAnswered) {
+-            Text(
+-                text = "답변 후 다음 문제로 넘어갈 수 있어요.",
+-                modifier = Modifier.fillMaxWidth(),
+-                style = MaterialTheme.typography.bodySmall,
+-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                textAlign = TextAlign.Center,
+-            )
+-        } else {
+-            Text(
+-                text = "$answerAttemptCount 번째 답변이 임시 저장됐어요.",
+-                modifier = Modifier.fillMaxWidth(),
+-                style = MaterialTheme.typography.bodySmall,
+-                color = MaterialTheme.colorScheme.primary,
+-                textAlign = TextAlign.Center,
+-            )
+-        }
+-    }
+-}
+-
+-@Composable
+-private fun QuizFinishedState(
+-    solvedCount: Int,
+-    totalCount: Int,
+-    onRestartClick: () -> Unit,
+-    modifier: Modifier = Modifier,
+-) {
+-    QuizMessageState(
+-        title = "퀴즈를 모두 풀었어요",
+-        description = "$totalCount 문제 중 $solvedCount 문제를 답변했어요.",
+-        actionText = "다시 시작",
+-        onActionClick = onRestartClick,
+-        modifier = modifier,
+-    )
+-}
+-
+-@Composable
+-private fun QuizMessageState(
+-    title: String,
+-    description: String,
+-    modifier: Modifier = Modifier,
+-    actionText: String? = null,
+-    onActionClick: (() -> Unit)? = null,
+-) {
+-    Box(
+-        modifier = modifier.padding(24.dp),
+-        contentAlignment = Alignment.Center,
+-    ) {
+-        Card(
+-            modifier = Modifier.fillMaxWidth(),
+-            shape = RoundedCornerShape(28.dp),
+-            colors =
+-                CardDefaults.cardColors(
+-                    containerColor = MaterialTheme.colorScheme.surface,
+-                ),
+-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+-        ) {
+-            Column(
+-                modifier = Modifier.padding(28.dp),
+-                horizontalAlignment = Alignment.CenterHorizontally,
+-                verticalArrangement = Arrangement.spacedBy(14.dp),
+-            ) {
+-                Text(
+-                    text = title,
+-                    style = MaterialTheme.typography.headlineSmall,
+-                    fontWeight = FontWeight.Bold,
+-                    textAlign = TextAlign.Center,
+-                )
+-                Text(
+-                    text = description,
+-                    style = MaterialTheme.typography.bodyMedium,
+-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                    textAlign = TextAlign.Center,
+-                )
+-
+-                if (actionText != null && onActionClick != null) {
+-                    AppPrimaryButton(
+-                        text = actionText,
+-                        onClick = onActionClick,
+-                    )
+-                }
+-            }
+-        }
++        QuizRecordingStatusText(
++            recordingStatus = recordingStatus,
++            answerAttemptCount = answerAttemptCount,
++        )
+     }
+ }
+ 
+ private const val MOCK_SUCCESS_STAR = 3
+ private const val PERCENT_MAX = 100
+ private const val FIRST_LETTER_COUNT = 1
++
++private fun submitMockAnswer(state: QuizSessionState): QuizSessionState {
++    val question = state.currentQuestion ?: return state
++    val submitState =
++        if (state.answers.any { it.questionId == question.id }) {
++            QuizSessionReducer.retryCurrentQuestion(state)
++        } else {
++            state
++        }
++
++    return QuizSessionReducer.submitCurrentAnswer(
++        state = submitState,
++        sttText = question.word,
++        star = MOCK_SUCCESS_STAR,
++    )
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingState.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingState.kt
+@@ -0,0 +1,210 @@
++package com.ssafy.mobile.feature.quiz.presentation
++
++import android.Manifest
++import android.content.Context
++import android.content.pm.PackageManager
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.DisposableEffect
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.rememberUpdatedState
++import androidx.compose.runtime.setValue
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.text.style.TextAlign
++import androidx.core.content.ContextCompat
++import com.ssafy.mobile.core.audio.AndroidAudioRecorder
++import kotlinx.coroutines.delay
++
++internal enum class QuizRecordingStatus {
++    Idle,
++    Recording,
++    Processing,
++    Completed,
++    NoSpeech,
++    Timeout,
++    PermissionError,
++}
++
++internal val QuizRecordingStatus.canSkipQuestion: Boolean
++    get() =
++        this == QuizRecordingStatus.NoSpeech ||
++            this == QuizRecordingStatus.Timeout ||
++            this == QuizRecordingStatus.PermissionError
++
++internal class QuizRecordingController(
++    val status: QuizRecordingStatus,
++    val onRecordButtonClick: () -> Unit,
++    val reset: () -> Unit,
++)
++
++@Composable
++@Suppress("CyclomaticComplexMethod")
++internal fun rememberQuizRecordingController(
++    currentQuestionId: Long?,
++    onSubmitRecording: () -> Unit,
++): QuizRecordingController {
++    val context = LocalContext.current
++    val submitRecording by rememberUpdatedState(onSubmitRecording)
++    val recorder =
++        remember(context) {
++            AndroidAudioRecorder(context.applicationContext)
++        }
++    var status by remember {
++        mutableStateOf(QuizRecordingStatus.Idle)
++    }
++    var recordingStartedAtMs by remember {
++        mutableStateOf(0L)
++    }
++    var hasDetectedVoice by remember {
++        mutableStateOf(false)
++    }
++
++    fun resetRecording() {
++        recorder.release()
++        status = QuizRecordingStatus.Idle
++        recordingStartedAtMs = 0L
++        hasDetectedVoice = false
++    }
++
++    DisposableEffect(recorder) {
++        onDispose {
++            recorder.release()
++        }
++    }
++
++    LaunchedEffect(currentQuestionId) {
++        resetRecording()
++    }
++
++    LaunchedEffect(status, recordingStartedAtMs) {
++        if (status != QuizRecordingStatus.Recording) return@LaunchedEffect
++
++        while (status == QuizRecordingStatus.Recording) {
++            delay(RECORDING_POLL_INTERVAL_MS)
++            if (recorder.getMaxAmplitude() >= VOICE_AMPLITUDE_THRESHOLD) {
++                hasDetectedVoice = true
++            }
++            if (System.currentTimeMillis() - recordingStartedAtMs >= RECORDING_MAX_DURATION_MS) {
++                val file = recorder.stop()
++                if (file != null && hasDetectedVoice) {
++                    status = QuizRecordingStatus.Completed
++                    submitRecording()
++                } else {
++                    status = QuizRecordingStatus.Timeout
++                }
++            }
++        }
++    }
++
++    fun startRecording() {
++        if (!context.hasRecordAudioPermission()) {
++            status = QuizRecordingStatus.PermissionError
++            return
++        }
++
++        val questionId = currentQuestionId ?: return
++        val startedAtMs = System.currentTimeMillis()
++        val started = recorder.start(fileName = "quiz_answer_${questionId}_$startedAtMs")
++
++        if (started) {
++            hasDetectedVoice = false
++            recordingStartedAtMs = startedAtMs
++            status = QuizRecordingStatus.Recording
++        } else {
++            status = QuizRecordingStatus.PermissionError
++        }
++    }
++
++    fun stopRecording() {
++        status = QuizRecordingStatus.Processing
++        val recordedDurationMs = System.currentTimeMillis() - recordingStartedAtMs
++        val file = recorder.stop()
++        val isValidRecording =
++            file != null &&
++                hasDetectedVoice &&
++                recordedDurationMs >= RECORDING_MIN_DURATION_MS
++
++        if (isValidRecording) {
++            status = QuizRecordingStatus.Completed
++            submitRecording()
++        } else {
++            status = QuizRecordingStatus.NoSpeech
++        }
++    }
++
++    return QuizRecordingController(
++        status = status,
++        onRecordButtonClick = {
++            when (status) {
++                QuizRecordingStatus.Recording -> stopRecording()
++                QuizRecordingStatus.Processing -> Unit
++                else -> startRecording()
++            }
++        },
++        reset = ::resetRecording,
++    )
++}
++
++@Composable
++internal fun QuizRecordingStatusText(
++    recordingStatus: QuizRecordingStatus,
++    answerAttemptCount: Int?,
++    modifier: Modifier = Modifier,
++) {
++    Text(
++        text = recordingStatus.message(answerAttemptCount),
++        modifier = modifier.fillMaxWidth(),
++        style = MaterialTheme.typography.bodySmall,
++        color = recordingStatus.textColor(),
++        textAlign = TextAlign.Center,
++    )
++}
++
++@Composable
++private fun QuizRecordingStatus.textColor() =
++    when (this) {
++        QuizRecordingStatus.Completed -> MaterialTheme.colorScheme.primary
++        QuizRecordingStatus.NoSpeech,
++        QuizRecordingStatus.Timeout,
++        QuizRecordingStatus.PermissionError,
++        -> MaterialTheme.colorScheme.error
++        else -> MaterialTheme.colorScheme.onSurfaceVariant
++    }
++
++private fun QuizRecordingStatus.message(answerAttemptCount: Int?): String =
++    when (this) {
++        QuizRecordingStatus.Idle ->
++            if (answerAttemptCount == null) {
++                "버튼을 누르고 단어를 말해 주세요."
++            } else {
++                "$answerAttemptCount 번째 답변이 임시 저장됐어요."
++            }
++        QuizRecordingStatus.Recording -> "듣고 있어요. 다 말했으면 버튼을 눌러 주세요."
++        QuizRecordingStatus.Processing -> "녹음 파일을 확인하고 있어요."
++        QuizRecordingStatus.Completed ->
++            if (answerAttemptCount == null) {
++                "녹음이 완료됐어요."
++            } else {
++                "$answerAttemptCount 번째 답변이 임시 저장됐어요."
++            }
++        QuizRecordingStatus.NoSpeech -> "목소리가 잘 들리지 않았어요. 다시 말해볼까요?"
++        QuizRecordingStatus.Timeout -> "시간이 끝나 녹음을 멈췄어요. 다시 말할 수 있어요."
++        QuizRecordingStatus.PermissionError -> "마이크 권한을 확인한 뒤 다시 시도해 주세요."
++    }
++
++private fun Context.hasRecordAudioPermission(): Boolean =
++    ContextCompat.checkSelfPermission(
++        this,
++        Manifest.permission.RECORD_AUDIO,
++    ) == PackageManager.PERMISSION_GRANTED
++
++private const val RECORDING_MAX_DURATION_MS = 5_000L
++private const val RECORDING_MIN_DURATION_MS = 500L
++private const val RECORDING_POLL_INTERVAL_MS = 250L
++private const val VOICE_AMPLITUDE_THRESHOLD = 1_500
+
+

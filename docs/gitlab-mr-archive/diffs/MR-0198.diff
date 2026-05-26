@@ -1,0 +1,175 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/docs/QuizControllerDocs.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/docs/QuizControllerDocs.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/docs/QuizControllerDocs.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/docs/QuizControllerDocs.java
+@@ -30,10 +30,11 @@ public interface QuizControllerDocs {
+           """
+ 사용자가 선택한 카테고리와 난이도 기준으로 퀴즈 세션을 생성합니다.
+ 생성 시 해당 조건의 단어를 랜덤으로 뽑아 퀴즈 문제 목록을 만듭니다.
++응답에는 모바일이 세션 진입 즉시 전체 문제를 렌더링할 수 있도록 questions 목록이 포함됩니다.
+ """,
+       security = {@SecurityRequirement(name = "bearerAuth")})
+   @ApiResponse(responseCode = "200", description = "퀴즈 세션 생성 성공")
+-  @ApiErrorCodes({"COMMON_UNAUTHORIZED", "CHILD_PROFILE_NOT_FOUND"})
++  @ApiErrorCodes({"COMMON_UNAUTHORIZED", "CHILD_PROFILE_NOT_FOUND", "LEARN_QUIZ_NOT_ENOUGH_WORDS"})
+   QuizSessionCreateResponse createSession(
+       @Parameter(hidden = true) Authentication authentication,
+       @Valid @RequestBody QuizSessionCreateRequest request);
+@@ -59,6 +60,10 @@ public interface QuizControllerDocs {
+ 아이가 녹음한 음성 파일을 제출합니다.
+ 백엔드에서 STT를 통해 음성을 텍스트로 변환하고,
+ 정답 단어와 유사도를 비교하여 별점과 피드백을 반환합니다.
++
++audioFile이 없거나, 음성 인식에 실패하거나, 인식 결과가 비어 있는 경우에도 오류로 막지 않고
++recognizedText를 빈 문자열로 처리하여 1점 답변으로 저장합니다.
++따라서 모바일은 실패 화면을 보여준 뒤 다음 문제로 진행할 수 있습니다.
+ """,
+       security = {@SecurityRequirement(name = "bearerAuth")})
+   @ApiResponse(responseCode = "200", description = "답변 제출 및 채점 성공")
+@@ -67,8 +72,8 @@ public interface QuizControllerDocs {
+       @Parameter(hidden = true) Authentication authentication,
+       @Parameter(description = "퀴즈 세션 ID", example = "10") @PathVariable Long sessionId,
+       @Parameter(description = "현재 문제 ID", example = "101") @RequestParam Long questionId,
+-      @Parameter(description = "아이 음성 파일", content = @Content(mediaType = "audio/webm"))
+-          @RequestPart("audioFile")
++      @Parameter(description = "아이 음성 파일. 무음/미전송 가능", content = @Content(mediaType = "audio/webm"))
++          @RequestPart(value = "audioFile", required = false)
+           MultipartFile audioFile);
+ 
+   @Operation(
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/QuizController.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/QuizController.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/QuizController.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/QuizController.java
+@@ -48,7 +48,7 @@ public class QuizController implements QuizControllerDocs {
+       Authentication authentication,
+       @PathVariable Long sessionId,
+       @RequestParam Long questionId,
+-      @RequestPart("audioFile") MultipartFile audioFile) {
++      @RequestPart(value = "audioFile", required = false) MultipartFile audioFile) {
+     return quizService.submitAnswer(
+         resolveUserId(authentication), sessionId, questionId, audioFile);
+   }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizSessionCreateResponse.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizSessionCreateResponse.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizSessionCreateResponse.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizSessionCreateResponse.java
+@@ -2,6 +2,7 @@ package com.ssafy.backend.domain.learn.quiz.dto.response;
+ 
+ import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
+ import com.ssafy.backend.domain.learn.quiz.entity.QuizSessionStatus;
++import java.util.List;
+ 
+ public record QuizSessionCreateResponse(
+     Long sessionId,
+@@ -9,4 +10,9 @@ public record QuizSessionCreateResponse(
+     LearnDifficulty difficulty,
+     Integer totalQuestionCount,
+     Integer currentQuestionNumber,
+-    QuizSessionStatus status) {}
++    QuizSessionStatus status,
++    List<QuestionItem> questions) {
++
++  public record QuestionItem(
++      Long questionId, Long wordId, Integer questionNumber, String targetText, String imageUrl) {}
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizService.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizService.java
+@@ -80,10 +80,30 @@ public class QuizService {
+ 
+     quizSessionRepository.save(session);
+ 
+-    for (int i = 0; i < words.size(); i++) {
+-      QuizQuestion question = QuizQuestion.create(session, words.get(i), i + 1);
+-      quizQuestionRepository.save(question);
+-    }
++    List<QuizQuestion> questions =
++        words.stream()
++            .map(
++                word -> {
++                  int questionNumber = words.indexOf(word) + 1;
++                  QuizQuestion question = QuizQuestion.create(session, word, questionNumber);
++                  return quizQuestionRepository.save(question);
++                })
++            .toList();
++
++    List<QuizSessionCreateResponse.QuestionItem> questionItems =
++        questions.stream()
++            .map(
++                question -> {
++                  Learn word = question.getWord();
++
++                  return new QuizSessionCreateResponse.QuestionItem(
++                      question.getId(),
++                      word.getId(),
++                      question.getQuestionNumber(),
++                      word.getDisplayText(),
++                      assetUrlResolver.toUrl(word.getImageUrl()));
++                })
++            .toList();
+ 
+     return new QuizSessionCreateResponse(
+         session.getId(),
+@@ -91,7 +111,8 @@ public class QuizService {
+         session.getDifficulty(),
+         session.getTotalQuestionCount(),
+         1,
+-        session.getStatus());
++        session.getStatus(),
++        questionItems);
+   }
+ 
+   @Transactional(readOnly = true)
+@@ -141,11 +162,10 @@ public class QuizService {
+ 
+     validateCurrentQuestion(question, sessionId);
+ 
+-    String recognizedText = transcribe(audioFile);
+-
+     Learn word = question.getWord();
+     String targetText = word.getDisplayText();
+ 
++    String recognizedText = transcribeOrEmpty(audioFile);
+     QuizGrade grade = quizGradingService.grade(targetText, recognizedText);
+ 
+     QuizAnswer answer =
+@@ -172,7 +192,6 @@ public class QuizService {
+     session.addStar(grade.star());
+ 
+     boolean hasNext = quizQuestionRepository.existsBySessionIdAndAnsweredFalse(sessionId);
+-
+     Integer nextQuestionNumber = hasNext ? getNextQuestionNumber(sessionId) : null;
+ 
+     if (!hasNext) {
+@@ -271,13 +290,22 @@ public class QuizService {
+     }
+   }
+ 
+-  private String transcribe(MultipartFile audioFile) {
++  private String transcribeOrEmpty(MultipartFile audioFile) {
++    if (audioFile == null || audioFile.isEmpty()) {
++      return "";
++    }
++
+     try {
+       String audioMimeType = resolveAudioMimeType(audioFile);
++      String recognizedText = clovaSttClient.transcribe(audioFile, DEFAULT_LOCALE, audioMimeType);
++
++      if (recognizedText == null || recognizedText.isBlank()) {
++        return "";
++      }
+ 
+-      return clovaSttClient.transcribe(audioFile, DEFAULT_LOCALE, audioMimeType);
++      return recognizedText;
+     } catch (RuntimeException e) {
+-      throw new BusinessException(QuizErrorCode.STT_FAILED);
++      return "";
+     }
+   }
+ 
+
+

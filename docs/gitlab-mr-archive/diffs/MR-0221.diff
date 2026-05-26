@@ -1,0 +1,222 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleBubble.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleBubble.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleBubble.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleBubble.kt
+@@ -27,9 +27,8 @@ import com.ssafy.mobile.feature.conversation.domain.model.SenderType
+ 
+ private const val PENDING_ALPHA = 0.6f
+ private const val MAX_BUBBLE_WIDTH = 300
+-
+-// 후속 작업: 번역 신고/피드백 백엔드 미구현 상태라 임시 숨김 처리 (백엔드 연동 시 true로 변경)
+ private const val IS_TRANSLATION_FEEDBACK_ENABLED = false
++private const val SYSTEM_BUBBLE_ALPHA = 0.52f
+ 
+ @Composable
+ fun SubtitleBubble(
+@@ -59,19 +58,20 @@ fun SubtitleBubble(
+                     Text(
+                         text = message.senderType.senderLabel(),
+                         style = MaterialTheme.typography.labelSmall,
+-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
++                        color = style.metaColor,
+                         fontWeight = FontWeight.Bold,
+                     )
+                     if (message.status == MessageStatus.PENDING) {
+                         Text(
+                             text = "처리 중",
+                             style = MaterialTheme.typography.labelSmall,
+-                            color = MaterialTheme.colorScheme.tertiary,
++                            color = style.metaColor,
+                             fontWeight = FontWeight.SemiBold,
+                         )
+                     }
+                 }
+             }
++
+             Box(
+                 modifier =
+                     Modifier
+@@ -96,6 +96,7 @@ fun SubtitleBubble(
+                     Text(
+                         text = "신고",
+                         style = MaterialTheme.typography.labelMedium,
++                        color = style.metaColor,
+                     )
+                 }
+             }
+@@ -109,8 +110,8 @@ private fun ChatMessage.canReportTranslation(): Boolean =
+ private fun SenderType.senderLabel(): String =
+     when (this) {
+         SenderType.SYSTEM -> "안내"
+-        SenderType.PARENT -> "나"
+-        SenderType.CHILD -> "자녀"
++        SenderType.PARENT -> "보호자"
++        SenderType.CHILD -> "아이"
+     }
+ 
+ @Composable
+@@ -120,24 +121,28 @@ private fun subtitleBubbleStyle(senderType: SenderType): SubtitleBubbleStyle =
+             SubtitleBubbleStyle(
+                 boxAlignment = Alignment.Center,
+                 columnAlignment = Alignment.CenterHorizontally,
+-                backgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
++                backgroundColor =
++                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = SYSTEM_BUBBLE_ALPHA),
++                contentColor = Color.White,
++                metaColor = Color.White.copy(alpha = 0.84f),
+                 shape = RoundedCornerShape(8.dp),
+             )
+         SenderType.PARENT ->
+             SubtitleBubbleStyle(
+                 boxAlignment = Alignment.CenterEnd,
+                 columnAlignment = Alignment.End,
+-                backgroundColor = MaterialTheme.colorScheme.primaryContainer,
+-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
++                backgroundColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.52f),
++                contentColor = Color.White,
++                metaColor = Color.White.copy(alpha = 0.84f),
+                 shape = RoundedCornerShape(18.dp, 4.dp, 18.dp, 18.dp),
+             )
+         SenderType.CHILD ->
+             SubtitleBubbleStyle(
+                 boxAlignment = Alignment.CenterStart,
+                 columnAlignment = Alignment.Start,
+-                backgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
++                backgroundColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.48f),
++                contentColor = Color.White,
++                metaColor = Color.White.copy(alpha = 0.84f),
+                 shape = RoundedCornerShape(4.dp, 18.dp, 18.dp, 18.dp),
+             )
+     }
+@@ -147,5 +152,6 @@ private data class SubtitleBubbleStyle(
+     val columnAlignment: Alignment.Horizontal,
+     val backgroundColor: Color,
+     val contentColor: Color,
++    val metaColor: Color,
+     val shape: Shape,
+ )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+@@ -17,6 +17,7 @@ import android.view.WindowManager
+ import androidx.compose.animation.AnimatedContent
+ import androidx.compose.animation.animateColorAsState
+ import androidx.compose.foundation.BorderStroke
++import androidx.compose.foundation.Canvas
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.layout.Arrangement
+@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.heightIn
++import androidx.compose.foundation.layout.offset
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.sizeIn
+@@ -55,8 +57,12 @@ import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.clip
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.geometry.Size
+ import androidx.compose.ui.graphics.Brush
+ import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.graphics.PathEffect
++import androidx.compose.ui.graphics.drawscope.Stroke
+ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.platform.LocalHapticFeedback
+@@ -400,15 +406,16 @@ private fun SignRecognitionArea(
+             modifier = Modifier.fillMaxSize(),
+         )
+ 
++        UpperBodyGuideOverlay(
++            modifier =
++                Modifier
++                    .align(Alignment.TopCenter)
++                    .fillMaxWidth(0.84f)
++                    .fillMaxHeight(0.74f)
++                    .offset(y = 64.dp),
++        )
++
+         if (showSubtitles) {
+-            Box(
+-                modifier =
+-                    Modifier
+-                        .fillMaxWidth()
+-                        .fillMaxHeight(SUBTITLE_HEIGHT_FRACTION)
+-                        .align(Alignment.BottomCenter)
+-                        .background(Color.Black.copy(alpha = CAMERA_SCRIM_ALPHA)),
+-            )
+             Box(
+                 modifier =
+                     Modifier
+@@ -461,6 +468,62 @@ private fun SignRecognitionArea(
+     }
+ }
+ 
++@Composable
++private fun UpperBodyGuideOverlay(modifier: Modifier = Modifier) {
++    Canvas(modifier = modifier) {
++        val strokeWidth = size.minDimension * 0.014f
++        val dashEffect =
++            PathEffect.dashPathEffect(
++                intervals =
++                    floatArrayOf(
++                        strokeWidth * 1.8f,
++                        strokeWidth * 1.2f,
++                    ),
++            )
++        val guideColor = Color.White.copy(alpha = 0.34f)
++        val accentColor = Color(0xFF9EE7D8).copy(alpha = 0.28f)
++        val centerX = size.width / 2f
++        val headRadius = size.minDimension * 0.132f
++        val headCenter = Offset(centerX, size.height * 0.23f)
++        val shoulderWidth = size.width * 0.54f
++        val shoulderTop = headCenter.y + (headRadius * 1.9f)
++        val torsoBottom = size.height * 0.88f
++
++        drawCircle(
++            color = guideColor,
++            center = headCenter,
++            radius = headRadius,
++            style = Stroke(width = strokeWidth, pathEffect = dashEffect),
++        )
++
++        drawArc(
++            color = guideColor,
++            startAngle = 198f,
++            sweepAngle = 144f,
++            useCenter = false,
++            topLeft = Offset(centerX - (shoulderWidth / 2f), shoulderTop - (headRadius * 0.1f)),
++            size = Size(width = shoulderWidth, height = size.height * 0.42f),
++            style = Stroke(width = strokeWidth, pathEffect = dashEffect),
++        )
++
++        drawLine(
++            color = guideColor,
++            start = Offset(centerX, shoulderTop + (size.height * 0.08f)),
++            end = Offset(centerX, torsoBottom),
++            strokeWidth = strokeWidth,
++            pathEffect = dashEffect,
++        )
++
++        drawLine(
++            color = accentColor,
++            start = Offset(size.width * 0.2f, size.height * 0.7f),
++            end = Offset(size.width * 0.8f, size.height * 0.7f),
++            strokeWidth = strokeWidth * 0.75f,
++            pathEffect = dashEffect,
++        )
++    }
++}
++
+ @Composable
+ private fun TranslationFeedbackSheet(
+     uiState: TranslationFeedbackSheetUiState,
+
+

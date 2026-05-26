@@ -1,0 +1,255 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/entity/Learn.java b/backend/src/main/java/com/ssafy/backend/domain/learn/entity/Learn.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/entity/Learn.java
+@@ -0,0 +1,94 @@
++package com.ssafy.backend.domain.learn.entity;
++
++import com.ssafy.backend.global.entity.BaseEntity;
++import jakarta.persistence.Column;
++import jakarta.persistence.Entity;
++import jakarta.persistence.EnumType;
++import jakarta.persistence.Enumerated;
++import jakarta.persistence.FetchType;
++import jakarta.persistence.GeneratedValue;
++import jakarta.persistence.GenerationType;
++import jakarta.persistence.Id;
++import jakarta.persistence.JoinColumn;
++import jakarta.persistence.ManyToOne;
++import jakarta.persistence.Table;
++
++@Entity
++@Table(name = "learn")
++public class Learn extends BaseEntity {
++
++  @Id
++  @GeneratedValue(strategy = GenerationType.IDENTITY)
++  private Long id;
++
++  @ManyToOne(fetch = FetchType.LAZY)
++  @JoinColumn(name = "category_id", nullable = false)
++  private LearnCategory category;
++
++  @Enumerated(EnumType.STRING)
++  @Column(nullable = false, length = 20)
++  private LearnDifficulty difficulty;
++
++  @Column(nullable = false, length = 100)
++  private String word;
++
++  @Column(nullable = false, name = "display_text", length = 100)
++  private String displayText;
++
++  @Column(name = "pronunciation_text", length = 100)
++  private String pronunciationText;
++
++  @Column(name = "image_url", length = 500)
++  private String imageUrl;
++
++  @Column(name = "audio_url", length = 500)
++  private String audioUrl;
++
++  @Column(nullable = false)
++  private boolean active = true;
++
++  @Column(name = "sort_order", nullable = false)
++  private Integer sortOrder = 0;
++
++  protected Learn() {}
++
++  public Long getId() {
++    return id;
++  }
++
++  public LearnCategory getCategory() {
++    return category;
++  }
++
++  public LearnDifficulty getDifficulty() {
++    return difficulty;
++  }
++
++  public String getWord() {
++    return word;
++  }
++
++  public String getDisplayText() {
++    return displayText;
++  }
++
++  public String getPronunciationText() {
++    return pronunciationText;
++  }
++
++  public String getImageUrl() {
++    return imageUrl;
++  }
++
++  public String getAudioUrl() {
++    return audioUrl;
++  }
++
++  public boolean isActive() {
++    return active;
++  }
++
++  public Integer getSortOrder() {
++    return sortOrder;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/entity/LearnCategory.java b/backend/src/main/java/com/ssafy/backend/domain/learn/entity/LearnCategory.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/entity/LearnCategory.java
+@@ -0,0 +1,59 @@
++package com.ssafy.backend.domain.learn.entity;
++
++import com.ssafy.backend.global.entity.BaseEntity;
++import jakarta.persistence.Column;
++import jakarta.persistence.Entity;
++import jakarta.persistence.GeneratedValue;
++import jakarta.persistence.GenerationType;
++import jakarta.persistence.Id;
++import jakarta.persistence.Table;
++
++@Entity
++@Table(name = "learn_categories")
++public class LearnCategory extends BaseEntity {
++
++  @Id
++  @GeneratedValue(strategy = GenerationType.IDENTITY)
++  private Long id;
++
++  @Column(nullable = false, length = 50)
++  private String name;
++
++  @Column(length = 255)
++  private String description;
++
++  @Column(name = "thumbnail_url", length = 500)
++  private String thumbnailUrl;
++
++  @Column(nullable = false)
++  private boolean active = true;
++
++  @Column(name = "sort_order", nullable = false)
++  private Integer sortOrder = 0;
++
++  protected LearnCategory() {}
++
++  public Long getId() {
++    return id;
++  }
++
++  public String getName() {
++    return name;
++  }
++
++  public String getDescription() {
++    return description;
++  }
++
++  public String getThumbnailUrl() {
++    return thumbnailUrl;
++  }
++
++  public boolean isActive() {
++    return active;
++  }
++
++  public Integer getSortOrder() {
++    return sortOrder;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/entity/LearnDifficulty.java b/backend/src/main/java/com/ssafy/backend/domain/learn/entity/LearnDifficulty.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/entity/LearnDifficulty.java
+@@ -0,0 +1,7 @@
++package com.ssafy.backend.domain.learn.entity;
++
++public enum LearnDifficulty {
++  EASY,
++  MEDIUM,
++  HARD
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/repository/LearnCategoryRepository.java b/backend/src/main/java/com/ssafy/backend/domain/learn/repository/LearnCategoryRepository.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/repository/LearnCategoryRepository.java
+@@ -0,0 +1,10 @@
++package com.ssafy.backend.domain.learn.repository;
++
++import com.ssafy.backend.domain.learn.entity.LearnCategory;
++import java.util.List;
++import org.springframework.data.jpa.repository.JpaRepository;
++
++public interface LearnCategoryRepository extends JpaRepository<LearnCategory, Long> {
++
++  List<LearnCategory> findByActiveTrueOrderBySortOrderAsc();
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/repository/LearnRepository.java b/backend/src/main/java/com/ssafy/backend/domain/learn/repository/LearnRepository.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/repository/LearnRepository.java
+@@ -0,0 +1,12 @@
++package com.ssafy.backend.domain.learn.repository;
++
++import com.ssafy.backend.domain.learn.entity.Learn;
++import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
++import java.util.List;
++import org.springframework.data.jpa.repository.JpaRepository;
++
++public interface LearnRepository extends JpaRepository<Learn, Long> {
++
++  List<Learn> findByCategory_IdAndDifficultyAndActiveTrueOrderBySortOrderAsc(
++      Long categoryId, LearnDifficulty difficulty);
++}
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260506210000__backfill_learn_category_id.sql b/backend/src/main/resources/db/migration/V20260506210000__backfill_learn_category_id.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260506210000__backfill_learn_category_id.sql
+@@ -0,0 +1,16 @@
++ALTER TABLE learn
++  ALTER COLUMN category_id SET NOT NULL;
++
++DO $$
++BEGIN
++    IF NOT EXISTS (
++        SELECT 1
++        FROM pg_constraint
++        WHERE conname = 'fk_learn_category'
++    ) THEN
++ALTER TABLE learn
++  ADD CONSTRAINT fk_learn_category
++    FOREIGN KEY (category_id)
++      REFERENCES learn_categories(id);
++END IF;
++END $$;
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260506220000__add_vehicle_learn_category.sql b/backend/src/main/resources/db/migration/V20260506220000__add_vehicle_learn_category.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260506220000__add_vehicle_learn_category.sql
+@@ -0,0 +1,15 @@
++DO $$
++BEGIN
++    IF NOT EXISTS (
++        SELECT 1
++        FROM pg_constraint
++        WHERE conname = 'uk_learn_categories_name'
++    ) THEN
++ALTER TABLE learn_categories
++  ADD CONSTRAINT uk_learn_categories_name UNIQUE (name);
++END IF;
++END $$;
++
++INSERT INTO learn_categories (name, description, sort_order)
++VALUES ('탈 것', '여러 가지 탈것 단어를 학습해요', 5)
++  ON CONFLICT (name) DO NOTHING;
+
+

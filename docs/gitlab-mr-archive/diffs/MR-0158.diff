@@ -1,0 +1,836 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioPlayer.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioPlayer.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioPlayer.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioPlayer.kt
+@@ -17,7 +17,7 @@ import javax.inject.Singleton
+ class AndroidAudioPlayer
+     @Inject
+     constructor(
+-        @ApplicationContext private val context: Context,
++        @param:ApplicationContext private val context: Context,
+     ) : AudioPlayer {
+         private var mediaPlayer: MediaPlayer? = null
+         private var tempAudioFile: File? = null
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidSystemTtsPlayer.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidSystemTtsPlayer.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidSystemTtsPlayer.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidSystemTtsPlayer.kt
+@@ -16,7 +16,7 @@ import javax.inject.Singleton
+ class AndroidSystemTtsPlayer
+     @Inject
+     constructor(
+-        @ApplicationContext private val context: Context,
++        @param:ApplicationContext private val context: Context,
+     ) : TtsPlayer {
+         private var tts: TextToSpeech? = null
+         private var isInitialized = false
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/auth/AndroidKeystoreTokenStorage.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/auth/AndroidKeystoreTokenStorage.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/auth/AndroidKeystoreTokenStorage.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/auth/AndroidKeystoreTokenStorage.kt
+@@ -17,7 +17,7 @@ import javax.inject.Inject
+ class AndroidKeystoreTokenStorage
+     @Inject
+     constructor(
+-        @ApplicationContext private val context: Context,
++        @param:ApplicationContext private val context: Context,
+     ) : TokenStorage {
+         companion object {
+             private const val PREFS_NAME = "secure_token_prefs"
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/network/NetworkMonitor.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/network/NetworkMonitor.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/network/NetworkMonitor.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/network/NetworkMonitor.kt
+@@ -18,7 +18,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
+ class NetworkMonitor
+     @Inject
+     constructor(
+-        @ApplicationContext private val context: Context,
++        @param:ApplicationContext private val context: Context,
+     ) {
+         private val connectivityManager =
+             context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/session/DataStoreActiveChildStorage.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/session/DataStoreActiveChildStorage.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/session/DataStoreActiveChildStorage.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/session/DataStoreActiveChildStorage.kt
+@@ -18,7 +18,7 @@ private val Context.activeChildDataStore: DataStore<Preferences> by preferencesD
+ class DataStoreActiveChildStorage
+     @Inject
+     constructor(
+-        @ApplicationContext private val context: Context,
++        @param:ApplicationContext private val context: Context,
+     ) : ActiveChildStorage {
+         companion object {
+             private val KEY_ACTIVE_CHILD_ID = longPreferencesKey("active_child_id")
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/stt/LocalSttEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/stt/LocalSttEngine.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/stt/LocalSttEngine.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/stt/LocalSttEngine.kt
+@@ -25,7 +25,7 @@ import kotlinx.coroutines.flow.asSharedFlow
+ class LocalSttEngine
+     @Inject
+     constructor(
+-        @ApplicationContext private val context: Context,
++        @param:ApplicationContext private val context: Context,
+     ) : SttEngine {
+         private var speechRecognizer: SpeechRecognizer? = null
+         private val mainHandler = Handler(Looper.getMainLooper())
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Theme.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Theme.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Theme.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Theme.kt
+@@ -89,6 +89,7 @@ fun MobileTheme(
+         }
+     val view = LocalView.current
+     if (!view.isInEditMode) {
++        @Suppress("DEPRECATION")
+         SideEffect {
+             val window = (view.context as Activity).window
+             window.statusBarColor = colorScheme.background.toArgb()
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DataStoreTranslationModeRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DataStoreTranslationModeRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DataStoreTranslationModeRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DataStoreTranslationModeRepository.kt
+@@ -21,7 +21,7 @@ private val Context.translationModeDataStore: DataStore<Preferences> by preferen
+ class DataStoreTranslationModeRepository
+     @Inject
+     constructor(
+-        @ApplicationContext private val context: Context,
++        @param:ApplicationContext private val context: Context,
+     ) : TranslationModeRepository {
+         override val translationMode: Flow<TranslationMode> =
+             context.translationModeDataStore.data
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+@@ -12,6 +12,7 @@ import com.ssafy.mobile.feature.conversation.data.repository.DataStoreTranslatio
+ import com.ssafy.mobile.feature.conversation.data.repository.DefaultTranslateRepository
+ import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
+ import com.ssafy.mobile.feature.conversation.domain.repository.TranslationModeRepository
++import com.ssafy.mobile.translation.GemmaOnDeviceTranslationEngine
+ import dagger.Binds
+ import dagger.Module
+ import dagger.Provides
+@@ -59,5 +60,11 @@ abstract class ConversationModule {
+         @Provides
+         @Singleton
+         fun provideWordSpottingScanner(): WordSpottingScanner = NoOpWordSpottingScanner
++
++        @Provides
++        @Singleton
++        fun provideGemmaOnDeviceTranslationEngine(
++            @ApplicationContext context: Context,
++        ): GemmaOnDeviceTranslationEngine = GemmaOnDeviceTranslationEngine(context)
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/model/LocalSignSentenceGenerator.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/model/LocalSignSentenceGenerator.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/model/LocalSignSentenceGenerator.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/model/LocalSignSentenceGenerator.kt
+@@ -6,11 +6,22 @@ import javax.inject.Inject
+ class LocalSignSentenceGenerator
+     @Inject
+     constructor() {
++        @Suppress("ReturnCount")
+         fun generate(
+             glosses: List<String>,
+             sentenceType: String? = null,
+             speechStyle: SpeechStyle = SpeechStyle.Polite,
+         ): String {
++            val knownPattern =
++                generateKnownPatternOrNull(
++                    glosses = glosses,
++                    sentenceType = sentenceType,
++                    speechStyle = speechStyle,
++                )
++            if (knownPattern != null) {
++                return knownPattern
++            }
++
+             val words = glosses.normalize()
+             if (words.isEmpty()) return ""
+ 
+@@ -19,6 +30,18 @@ class LocalSignSentenceGenerator
+                 ?: renderFallback(words, mood)
+         }
+ 
++        fun generateKnownPatternOrNull(
++            glosses: List<String>,
++            sentenceType: String? = null,
++            speechStyle: SpeechStyle = SpeechStyle.Polite,
++        ): String? {
++            val words = glosses.normalize()
++            if (words.isEmpty()) return null
++
++            val mood = SentenceMood.from(sentenceType)
++            return renderKnownPattern(words, mood, speechStyle)
++        }
++
+         @Suppress("MagicNumber", "ReturnCount")
+         private fun renderKnownPattern(
+             words: List<String>,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -20,6 +20,7 @@ import com.ssafy.mobile.feature.conversation.domain.model.TranslationFeedbackRea
+ import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
+ import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
+ import com.ssafy.mobile.feature.conversation.domain.repository.TranslationModeRepository
++import com.ssafy.mobile.translation.GemmaOnDeviceTranslationEngine
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import java.io.File
+ import javax.inject.Inject
+@@ -71,6 +72,7 @@ class ConversationViewModel
+         private val networkMonitor: NetworkMonitor,
+         private val androidAudioRecorder: AndroidAudioRecorder,
+         private val localSignSentenceGenerator: LocalSignSentenceGenerator,
++        private val gemmaOnDeviceTranslationEngine: GemmaOnDeviceTranslationEngine,
+     ) : ViewModel() {
+         private val _sessionState = MutableStateFlow(SessionState.Idle)
+         val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
+@@ -126,12 +128,16 @@ class ConversationViewModel
+         private var cloudSttFailureCount = 0
+         private var cloudSttDiscardCount = 0
+         private var pendingFeedbackRequest: TranslationFeedbackRequest? = null
++        private val onDeviceSpeechStyle = LocalSignSentenceGenerator.SpeechStyle.Polite
+ 
+         init {
+             viewModelScope.launch {
+                 translationModeRepository.translationMode.collect { mode ->
+                     val previousMode = _translationMode.value
+                     _translationMode.value = mode
++                    if (mode == TranslationMode.ON_DEVICE) {
++                        preloadOnDeviceTranslationEngine()
++                    }
+                     if (previousMode != mode) {
+                         resetCloudSttFallback()
+                         _translationModeNotice.value = null
+@@ -169,6 +175,7 @@ class ConversationViewModel
+                     }
+                 }
+             }
++            preloadOnDeviceTranslationEngine()
+         }
+ 
+         private fun handleEvent(event: SignRecognitionEvent) {
+@@ -351,33 +358,105 @@ class ConversationViewModel
+                 } else {
+                     SignInputPhase.Fallback
+                 }
+-            val fallbackText =
++            translationJob =
++                viewModelScope.launch {
++                    val fallbackText =
++                        resolveOnDeviceTranslation(
++                            words = words,
++                            sentenceType = sentenceType,
++                        )
++                    _translatedText.value = fallbackText
++
++                    // 오프라인이므로 즉시 최종 메시지로 추가
++                    addOrUpdateMessage(
++                        text = fallbackText,
++                        isFinal = true,
++                        senderType = SenderType.PARENT,
++                        isFeedbackAvailable = true,
++                    )
++
++                    // 시스템 TTS로 재생
++                    markAppSpeech(fallbackText)
++                    ttsPlayer.speak(
++                        text = fallbackText,
++                        onComplete = {},
++                        onError = {},
++                    )
++
++                    _lastGlosses.value = emptyList()
++                }
++        }
++
++        @Suppress("ReturnCount")
++        private suspend fun resolveOnDeviceTranslation(
++            words: List<String>,
++            sentenceType: String?,
++        ): String {
++            localSignSentenceGenerator
++                .generateKnownPatternOrNull(
++                    glosses = words,
++                    sentenceType = sentenceType,
++                    speechStyle = onDeviceSpeechStyle,
++                )?.let { return it }
++
++            val glossText = words.joinToString(" ").trim()
++            if (glossText.isBlank()) {
++                return ""
++            }
++
++            return runCatching {
++                normalizeTranslatedSentence(
++                    text = gemmaOnDeviceTranslationEngine.translate(glossText).koreanText,
++                    sentenceType = sentenceType,
++                )
++            }.getOrElse { throwable ->
++                Log.w(
++                    TAG,
++                    "On-device Gemma translation failed. Falling back to local generator.",
++                    throwable,
++                )
+                 localSignSentenceGenerator
+                     .generate(
+                         glosses = words,
+                         sentenceType = sentenceType,
++                        speechStyle = onDeviceSpeechStyle,
+                     ).ifBlank {
+-                        words.joinToString(" ")
++                        glossText
+                     }
+-            _translatedText.value = fallbackText
++            }
++        }
+ 
+-            // 오프라인이므로 즉시 최종 메시지로 추가
+-            addOrUpdateMessage(
+-                text = fallbackText,
+-                isFinal = true,
+-                senderType = SenderType.PARENT,
+-                isFeedbackAvailable = true,
+-            )
++        private fun normalizeTranslatedSentence(
++            text: String,
++            sentenceType: String?,
++        ): String {
++            val trimmed = text.trim()
++            if (trimmed.isBlank()) {
++                return trimmed
++            }
+ 
+-            // 시스템 TTS로 재생
+-            markAppSpeech(fallbackText)
+-            ttsPlayer.speak(
+-                text = fallbackText,
+-                onComplete = {},
+-                onError = {},
+-            )
++            val bare = trimmed.trimEnd('.', '?', '!')
++            return if (isQuestionSentenceType(sentenceType)) {
++                "$bare?"
++            } else if (trimmed.last() in ".?!") {
++                trimmed
++            } else {
++                "$trimmed."
++            }
++        }
+ 
+-            _lastGlosses.value = emptyList()
++        private fun isQuestionSentenceType(sentenceType: String?): Boolean =
++            sentenceType?.contains("의문") == true ||
++                sentenceType.equals("question", ignoreCase = true)
++
++        private fun preloadOnDeviceTranslationEngine() {
++            viewModelScope.launch {
++                runCatching {
++                    gemmaOnDeviceTranslationEngine.load()
++                }.onFailure { throwable ->
++                    Log.w(TAG, "On-device Gemma preload failed.", throwable)
++                }
++            }
+         }
+ 
+         private fun startRecordingForStt() {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/data/oauth/NaverOAuthManager.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/data/oauth/NaverOAuthManager.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/data/oauth/NaverOAuthManager.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/data/oauth/NaverOAuthManager.kt
+@@ -1,7 +1,8 @@
+ package com.ssafy.mobile.feature.login.data.oauth
+ 
+ import android.content.Context
+-import com.navercorp.nid.NaverIdLoginSDK
++import com.navercorp.nid.NidOAuth
++import com.navercorp.nid.oauth.util.NidOAuthCallback
+ import com.ssafy.mobile.BuildConfig
+ import javax.inject.Inject
+ import javax.inject.Singleton
+@@ -31,7 +32,7 @@ class NaverOAuthManager
+         fun initialize(context: Context) {
+             if (!isConfigValid) return
+ 
+-            NaverIdLoginSDK.initialize(
++            NidOAuth.initialize(
+                 context = context,
+                 clientId = BuildConfig.NAVER_CLIENT_ID,
+                 clientSecret = BuildConfig.NAVER_CLIENT_SECRET,
+@@ -42,19 +43,19 @@ class NaverOAuthManager
+         /**
+          * 현재 저장된 액세스 토큰을 가져옵니다.
+          */
+-        fun getAccessToken(): String? = NaverIdLoginSDK.getAccessToken()
++        fun getAccessToken(): String? = NidOAuth.getAccessToken()
+ 
+         /**
+          * 로그아웃 처리를 수행합니다 (로컬 토큰 삭제).
+          */
+         fun logout() {
+-            NaverIdLoginSDK.logout(
+-                object : com.navercorp.nid.oauth.util.NidOAuthCallback {
++            NidOAuth.logout(
++                object : NidOAuthCallback {
+                     override fun onSuccess() = Unit
+ 
+                     override fun onFailure(
+                         errorCode: String,
+-                        message: String,
++                        errorDesc: String,
+                     ) = Unit
+                 },
+             )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultRoute.kt
+@@ -345,6 +345,7 @@ private fun QuizAnswerStarRating(star: Int) {
+ }
+ 
+ @Composable
++@Suppress("UNNECESSARY_NOT_NULL_ASSERTION")
+ private fun QuizAnswerRecognizedText(recognizedText: String?) {
+     val hasRecognizedText = !recognizedText.isNullOrBlank()
+     val displayText = if (hasRecognizedText) recognizedText!! else "음성 인식 결과가 없어요"
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugRoute.kt
+@@ -40,12 +40,16 @@ import androidx.compose.material3.Card
+ import androidx.compose.material3.CardDefaults
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.OutlinedButton
++import androidx.compose.material3.OutlinedTextField
+ import androidx.compose.material3.Scaffold
+ import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.DisposableEffect
+ import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.saveable.rememberSaveable
++import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.graphics.Brush
+@@ -53,6 +57,7 @@ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.unit.dp
++import androidx.compose.ui.window.Dialog
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
+@@ -66,6 +71,7 @@ fun SignDebugRoute(
+     viewModel: SignDebugViewModel = hiltViewModel(),
+ ) {
+     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
++    var showLlmDebugDialog by rememberSaveable { mutableStateOf(false) }
+     val videoPickerLauncher =
+         rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+             uri?.let(viewModel::startVideoReplay)
+@@ -77,6 +83,15 @@ fun SignDebugRoute(
+ 
+     BackHandler(onBack = stopAndBack)
+ 
++    if (showLlmDebugDialog) {
++        LlmDebugDialog(
++            uiState = uiState,
++            onDismiss = { showLlmDebugDialog = false },
++            onInputChanged = viewModel::updateLlmInput,
++            onRunTest = viewModel::runLlmTest,
++        )
++    }
++
+     SignDebugScreen(
+         uiState = uiState,
+         onStart = viewModel::start,
+@@ -97,6 +112,7 @@ fun SignDebugRoute(
+         onCycleSmoothing = viewModel::cycleSmoothing,
+         onPickReplayVideo = { videoPickerLauncher.launch("video/*") },
+         onStopVideoReplay = viewModel::stopVideoReplay,
++        onOpenLlmDebug = { showLlmDebugDialog = true },
+         modifier = modifier,
+     )
+ }
+@@ -122,6 +138,7 @@ private fun SignDebugScreen(
+     onCycleSmoothing: () -> Unit,
+     onPickReplayVideo: () -> Unit,
+     onStopVideoReplay: () -> Unit,
++    onOpenLlmDebug: () -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+     ForceLandscapeOrientationEffect()
+@@ -204,6 +221,10 @@ private fun SignDebugScreen(
+                 )
+                 RecognitionStatusCard(uiState)
+                 PerformanceCard(uiState)
++                LlmDebugLauncherCard(
++                    uiState = uiState,
++                    onOpenLlmDebug = onOpenLlmDebug,
++                )
+                 TuningCard(
+                     uiState = uiState,
+                     onCycleResolution = onCycleResolution,
+@@ -624,6 +645,112 @@ private fun PerformanceCard(uiState: SignDebugUiState) {
+     }
+ }
+ 
++@Composable
++private fun LlmDebugLauncherCard(
++    uiState: SignDebugUiState,
++    onOpenLlmDebug: () -> Unit,
++) {
++    DebugCard(title = "LLM 테스트") {
++        CompactDebugButton(
++            text = "열기",
++            onClick = onOpenLlmDebug,
++            modifier = Modifier.fillMaxWidth(),
++        )
++        MetricRow("상태", uiState.llmStage)
++        uiState.llmOutput?.let { output ->
++            Text(
++                text = output,
++                color = Color(0xFFBAE6FD),
++                style = MaterialTheme.typography.bodySmall,
++            )
++        }
++    }
++}
++
++@Composable
++private fun LlmDebugDialog(
++    uiState: SignDebugUiState,
++    onDismiss: () -> Unit,
++    onInputChanged: (String) -> Unit,
++    onRunTest: () -> Unit,
++) {
++    Dialog(onDismissRequest = onDismiss) {
++        Surface(
++            modifier = Modifier.fillMaxWidth(),
++            color = llmPanelColor(uiState.llmStatus),
++            shape = RoundedCornerShape(18.dp),
++        ) {
++            Column(
++                modifier = Modifier.padding(16.dp),
++                verticalArrangement = Arrangement.spacedBy(10.dp),
++            ) {
++                Row(
++                    modifier = Modifier.fillMaxWidth(),
++                    horizontalArrangement = Arrangement.SpaceBetween,
++                    verticalAlignment = Alignment.CenterVertically,
++                ) {
++                    Text(
++                        text = "LLM 테스트",
++                        style = MaterialTheme.typography.titleMedium,
++                        fontWeight = FontWeight.Bold,
++                    )
++                    CompactDebugButton(
++                        text = "닫기",
++                        onClick = onDismiss,
++                        outlined = true,
++                    )
++                }
++                OutlinedTextField(
++                    value = uiState.llmInput,
++                    onValueChange = onInputChanged,
++                    modifier = Modifier.fillMaxWidth(),
++                    label = { Text("Gloss 입력") },
++                    placeholder = { Text("예: 나 내일 학교 가다") },
++                    minLines = 2,
++                    maxLines = 4,
++                )
++                CompactDebugButton(
++                    text = if (uiState.llmIsRunning) "실행 중" else "LLM 테스트 실행",
++                    onClick = onRunTest,
++                    enabled = !uiState.llmIsRunning,
++                    modifier = Modifier.fillMaxWidth(),
++                )
++                Text(
++                    text = uiState.llmStage,
++                    style = MaterialTheme.typography.bodyMedium,
++                    fontWeight = FontWeight.Bold,
++                    color = Color.White,
++                )
++                Text(
++                    text = uiState.llmSummary,
++                    style = MaterialTheme.typography.bodySmall,
++                    color = Color(0xFFE2E8F0),
++                )
++                if (uiState.llmDetail.isNotBlank()) {
++                    Text(
++                        text = uiState.llmDetail,
++                        style = MaterialTheme.typography.bodySmall,
++                        color = Color(0xFFCBD5E1),
++                    )
++                }
++                uiState.llmOutput?.let { output ->
++                    Surface(
++                        color = Color(0xFF0F172A),
++                        shape = RoundedCornerShape(12.dp),
++                    ) {
++                        Text(
++                            text = output,
++                            modifier = Modifier.padding(12.dp),
++                            color = Color.White,
++                            style = MaterialTheme.typography.bodyMedium,
++                        )
++                    }
++                }
++            }
++        }
++    }
++}
++
+ @OptIn(ExperimentalLayoutApi::class)
+ @Composable
+ private fun TuningCard(
+@@ -787,6 +914,14 @@ private fun StatusPill(
+     }
+ }
+ 
++private fun llmPanelColor(status: SignDebugLlmStatus): Color =
++    when (status) {
++        SignDebugLlmStatus.Idle -> Color(0xFF1E293B)
++        SignDebugLlmStatus.Running -> Color(0xFF5B3D00)
++        SignDebugLlmStatus.Success -> Color(0xFF14532D)
++        SignDebugLlmStatus.Failure -> Color(0xFF7F1D1D)
++    }
++
+ private fun formatDecimal(value: Double): String = String.format(Locale.US, "%.1f", value)
+ 
+ private fun formatPercent(value: Float): String = String.format(Locale.US, "%.1f%%", value * 100f)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugViewModel.kt
+@@ -31,6 +31,7 @@ import com.ssafy.mobile.core.vision.feature.LandmarkFeatureSequenceResampler
+ import com.ssafy.mobile.core.vision.inference.SignInferenceResult
+ import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
+ import com.ssafy.mobile.core.vision.landmark.MediaPipeHolisticLandmarkExtractor
++import com.ssafy.mobile.translation.GemmaOnDeviceTranslationEngine
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import dagger.hilt.android.qualifiers.ApplicationContext
+ import java.io.File
+@@ -81,15 +82,30 @@ data class SignDebugUiState(
+     val debugFrameSaveMessage: String? = null,
+     val isAnalysisRecording: Boolean = false,
+     val analysisRecordingMessage: String? = null,
++    val llmInput: String = "",
++    val llmIsRunning: Boolean = false,
++    val llmStatus: SignDebugLlmStatus = SignDebugLlmStatus.Idle,
++    val llmStage: String = "대기 중",
++    val llmSummary: String = "Gloss를 입력하고 LLM 테스트를 실행하세요.",
++    val llmDetail: String = "",
++    val llmOutput: String? = null,
+     val errorMessage: String? = null,
+ )
+ 
++enum class SignDebugLlmStatus {
++    Idle,
++    Running,
++    Success,
++    Failure,
++}
++
+ @HiltViewModel
+ class SignDebugViewModel
+     @Inject
+     constructor(
+         @param:ApplicationContext private val appContext: Context,
+         private val signRecognitionEngine: SignRecognitionEngine,
++        private val gemmaOnDeviceTranslationEngine: GemmaOnDeviceTranslationEngine,
+     ) : ViewModel() {
+         private val _uiState = MutableStateFlow(SignDebugUiState())
+         val uiState: StateFlow<SignDebugUiState> = _uiState.asStateFlow()
+@@ -104,6 +120,85 @@ class SignDebugViewModel
+             viewModelScope.launch {
+                 signRecognitionEngine.events.collect(::handleEvent)
+             }
++            preloadLlm()
++        }
++
++        fun updateLlmInput(input: String) {
++            _uiState.update { it.copy(llmInput = input) }
++        }
++
++        fun runLlmTest() {
++            val gloss = _uiState.value.llmInput.trim()
++            if (gloss.isBlank()) {
++                _uiState.update {
++                    it.copy(
++                        llmIsRunning = false,
++                        llmStatus = SignDebugLlmStatus.Failure,
++                        llmStage = "입력 필요",
++                        llmSummary = "Gloss 입력값이 비어 있습니다.",
++                        llmDetail = "예: 나 내일 학교 가다",
++                        llmOutput = null,
++                    )
++                }
++                return
++            }
++
++            viewModelScope.launch {
++                val startedAt = System.currentTimeMillis()
++                _uiState.update {
++                    it.copy(
++                        llmIsRunning = true,
++                        llmStatus = SignDebugLlmStatus.Running,
++                        llmStage = "응답 생성 준비",
++                        llmSummary = "규칙 기반 또는 Gemma로 문장을 생성하고 있습니다.",
++                        llmDetail = buildLlmDebugSummary(),
++                        llmOutput = null,
++                    )
++                }
++
++                runCatching {
++                    withContext(Dispatchers.Default) {
++                        gemmaOnDeviceTranslationEngine.translate(gloss)
++                    }
++                }.onSuccess { translationResult ->
++                    val totalElapsed = System.currentTimeMillis() - startedAt
++                    val sourceLabel =
++                        if (translationResult.usedRuleBased) {
++                            "규칙 기반"
++                        } else {
++                            "Gemma"
++                        }
++                    _uiState.update {
++                        it.copy(
++                            llmIsRunning = false,
++                            llmStatus = SignDebugLlmStatus.Success,
++                            llmStage = "응답 생성 성공",
++                            llmSummary = "모델 호출이 정상 완료되었습니다.",
++                            llmDetail =
++                                buildLlmDebugSummary() +
++                                    "\n처리 방식: $sourceLabel" +
++                                    "\n총 소요 시간: ${totalElapsed}ms" +
++                                    "\n생성 시간: ${translationResult.elapsedMs}ms" +
++                                    "\n원본 응답: ${translationResult.rawText.toSingleLinePreview()}",
++                            llmOutput = translationResult.koreanText,
++                        )
++                    }
++                }.onFailure { throwable ->
++                    _uiState.update {
++                        it.copy(
++                            llmIsRunning = false,
++                            llmStatus = SignDebugLlmStatus.Failure,
++                            llmStage = "모델 호출 실패",
++                            llmSummary = "로드 또는 응답 생성 중 오류가 발생했습니다.",
++                            llmDetail =
++                                buildLlmDebugSummary() +
++                                    "\n오류: ${throwable::class.java.simpleName}" +
++                                    "\n메시지: ${throwable.message ?: "알 수 없는 오류"}",
++                            llmOutput = null,
++                        )
++                    }
++                }
++            }
+         }
+ 
+         fun start() {
+@@ -1058,6 +1153,44 @@ class SignDebugViewModel
+                 separator = ",",
+             )
+ 
++        private fun preloadLlm() {
++            viewModelScope.launch {
++                runCatching {
++                    gemmaOnDeviceTranslationEngine.load()
++                }.onFailure { throwable ->
++                    Log.w(TAG_LLM, "Gemma preload failed in sign debug screen.", throwable)
++                }
++            }
++        }
++
++        private fun buildLlmDebugSummary(): String =
++            buildString {
++                appendLine("모델: ${gemmaOnDeviceTranslationEngine.debugModelAssetPath}")
++                appendLine(
++                    "maxTokens: ${gemmaOnDeviceTranslationEngine.debugMaxTokens}, " +
++                        "topK: ${gemmaOnDeviceTranslationEngine.debugTopK}",
++                )
++                appendLine("backend: ${gemmaOnDeviceTranslationEngine.debugBackendSummary}")
++                gemmaOnDeviceTranslationEngine.debugPreparedModelPath?.let { preparedPath ->
++                    appendLine("준비된 파일: $preparedPath")
++                }
++                if (gemmaOnDeviceTranslationEngine.debugPreparedEntryNames.isNotEmpty()) {
++                    append(
++                        "번들 엔트리: " +
++                            gemmaOnDeviceTranslationEngine.debugPreparedEntryNames.joinToString(),
++                    )
++                }
++            }.trim()
++
++        private fun String.toSingleLinePreview(maxLength: Int = 160): String {
++            val compact =
++                lineSequence()
++                    .joinToString(" ") { it.trim() }
++                    .replace(Regex("\\s+"), " ")
++                    .trim()
++            return if (compact.length <= maxLength) compact else compact.take(maxLength) + "..."
++        }
++
+         override fun onCleared() {
+             analysisRecorder?.let { recorder ->
+                 runCatching { recorder.stop() }
+@@ -1096,6 +1229,7 @@ class SignDebugViewModel
+             const val PERCENT_MULTIPLIER = 100f
+             const val SHOW_REPLAY_RAW_PREDICTIONS = false
+             const val LOG_REPLAY_RAW_PREDICTIONS = false
++            const val TAG_LLM = "SignDebugLLM"
+             const val TAG_REPLAY = "SignReplay"
+             const val TAG_REPLAY_FRAME = "SignReplayFrame"
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/translation/GemmaOnDeviceTranslationEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/translation/GemmaOnDeviceTranslationEngine.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/translation/GemmaOnDeviceTranslationEngine.kt
+
+diff --git a/mobile/app/build.gradle.kts b/mobile/app/build.gradle.kts
+--- a/mobile/app/build.gradle.kts
++++ b/mobile/app/build.gradle.kts
+@@ -131,4 +131,7 @@ dependencies {
+     implementation(libs.hilt.android)
+     implementation(libs.coil.compose)
+     ksp(libs.hilt.compiler)
++    implementation("com.google.mediapipe:tasks-genai:0.10.27") {
++        exclude(group = "com.google.protobuf", module = "protobuf-javalite")
++    }
+ }
+
+
+diff --git a/mobile/.gitignore b/mobile/.gitignore
+--- a/mobile/.gitignore
++++ b/mobile/.gitignore
+@@ -34,6 +34,7 @@ local.properties
+ 
+ # MediaPipe official model assets are downloaded locally.
+ /app/src/main/assets/models/holistic_landmarker.task
++/app/src/main/assets/models/gemma3-1b-it-int4.task
+ 
+ # ONNX Runtime caused Android 16KB page-size issues in this project.
+ # Keep committed mobile models on the TFLite path unless this is revisited.
+
+

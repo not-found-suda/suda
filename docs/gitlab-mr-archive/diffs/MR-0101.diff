@@ -1,0 +1,781 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DataStoreTranslationModeRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DataStoreTranslationModeRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DataStoreTranslationModeRepository.kt
+@@ -0,0 +1,41 @@
++package com.ssafy.mobile.feature.conversation.data.repository
++
++import android.content.Context
++import androidx.datastore.core.DataStore
++import androidx.datastore.preferences.core.Preferences
++import androidx.datastore.preferences.core.edit
++import androidx.datastore.preferences.core.stringPreferencesKey
++import androidx.datastore.preferences.preferencesDataStore
++import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
++import com.ssafy.mobile.feature.conversation.domain.repository.TranslationModeRepository
++import dagger.hilt.android.qualifiers.ApplicationContext
++import javax.inject.Inject
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.distinctUntilChanged
++import kotlinx.coroutines.flow.map
++
++private val Context.translationModeDataStore: DataStore<Preferences> by preferencesDataStore(
++    name = "translation_mode_prefs",
++)
++
++class DataStoreTranslationModeRepository
++    @Inject
++    constructor(
++        @ApplicationContext private val context: Context,
++    ) : TranslationModeRepository {
++        override val translationMode: Flow<TranslationMode> =
++            context.translationModeDataStore.data
++                .map { preferences ->
++                    TranslationMode.fromStorageValue(preferences[KEY_TRANSLATION_MODE])
++                }.distinctUntilChanged()
++
++        override suspend fun saveTranslationMode(mode: TranslationMode) {
++            context.translationModeDataStore.edit { preferences ->
++                preferences[KEY_TRANSLATION_MODE] = mode.name
++            }
++        }
++
++        private companion object {
++            val KEY_TRANSLATION_MODE = stringPreferencesKey("translation_mode")
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+@@ -6,8 +6,10 @@ import com.ssafy.mobile.core.vision.SignRecognitionEngine
+ import com.ssafy.mobile.core.vision.inference.SignInferenceAdapter
+ import com.ssafy.mobile.core.vision.inference.TfliteSignInferenceAdapter
+ import com.ssafy.mobile.feature.conversation.data.remote.TranslateApiService
++import com.ssafy.mobile.feature.conversation.data.repository.DataStoreTranslationModeRepository
+ import com.ssafy.mobile.feature.conversation.data.repository.DefaultTranslateRepository
+ import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
++import com.ssafy.mobile.feature.conversation.domain.repository.TranslationModeRepository
+ import dagger.Binds
+ import dagger.Module
+ import dagger.Provides
+@@ -26,6 +28,12 @@ abstract class ConversationModule {
+         repository: DefaultTranslateRepository,
+     ): TranslateRepository
+ 
++    @Binds
++    @Singleton
++    abstract fun bindTranslationModeRepository(
++        repository: DataStoreTranslationModeRepository,
++    ): TranslationModeRepository
++
+     @Binds
+     @Singleton
+     abstract fun bindSignRecognitionEngine(
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/model/TranslationMode.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/model/TranslationMode.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/model/TranslationMode.kt
+@@ -0,0 +1,15 @@
++package com.ssafy.mobile.feature.conversation.domain.model
++
++enum class TranslationMode {
++    AUTO,
++    SERVER,
++    ON_DEVICE,
++    ;
++
++    companion object {
++        val DEFAULT = AUTO
++
++        fun fromStorageValue(value: String?): TranslationMode =
++            entries.firstOrNull { mode -> mode.name == value } ?: DEFAULT
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/repository/TranslationModeRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/repository/TranslationModeRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/repository/TranslationModeRepository.kt
+@@ -0,0 +1,10 @@
++package com.ssafy.mobile.feature.conversation.domain.repository
++
++import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
++import kotlinx.coroutines.flow.Flow
++
++interface TranslationModeRepository {
++    val translationMode: Flow<TranslationMode>
++
++    suspend fun saveTranslationMode(mode: TranslationMode)
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+@@ -1,3 +1,5 @@
++@file:Suppress("MagicNumber", "TooManyFunctions")
++
+ package com.ssafy.mobile.feature.conversation.presentation
+ 
+ import android.app.Activity
+@@ -5,6 +7,7 @@ import android.content.Context
+ import android.content.ContextWrapper
+ import android.util.Log
+ import android.view.WindowManager
++import androidx.compose.foundation.BorderStroke
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.layout.Arrangement
+@@ -21,8 +24,10 @@ import androidx.compose.foundation.lazy.LazyRow
+ import androidx.compose.foundation.lazy.items
+ import androidx.compose.foundation.lazy.rememberLazyListState
+ import androidx.compose.foundation.shape.CircleShape
++import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Scaffold
++import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.DisposableEffect
+@@ -33,6 +38,7 @@ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+@@ -41,6 +47,7 @@ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ import com.ssafy.mobile.core.ui.feedback.AppNetworkStatusBanner
+ import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
+ import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
++import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
+ import com.ssafy.mobile.feature.conversation.presentation.components.SubtitleList
+ import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
+ 
+@@ -53,6 +60,8 @@ data class ConversationUiState(
+     val isOnline: Boolean,
+     val messages: List<ChatMessage>,
+     val lastGlosses: List<String>,
++    val translationMode: TranslationMode,
++    val translationModeNotice: String?,
+ )
+ 
+ @Composable
+@@ -65,6 +74,8 @@ fun conversationRoute(
+     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+     val messages by viewModel.messages.collectAsStateWithLifecycle()
+     val lastGlosses by viewModel.lastGlosses.collectAsStateWithLifecycle()
++    val translationMode by viewModel.translationMode.collectAsStateWithLifecycle()
++    val translationModeNotice by viewModel.translationModeNotice.collectAsStateWithLifecycle()
+     val context = LocalContext.current
+ 
+     // 세션 활성화 중에는 화면이 꺼지지 않도록 설정합니다.
+@@ -95,12 +106,15 @@ fun conversationRoute(
+             isOnline = isOnline,
+             messages = messages,
+             lastGlosses = lastGlosses,
++            translationMode = translationMode,
++            translationModeNotice = translationModeNotice,
+         )
+ 
+     ConversationScreen(
+         uiState = uiState,
+         onStartSession = viewModel::startSession,
+         onStopSession = viewModel::stopSession,
++        onTranslationModeSelected = viewModel::updateTranslationMode,
+         onLandmarkFrame = viewModel::onLandmarkFrame,
+         onOpenSignDebug = onOpenSignDebug,
+         modifier = modifier,
+@@ -112,6 +126,7 @@ private fun ConversationScreen(
+     uiState: ConversationUiState,
+     onStartSession: () -> Unit,
+     onStopSession: () -> Unit,
++    onTranslationModeSelected: (TranslationMode) -> Unit,
+     onLandmarkFrame: (LandmarkFrameResult) -> Unit,
+     onOpenSignDebug: (() -> Unit)?,
+     modifier: Modifier = Modifier,
+@@ -122,9 +137,12 @@ private fun ConversationScreen(
+             Column {
+                 SessionHeader(
+                     sessionState = uiState.sessionState,
++                    translationMode = uiState.translationMode,
++                    onTranslationModeSelected = onTranslationModeSelected,
+                     onOpenSignDebug = onOpenSignDebug,
+                 )
+                 AppNetworkStatusBanner(isOnline = uiState.isOnline)
++                TranslationModeNotice(text = uiState.translationModeNotice)
+             }
+         },
+         bottomBar = {
+@@ -243,72 +261,165 @@ private fun GlossRecognitionArea(lastGlosses: List<String>) {
+ @Composable
+ private fun SessionHeader(
+     sessionState: SessionState,
++    translationMode: TranslationMode,
++    onTranslationModeSelected: (TranslationMode) -> Unit,
+     onOpenSignDebug: (() -> Unit)?,
+ ) {
+-    Row(
++    Column(
+         modifier =
+             Modifier
+                 .fillMaxWidth()
+                 .padding(16.dp),
+-        verticalAlignment = Alignment.CenterVertically,
+-        horizontalArrangement = Arrangement.SpaceBetween,
++        verticalArrangement = Arrangement.spacedBy(12.dp),
+     ) {
+-        Text(
+-            text = "SUDA 소통 세션",
+-            style = MaterialTheme.typography.headlineSmall,
+-            fontWeight = FontWeight.Bold,
+-        )
+-
+         Row(
++            modifier = Modifier.fillMaxWidth(),
+             verticalAlignment = Alignment.CenterVertically,
+-            horizontalArrangement = Arrangement.spacedBy(10.dp),
++            horizontalArrangement = Arrangement.SpaceBetween,
+         ) {
+-            if (onOpenSignDebug != null) {
++            Text(
++                text = "SUDA 소통 세션",
++                style = MaterialTheme.typography.headlineSmall,
++                fontWeight = FontWeight.Bold,
++            )
++
++            Row(
++                verticalAlignment = Alignment.CenterVertically,
++                horizontalArrangement = Arrangement.spacedBy(10.dp),
++            ) {
++                if (onOpenSignDebug != null) {
++                    Box(
++                        modifier =
++                            Modifier
++                                .sizeIn(minWidth = 72.dp, minHeight = 40.dp)
++                                .background(
++                                    color = MaterialTheme.colorScheme.secondaryContainer,
++                                    shape = CircleShape,
++                                ).clickable(onClick = onOpenSignDebug)
++                                .padding(horizontal = 14.dp, vertical = 8.dp),
++                        contentAlignment = Alignment.Center,
++                    ) {
++                        Text(
++                            text = "디버그",
++                            color = MaterialTheme.colorScheme.onSecondaryContainer,
++                            style = MaterialTheme.typography.labelMedium,
++                            fontWeight = FontWeight.Bold,
++                        )
++                    }
++                }
+                 Box(
+                     modifier =
+                         Modifier
+-                            .sizeIn(minWidth = 72.dp, minHeight = 40.dp)
++                            .size(8.dp)
+                             .background(
+-                                color = MaterialTheme.colorScheme.secondaryContainer,
++                                color =
++                                    if (sessionState ==
++                                        SessionState.Active
++                                    ) {
++                                        Color.Green
++                                    } else {
++                                        Color.Gray
++                                    },
+                                 shape = CircleShape,
+-                            ).clickable(onClick = onOpenSignDebug)
+-                            .padding(horizontal = 14.dp, vertical = 8.dp),
+-                    contentAlignment = Alignment.Center,
+-                ) {
+-                    Text(
+-                        text = "디버그",
+-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+-                        style = MaterialTheme.typography.labelMedium,
+-                        fontWeight = FontWeight.Bold,
+-                    )
+-                }
++                            ),
++                )
++                Text(
++                    text = if (sessionState == SessionState.Active) " LIVE" else " IDLE",
++                    modifier = Modifier.padding(start = 4.dp),
++                    style = MaterialTheme.typography.labelMedium,
++                    color = if (sessionState == SessionState.Active) Color.Green else Color.Gray,
++                )
+             }
+-            Box(
++        }
++
++        TranslationModeSelector(
++            selectedMode = translationMode,
++            onModeSelected = onTranslationModeSelected,
++        )
++    }
++}
++
++@Composable
++private fun TranslationModeSelector(
++    selectedMode: TranslationMode,
++    onModeSelected: (TranslationMode) -> Unit,
++) {
++    Row(
++        modifier = Modifier.fillMaxWidth(),
++        horizontalArrangement = Arrangement.spacedBy(8.dp),
++    ) {
++        TranslationMode.entries.forEach { mode ->
++            val selected = mode == selectedMode
++            Surface(
+                 modifier =
+                     Modifier
+-                        .size(8.dp)
+-                        .background(
+-                            color =
+-                                if (sessionState ==
+-                                    SessionState.Active
+-                                ) {
+-                                    Color.Green
+-                                } else {
+-                                    Color.Gray
+-                                },
+-                            shape = CircleShape,
+-                        ),
+-            )
+-            Text(
+-                text = if (sessionState == SessionState.Active) " LIVE" else " IDLE",
+-                modifier = Modifier.padding(start = 4.dp),
+-                style = MaterialTheme.typography.labelMedium,
+-                color = if (sessionState == SessionState.Active) Color.Green else Color.Gray,
+-            )
++                        .weight(1f)
++                        .clickable { onModeSelected(mode) },
++                shape = RoundedCornerShape(999.dp),
++                color =
++                    if (selected) {
++                        MaterialTheme.colorScheme.primaryContainer
++                    } else {
++                        MaterialTheme.colorScheme.surface
++                    },
++                border =
++                    BorderStroke(
++                        width = 1.dp,
++                        color =
++                            if (selected) {
++                                MaterialTheme.colorScheme.primary
++                            } else {
++                                MaterialTheme.colorScheme.outlineVariant
++                            },
++                    ),
++            ) {
++                Text(
++                    text = mode.label(),
++                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
++                    style = MaterialTheme.typography.labelLarge,
++                    color =
++                        if (selected) {
++                            MaterialTheme.colorScheme.onPrimaryContainer
++                        } else {
++                            MaterialTheme.colorScheme.onSurfaceVariant
++                        },
++                    textAlign = TextAlign.Center,
++                    fontWeight = FontWeight.Bold,
++                )
++            }
+         }
+     }
+ }
+ 
++@Composable
++private fun TranslationModeNotice(text: String?) {
++    if (text.isNullOrBlank()) return
++
++    Surface(
++        modifier =
++            Modifier
++                .fillMaxWidth()
++                .padding(horizontal = 16.dp, vertical = 8.dp),
++        shape = RoundedCornerShape(12.dp),
++        color = MaterialTheme.colorScheme.secondaryContainer,
++    ) {
++        Text(
++            text = text,
++            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
++            style = MaterialTheme.typography.bodySmall,
++            color = MaterialTheme.colorScheme.onSecondaryContainer,
++            fontWeight = FontWeight.Bold,
++        )
++    }
++}
++
++private fun TranslationMode.label(): String =
++    when (this) {
++        TranslationMode.AUTO -> "자동"
++        TranslationMode.SERVER -> "서버"
++        TranslationMode.ON_DEVICE -> "기기"
++    }
++
+ @Composable
+ private fun SessionControls(
+     sessionState: SessionState,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -15,7 +15,9 @@ import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
+ import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
+ import com.ssafy.mobile.feature.conversation.domain.model.MessageStatus
+ import com.ssafy.mobile.feature.conversation.domain.model.SenderType
++import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
+ import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
++import com.ssafy.mobile.feature.conversation.domain.repository.TranslationModeRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import java.io.File
+ import javax.inject.Inject
+@@ -35,13 +37,14 @@ enum class SessionState {
+     Stopping,
+ }
+ 
+-@Suppress("TooManyFunctions")
++@Suppress("LargeClass", "LongParameterList", "TooManyFunctions")
+ @HiltViewModel
+ class ConversationViewModel
+     @Inject
+     constructor(
+         private val signRecognitionEngine: SignRecognitionEngine,
+         private val translateRepository: TranslateRepository,
++        private val translationModeRepository: TranslationModeRepository,
+         private val audioPlayer: AudioPlayer,
+         private val ttsPlayer: TtsPlayer,
+         private val sttEngine: SttEngine,
+@@ -54,6 +57,12 @@ class ConversationViewModel
+         private val _isOnline = MutableStateFlow(true)
+         val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
+ 
++        private val _translationMode = MutableStateFlow(TranslationMode.DEFAULT)
++        val translationMode: StateFlow<TranslationMode> = _translationMode.asStateFlow()
++
++        private val _translationModeNotice = MutableStateFlow<String?>(null)
++        val translationModeNotice: StateFlow<String?> = _translationModeNotice.asStateFlow()
++
+         private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
+         val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
+ 
+@@ -78,9 +87,25 @@ class ConversationViewModel
+         private var currentSttSessionId = 0
+         private var isResultsReceived = false
+         private var isStoppedReceived = false
++        private var isCloudSttFallbackActive = false
+         private var cloudSttFailureCount = 0
+ 
+         init {
++            viewModelScope.launch {
++                translationModeRepository.translationMode.collect { mode ->
++                    val previousMode = _translationMode.value
++                    _translationMode.value = mode
++                    if (previousMode != mode) {
++                        resetCloudSttFallback()
++                        _translationModeNotice.value = null
++                        if (_sessionState.value == SessionState.Active && !isTtsPlaying) {
++                            stopRecordingForStt()
++                            startRecordingForStt()
++                        }
++                    }
++                }
++            }
++
+             // 네트워크 상태 모니터링
+             viewModelScope.launch {
+                 networkMonitor.isOnline.collect { online ->
+@@ -91,6 +116,10 @@ class ConversationViewModel
+                         _sessionState.value == SessionState.Active &&
+                         !isTtsPlaying
+                     ) {
++                        if (online) {
++                            resetCloudSttFallback()
++                        }
++                        updateNetworkFallbackNotice(online)
+                         stopRecordingForStt()
+                         startRecordingForStt()
+                     }
+@@ -125,16 +154,38 @@ class ConversationViewModel
+ 
+         private fun requestTranslation(words: List<String>) {
+             translationJob?.cancel()
+-            if (_isOnline.value) {
+-                // [온라인 모드] 기존 클라우드 번역 로직
+-                performCloudTranslation(words)
+-            } else {
+-                // [오프라인 모드] Fallback 로직
+-                performOfflineFallback(words)
++            when (_translationMode.value) {
++                TranslationMode.AUTO ->
++                    if (_isOnline.value) {
++                        performCloudTranslation(
++                            words = words,
++                            fallbackOnFailure = true,
++                        )
++                    } else {
++                        performOnDeviceTranslation(
++                            words = words,
++                            notice = NOTICE_AUTO_OFFLINE_FALLBACK,
++                        )
++                    }
++
++                TranslationMode.SERVER ->
++                    if (_isOnline.value) {
++                        performCloudTranslation(
++                            words = words,
++                            fallbackOnFailure = false,
++                        )
++                    } else {
++                        showServerOnlyUnavailableMessage()
++                    }
++
++                TranslationMode.ON_DEVICE -> performOnDeviceTranslation(words = words)
+             }
+         }
+ 
+-        private fun performCloudTranslation(words: List<String>) {
++        private fun performCloudTranslation(
++            words: List<String>,
++            fallbackOnFailure: Boolean,
++        ) {
+             // 0. 교정 중인 부모 메시지 추가
+             addOrUpdateMessage(
+                 text = "교정 중...",
+@@ -147,6 +198,7 @@ class ConversationViewModel
+                     translateRepository
+                         .translateSignToSpeech(words)
+                         .onSuccess { response ->
++                            _translationModeNotice.value = null
+                             _translatedText.value = response.correctedText
+                             addOrUpdateMessage(
+                                 text = response.correctedText,
+@@ -161,18 +213,35 @@ class ConversationViewModel
+                             }
+ 
+                             _lastGlosses.value = emptyList()
+-                        }.onFailure {
+-                            addOrUpdateMessage(
+-                                text = "번역에 실패했습니다. 다시 시도해 주세요.",
+-                                isFinal = true,
+-                                senderType = SenderType.PARENT,
+-                            )
+-                            startRecordingForStt()
++                        }.onFailure { throwable ->
++                            if (fallbackOnFailure) {
++                                Log.w(
++                                    TAG,
++                                    "Cloud translation failed. fallback to on-device.",
++                                    throwable,
++                                )
++                                performOnDeviceTranslation(
++                                    words = words,
++                                    notice = NOTICE_AUTO_SERVER_FALLBACK,
++                                )
++                            } else {
++                                addOrUpdateMessage(
++                                    text = "서버 번역에 실패했습니다. 다시 시도해 주세요.",
++                                    isFinal = true,
++                                    senderType = SenderType.PARENT,
++                                )
++                                _lastGlosses.value = emptyList()
++                                startRecordingForStt()
++                            }
+                         }
+                 }
+         }
+ 
+-        private fun performOfflineFallback(words: List<String>) {
++        private fun performOnDeviceTranslation(
++            words: List<String>,
++            notice: String? = null,
++        ) {
++            notice?.let { _translationModeNotice.value = it }
+             val fallbackText = words.joinToString(" ")
+             _translatedText.value = fallbackText
+ 
+@@ -202,10 +271,10 @@ class ConversationViewModel
+             isResultsReceived = false
+             isStoppedReceived = false
+ 
+-            if (_isOnline.value) {
+-                startCloudRecordingLoop()
+-            } else {
+-                startLocalSttListening()
++            when {
++                shouldUseCloudStt() -> startCloudRecordingLoop()
++                shouldUseLocalStt() -> startLocalSttListening()
++                else -> showServerOnlyUnavailableMessage()
+             }
+         }
+ 
+@@ -249,6 +318,9 @@ class ConversationViewModel
+                             delay(nextDelayMs)
+                         }
+                     }
++                    if (canStartLocalSttAfterCloudLoop()) {
++                        startLocalSttFromCloudLoop()
++                    }
+                 }
+         }
+ 
+@@ -329,8 +401,35 @@ class ConversationViewModel
+             }
+         }
+ 
++        private fun shouldUseCloudStt(): Boolean =
++            when (_translationMode.value) {
++                TranslationMode.AUTO -> _isOnline.value && !isCloudSttFallbackActive
++                TranslationMode.SERVER -> _isOnline.value
++                TranslationMode.ON_DEVICE -> false
++            }
++
++        private fun shouldUseLocalStt(): Boolean =
++            when (_translationMode.value) {
++                TranslationMode.AUTO -> !_isOnline.value || isCloudSttFallbackActive
++                TranslationMode.SERVER -> false
++                TranslationMode.ON_DEVICE -> true
++            }
++
+         private fun canUseCloudStt(): Boolean =
+-            _sessionState.value == SessionState.Active && _isOnline.value && !isTtsPlaying
++            _sessionState.value == SessionState.Active && shouldUseCloudStt() && !isTtsPlaying
++
++        private fun canHandleLocalSttEvent(): Boolean =
++            _sessionState.value == SessionState.Active && shouldUseLocalStt() && !isTtsPlaying
++
++        private fun canStartLocalSttAfterCloudLoop(): Boolean =
++            _sessionState.value == SessionState.Active && shouldUseLocalStt() && !isTtsPlaying
++
++        private fun startLocalSttFromCloudLoop() {
++            cloudSttJob = null
++            androidAudioRecorder.stop()
++            currentSttSessionId = sttEngine.nextSessionId()
++            sttEngine.startListening(currentSttSessionId)
++        }
+ 
+         private fun getCloudRecordingStopReason(
+             speechDetected: Boolean,
+@@ -384,6 +483,7 @@ class ConversationViewModel
+ 
+         fun startSession() {
+             _sessionState.value = SessionState.Active
++            resetCloudSttFallback()
+             signRecognitionEngine.start()
+ 
+             // 1. 기존 STT 수집이 있다면 취소
+@@ -393,7 +493,7 @@ class ConversationViewModel
+             sttJob =
+                 viewModelScope.launch {
+                     sttEngine.events.collect { event ->
+-                        if (event.sessionId != currentSttSessionId || _isOnline.value) {
++                        if (event.sessionId != currentSttSessionId || !canHandleLocalSttEvent()) {
+                             return@collect
+                         }
+ 
+@@ -420,7 +520,7 @@ class ConversationViewModel
+                             is SttEvent.Stopped -> {
+                                 if (_sessionState.value == SessionState.Active && !isTtsPlaying) {
+                                     isStoppedReceived = true
+-                                    if (!_isOnline.value) {
++                                    if (shouldUseLocalStt()) {
+                                         isResultsReceived = true // 오프라인은 결과 대기 불필요
+                                     }
+                                     checkAndRestartStt()
+@@ -470,6 +570,11 @@ class ConversationViewModel
+                     }.onFailure {
+                         cloudSttFailureCount++
+                         restartDelayMs = getCloudSttFailureRetryDelay()
++                        if (shouldFallbackToLocalStt()) {
++                            isCloudSttFallbackActive = true
++                            _translationModeNotice.value = NOTICE_AUTO_STT_FALLBACK
++                            restartDelayMs = STT_RESTART_DELAY_MS
++                        }
+                         Log.w(
+                             TAG,
+                             "Cloud STT upload failed: failureCount=$cloudSttFailureCount, " +
+@@ -534,6 +639,12 @@ class ConversationViewModel
+             startRecordingForStt()
+         }
+ 
++        fun updateTranslationMode(mode: TranslationMode) {
++            viewModelScope.launch {
++                translationModeRepository.saveTranslationMode(mode)
++            }
++        }
++
+         fun stopSession() {
+             _sessionState.value = SessionState.Idle
+             signRecognitionEngine.stop()
+@@ -542,10 +653,11 @@ class ConversationViewModel
+             isStoppedReceived = false
+             _lastGlosses.value = emptyList()
+             _translatedText.value = ""
++            _translationModeNotice.value = null
+             _sttText.value = ""
+             _micVolume.value = 0f
+             _messages.value = emptyList()
+-            cloudSttFailureCount = 0
++            resetCloudSttFallback()
+             translationJob?.cancel()
+             completionTimerJob?.cancel()
+             sttJob?.cancel()
+@@ -600,6 +712,36 @@ class ConversationViewModel
+             addOrUpdateMessage(text, isFinal, SenderType.CHILD)
+         }
+ 
++        private fun updateNetworkFallbackNotice(isOnline: Boolean) {
++            _translationModeNotice.value =
++                when {
++                    _translationMode.value == TranslationMode.AUTO && !isOnline ->
++                        NOTICE_AUTO_OFFLINE_FALLBACK
++                    _translationMode.value == TranslationMode.SERVER && !isOnline ->
++                        NOTICE_SERVER_OFFLINE
++                    else -> null
++                }
++        }
++
++        private fun shouldFallbackToLocalStt(): Boolean =
++            _translationMode.value == TranslationMode.AUTO &&
++                cloudSttFailureCount >= AUTO_CLOUD_STT_FALLBACK_FAILURE_COUNT
++
++        private fun resetCloudSttFallback() {
++            isCloudSttFallbackActive = false
++            cloudSttFailureCount = 0
++        }
++
++        private fun showServerOnlyUnavailableMessage() {
++            _translationModeNotice.value = NOTICE_SERVER_OFFLINE
++            addOrUpdateMessage(
++                text = "서버 모드에서는 네트워크 연결이 필요합니다.",
++                isFinal = true,
++                senderType = SenderType.PARENT,
++            )
++            _lastGlosses.value = emptyList()
++        }
++
+         override fun onCleared() {
+             super.onCleared()
+             audioPlayer.stop()
+@@ -637,5 +779,14 @@ class ConversationViewModel
+             private const val CLOUD_STT_ANALYZING_MESSAGE = "대화 내용을 분석 중입니다..."
+             private const val CLOUD_STT_FAILURE_MESSAGE = "인식에 실패했습니다."
+             private const val CLOUD_STT_AUDIO_MIME_TYPE = "audio/wav"
++            private const val AUTO_CLOUD_STT_FALLBACK_FAILURE_COUNT = 1
++            private const val NOTICE_AUTO_OFFLINE_FALLBACK =
++                "자동 모드: 네트워크가 없어 기기 내 처리로 전환했어요."
++            private const val NOTICE_AUTO_SERVER_FALLBACK =
++                "자동 모드: 서버 처리 실패로 기기 내 처리로 전환했어요."
++            private const val NOTICE_AUTO_STT_FALLBACK =
++                "자동 모드: 서버 음성 인식 실패로 기기 내 인식으로 전환했어요."
++            private const val NOTICE_SERVER_OFFLINE =
++                "서버 모드: 네트워크 연결 후 다시 사용할 수 있어요."
+         }
+     }
+
+

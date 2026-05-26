@@ -1,0 +1,1533 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/model/SignRecognitionEvent.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/model/SignRecognitionEvent.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/model/SignRecognitionEvent.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/model/SignRecognitionEvent.kt
+@@ -1,5 +1,7 @@
+ package com.ssafy.mobile.core.model
+ 
++import com.ssafy.mobile.core.vision.SignRecognitionConfig
++
+ sealed interface SignRecognitionEvent {
+     data object Ready : SignRecognitionEvent
+ 
+@@ -26,8 +28,27 @@ sealed interface SignRecognitionEvent {
+ 
+     data object ModelLoading : SignRecognitionEvent
+ 
++    data class Metrics(
++        val snapshot: SignRecognitionMetrics,
++    ) : SignRecognitionEvent
++
+     data class Error(
+         val message: String,
+         val cause: Throwable? = null,
+     ) : SignRecognitionEvent
+ }
++
++data class SignRecognitionMetrics(
++    val timestampMs: Long,
++    val currentGloss: String? = null,
++    val confidence: Float? = null,
++    val hasHands: Boolean = false,
++    val poseLandmarkCount: Int = 0,
++    val leftHandLandmarkCount: Int = 0,
++    val rightHandLandmarkCount: Int = 0,
++    val lipLandmarkCount: Int = 0,
++    val sequenceFrameCount: Int = 0,
++    val sequenceHandFrameCount: Int = 0,
++    val tfliteInferenceMs: Double? = null,
++    val config: SignRecognitionConfig = SignRecognitionConfig(),
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -7,7 +7,7 @@ import androidx.navigation.NavHostController
+ import androidx.navigation.compose.NavHost
+ import androidx.navigation.compose.composable
+ import com.ssafy.mobile.feature.conversation.presentation.conversationRoute
+-import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
++import com.ssafy.mobile.feature.sign.presentation.SignDebugRoute
+ 
+ @Composable
+ fun MobileNavHost(
+@@ -21,12 +21,19 @@ fun MobileNavHost(
+         modifier = modifier,
+     ) {
+         composable(Screen.Conversation.route) {
+-            conversationRoute(modifier = Modifier.fillMaxSize())
++            conversationRoute(
++                onOpenSignDebug = {
++                    navController.navigate(Screen.Sign.route)
++                },
++                modifier = Modifier.fillMaxSize(),
++            )
+         }
+ 
+         composable(Screen.Sign.route) {
+-            SignRecognitionScreen(
+-                isSessionActive = true,
++            SignDebugRoute(
++                onBackToMain = {
++                    navController.popBackStack()
++                },
+                 modifier = Modifier.fillMaxSize(),
+             )
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/SignSequenceBuffer.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/SignSequenceBuffer.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/SignSequenceBuffer.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/SignSequenceBuffer.kt
+@@ -56,7 +56,7 @@ class SignSequenceBuffer(
+ 
+     companion object {
+         const val DEFAULT_SEQUENCE_LENGTH = SignModelContract.SEQUENCE_LENGTH
+-        private const val DEFAULT_MINIMUM_HAND_FRAME_RATIO = 0.33f
++        const val DEFAULT_MINIMUM_HAND_FRAME_RATIO = 0.33f
+         private const val MINIMUM_HAND_FRAMES = 1
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
+@@ -1,13 +1,16 @@
+ package com.ssafy.mobile.core.vision
+ 
+ import com.ssafy.mobile.core.model.SignRecognitionEvent
++import com.ssafy.mobile.core.model.SignRecognitionMetrics
+ import com.ssafy.mobile.core.vision.feature.LandmarkFeatureEncoder
+ import com.ssafy.mobile.core.vision.feature.SignSequenceBuffer
+ import com.ssafy.mobile.core.vision.inference.FakeSignInferenceAdapter
+ import com.ssafy.mobile.core.vision.inference.SignInferenceAdapter
++import com.ssafy.mobile.core.vision.inference.SignInferenceResult
+ import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
+ import java.util.concurrent.atomic.AtomicBoolean
+ import javax.inject.Inject
++import kotlin.system.measureNanoTime
+ import kotlinx.coroutines.channels.BufferOverflow
+ import kotlinx.coroutines.flow.Flow
+ import kotlinx.coroutines.flow.MutableSharedFlow
+@@ -15,10 +18,10 @@ import kotlinx.coroutines.flow.asSharedFlow
+ 
+ class RealSignRecognitionEngine(
+     private val featureEncoder: LandmarkFeatureEncoder = LandmarkFeatureEncoder(),
+-    private val sequenceBuffer: SignSequenceBuffer = SignSequenceBuffer(),
++    private var sequenceBuffer: SignSequenceBuffer = SignSequenceBuffer(),
+     private val inferenceAdapter: SignInferenceAdapter = FakeSignInferenceAdapter(),
+     private val noHandsDetectionTracker: NoHandsDetectionTracker = NoHandsDetectionTracker(),
+-    private val predictionStabilizer: SignPredictionStabilizer = SignPredictionStabilizer(),
++    private var predictionStabilizer: SignPredictionStabilizer = SignPredictionStabilizer(),
+     private val logger: SignPipelineLogger = SignPipelineLogger(),
+ ) : SignRecognitionEngine {
+     @Inject
+@@ -34,6 +37,7 @@ class RealSignRecognitionEngine(
+     )
+ 
+     private val isStarted = AtomicBoolean(false)
++    private var config = SignRecognitionConfig()
+     private var hasSeenHandsInSegment = false
+     private val _events =
+         MutableSharedFlow<SignRecognitionEvent>(
+@@ -65,6 +69,23 @@ class RealSignRecognitionEngine(
+         _events.tryEmit(SignRecognitionEvent.Stopped)
+     }
+ 
++    override fun updateConfig(config: SignRecognitionConfig) {
++        this.config = config
++        sequenceBuffer =
++            SignSequenceBuffer(
++                sequenceLength = config.sequenceLength,
++                minimumHandFrameRatio = config.minimumHandFrameRatio,
++            )
++        predictionStabilizer =
++            SignPredictionStabilizer(
++                confidenceThreshold = config.confidenceThreshold,
++                windowSize = config.smoothingWindowSize,
++                requiredVotes = config.smoothingRequiredVotes,
++                emitCooldownMs = config.emitCooldownMs,
++            )
++        resetRecognitionState()
++    }
++
+     override fun submitFrame(frame: LandmarkFrameResult) {
+         if (!isStarted.get()) {
+             return
+@@ -99,14 +120,41 @@ class RealSignRecognitionEngine(
+         logger.logFeatureProbe(feature.probe)
+         sequenceBuffer.add(feature)
+         val sequence = sequenceBuffer.buildReadySequenceInput(logger)
+-        val result = sequence?.let { input -> inferenceAdapter.predict(input) }
++        var tfliteInferenceMs: Double? = null
++        var result: SignInferenceResult? = null
++        if (sequence != null) {
++            val elapsedNanos =
++                measureNanoTime {
++                    result = inferenceAdapter.predict(sequence)
++                }
++            tfliteInferenceMs = elapsedNanos / NANOS_PER_MILLIS
++        }
+         result?.let { inferenceResult ->
+             logger.logInferenceResult(
+-                sequenceSize = sequence.size,
++                sequenceSize = sequence?.size ?: 0,
+                 gloss = inferenceResult.gloss,
+                 confidence = inferenceResult.confidence,
+             )
+         }
++        _events.tryEmit(
++            SignRecognitionEvent.Metrics(
++                snapshot =
++                    SignRecognitionMetrics(
++                        timestampMs = frame.timestampMs,
++                        currentGloss = result?.gloss,
++                        confidence = result?.confidence,
++                        hasHands = frame.hasHands,
++                        poseLandmarkCount = frame.pose.landmarks.size,
++                        leftHandLandmarkCount = frame.leftHand.landmarks.size,
++                        rightHandLandmarkCount = frame.rightHand.landmarks.size,
++                        lipLandmarkCount = frame.lips.landmarks.size,
++                        sequenceFrameCount = sequenceBuffer.size,
++                        sequenceHandFrameCount = sequenceBuffer.handFrameCount,
++                        tfliteInferenceMs = tfliteInferenceMs,
++                        config = config,
++                    ),
++            ),
++        )
+         val stablePrediction =
+             result?.let { inferenceResult ->
+                 predictionStabilizer.onPrediction(
+@@ -167,6 +215,7 @@ class RealSignRecognitionEngine(
+ 
+     private companion object {
+         const val EVENT_BUFFER_CAPACITY = 64
++        const val NANOS_PER_MILLIS = 1_000_000.0
+     }
+ }
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPredictionStabilizer.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPredictionStabilizer.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPredictionStabilizer.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPredictionStabilizer.kt
+@@ -117,7 +117,7 @@ class SignPredictionStabilizer(
+         val confidence: Float,
+     )
+ 
+-    private companion object {
++    companion object {
+         const val DEFAULT_WINDOW_SIZE = 5
+         const val DEFAULT_REQUIRED_VOTES = 3
+         const val DEFAULT_EMIT_COOLDOWN_MS = 1_000L
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionConfig.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionConfig.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionConfig.kt
+@@ -0,0 +1,41 @@
++package com.ssafy.mobile.core.vision
++
++import com.ssafy.mobile.core.vision.feature.SignSequenceBuffer
++import com.ssafy.mobile.core.vision.inference.SignModelContract
++
++data class SignRecognitionConfig(
++    val sequenceLength: Int = SignModelContract.SEQUENCE_LENGTH,
++    val minimumHandFrameRatio: Float = SignSequenceBuffer.DEFAULT_MINIMUM_HAND_FRAME_RATIO,
++    val confidenceThreshold: Float = SignModelContract.CONFIDENCE_THRESHOLD,
++    val smoothingWindowSize: Int = SignPredictionStabilizer.DEFAULT_WINDOW_SIZE,
++    val smoothingRequiredVotes: Int = SignPredictionStabilizer.DEFAULT_REQUIRED_VOTES,
++    val emitCooldownMs: Long = SignPredictionStabilizer.DEFAULT_EMIT_COOLDOWN_MS,
++) {
++    init {
++        require(sequenceLength == SignModelContract.SEQUENCE_LENGTH) {
++            "Current TFLite model requires ${SignModelContract.SEQUENCE_LENGTH} frames."
++        }
++        require(minimumHandFrameRatio in MIN_HAND_FRAME_RATIO..MAX_HAND_FRAME_RATIO) {
++            "Minimum hand frame ratio must be between $MIN_HAND_FRAME_RATIO and $MAX_HAND_FRAME_RATIO."
++        }
++        require(confidenceThreshold in MIN_CONFIDENCE..MAX_CONFIDENCE) {
++            "Confidence threshold must be between $MIN_CONFIDENCE and $MAX_CONFIDENCE."
++        }
++        require(smoothingWindowSize > 0) {
++            "Smoothing window size must be greater than 0."
++        }
++        require(smoothingRequiredVotes in 1..smoothingWindowSize) {
++            "Required votes must be between 1 and smoothing window size."
++        }
++        require(emitCooldownMs >= 0L) {
++            "Emit cooldown must be 0 or greater."
++        }
++    }
++
++    companion object {
++        private const val MIN_HAND_FRAME_RATIO = 0f
++        private const val MAX_HAND_FRAME_RATIO = 1f
++        private const val MIN_CONFIDENCE = 0f
++        private const val MAX_CONFIDENCE = 1f
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionEngine.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionEngine.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionEngine.kt
+@@ -9,6 +9,8 @@ interface SignRecognitionEngine {
+ 
+     fun start()
+ 
++    fun updateConfig(config: SignRecognitionConfig)
++
+     fun submitFrame(frame: LandmarkFrameResult)
+ 
+     fun stop()
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+@@ -6,6 +6,7 @@ import android.content.ContextWrapper
+ import android.util.Log
+ import android.view.WindowManager
+ import androidx.compose.foundation.background
++import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.layout.sizeIn
+ import androidx.compose.foundation.lazy.LazyRow
+ import androidx.compose.foundation.lazy.items
+ import androidx.compose.foundation.lazy.rememberLazyListState
+@@ -56,6 +58,7 @@ data class ConversationUiState(
+ @Composable
+ fun conversationRoute(
+     modifier: Modifier = Modifier,
++    onOpenSignDebug: (() -> Unit)? = null,
+     viewModel: ConversationViewModel = hiltViewModel(),
+ ) {
+     val sessionState by viewModel.sessionState.collectAsStateWithLifecycle()
+@@ -99,6 +102,7 @@ fun conversationRoute(
+         onStartSession = viewModel::startSession,
+         onStopSession = viewModel::stopSession,
+         onLandmarkFrame = viewModel::onLandmarkFrame,
++        onOpenSignDebug = onOpenSignDebug,
+         modifier = modifier,
+     )
+ }
+@@ -109,13 +113,17 @@ private fun ConversationScreen(
+     onStartSession: () -> Unit,
+     onStopSession: () -> Unit,
+     onLandmarkFrame: (LandmarkFrameResult) -> Unit,
++    onOpenSignDebug: (() -> Unit)?,
+     modifier: Modifier = Modifier,
+ ) {
+     Scaffold(
+         modifier = modifier.fillMaxSize(),
+         topBar = {
+             Column {
+-                SessionHeader(sessionState = uiState.sessionState)
++                SessionHeader(
++                    sessionState = uiState.sessionState,
++                    onOpenSignDebug = onOpenSignDebug,
++                )
+                 AppOfflineBanner(isOnline = uiState.isOnline)
+             }
+         },
+@@ -233,7 +241,10 @@ private fun GlossRecognitionArea(lastGlosses: List<String>) {
+ }
+ 
+ @Composable
+-private fun SessionHeader(sessionState: SessionState) {
++private fun SessionHeader(
++    sessionState: SessionState,
++    onOpenSignDebug: (() -> Unit)?,
++) {
+     Row(
+         modifier =
+             Modifier
+@@ -248,7 +259,30 @@ private fun SessionHeader(sessionState: SessionState) {
+             fontWeight = FontWeight.Bold,
+         )
+ 
+-        Row(verticalAlignment = Alignment.CenterVertically) {
++        Row(
++            verticalAlignment = Alignment.CenterVertically,
++            horizontalArrangement = Arrangement.spacedBy(10.dp),
++        ) {
++            if (onOpenSignDebug != null) {
++                Box(
++                    modifier =
++                        Modifier
++                            .sizeIn(minWidth = 72.dp, minHeight = 40.dp)
++                            .background(
++                                color = MaterialTheme.colorScheme.secondaryContainer,
++                                shape = CircleShape,
++                            ).clickable(onClick = onOpenSignDebug)
++                            .padding(horizontal = 14.dp, vertical = 8.dp),
++                    contentAlignment = Alignment.Center,
++                ) {
++                    Text(
++                        text = "디버그",
++                        color = MaterialTheme.colorScheme.onSecondaryContainer,
++                        style = MaterialTheme.typography.labelMedium,
++                        fontWeight = FontWeight.Bold,
++                    )
++                }
++            }
+             Box(
+                 modifier =
+                     Modifier
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt
+@@ -6,6 +6,8 @@ import android.graphics.ImageFormat
+ import android.graphics.Matrix
+ import android.graphics.Rect
+ import android.graphics.YuvImage
++import android.os.SystemClock
++import android.util.Size
+ import android.view.Surface
+ import androidx.camera.core.CameraSelector
+ import androidx.camera.core.ImageAnalysis
+@@ -21,6 +23,7 @@ import java.util.concurrent.Executor
+ data class YuvAnalysisFrame(
+     val timestampNanos: Long,
+     val timestampMs: Long,
++    val receivedAtElapsedMs: Long,
+     val width: Int,
+     val height: Int,
+     val rotationDegrees: Int,
+@@ -43,6 +46,7 @@ internal fun bindCameraUseCases(
+     lifecycleOwner: LifecycleOwner,
+     previewView: PreviewView,
+     analyzerExecutor: Executor,
++    settings: CameraAnalysisSettings = CameraAnalysisSettings(),
+     onFrameAvailable: (YuvAnalysisFrame) -> Unit,
+ ): ImageAnalysis {
+     val targetRotation = previewView.display?.rotation ?: Surface.ROTATION_0
+@@ -52,6 +56,7 @@ internal fun bindCameraUseCases(
+         createImageAnalysisUseCase(
+             analyzerExecutor = analyzerExecutor,
+             targetRotation = targetRotation,
++            settings = settings,
+             onFrameAvailable = onFrameAvailable,
+         )
+ 
+@@ -81,22 +86,32 @@ private fun createPreviewUseCase(
+ private fun createImageAnalysisUseCase(
+     analyzerExecutor: Executor,
+     targetRotation: Int,
++    settings: CameraAnalysisSettings,
+     onFrameAvailable: (YuvAnalysisFrame) -> Unit,
+-): ImageAnalysis =
+-    ImageAnalysis
+-        .Builder()
+-        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+-        .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+-        .setTargetRotation(targetRotation)
+-        .build()
+-        .also { analysis ->
+-            analysis.setAnalyzer(
+-                analyzerExecutor,
+-                SignFrameAnalyzer(
+-                    onFrameAvailable = onFrameAvailable,
++): ImageAnalysis {
++    val analysis =
++        ImageAnalysis
++            .Builder()
++            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
++            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
++            .setTargetRotation(targetRotation)
++            .setTargetResolution(
++                Size(
++                    settings.targetResolution.width,
++                    settings.targetResolution.height,
+                 ),
+-            )
+-        }
++            ).build()
++
++    analysis.setAnalyzer(
++        analyzerExecutor,
++        SignFrameAnalyzer(
++            targetFps = settings.targetFps,
++            analysisFrameInterval = settings.analysisFrameInterval,
++            onFrameAvailable = onFrameAvailable,
++        ),
++    )
++    return analysis
++}
+ 
+ private fun selectCamera(cameraProvider: ProcessCameraProvider): CameraAnalysisConfig =
+     when {
+@@ -116,10 +131,26 @@ private data class CameraAnalysisConfig(
+ )
+ 
+ private class SignFrameAnalyzer(
++    private val targetFps: Int,
++    private val analysisFrameInterval: Int,
+     private val onFrameAvailable: (YuvAnalysisFrame) -> Unit,
+ ) : ImageAnalysis.Analyzer {
++    private var frameIndex = 0L
++    private var lastAnalyzedAtMs = 0L
++
+     override fun analyze(image: ImageProxy) {
+         try {
++            frameIndex += 1L
++            val nowMs = SystemClock.elapsedRealtime()
++            val targetIntervalMs = MILLIS_PER_SECOND / targetFps
++            if (
++                frameIndex % analysisFrameInterval != 0L ||
++                nowMs - lastAnalyzedAtMs < targetIntervalMs
++            ) {
++                return
++            }
++
++            lastAnalyzedAtMs = nowMs
+             onFrameAvailable(image.toYuvAnalysisFrame())
+         } finally {
+             image.close()
+@@ -131,6 +162,7 @@ private fun ImageProxy.toYuvAnalysisFrame(): YuvAnalysisFrame =
+     YuvAnalysisFrame(
+         timestampNanos = imageInfo.timestamp,
+         timestampMs = imageInfo.timestamp / NANOS_PER_MILLIS,
++        receivedAtElapsedMs = SystemClock.elapsedRealtime(),
+         width = width,
+         height = height,
+         rotationDegrees = imageInfo.rotationDegrees,
+@@ -236,6 +268,7 @@ private fun Bitmap.rotate(rotationDegrees: Int): Bitmap {
+ }
+ 
+ private const val NANOS_PER_MILLIS = 1_000_000L
++private const val MILLIS_PER_SECOND = 1_000L
+ private const val JPEG_QUALITY = 90
+ private const val CHROMA_DIVISOR = 2
+ private const val Y_PLANE_INDEX = 0
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraDebugModels.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraDebugModels.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraDebugModels.kt
+@@ -0,0 +1,36 @@
++package com.ssafy.mobile.feature.sign.presentation
++
++import androidx.compose.ui.unit.IntSize
++
++data class CameraAnalysisSettings(
++    val targetResolution: IntSize = IntSize(DEFAULT_TARGET_WIDTH, DEFAULT_TARGET_HEIGHT),
++    val targetFps: Int = DEFAULT_TARGET_FPS,
++    val analysisFrameInterval: Int = DEFAULT_ANALYSIS_FRAME_INTERVAL,
++) {
++    init {
++        require(targetResolution.width > 0 && targetResolution.height > 0) {
++            "Target resolution must be positive."
++        }
++        require(targetFps > 0) {
++            "Target FPS must be positive."
++        }
++        require(analysisFrameInterval > 0) {
++            "Analysis frame interval must be positive."
++        }
++    }
++
++    companion object {
++        const val DEFAULT_TARGET_WIDTH = 640
++        const val DEFAULT_TARGET_HEIGHT = 480
++        const val DEFAULT_TARGET_FPS = 15
++        const val DEFAULT_ANALYSIS_FRAME_INTERVAL = 1
++    }
++}
++
++data class CameraPerformanceMetrics(
++    val frameCount: Long? = null,
++    val cameraFps: Double? = null,
++    val mediaPipeMs: Double? = null,
++    val pipelineLatencyMs: Double? = null,
++    val analysisImageSize: IntSize? = null,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugRoute.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugRoute.kt
+@@ -0,0 +1,429 @@
++@file:Suppress("LongParameterList", "MagicNumber", "MaxLineLength", "TooManyFunctions")
++
++package com.ssafy.mobile.feature.sign.presentation
++
++import androidx.activity.compose.BackHandler
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.ExperimentalLayoutApi
++import androidx.compose.foundation.layout.FlowRow
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.rememberScrollState
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.foundation.verticalScroll
++import androidx.compose.material3.Button
++import androidx.compose.material3.Card
++import androidx.compose.material3.CardDefaults
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.OutlinedButton
++import androidx.compose.material3.Scaffold
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.getValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Brush
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.unit.dp
++import androidx.hilt.navigation.compose.hiltViewModel
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
++import java.util.Locale
++
++@OptIn(ExperimentalLayoutApi::class)
++@Composable
++fun SignDebugRoute(
++    modifier: Modifier = Modifier,
++    onBackToMain: () -> Unit = {},
++    viewModel: SignDebugViewModel = hiltViewModel(),
++) {
++    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
++    val stopAndBack = {
++        viewModel.stop()
++        onBackToMain()
++    }
++
++    BackHandler(onBack = stopAndBack)
++
++    SignDebugScreen(
++        uiState = uiState,
++        onStart = viewModel::start,
++        onStop = viewModel::stop,
++        onBackToMain = stopAndBack,
++        onLandmarkFrame = viewModel::onLandmarkFrame,
++        onCameraMetrics = viewModel::onCameraMetrics,
++        onCycleResolution = viewModel::cycleResolution,
++        onCycleTargetFps = viewModel::cycleTargetFps,
++        onCycleAnalysisFrameInterval = viewModel::cycleAnalysisFrameInterval,
++        onCycleThreshold = viewModel::cycleThreshold,
++        onCycleSmoothing = viewModel::cycleSmoothing,
++        modifier = modifier,
++    )
++}
++
++@Composable
++private fun SignDebugScreen(
++    uiState: SignDebugUiState,
++    onStart: () -> Unit,
++    onStop: () -> Unit,
++    onBackToMain: () -> Unit,
++    onLandmarkFrame: (LandmarkFrameResult) -> Unit,
++    onCameraMetrics: (CameraPerformanceMetrics) -> Unit,
++    onCycleResolution: () -> Unit,
++    onCycleTargetFps: () -> Unit,
++    onCycleAnalysisFrameInterval: () -> Unit,
++    onCycleThreshold: () -> Unit,
++    onCycleSmoothing: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Scaffold(
++        modifier = modifier.fillMaxSize(),
++        topBar = {
++            DebugHeader(
++                isRunning = uiState.isRunning,
++                isModelReady = uiState.isModelReady,
++                onBackToMain = onBackToMain,
++            )
++        },
++    ) { paddingValues ->
++        Column(
++            modifier =
++                Modifier
++                    .padding(paddingValues)
++                    .fillMaxSize()
++                    .background(
++                        Brush.verticalGradient(
++                            colors = listOf(Color(0xFF111827), Color(0xFF020617)),
++                        ),
++                    ),
++        ) {
++            Box(
++                modifier =
++                    Modifier
++                        .fillMaxWidth()
++                        .height(320.dp),
++            ) {
++                SignRecognitionScreen(
++                    isSessionActive = uiState.isRunning,
++                    cameraAnalysisSettings = uiState.cameraSettings,
++                    showDebugOverlay = true,
++                    onLandmarkFrameAvailable = onLandmarkFrame,
++                    onCameraMetricsChanged = onCameraMetrics,
++                    modifier = Modifier.fillMaxSize(),
++                )
++            }
++
++            Column(
++                modifier =
++                    Modifier
++                        .fillMaxSize()
++                        .verticalScroll(rememberScrollState())
++                        .padding(16.dp),
++                verticalArrangement = Arrangement.spacedBy(12.dp),
++            ) {
++                RunControls(
++                    isRunning = uiState.isRunning,
++                    onStart = onStart,
++                    onStop = onStop,
++                )
++                RecognitionStatusCard(uiState)
++                PerformanceCard(uiState)
++                TuningCard(
++                    uiState = uiState,
++                    onCycleResolution = onCycleResolution,
++                    onCycleTargetFps = onCycleTargetFps,
++                    onCycleAnalysisFrameInterval = onCycleAnalysisFrameInterval,
++                    onCycleThreshold = onCycleThreshold,
++                    onCycleSmoothing = onCycleSmoothing,
++                )
++                uiState.errorMessage?.let { errorMessage ->
++                    ErrorCard(message = errorMessage)
++                }
++            }
++        }
++    }
++}
++
++@Composable
++private fun DebugHeader(
++    isRunning: Boolean,
++    isModelReady: Boolean,
++    onBackToMain: () -> Unit,
++) {
++    Surface(color = Color(0xFF0F172A)) {
++        Row(
++            modifier =
++                Modifier
++                    .fillMaxWidth()
++                    .padding(horizontal = 18.dp, vertical = 14.dp),
++            horizontalArrangement = Arrangement.SpaceBetween,
++            verticalAlignment = Alignment.CenterVertically,
++        ) {
++            Column {
++                Text(
++                    text = "수어 디버그",
++                    color = Color.White,
++                    style = MaterialTheme.typography.titleLarge,
++                    fontWeight = FontWeight.Bold,
++                )
++                Text(
++                    text = "실기기 성능 측정",
++                    color = Color(0xFF94A3B8),
++                    style = MaterialTheme.typography.bodySmall,
++                )
++            }
++            Row(
++                horizontalArrangement = Arrangement.spacedBy(8.dp),
++                verticalAlignment = Alignment.CenterVertically,
++            ) {
++                OutlinedButton(onClick = onBackToMain) {
++                    Text("메인으로")
++                }
++                StatusPill(
++                    label =
++                        when {
++                            !isModelReady -> "모델 로딩 중"
++                            isRunning -> "측정 중"
++                            else -> "정지"
++                        },
++                    color =
++                        when {
++                            !isModelReady -> Color(0xFFF59E0B)
++                            isRunning -> Color(0xFF22C55E)
++                            else -> Color(0xFF64748B)
++                        },
++                )
++            }
++        }
++    }
++}
++
++@Composable
++private fun RunControls(
++    isRunning: Boolean,
++    onStart: () -> Unit,
++    onStop: () -> Unit,
++) {
++    Row(
++        modifier = Modifier.fillMaxWidth(),
++        horizontalArrangement = Arrangement.spacedBy(10.dp),
++    ) {
++        Button(
++            onClick = onStart,
++            enabled = !isRunning,
++            modifier = Modifier.weight(1f),
++        ) {
++            Text("시작")
++        }
++        OutlinedButton(
++            onClick = onStop,
++            enabled = isRunning,
++            modifier = Modifier.weight(1f),
++        ) {
++            Text("정지")
++        }
++    }
++}
++
++@Composable
++private fun RecognitionStatusCard(uiState: SignDebugUiState) {
++    DebugCard(title = "인식 상태") {
++        MetricRow("현재 단어", uiState.currentGloss)
++        MetricRow("신뢰도", formatPercent(uiState.confidence))
++        MetricRow("손 감지", if (uiState.hasHands) "감지됨" else "미감지")
++        MetricRow(
++            "포즈 / 왼손 / 오른손 / 입",
++            "${uiState.poseLandmarkCount} / " +
++                "${uiState.leftHandLandmarkCount} / " +
++                "${uiState.rightHandLandmarkCount} / " +
++                "${uiState.lipLandmarkCount}",
++        )
++        MetricRow(
++            "시퀀스",
++            "${uiState.sequenceFrameCount}/30 프레임, " +
++                "손 프레임 ${uiState.sequenceHandFrameCount}",
++        )
++    }
++}
++
++@Composable
++private fun PerformanceCard(uiState: SignDebugUiState) {
++    DebugCard(title = "성능 지표") {
++        MetricRow("카메라 FPS", formatDecimal(uiState.cameraFps))
++        MetricRow("카메라 프레임", uiState.cameraFrameCount.toString())
++        MetricRow("MediaPipe 처리", "${formatDecimal(uiState.mediaPipeMs)} ms")
++        MetricRow("TFLite 추론", "${formatDecimal(uiState.tfliteInferenceMs)} ms")
++        MetricRow("전체 지연", "${formatDecimal(uiState.pipelineLatencyMs)} ms")
++        MetricRow(
++            "분석 해상도",
++            if (uiState.analysisImageSize.width == 0) {
++                "-"
++            } else {
++                "${uiState.analysisImageSize.width}x${uiState.analysisImageSize.height}"
++            },
++        )
++    }
++}
++
++@OptIn(ExperimentalLayoutApi::class)
++@Composable
++private fun TuningCard(
++    uiState: SignDebugUiState,
++    onCycleResolution: () -> Unit,
++    onCycleTargetFps: () -> Unit,
++    onCycleAnalysisFrameInterval: () -> Unit,
++    onCycleThreshold: () -> Unit,
++    onCycleSmoothing: () -> Unit,
++) {
++    DebugCard(title = "튜닝 설정") {
++        FlowRow(
++            horizontalArrangement = Arrangement.spacedBy(8.dp),
++            verticalArrangement = Arrangement.spacedBy(8.dp),
++        ) {
++            TuningButton(
++                label =
++                    "해상도 ${uiState.cameraSettings.targetResolution.width}x" +
++                        uiState.cameraSettings.targetResolution.height,
++                onClick = onCycleResolution,
++            )
++            TuningButton(
++                label = "목표 FPS ${uiState.cameraSettings.targetFps}",
++                onClick = onCycleTargetFps,
++            )
++            TuningButton(
++                label = "분석 간격 ${uiState.cameraSettings.analysisFrameInterval}",
++                onClick = onCycleAnalysisFrameInterval,
++            )
++            TuningButton(
++                label = "임계값 ${formatPercent(uiState.recognitionConfig.confidenceThreshold)}",
++                onClick = onCycleThreshold,
++            )
++            TuningButton(
++                label =
++                    "스무딩 ${uiState.recognitionConfig.smoothingRequiredVotes}/" +
++                        uiState.recognitionConfig.smoothingWindowSize,
++                onClick = onCycleSmoothing,
++            )
++            TuningButton(
++                label = "시퀀스 고정 ${uiState.recognitionConfig.sequenceLength}",
++                onClick = {},
++                enabled = false,
++            )
++        }
++        Text(
++            text =
++                "기본값: 640x480, 15 FPS, " +
++                    "분석 간격 1, 시퀀스 30, 임계값 0.80",
++            modifier = Modifier.padding(top = 10.dp),
++            color = Color(0xFFCBD5E1),
++            style = MaterialTheme.typography.bodySmall,
++        )
++    }
++}
++
++@Composable
++private fun TuningButton(
++    label: String,
++    onClick: () -> Unit,
++    enabled: Boolean = true,
++) {
++    OutlinedButton(
++        onClick = onClick,
++        enabled = enabled,
++    ) {
++        Text(label)
++    }
++}
++
++@Composable
++private fun ErrorCard(message: String) {
++    DebugCard(title = "오류", containerColor = Color(0xFF7F1D1D)) {
++        Text(
++            text = message,
++            color = Color.White,
++            style = MaterialTheme.typography.bodyMedium,
++        )
++    }
++}
++
++@Composable
++private fun DebugCard(
++    title: String,
++    containerColor: Color = Color(0xFF1E293B),
++    content: @Composable () -> Unit,
++) {
++    Card(
++        modifier = Modifier.fillMaxWidth(),
++        colors = CardDefaults.cardColors(containerColor = containerColor),
++        shape = RoundedCornerShape(18.dp),
++    ) {
++        Column(
++            modifier = Modifier.padding(16.dp),
++            verticalArrangement = Arrangement.spacedBy(8.dp),
++        ) {
++            Text(
++                text = title,
++                color = Color.White,
++                style = MaterialTheme.typography.titleMedium,
++                fontWeight = FontWeight.Bold,
++            )
++            content()
++        }
++    }
++}
++
++@Composable
++private fun MetricRow(
++    label: String,
++    value: String,
++) {
++    Row(
++        modifier = Modifier.fillMaxWidth(),
++        horizontalArrangement = Arrangement.SpaceBetween,
++        verticalAlignment = Alignment.CenterVertically,
++    ) {
++        Text(
++            text = label,
++            color = Color(0xFF94A3B8),
++            style = MaterialTheme.typography.bodyMedium,
++        )
++        Text(
++            text = value,
++            color = Color.White,
++            style = MaterialTheme.typography.bodyMedium,
++            fontWeight = FontWeight.SemiBold,
++        )
++    }
++}
++
++@Composable
++private fun StatusPill(
++    label: String,
++    color: Color,
++) {
++    Box(
++        modifier =
++            Modifier
++                .background(color = color.copy(alpha = 0.18f), shape = RoundedCornerShape(100.dp))
++                .padding(horizontal = 12.dp, vertical = 7.dp),
++    ) {
++        Text(
++            text = label,
++            color = color,
++            style = MaterialTheme.typography.labelMedium,
++            fontWeight = FontWeight.Bold,
++        )
++    }
++}
++
++private fun formatDecimal(value: Double): String = String.format(Locale.US, "%.1f", value)
++
++private fun formatPercent(value: Float): String = String.format(Locale.US, "%.1f%%", value * 100f)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugViewModel.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugViewModel.kt
+@@ -0,0 +1,298 @@
++@file:Suppress("TooManyFunctions")
++
++package com.ssafy.mobile.feature.sign.presentation
++
++import android.os.SystemClock
++import androidx.compose.ui.unit.IntSize
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.core.model.SignRecognitionEvent
++import com.ssafy.mobile.core.model.SignRecognitionMetrics
++import com.ssafy.mobile.core.vision.SignRecognitionConfig
++import com.ssafy.mobile.core.vision.SignRecognitionEngine
++import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
++import dagger.hilt.android.lifecycle.HiltViewModel
++import javax.inject.Inject
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.update
++import kotlinx.coroutines.launch
++
++data class SignDebugUiState(
++    val isRunning: Boolean = false,
++    val isModelReady: Boolean = false,
++    val currentGloss: String = "-",
++    val confidence: Float = 0f,
++    val hasHands: Boolean = false,
++    val poseLandmarkCount: Int = 0,
++    val leftHandLandmarkCount: Int = 0,
++    val rightHandLandmarkCount: Int = 0,
++    val lipLandmarkCount: Int = 0,
++    val sequenceFrameCount: Int = 0,
++    val sequenceHandFrameCount: Int = 0,
++    val cameraFrameCount: Long = 0L,
++    val cameraFps: Double = 0.0,
++    val mediaPipeMs: Double = 0.0,
++    val tfliteInferenceMs: Double = 0.0,
++    val pipelineLatencyMs: Double = 0.0,
++    val analysisImageSize: IntSize = IntSize.Zero,
++    val cameraSettings: CameraAnalysisSettings = CameraAnalysisSettings(),
++    val recognitionConfig: SignRecognitionConfig = SignRecognitionConfig(),
++    val errorMessage: String? = null,
++)
++
++@HiltViewModel
++class SignDebugViewModel
++    @Inject
++    constructor(
++        private val signRecognitionEngine: SignRecognitionEngine,
++    ) : ViewModel() {
++        private val _uiState = MutableStateFlow(SignDebugUiState())
++        val uiState: StateFlow<SignDebugUiState> = _uiState.asStateFlow()
++        private var lastCameraMetricsUpdateAtMs = 0L
++        private var lastRecognitionMetricsUpdateAtMs = 0L
++
++        init {
++            signRecognitionEngine.updateConfig(_uiState.value.recognitionConfig)
++            viewModelScope.launch {
++                signRecognitionEngine.events.collect(::handleEvent)
++            }
++        }
++
++        fun start() {
++            _uiState.update {
++                it.copy(
++                    isRunning = true,
++                    errorMessage = null,
++                    currentGloss = "-",
++                    confidence = 0f,
++                )
++            }
++            signRecognitionEngine.start()
++        }
++
++        fun stop() {
++            signRecognitionEngine.stop()
++            _uiState.update { it.copy(isRunning = false) }
++        }
++
++        fun onLandmarkFrame(frame: LandmarkFrameResult) {
++            if (_uiState.value.isRunning) {
++                signRecognitionEngine.submitFrame(frame)
++            }
++        }
++
++        fun onCameraMetrics(metrics: CameraPerformanceMetrics) {
++            if (!shouldUpdateCameraMetrics(metrics)) return
++
++            _uiState.update { current ->
++                current.copy(
++                    cameraFrameCount = metrics.frameCount ?: current.cameraFrameCount,
++                    cameraFps = metrics.cameraFps ?: current.cameraFps,
++                    mediaPipeMs = metrics.mediaPipeMs ?: current.mediaPipeMs,
++                    pipelineLatencyMs = metrics.pipelineLatencyMs ?: current.pipelineLatencyMs,
++                    analysisImageSize = metrics.analysisImageSize ?: current.analysisImageSize,
++                )
++            }
++        }
++
++        private fun shouldUpdateCameraMetrics(metrics: CameraPerformanceMetrics): Boolean {
++            if (metrics.frameCount != null || metrics.cameraFps != null) {
++                lastCameraMetricsUpdateAtMs = SystemClock.elapsedRealtime()
++                return true
++            }
++
++            return shouldUpdateDebugMetrics(
++                lastUpdatedAtMs = lastCameraMetricsUpdateAtMs,
++                onUpdate = { lastCameraMetricsUpdateAtMs = it },
++            )
++        }
++
++        fun cycleResolution() {
++            val currentIndex =
++                RESOLUTION_OPTIONS.indexOf(
++                    _uiState.value.cameraSettings.targetResolution,
++                )
++            val nextIndex = (currentIndex + 1).floorMod(RESOLUTION_OPTIONS.size)
++            val nextResolution = RESOLUTION_OPTIONS[nextIndex]
++            updateCameraSettings {
++                it.copy(targetResolution = nextResolution)
++            }
++        }
++
++        fun cycleTargetFps() {
++            val currentIndex =
++                TARGET_FPS_OPTIONS.indexOf(
++                    _uiState.value.cameraSettings.targetFps,
++                )
++            val nextIndex = (currentIndex + 1).floorMod(TARGET_FPS_OPTIONS.size)
++            val nextFps = TARGET_FPS_OPTIONS[nextIndex]
++            updateCameraSettings {
++                it.copy(targetFps = nextFps)
++            }
++        }
++
++        fun cycleAnalysisFrameInterval() {
++            val currentIndex =
++                FRAME_INTERVAL_OPTIONS.indexOf(
++                    _uiState.value.cameraSettings.analysisFrameInterval,
++                )
++            val nextIndex = (currentIndex + 1).floorMod(FRAME_INTERVAL_OPTIONS.size)
++            val nextInterval = FRAME_INTERVAL_OPTIONS[nextIndex]
++            updateCameraSettings {
++                it.copy(analysisFrameInterval = nextInterval)
++            }
++        }
++
++        fun cycleThreshold() {
++            val currentIndex =
++                THRESHOLD_OPTIONS.indexOf(
++                    _uiState.value.recognitionConfig.confidenceThreshold,
++                )
++            val nextIndex = (currentIndex + 1).floorMod(THRESHOLD_OPTIONS.size)
++            val nextThreshold = THRESHOLD_OPTIONS[nextIndex]
++            updateRecognitionConfig {
++                it.copy(confidenceThreshold = nextThreshold)
++            }
++        }
++
++        fun cycleSmoothing() {
++            val currentIndex =
++                SMOOTHING_OPTIONS.indexOf(
++                    _uiState.value.recognitionConfig.smoothingWindowSize,
++                )
++            val nextIndex = (currentIndex + 1).floorMod(SMOOTHING_OPTIONS.size)
++            val nextWindow = SMOOTHING_OPTIONS[nextIndex]
++            updateRecognitionConfig {
++                it.copy(
++                    smoothingWindowSize = nextWindow,
++                    smoothingRequiredVotes = (nextWindow / 2 + 1).coerceAtMost(nextWindow),
++                )
++            }
++        }
++
++        private fun handleEvent(event: SignRecognitionEvent) {
++            when (event) {
++                SignRecognitionEvent.Ready -> _uiState.update { it.copy(isModelReady = true) }
++                SignRecognitionEvent.Started -> _uiState.update { it.copy(isRunning = true) }
++                SignRecognitionEvent.Stopped ->
++                    _uiState.update {
++                        it.copy(
++                            isRunning = false,
++                            currentGloss = "-",
++                            confidence = 0f,
++                        )
++                    }
++                is SignRecognitionEvent.Prediction ->
++                    _uiState.update {
++                        it.copy(
++                            currentGloss = event.gloss,
++                            confidence = event.confidence,
++                        )
++                    }
++                is SignRecognitionEvent.Metrics -> updateRecognitionMetrics(event.snapshot)
++                is SignRecognitionEvent.Error ->
++                    _uiState.update {
++                        it.copy(
++                            errorMessage = event.message,
++                            isRunning = false,
++                        )
++                    }
++                SignRecognitionEvent.ModelLoading ->
++                    _uiState.update {
++                        it.copy(isModelReady = false)
++                    }
++                SignRecognitionEvent.NoHandsDetected ->
++                    _uiState.update {
++                        it.copy(hasHands = false)
++                    }
++                is SignRecognitionEvent.Utterance -> Unit
++            }
++        }
++
++        private fun updateRecognitionMetrics(metrics: SignRecognitionMetrics) {
++            if (!shouldUpdateRecognitionMetrics()) return
++
++            _uiState.update { current ->
++                current.copy(
++                    currentGloss = metrics.currentGloss ?: current.currentGloss,
++                    confidence = metrics.confidence ?: current.confidence,
++                    hasHands = metrics.hasHands,
++                    poseLandmarkCount = metrics.poseLandmarkCount,
++                    leftHandLandmarkCount = metrics.leftHandLandmarkCount,
++                    rightHandLandmarkCount = metrics.rightHandLandmarkCount,
++                    lipLandmarkCount = metrics.lipLandmarkCount,
++                    sequenceFrameCount = metrics.sequenceFrameCount,
++                    sequenceHandFrameCount = metrics.sequenceHandFrameCount,
++                    tfliteInferenceMs = metrics.tfliteInferenceMs ?: current.tfliteInferenceMs,
++                )
++            }
++        }
++
++        private fun shouldUpdateRecognitionMetrics(): Boolean =
++            shouldUpdateDebugMetrics(
++                lastUpdatedAtMs = lastRecognitionMetricsUpdateAtMs,
++                onUpdate = { lastRecognitionMetricsUpdateAtMs = it },
++            )
++
++        private fun shouldUpdateDebugMetrics(
++            lastUpdatedAtMs: Long,
++            onUpdate: (Long) -> Unit,
++        ): Boolean {
++            val nowMs = SystemClock.elapsedRealtime()
++            if (nowMs - lastUpdatedAtMs < DEBUG_METRICS_UPDATE_INTERVAL_MILLIS) {
++                return false
++            }
++            onUpdate(nowMs)
++            return true
++        }
++
++        private fun updateCameraSettings(
++            transform: (CameraAnalysisSettings) -> CameraAnalysisSettings,
++        ) {
++            _uiState.update { current ->
++                current.copy(cameraSettings = transform(current.cameraSettings))
++            }
++        }
++
++        private fun updateRecognitionConfig(
++            transform: (SignRecognitionConfig) -> SignRecognitionConfig,
++        ) {
++            val nextConfig = transform(_uiState.value.recognitionConfig)
++            signRecognitionEngine.updateConfig(nextConfig)
++            _uiState.update {
++                it.copy(
++                    recognitionConfig = nextConfig,
++                    currentGloss = "-",
++                    confidence = 0f,
++                )
++            }
++        }
++
++        override fun onCleared() {
++            signRecognitionEngine.stop()
++            super.onCleared()
++        }
++
++        private fun Int.floorMod(modulus: Int): Int =
++            if (this >= 0) {
++                this % modulus
++            } else {
++                (this % modulus + modulus) % modulus
++            }
++
++        private companion object {
++            val RESOLUTION_OPTIONS =
++                listOf(
++                    IntSize(640, 480),
++                    IntSize(960, 540),
++                    IntSize(1280, 720),
++                )
++            val TARGET_FPS_OPTIONS = listOf(10, 15, 24, 30)
++            val FRAME_INTERVAL_OPTIONS = listOf(1, 2, 3, 4)
++            val THRESHOLD_OPTIONS = listOf(0.70f, 0.80f, 0.90f, 0.95f)
++            val SMOOTHING_OPTIONS = listOf(3, 5, 7)
++            const val DEBUG_METRICS_UPDATE_INTERVAL_MILLIS = 100L
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt
+@@ -1,3 +1,5 @@
++@file:Suppress("LongMethod", "LongParameterList")
++
+ package com.ssafy.mobile.feature.sign.presentation
+ 
+ import android.os.SystemClock
+@@ -31,7 +33,6 @@ import androidx.core.content.ContextCompat
+ import androidx.lifecycle.LifecycleOwner
+ import androidx.lifecycle.compose.LocalLifecycleOwner
+ import com.google.common.util.concurrent.ListenableFuture
+-import com.ssafy.mobile.BuildConfig
+ import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
+ import com.ssafy.mobile.core.vision.landmark.MediaPipeHolisticLandmarkExtractor
+ import java.util.Locale
+@@ -42,6 +43,7 @@ import kotlinx.coroutines.delay
+ 
+ private const val DEBUG_OVERLAY_BACKGROUND_ALPHA = 0.72f
+ private const val FPS_SAMPLE_INTERVAL_MILLIS = 1_000L
++private const val DEBUG_OVERLAY_UPDATE_INTERVAL_MILLIS = 100L
+ private const val FRONT_CAMERA_PREVIEW_IS_MIRRORED = true
+ private val DEBUG_OVERLAY_BACKGROUND = Color.Black.copy(alpha = DEBUG_OVERLAY_BACKGROUND_ALPHA)
+ private val DEBUG_OVERLAY_TEXT_COLOR = Color.White
+@@ -50,14 +52,20 @@ private val DEBUG_OVERLAY_TEXT_COLOR = Color.White
+ fun SignRecognitionScreen(
+     isSessionActive: Boolean,
+     modifier: Modifier = Modifier,
++    cameraAnalysisSettings: CameraAnalysisSettings = CameraAnalysisSettings(),
++    showDebugOverlay: Boolean = false,
+     onFrameAvailable: (YuvAnalysisFrame) -> Unit = {},
+     onLandmarkFrameAvailable: (LandmarkFrameResult) -> Unit = {},
++    onCameraMetricsChanged: (CameraPerformanceMetrics) -> Unit = {},
+ ) {
+     // 권한은 MainActivity에서 이미 허용되었으므로 즉시 카메라 프리뷰를 실행합니다.
+     CameraPreviewContent(
+         isSessionActive = isSessionActive,
++        cameraAnalysisSettings = cameraAnalysisSettings,
++        showDebugOverlay = showDebugOverlay,
+         onFrameAvailable = onFrameAvailable,
+         onLandmarkFrameAvailable = onLandmarkFrameAvailable,
++        onCameraMetricsChanged = onCameraMetricsChanged,
+         modifier = modifier,
+     )
+ }
+@@ -65,8 +73,11 @@ fun SignRecognitionScreen(
+ @Composable
+ private fun CameraPreviewContent(
+     isSessionActive: Boolean,
++    cameraAnalysisSettings: CameraAnalysisSettings,
++    showDebugOverlay: Boolean,
+     onFrameAvailable: (YuvAnalysisFrame) -> Unit,
+     onLandmarkFrameAvailable: (LandmarkFrameResult) -> Unit,
++    onCameraMetricsChanged: (CameraPerformanceMetrics) -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+     val context = LocalContext.current
+@@ -74,6 +85,7 @@ private fun CameraPreviewContent(
+     val lifecycleOwner = LocalLifecycleOwner.current
+     val currentOnFrameAvailable by rememberUpdatedState(onFrameAvailable)
+     val currentOnLandmarkFrameAvailable by rememberUpdatedState(onLandmarkFrameAvailable)
++    val currentOnCameraMetricsChanged by rememberUpdatedState(onCameraMetricsChanged)
+     val appContext = remember(context) { context.applicationContext }
+     val landmarkExtractor =
+         remember(appContext) {
+@@ -92,6 +104,7 @@ private fun CameraPreviewContent(
+     var fps by remember { mutableStateOf(0.0) }
+     var latestLandmarkFrame by remember { mutableStateOf<LandmarkFrameResult?>(null) }
+     var latestAnalysisImageSize by remember { mutableStateOf(IntSize.Zero) }
++    val lastDebugOverlayUpdateAtMs = remember { AtomicLong(0L) }
+ 
+     DisposableEffect(landmarkExtractor) {
+         onDispose { landmarkExtractor.close() }
+@@ -110,6 +123,12 @@ private fun CameraPreviewContent(
+         onStatsChanged = { currentFrameCount, currentFps ->
+             frameCount = currentFrameCount
+             fps = currentFps
++            currentOnCameraMetricsChanged(
++                CameraPerformanceMetrics(
++                    frameCount = currentFrameCount,
++                    cameraFps = currentFps,
++                ),
++            )
+         },
+     )
+ 
+@@ -119,19 +138,44 @@ private fun CameraPreviewContent(
+             previewView = previewView,
+             cameraProviderFuture = cameraProviderFuture,
+             orientation = configuration.orientation,
++            cameraAnalysisSettings = cameraAnalysisSettings,
+             onFrameAvailable = { frame ->
+                 analyzedFrameCount.incrementAndGet()
++                val pipelineStartedAtMs = SystemClock.elapsedRealtime()
++                val mediaPipeStartedAtNanos = SystemClock.elapsedRealtimeNanos()
+                 val landmarkFrame =
+                     landmarkExtractor.detect(
+                         bitmap = frame.bitmap,
+                         timestampMs = frame.timestampMs,
+                     )
+-                previewView.post {
+-                    latestLandmarkFrame = landmarkFrame
+-                    latestAnalysisImageSize = IntSize(frame.bitmap.width, frame.bitmap.height)
++                val mediaPipeMs =
++                    (SystemClock.elapsedRealtimeNanos() - mediaPipeStartedAtNanos) /
++                        NANOS_PER_MILLIS
++                if (showDebugOverlay) {
++                    val nowMs = SystemClock.elapsedRealtime()
++                    val lastOverlayUpdateAtMs = lastDebugOverlayUpdateAtMs.get()
++                    if (
++                        nowMs - lastOverlayUpdateAtMs >=
++                        DEBUG_OVERLAY_UPDATE_INTERVAL_MILLIS
++                    ) {
++                        lastDebugOverlayUpdateAtMs.set(nowMs)
++                        previewView.post {
++                            latestLandmarkFrame = landmarkFrame
++                            latestAnalysisImageSize =
++                                IntSize(frame.bitmap.width, frame.bitmap.height)
++                        }
++                    }
+                 }
+                 currentOnLandmarkFrameAvailable(landmarkFrame)
+                 currentOnFrameAvailable(frame)
++                currentOnCameraMetricsChanged(
++                    CameraPerformanceMetrics(
++                        mediaPipeMs = mediaPipeMs,
++                        pipelineLatencyMs =
++                            (SystemClock.elapsedRealtime() - pipelineStartedAtMs).toDouble(),
++                        analysisImageSize = IntSize(frame.bitmap.width, frame.bitmap.height),
++                    ),
++                )
+             },
+             onCameraErrorChanged = { message -> cameraErrorMessage = message },
+         )
+@@ -144,6 +188,7 @@ private fun CameraPreviewContent(
+         fps = fps,
+         landmarkFrame = latestLandmarkFrame,
+         analysisImageSize = latestAnalysisImageSize,
++        showDebugOverlay = showDebugOverlay,
+         modifier = modifier,
+     )
+ }
+@@ -187,6 +232,7 @@ private fun ActiveCameraBinding(
+     previewView: PreviewView,
+     cameraProviderFuture: ListenableFuture<ProcessCameraProvider>,
+     orientation: Int,
++    cameraAnalysisSettings: CameraAnalysisSettings,
+     onFrameAvailable: (YuvAnalysisFrame) -> Unit,
+     onCameraErrorChanged: (String?) -> Unit,
+ ) {
+@@ -202,6 +248,7 @@ private fun ActiveCameraBinding(
+         cameraProviderFuture = cameraProviderFuture,
+         analyzerExecutor = analyzerExecutor,
+         orientation = orientation,
++        cameraAnalysisSettings = cameraAnalysisSettings,
+         onFrameAvailable = onFrameAvailable,
+         onCameraErrorChanged = onCameraErrorChanged,
+     )
+@@ -214,6 +261,7 @@ private fun CameraBindingEffect(
+     cameraProviderFuture: ListenableFuture<ProcessCameraProvider>,
+     analyzerExecutor: Executor,
+     orientation: Int,
++    cameraAnalysisSettings: CameraAnalysisSettings,
+     onFrameAvailable: (YuvAnalysisFrame) -> Unit,
+     onCameraErrorChanged: (String?) -> Unit,
+ ) {
+@@ -224,6 +272,7 @@ private fun CameraBindingEffect(
+         cameraProviderFuture,
+         analyzerExecutor,
+         orientation,
++        cameraAnalysisSettings,
+     ) {
+         val executor = ContextCompat.getMainExecutor(context)
+         var boundAnalysisUseCase: ImageAnalysis? = null
+@@ -236,6 +285,7 @@ private fun CameraBindingEffect(
+                         lifecycleOwner = lifecycleOwner,
+                         previewView = previewView,
+                         analyzerExecutor = analyzerExecutor,
++                        settings = cameraAnalysisSettings,
+                         onFrameAvailable = onFrameAvailable,
+                     )
+                 }.onSuccess { analysisUseCase ->
+@@ -265,6 +315,7 @@ private fun CameraPreviewBox(
+     fps: Double,
+     landmarkFrame: LandmarkFrameResult?,
+     analysisImageSize: IntSize,
++    showDebugOverlay: Boolean,
+     modifier: Modifier = Modifier,
+ ) {
+     Box(modifier = modifier.fillMaxSize()) {
+@@ -273,7 +324,7 @@ private fun CameraPreviewBox(
+             modifier = Modifier.fillMaxSize(),
+         )
+ 
+-        if (BuildConfig.DEBUG) {
++        if (showDebugOverlay) {
+             LandmarkDebugOverlay(
+                 frame = landmarkFrame,
+                 analysisImageSize = analysisImageSize,
+@@ -282,15 +333,17 @@ private fun CameraPreviewBox(
+             )
+         }
+ 
+-        FrameAnalysisDebugOverlay(
+-            frameCount = frameCount,
+-            fps = fps,
+-            landmarkFrame = landmarkFrame,
+-            modifier =
+-                Modifier
+-                    .align(Alignment.TopStart)
+-                    .padding(16.dp),
+-        )
++        if (showDebugOverlay) {
++            FrameAnalysisDebugOverlay(
++                frameCount = frameCount,
++                fps = fps,
++                landmarkFrame = landmarkFrame,
++                modifier =
++                    Modifier
++                        .align(Alignment.TopStart)
++                        .padding(16.dp),
++            )
++        }
+ 
+         cameraErrorMessage?.let { message ->
+             Text(
+@@ -307,6 +360,8 @@ private fun CameraPreviewBox(
+     }
+ }
+ 
++private const val NANOS_PER_MILLIS = 1_000_000.0
++
+ @Composable
+ private fun FrameAnalysisDebugOverlay(
+     frameCount: Long,
+
+

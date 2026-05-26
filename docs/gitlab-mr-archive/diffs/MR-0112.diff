@@ -1,0 +1,885 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -102,6 +102,9 @@ fun MobileNavHost(
+                 onNavigateToCreate = {
+                     navController.navigate(Screen.ChildProfileCreate.route)
+                 },
++                onNavigateToEdit = { childId ->
++                    navController.navigate(Screen.ChildProfileEdit.createRoute(childId))
++                },
+                 modifier = Modifier.fillMaxSize(),
+             )
+         }
+@@ -120,6 +123,25 @@ fun MobileNavHost(
+             )
+         }
+ 
++        composable(
++            route = Screen.ChildProfileEdit.route,
++            arguments = listOf(navArgument("childId") { type = NavType.LongType }),
++        ) { backStackEntry ->
++            val childId = backStackEntry.arguments?.getLong("childId")
++            ChildProfileEditRoute(
++                childId = childId,
++                onNavigateBack = { changed ->
++                    if (changed) {
++                        navController.previousBackStackEntry
++                            ?.savedStateHandle
++                            ?.set("child_profile_changed", true)
++                    }
++                    navController.popBackStack()
++                },
++                modifier = Modifier.fillMaxSize(),
++            )
++        }
++
+         composable(Screen.Home.route) {
+             HomeRoute(
+                 onStartLearning = {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+@@ -13,6 +13,10 @@ sealed class Screen(
+ 
+     data object ChildProfileCreate : Screen("child_profile_create_route")
+ 
++    data object ChildProfileEdit : Screen("child_profile_edit_route/{childId}") {
++        fun createRoute(childId: Long) = "child_profile_edit_route/$childId"
++    }
++
+     data object Home : Screen("home_route")
+ 
+     data object Quiz : Screen("quiz_question_route/{categoryId}?difficulty={difficulty}") {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/api/ChildProfileApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/api/ChildProfileApiService.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/api/ChildProfileApiService.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/api/ChildProfileApiService.kt
+@@ -1,18 +1,39 @@
+ package com.ssafy.mobile.feature.childprofile.data.api
+ 
+ import com.ssafy.mobile.feature.childprofile.data.dto.ChildProfileCreateRequestDto
++import com.ssafy.mobile.feature.childprofile.data.dto.ChildProfileListResponseDto
+ import com.ssafy.mobile.feature.childprofile.data.dto.ChildProfileResponseDto
++import com.ssafy.mobile.feature.childprofile.data.dto.ChildProfileUpdateRequestDto
+ import retrofit2.Response
+ import retrofit2.http.Body
++import retrofit2.http.DELETE
+ import retrofit2.http.GET
++import retrofit2.http.PATCH
+ import retrofit2.http.POST
++import retrofit2.http.Path
+ 
+ interface ChildProfileApiService {
+     @GET("v1/children")
+-    suspend fun getChildProfiles(): Response<List<ChildProfileResponseDto>>
++    suspend fun getChildProfiles(): Response<ChildProfileListResponseDto>
+ 
+     @POST("v1/children")
+     suspend fun createChildProfile(
+         @Body request: ChildProfileCreateRequestDto,
+     ): Response<ChildProfileResponseDto>
++
++    @GET("v1/children/{childId}")
++    suspend fun getChildProfile(
++        @Path("childId") childId: Long,
++    ): Response<ChildProfileResponseDto>
++
++    @PATCH("v1/children/{childId}")
++    suspend fun updateChildProfile(
++        @Path("childId") childId: Long,
++        @Body request: ChildProfileUpdateRequestDto,
++    ): Response<ChildProfileResponseDto>
++
++    @DELETE("v1/children/{childId}")
++    suspend fun deleteChildProfile(
++        @Path("childId") childId: Long,
++    ): Response<Unit>
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/dto/ChildProfileDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/dto/ChildProfileDto.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/dto/ChildProfileDto.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/dto/ChildProfileDto.kt
+@@ -20,7 +20,17 @@ data class ChildProfileResponseDto(
+         )
+ }
+ 
++data class ChildProfileListResponseDto(
++    @SerializedName("children")
++    val children: List<ChildProfileResponseDto>,
++)
++
+ data class ChildProfileCreateRequestDto(
+     @SerializedName("name") val name: String,
+     @SerializedName("birthDate") val birthDate: String,
+ )
++
++data class ChildProfileUpdateRequestDto(
++    @SerializedName("name") val name: String? = null,
++    @SerializedName("birthDate") val birthDate: String? = null,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/FakeChildProfileRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/FakeChildProfileRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/FakeChildProfileRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/FakeChildProfileRepository.kt
+@@ -68,6 +68,41 @@ class FakeChildProfileRepository
+             createdProfiles.add(newProfile)
+         }
+ 
++        @Suppress("MagicNumber")
++        override suspend fun getChildProfile(childId: Long): ChildProfile {
++            delay(LOADING_DELAY_MS)
++            val baseProfiles =
++                listOf(
++                    ChildProfile(1L, "민준", "2020-05-01", 6, true),
++                    ChildProfile(2L, "서연", "2022-03-15", 4, true),
++                )
++            val allProfiles = baseProfiles + createdProfiles
++            return allProfiles.find { it.childId == childId }
++                ?: error("존재하지 않는 프로필입니다.")
++        }
++
++        override suspend fun updateChildProfile(
++            childId: Long,
++            name: String?,
++            birthDate: String?,
++        ) {
++            delay(LOADING_DELAY_MS)
++            val index = createdProfiles.indexOfFirst { it.childId == childId }
++            if (index != -1) {
++                val existing = createdProfiles[index]
++                createdProfiles[index] =
++                    existing.copy(
++                        name = name ?: existing.name,
++                        birthDate = birthDate ?: existing.birthDate,
++                    )
++            }
++        }
++
++        override suspend fun deleteChildProfile(childId: Long) {
++            delay(LOADING_DELAY_MS)
++            createdProfiles.removeIf { it.childId == childId }
++        }
++
+         companion object {
+             private const val LOADING_DELAY_MS = 1000L
+             private const val INITIAL_FAKE_ID = 1000L
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/RemoteChildProfileRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/RemoteChildProfileRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/RemoteChildProfileRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/RemoteChildProfileRepository.kt
+@@ -3,6 +3,7 @@ package com.ssafy.mobile.feature.childprofile.data.repository
+ import android.util.Log
+ import com.ssafy.mobile.feature.childprofile.data.api.ChildProfileApiService
+ import com.ssafy.mobile.feature.childprofile.data.dto.ChildProfileCreateRequestDto
++import com.ssafy.mobile.feature.childprofile.data.dto.ChildProfileUpdateRequestDto
+ import com.ssafy.mobile.feature.childprofile.domain.model.ChildProfile
+ import com.ssafy.mobile.feature.childprofile.domain.repository.ChildProfileRepository
+ import java.io.IOException
+@@ -13,6 +14,7 @@ import retrofit2.HttpException
+ private const val TAG = "RemoteChildProfile"
+ private const val HTTP_STATUS_BAD_REQUEST = 400
+ private const val HTTP_STATUS_UNAUTHORIZED = 401
++private const val HTTP_STATUS_NOT_FOUND = 404
+ private const val HTTP_STATUS_CONFLICT = 409
+ 
+ @Suppress("TooGenericExceptionCaught")
+@@ -26,7 +28,7 @@ class RemoteChildProfileRepository
+                 val response = apiService.getChildProfiles()
+                 if (response.isSuccessful) {
+                     val body = response.body() ?: error("아이 목록 응답이 비어 있습니다.")
+-                    body.map { it.toDomain() }
++                    body.children.map { it.toDomain() }
+                 } else {
+                     throw HttpException(response)
+                 }
+@@ -85,4 +87,91 @@ class RemoteChildProfileRepository
+                 error("프로필 생성 중 오류가 발생했습니다.")
+             }
+         }
++
++        override suspend fun getChildProfile(childId: Long): ChildProfile =
++            try {
++                val response = apiService.getChildProfile(childId)
++                if (response.isSuccessful) {
++                    val body = response.body() ?: error("아이 상세 응답이 비어 있습니다.")
++                    body.toDomain()
++                } else {
++                    throw HttpException(response)
++                }
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: HttpException) {
++                Log.e(TAG, "getChildProfile HttpException: ${e.code()}", e)
++                val message =
++                    when (e.code()) {
++                        HTTP_STATUS_UNAUTHORIZED -> "세션이 만료되었습니다."
++                        HTTP_STATUS_NOT_FOUND -> "존재하지 않거나 삭제된 프로필입니다."
++                        else -> "아이 상세 정보를 불러오지 못했습니다."
++                    }
++                error(message)
++            } catch (e: IOException) {
++                Log.e(TAG, "getChildProfile IOException", e)
++                error("네트워크 연결을 확인해 주세요.")
++            } catch (e: Exception) {
++                Log.e(TAG, "getChildProfile Unknown Exception", e)
++                error("상세 정보를 불러오는 중 오류가 발생했습니다.")
++            }
++
++        override suspend fun updateChildProfile(
++            childId: Long,
++            name: String?,
++            birthDate: String?,
++        ) {
++            try {
++                val request = ChildProfileUpdateRequestDto(name = name, birthDate = birthDate)
++                val response = apiService.updateChildProfile(childId, request)
++                if (!response.isSuccessful) {
++                    throw HttpException(response)
++                }
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: HttpException) {
++                Log.e(TAG, "updateChildProfile HttpException: ${e.code()}", e)
++                val message =
++                    when (e.code()) {
++                        HTTP_STATUS_BAD_REQUEST -> "입력 형식이 올바르지 않습니다."
++                        HTTP_STATUS_UNAUTHORIZED -> "세션이 만료되었습니다."
++                        HTTP_STATUS_NOT_FOUND -> "존재하지 않거나 삭제된 프로필입니다."
++                        HTTP_STATUS_CONFLICT -> "이미 같은 이름의 아이가 등록되어 있습니다."
++                        else -> "아이 프로필을 수정하지 못했습니다."
++                    }
++                error(message)
++            } catch (e: IOException) {
++                Log.e(TAG, "updateChildProfile IOException", e)
++                error("네트워크 연결을 확인해 주세요.")
++            } catch (e: Exception) {
++                Log.e(TAG, "updateChildProfile Unknown Exception", e)
++                error("프로필 수정 중 오류가 발생했습니다.")
++            }
++        }
++
++        override suspend fun deleteChildProfile(childId: Long) {
++            try {
++                val response = apiService.deleteChildProfile(childId)
++                if (!response.isSuccessful) {
++                    throw HttpException(response)
++                }
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: HttpException) {
++                Log.e(TAG, "deleteChildProfile HttpException: ${e.code()}", e)
++                val message =
++                    when (e.code()) {
++                        HTTP_STATUS_UNAUTHORIZED -> "세션이 만료되었습니다."
++                        HTTP_STATUS_NOT_FOUND -> "이미 삭제되었거나 존재하지 않는 프로필입니다."
++                        else -> "아이 프로필을 삭제하지 못했습니다."
++                    }
++                error(message)
++            } catch (e: IOException) {
++                Log.e(TAG, "deleteChildProfile IOException", e)
++                error("네트워크 연결을 확인해 주세요.")
++            } catch (e: Exception) {
++                Log.e(TAG, "deleteChildProfile Unknown Exception", e)
++                error("프로필 삭제 중 오류가 발생했습니다.")
++            }
++        }
+     }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/repository/ChildProfileRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/repository/ChildProfileRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/repository/ChildProfileRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/repository/ChildProfileRepository.kt
+@@ -9,4 +9,14 @@ interface ChildProfileRepository {
+         name: String,
+         birthDate: String,
+     )
++
++    suspend fun getChildProfile(childId: Long): ChildProfile
++
++    suspend fun updateChildProfile(
++        childId: Long,
++        name: String?,
++        birthDate: String?,
++    )
++
++    suspend fun deleteChildProfile(childId: Long)
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt
+@@ -9,7 +9,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.text.KeyboardOptions
++import androidx.compose.material3.AlertDialog
+ import androidx.compose.material3.Button
++import androidx.compose.material3.ButtonDefaults
++import androidx.compose.material3.CircularProgressIndicator
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.OutlinedTextField
+ import androidx.compose.material3.Scaffold
+@@ -18,6 +21,9 @@ import androidx.compose.material3.TextButton
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.text.font.FontWeight
+@@ -30,14 +36,25 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ fun ChildProfileEditRoute(
+     onNavigateBack: (Boolean) -> Unit,
+     modifier: Modifier = Modifier,
++    childId: Long? = null,
+     viewModel: ChildProfileEditViewModel = hiltViewModel(),
+ ) {
+     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+     val name by viewModel.name.collectAsStateWithLifecycle()
+     val birthDate by viewModel.birthDate.collectAsStateWithLifecycle()
++    val isProfileLoaded by viewModel.isProfileLoaded.collectAsStateWithLifecycle()
++
++    LaunchedEffect(childId) {
++        if (childId != null) {
++            viewModel.loadProfile(childId)
++        }
++    }
+ 
+     LaunchedEffect(uiState) {
+-        if (uiState is ChildProfileEditUiState.Success) {
++        val isFinished =
++            uiState is ChildProfileEditUiState.Success ||
++                uiState is ChildProfileEditUiState.Deleted
++        if (isFinished) {
+             onNavigateBack(true)
+         }
+     }
+@@ -49,7 +66,11 @@ fun ChildProfileEditRoute(
+         onNameChange = viewModel::onNameChange,
+         onBirthDateChange = viewModel::onBirthDateChange,
+         onSave = viewModel::saveProfile,
++        onDelete = viewModel::deleteProfile,
++        onRetry = { childId?.let { viewModel.loadProfile(it) } },
+         onBack = { onNavigateBack(false) },
++        isEditMode = childId != null,
++        isProfileLoaded = isProfileLoaded,
+         modifier = modifier,
+     )
+ }
+@@ -63,10 +84,26 @@ private fun ChildProfileEditScreen(
+     onNameChange: (String) -> Unit,
+     onBirthDateChange: (String) -> Unit,
+     onSave: () -> Unit,
++    onDelete: () -> Unit,
++    onRetry: () -> Unit,
+     onBack: () -> Unit,
++    isEditMode: Boolean,
++    isProfileLoaded: Boolean,
+     modifier: Modifier = Modifier,
+ ) {
+     val isSaving = uiState is ChildProfileEditUiState.Saving
++    val isLoading = uiState is ChildProfileEditUiState.Loading
++    var showDeleteConfirm by remember { mutableStateOf(false) }
++
++    if (showDeleteConfirm) {
++        DeleteConfirmationDialog(
++            onConfirm = {
++                showDeleteConfirm = false
++                onDelete()
++            },
++            onDismiss = { showDeleteConfirm = false },
++        )
++    }
+ 
+     Scaffold { padding ->
+         Column(
+@@ -76,64 +113,204 @@ private fun ChildProfileEditScreen(
+                     .padding(padding)
+                     .padding(24.dp),
+         ) {
+-            // 커스텀 헤더
+-            Row(
+-                modifier = Modifier.fillMaxWidth(),
+-                verticalAlignment = Alignment.CenterVertically,
+-                horizontalArrangement = Arrangement.SpaceBetween,
+-            ) {
+-                Text(
+-                    text = "아이 프로필 추가",
+-                    style = MaterialTheme.typography.headlineSmall,
+-                    fontWeight = FontWeight.Bold,
++            EditHeader(
++                isEditMode = isEditMode,
++                enabled = !isSaving && !isLoading,
++                onBack = onBack,
++            )
++
++            if (isLoading) {
++                LoadingPlaceholder(modifier = Modifier.weight(1f))
++            } else if (isEditMode && !isProfileLoaded && uiState is ChildProfileEditUiState.Error) {
++                ErrorPlaceholder(
++                    message = uiState.message,
++                    onRetry = onRetry,
++                    modifier = Modifier.weight(1f),
++                )
++            } else {
++                Spacer(modifier = Modifier.height(32.dp))
++                EditForm(
++                    name = name,
++                    birthDate = birthDate,
++                    isSaving = isSaving,
++                    errorMessage = (uiState as? ChildProfileEditUiState.Error)?.message,
++                    onNameChange = onNameChange,
++                    onBirthDateChange = onBirthDateChange,
++                    modifier = Modifier.weight(1f),
++                )
++
++                EditActionButtons(
++                    isEditMode = isEditMode,
++                    isSaving = isSaving,
++                    onSave = onSave,
++                    onDeleteRequest = { showDeleteConfirm = true },
+                 )
+-                TextButton(onClick = onBack, enabled = !isSaving) {
+-                    Text("취소")
+-                }
+             }
++        }
++    }
++}
+ 
+-            Spacer(modifier = Modifier.height(32.dp))
+-            OutlinedTextField(
+-                value = name,
+-                onValueChange = onNameChange,
+-                label = { Text("아이 이름") },
+-                placeholder = { Text("예: 민준") },
+-                modifier = Modifier.fillMaxWidth(),
+-                enabled = !isSaving,
+-                singleLine = true,
+-            )
++@Composable
++private fun EditHeader(
++    isEditMode: Boolean,
++    enabled: Boolean,
++    onBack: () -> Unit,
++) {
++    Row(
++        modifier = Modifier.fillMaxWidth(),
++        verticalAlignment = Alignment.CenterVertically,
++        horizontalArrangement = Arrangement.SpaceBetween,
++    ) {
++        Text(
++            text = if (isEditMode) "아이 프로필 수정" else "아이 프로필 추가",
++            style = MaterialTheme.typography.headlineSmall,
++            fontWeight = FontWeight.Bold,
++        )
++        TextButton(onClick = onBack, enabled = enabled) {
++            Text("취소")
++        }
++    }
++}
+ 
+-            Spacer(modifier = Modifier.height(16.dp))
++@Composable
++private fun EditForm(
++    name: String,
++    birthDate: String,
++    isSaving: Boolean,
++    errorMessage: String?,
++    onNameChange: (String) -> Unit,
++    onBirthDateChange: (String) -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Column(modifier = modifier.fillMaxWidth()) {
++        OutlinedTextField(
++            value = name,
++            onValueChange = onNameChange,
++            label = { Text("아이 이름") },
++            placeholder = { Text("예: 민준") },
++            modifier = Modifier.fillMaxWidth(),
++            enabled = !isSaving,
++            singleLine = true,
++        )
+ 
+-            OutlinedTextField(
+-                value = birthDate,
+-                onValueChange = onBirthDateChange,
+-                label = { Text("생년월일") },
+-                placeholder = { Text("예: 20200501") },
+-                modifier = Modifier.fillMaxWidth(),
+-                enabled = !isSaving,
+-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+-                singleLine = true,
+-            )
++        Spacer(modifier = Modifier.height(16.dp))
+ 
+-            if (uiState is ChildProfileEditUiState.Error) {
+-                Spacer(modifier = Modifier.height(8.dp))
+-                Text(
+-                    text = uiState.message,
+-                    color = MaterialTheme.colorScheme.error,
+-                    style = MaterialTheme.typography.bodySmall,
+-                )
+-            }
++        OutlinedTextField(
++            value = birthDate,
++            onValueChange = onBirthDateChange,
++            label = { Text("생년월일") },
++            placeholder = { Text("예: 20200501") },
++            modifier = Modifier.fillMaxWidth(),
++            enabled = !isSaving,
++            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
++            singleLine = true,
++        )
++
++        if (errorMessage != null) {
++            Spacer(modifier = Modifier.height(8.dp))
++            Text(
++                text = errorMessage,
++                color = MaterialTheme.colorScheme.error,
++                style = MaterialTheme.typography.bodySmall,
++            )
++        }
++    }
++}
+ 
+-            Spacer(modifier = Modifier.height(32.dp))
++@Composable
++private fun EditActionButtons(
++    isEditMode: Boolean,
++    isSaving: Boolean,
++    onSave: () -> Unit,
++    onDeleteRequest: () -> Unit,
++) {
++    Column(modifier = Modifier.fillMaxWidth()) {
++        Button(
++            onClick = onSave,
++            modifier = Modifier.fillMaxWidth(),
++            enabled = !isSaving,
++        ) {
++            Text(text = if (isSaving) "저장 중..." else "저장하기")
++        }
+ 
+-            Button(
+-                onClick = onSave,
++        if (isEditMode) {
++            Spacer(modifier = Modifier.height(12.dp))
++            TextButton(
++                onClick = onDeleteRequest,
+                 modifier = Modifier.fillMaxWidth(),
+                 enabled = !isSaving,
++                colors =
++                    ButtonDefaults.textButtonColors(
++                        contentColor = MaterialTheme.colorScheme.error,
++                    ),
+             ) {
+-                Text(text = if (isSaving) "저장 중..." else "저장하기")
++                Text(text = "아이 프로필 삭제하기")
+             }
+         }
+     }
+ }
++
++@Composable
++private fun LoadingPlaceholder(modifier: Modifier = Modifier) {
++    Column(
++        modifier = modifier.fillMaxWidth(),
++        verticalArrangement = Arrangement.Center,
++        horizontalAlignment = Alignment.CenterHorizontally,
++    ) {
++        CircularProgressIndicator()
++        Spacer(modifier = Modifier.height(16.dp))
++        Text(text = "아이 정보를 불러오고 있어요...", style = MaterialTheme.typography.bodyMedium)
++    }
++}
++
++@Composable
++private fun ErrorPlaceholder(
++    message: String,
++    onRetry: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Column(
++        modifier = modifier.fillMaxWidth(),
++        verticalArrangement = Arrangement.Center,
++        horizontalAlignment = Alignment.CenterHorizontally,
++    ) {
++        Text(
++            text = message,
++            color = MaterialTheme.colorScheme.error,
++            style = MaterialTheme.typography.bodyMedium,
++            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
++        )
++        Spacer(modifier = Modifier.height(16.dp))
++        Button(onClick = onRetry) {
++            Text("다시 시도")
++        }
++    }
++}
++
++@Composable
++private fun DeleteConfirmationDialog(
++    onConfirm: () -> Unit,
++    onDismiss: () -> Unit,
++) {
++    AlertDialog(
++        onDismissRequest = onDismiss,
++        title = { Text("아이 프로필 삭제") },
++        text = { Text("정말 이 아이 프로필을 삭제하시겠습니까?\n삭제된 정보는 복구할 수 없습니다.") },
++        confirmButton = {
++            TextButton(
++                onClick = onConfirm,
++                colors =
++                    ButtonDefaults.textButtonColors(
++                        contentColor = MaterialTheme.colorScheme.error,
++                    ),
++            ) {
++                Text("삭제")
++            }
++        },
++        dismissButton = {
++            TextButton(onClick = onDismiss) {
++                Text("취소")
++            }
++        },
++    )
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditUiState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditUiState.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditUiState.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditUiState.kt
+@@ -3,10 +3,14 @@ package com.ssafy.mobile.feature.childprofile.presentation
+ sealed interface ChildProfileEditUiState {
+     data object Idle : ChildProfileEditUiState
+ 
++    data object Loading : ChildProfileEditUiState
++
+     data object Saving : ChildProfileEditUiState
+ 
+     data object Success : ChildProfileEditUiState
+ 
++    data object Deleted : ChildProfileEditUiState
++
+     data class Error(
+         val message: String,
+     ) : ChildProfileEditUiState
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditViewModel.kt
+@@ -3,6 +3,7 @@ package com.ssafy.mobile.feature.childprofile.presentation
+ import android.util.Log
+ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.core.session.ActiveChildStorage
+ import com.ssafy.mobile.feature.childprofile.domain.repository.ChildProfileRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import javax.inject.Inject
+@@ -19,6 +20,7 @@ class ChildProfileEditViewModel
+     @Inject
+     constructor(
+         private val childProfileRepository: ChildProfileRepository,
++        private val activeChildStorage: ActiveChildStorage,
+     ) : ViewModel() {
+         companion object {
+             private const val TAG = "ChildProfileEditViewModel"
+@@ -38,14 +40,46 @@ class ChildProfileEditViewModel
+             )
+         val uiState: StateFlow<ChildProfileEditUiState> = _uiState.asStateFlow()
+ 
++        private val _isProfileLoaded = MutableStateFlow(false)
++        val isProfileLoaded: StateFlow<Boolean> = _isProfileLoaded.asStateFlow()
++
+         var name = MutableStateFlow("")
+             private set
+ 
+         var birthDate = MutableStateFlow("")
+             private set
+ 
++        private var editingChildId: Long? = null
++
++        @Suppress("TooGenericExceptionCaught")
++        fun loadProfile(childId: Long) {
++            editingChildId = childId
++            _isProfileLoaded.value = false
++            _uiState.value = ChildProfileEditUiState.Loading
++            viewModelScope.launch {
++                try {
++                    val profile =
++                        withContext(Dispatchers.IO) {
++                            childProfileRepository.getChildProfile(childId)
++                        }
++                    name.value = profile.name
++                    birthDate.value = profile.birthDate
++                    _isProfileLoaded.value = true
++                    _uiState.value = ChildProfileEditUiState.Idle
++                } catch (e: CancellationException) {
++                    throw e
++                } catch (e: Exception) {
++                    Log.e(TAG, "Failed to load child profile", e)
++                    val message = e.message ?: "정보를 불러오지 못했습니다."
++                    _uiState.value = ChildProfileEditUiState.Error(message)
++                }
++            }
++        }
++
+         fun saveProfile() {
+-            if (_uiState.value is ChildProfileEditUiState.Saving) return
++            val isSaving = _uiState.value is ChildProfileEditUiState.Saving
++            val isNotLoaded = editingChildId != null && !_isProfileLoaded.value
++            if (isSaving || isNotLoaded) return
+ 
+             val currentName = name.value.trim()
+             val rawBirthDate = birthDate.value.trim()
+@@ -69,6 +103,34 @@ class ChildProfileEditViewModel
+             performSave(currentName, normalizedBirthDate)
+         }
+ 
++        @Suppress("TooGenericExceptionCaught")
++        fun deleteProfile() {
++            val childId = editingChildId
++            val isSaving = _uiState.value is ChildProfileEditUiState.Saving
++            if (childId == null || isSaving || !_isProfileLoaded.value) return
++
++            _uiState.value = ChildProfileEditUiState.Saving
++            viewModelScope.launch {
++                try {
++                    withContext(Dispatchers.IO) {
++                        childProfileRepository.deleteChildProfile(childId)
++
++                        // API 성공 후, 현재 선택된 아이라면 클리어
++                        if (activeChildStorage.getActiveChildId() == childId) {
++                            activeChildStorage.clearActiveChildId()
++                        }
++                    }
++                    _uiState.value = ChildProfileEditUiState.Deleted
++                } catch (e: CancellationException) {
++                    throw e
++                } catch (e: Exception) {
++                    Log.e(TAG, "Failed to delete child profile", e)
++                    val message = e.message ?: "프로필 삭제 중 오류가 발생했습니다."
++                    _uiState.value = ChildProfileEditUiState.Error(message)
++                }
++            }
++        }
++
+         @Suppress("TooGenericExceptionCaught")
+         private fun performSave(
+             currentName: String,
+@@ -78,10 +140,19 @@ class ChildProfileEditViewModel
+             viewModelScope.launch {
+                 try {
+                     withContext(Dispatchers.IO) {
+-                        childProfileRepository.createChildProfile(
+-                            name = currentName,
+-                            birthDate = normalizedBirthDate,
+-                        )
++                        val childId = editingChildId
++                        if (childId == null) {
++                            childProfileRepository.createChildProfile(
++                                name = currentName,
++                                birthDate = normalizedBirthDate,
++                            )
++                        } else {
++                            childProfileRepository.updateChildProfile(
++                                childId = childId,
++                                name = currentName,
++                                birthDate = normalizedBirthDate,
++                            )
++                        }
+                     }
+                     _uiState.value = ChildProfileEditUiState.Success
+                 } catch (e: CancellationException) {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt
+@@ -43,6 +43,7 @@ fun ChildProfileSelectRoute(
+     navController: NavController,
+     onNavigateToHome: () -> Unit,
+     onNavigateToCreate: () -> Unit,
++    onNavigateToEdit: (Long) -> Unit,
+     modifier: Modifier = Modifier,
+     viewModel: ChildProfileSelectViewModel = hiltViewModel(),
+ ) {
+@@ -79,6 +80,7 @@ fun ChildProfileSelectRoute(
+         onProfileSelect = viewModel::selectProfile,
+         onRetry = viewModel::retry,
+         onNavigateToCreate = onNavigateToCreate,
++        onNavigateToEdit = onNavigateToEdit,
+         modifier = modifier,
+     )
+ }
+@@ -90,6 +92,7 @@ private fun ChildProfileSelectScreen(
+     onProfileSelect: (Long) -> Unit,
+     onRetry: () -> Unit,
+     onNavigateToCreate: () -> Unit,
++    onNavigateToEdit: (Long) -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+     Column(
+@@ -126,6 +129,7 @@ private fun ChildProfileSelectScreen(
+                     isSelecting = isSelecting,
+                     onProfileSelect = onProfileSelect,
+                     onNavigateToCreate = onNavigateToCreate,
++                    onNavigateToEdit = onNavigateToEdit,
+                 )
+             }
+             is ChildProfileSelectUiState.Empty -> {
+@@ -161,6 +165,7 @@ private fun ProfileList(
+     isSelecting: Boolean,
+     onProfileSelect: (Long) -> Unit,
+     onNavigateToCreate: () -> Unit,
++    onNavigateToEdit: (Long) -> Unit,
+ ) {
+     LazyColumn(
+         modifier = Modifier.fillMaxWidth(),
+@@ -173,6 +178,7 @@ private fun ProfileList(
+                 isSelected = profile.childId == activeChildId,
+                 enabled = !isSelecting,
+                 onClick = { onProfileSelect(profile.childId) },
++                onEditClick = { onNavigateToEdit(profile.childId) },
+             )
+         }
+ 
+@@ -195,6 +201,7 @@ private fun ProfileItem(
+     isSelected: Boolean,
+     enabled: Boolean,
+     onClick: () -> Unit,
++    onEditClick: () -> Unit,
+ ) {
+     Card(
+         modifier =
+@@ -262,6 +269,17 @@ private fun ProfileItem(
+                     color = MaterialTheme.colorScheme.primary,
+                     fontWeight = FontWeight.Bold,
+                 )
++                Spacer(modifier = Modifier.width(12.dp))
++            }
++
++            TextButton(
++                onClick = onEditClick,
++                enabled = enabled,
++            ) {
++                Text(
++                    text = "수정",
++                    style = MaterialTheme.typography.labelMedium,
++                )
+             }
+         }
+     }
+
+

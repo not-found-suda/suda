@@ -1,0 +1,569 @@
+﻿diff --git a/ai/ai-server/app/main.py b/ai/ai-server/app/main.py
+--- a/ai/ai-server/app/main.py
++++ b/ai/ai-server/app/main.py
+@@ -1,43 +1,39 @@
+-from time import perf_counter
++from contextlib import asynccontextmanager
+ 
+-from fastapi import FastAPI
++from fastapi import FastAPI, HTTPException, status
++from fastapi.responses import JSONResponse
+ 
++from app.model_service import ModelNotLoadedError, SignModelService
+ from app.schemas import (
+-    SignInferenceCandidate,
+     SignInferenceRequest,
+     SignInferenceResponse,
+ )
+ 
+-app = FastAPI(title="Sign AI Server", version="0.1.0")
++sign_model_service = SignModelService()
++
++
++@asynccontextmanager
++async def lifespan(app: FastAPI):
++    sign_model_service.load()
++    yield
++
++
++app = FastAPI(title="Sign AI Server", version="0.2.0", lifespan=lifespan)
+ 
+ 
+ @app.get("/health")
+-def health() -> dict[str, str]:
+-    return {"status": "ok"}
++def health() -> JSONResponse:
++    health_status = sign_model_service.health()
++    http_status = status.HTTP_200_OK if sign_model_service.is_loaded else status.HTTP_503_SERVICE_UNAVAILABLE
++    return JSONResponse(status_code=http_status, content=health_status)
+ 
+ 
+ @app.post("/internal/sign/predict", response_model=SignInferenceResponse)
+ def predict(request: SignInferenceRequest) -> SignInferenceResponse:
+-    started_at = perf_counter()
+-    model_version = request.model_version or "stub-v6-tcn"
+-    inference_ms = int((perf_counter() - started_at) * 1000)
+-
+-    return SignInferenceResponse(
+-        gloss="unknown",
+-        confidence=0.0,
+-        margin=0.0,
+-        class_index=None,
+-        raw_gloss="unknown",
+-        accepted=False,
+-        rejection_reason="stub_response",
+-        top_candidates=[
+-            SignInferenceCandidate(
+-                rank=1,
+-                class_index=22,
+-                gloss="none",
+-                confidence=0.0,
+-            )
+-        ][: request.top_k],
+-        model_version=model_version,
+-        inference_ms=inference_ms,
+-    )
++    try:
++        return sign_model_service.predict(request)
++    except ModelNotLoadedError as exc:
++        raise HTTPException(
++            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
++            detail=str(exc),
++        ) from exc
+
+
+diff --git a/ai/ai-server/app/model_service.py b/ai/ai-server/app/model_service.py
+--- /dev/null
++++ b/ai/ai-server/app/model_service.py
+@@ -0,0 +1,289 @@
++import importlib.util
++import json
++import os
++from dataclasses import dataclass
++from pathlib import Path
++from time import perf_counter
++from typing import Any
++
++from app.schemas import (
++    DEFAULT_FEATURE_DIMENSION,
++    DEFAULT_SEQUENCE_LENGTH,
++    SignInferenceCandidate,
++    SignInferenceRequest,
++    SignInferenceResponse,
++)
++
++DEFAULT_CONFIDENCE_THRESHOLD = 0.80
++DEFAULT_NONE_LABEL = "none"
++
++
++class ModelNotLoadedError(RuntimeError):
++    pass
++
++
++@dataclass(frozen=True)
++class ModelSettings:
++    model_path: Path
++    train_config_path: Path
++    label_map_path: Path
++    model_module_path: Path
++    confidence_threshold: str
++    none_label: str
++    model_version: str | None
++
++
++class SignModelService:
++    def __init__(self) -> None:
++        self.settings = load_model_settings()
++        self.model: Any | None = None
++        self.torch: Any | None = None
++        self.device: Any | None = None
++        self.label_map: dict[int, str] = {}
++        self.model_version: str | None = None
++        self.confidence_threshold = DEFAULT_CONFIDENCE_THRESHOLD
++        self.load_error: str | None = None
++
++    @property
++    def is_loaded(self) -> bool:
++        return self.model is not None
++
++    def load(self) -> None:
++        try:
++            self._load()
++            self.load_error = None
++        except Exception as exc:
++            self.model = None
++            self.torch = None
++            self.device = None
++            self.label_map = {}
++            self.model_version = None
++            self.load_error = str(exc)
++
++    def health(self) -> dict[str, Any]:
++        return {
++            "status": "ok" if self.is_loaded else "degraded",
++            "modelLoaded": self.is_loaded,
++            "device": str(self.device) if self.device is not None else None,
++            "modelVersion": self.model_version,
++            "confidenceThreshold": self.confidence_threshold,
++            "error": self.load_error,
++        }
++
++    def predict(self, request: SignInferenceRequest) -> SignInferenceResponse:
++        if not self.is_loaded or self.torch is None or self.device is None:
++            raise ModelNotLoadedError(self.load_error or "sign model is not loaded")
++
++        started_at = perf_counter()
++        input_tensor = (
++            self.torch.tensor(request.features, dtype=self.torch.float32)
++            .reshape(1, request.sequence_length, request.feature_dimension)
++            .to(self.device)
++        )
++
++        with self.torch.no_grad():
++            probs = self.model(input_tensor, return_probs=True)[0]
++
++        top_k = min(request.top_k, len(self.label_map))
++        top_probs, top_indices = self.torch.topk(probs, k=top_k)
++        top_probs = top_probs.detach().cpu().tolist()
++        top_indices = top_indices.detach().cpu().tolist()
++
++        top_candidates = [
++            SignInferenceCandidate(
++                rank=rank,
++                class_index=int(class_index),
++                gloss=self.label_map.get(int(class_index), str(class_index)),
++                confidence=float(confidence),
++            )
++            for rank, (class_index, confidence) in enumerate(
++                zip(top_indices, top_probs, strict=True),
++                start=1,
++            )
++        ]
++
++        top_candidate = top_candidates[0]
++        second_confidence = top_candidates[1].confidence if len(top_candidates) > 1 else 0.0
++        margin = top_candidate.confidence - second_confidence
++        raw_gloss = top_candidate.gloss
++        accepted, rejection_reason, gloss = self._resolve_acceptance(
++            raw_gloss,
++            top_candidate.confidence,
++        )
++        inference_ms = int((perf_counter() - started_at) * 1000)
++
++        return SignInferenceResponse(
++            gloss=gloss,
++            confidence=top_candidate.confidence,
++            margin=margin,
++            class_index=top_candidate.class_index,
++            raw_gloss=raw_gloss,
++            accepted=accepted,
++            rejection_reason=rejection_reason,
++            top_candidates=top_candidates,
++            model_version=self.model_version,
++            inference_ms=inference_ms,
++        )
++
++    def _load(self) -> None:
++        confidence_threshold = parse_confidence_threshold(self.settings.confidence_threshold)
++        if not self.settings.model_path.exists():
++            raise FileNotFoundError(f"model file not found: {self.settings.model_path}")
++        if not self.settings.train_config_path.exists():
++            raise FileNotFoundError(
++                f"train config file not found: {self.settings.train_config_path}"
++            )
++        if not self.settings.label_map_path.exists():
++            raise FileNotFoundError(f"label map file not found: {self.settings.label_map_path}")
++        if not self.settings.model_module_path.exists():
++            raise FileNotFoundError(f"model module file not found: {self.settings.model_module_path}")
++
++        import torch
++
++        train_config = load_json(self.settings.train_config_path)
++        label_map = load_label_map(self.settings.label_map_path)
++        validate_model_contract(train_config, label_map)
++
++        model_module = load_python_module(self.settings.model_module_path)
++        model_type = train_config.get("model_type", "tcn")
++        model = model_module.build_ksl_model_v6(
++            model_type=model_type,
++            input_dim=int(train_config.get("input_dim", DEFAULT_FEATURE_DIMENSION)),
++            num_classes=len(label_map),
++            seq_len=int(train_config.get("max_len", DEFAULT_SEQUENCE_LENGTH)),
++            d_model=int(train_config.get("d_model", 128)),
++            num_heads=int(train_config.get("num_heads", 8)),
++            num_layers=int(train_config.get("num_layers", 3)),
++        )
++
++        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
++        state_dict = load_state_dict(torch, self.settings.model_path, device)
++        if isinstance(state_dict, dict) and "model_state_dict" in state_dict:
++            state_dict = state_dict["model_state_dict"]
++
++        model.load_state_dict(state_dict)
++        model.to(device)
++        model.eval()
++
++        self.torch = torch
++        self.device = device
++        self.model = model
++        self.label_map = label_map
++        self.confidence_threshold = confidence_threshold
++        self.model_version = resolve_model_version(
++            self.settings,
++            train_config,
++            self.settings.model_path,
++        )
++
++    def _resolve_acceptance(self, raw_gloss: str, confidence: float) -> tuple[bool, str | None, str]:
++        if confidence < self.confidence_threshold:
++            return False, "low_confidence", self.settings.none_label
++        if raw_gloss == self.settings.none_label:
++            return False, "none_class", self.settings.none_label
++        return True, None, raw_gloss
++
++
++def load_model_settings() -> ModelSettings:
++    project_root = discover_project_root()
++    default_model_path = project_root / "models" / "tcn_mobile" / "best_sign_model_v6.pt"
++    default_train_config_path = project_root / "models" / "tcn_mobile" / "train_config_v6.json"
++    default_label_map_path = project_root / "models" / "tcn_mobile" / "label_map_v6.json"
++    default_model_module_path = project_root / "src" / "sign2text_tcn" / "model.py"
++
++    return ModelSettings(
++        model_path=resolve_path(os.getenv("SIGN_MODEL_PATH"), default_model_path),
++        train_config_path=resolve_path(
++            os.getenv("SIGN_TRAIN_CONFIG_PATH"),
++            default_train_config_path,
++        ),
++        label_map_path=resolve_path(os.getenv("SIGN_LABEL_MAP_PATH"), default_label_map_path),
++        model_module_path=resolve_path(
++            os.getenv("SIGN_MODEL_MODULE_PATH"),
++            default_model_module_path,
++        ),
++        confidence_threshold=os.getenv(
++            "SIGN_CONFIDENCE_THRESHOLD",
++            str(DEFAULT_CONFIDENCE_THRESHOLD),
++        ),
++        none_label=os.getenv("SIGN_NONE_LABEL", DEFAULT_NONE_LABEL),
++        model_version=os.getenv("SIGN_MODEL_VERSION"),
++    )
++
++
++def discover_project_root() -> Path:
++    marker = Path("src") / "sign2text_tcn" / "model.py"
++    for parent in Path(__file__).resolve().parents:
++        if (parent / marker).exists():
++            return parent
++    return Path.cwd()
++
++
++def resolve_path(value: str | None, default: Path) -> Path:
++    if not value:
++        return default.resolve()
++    path = Path(value)
++    if path.is_absolute():
++        return path
++    return (Path.cwd() / path).resolve()
++
++
++def load_json(path: Path) -> dict[str, Any]:
++    with path.open("r", encoding="utf-8") as file:
++        return json.load(file)
++
++
++def load_label_map(path: Path) -> dict[int, str]:
++    raw_label_map = load_json(path)
++    return {int(index): str(label) for index, label in raw_label_map.items()}
++
++
++def validate_model_contract(train_config: dict[str, Any], label_map: dict[int, str]) -> None:
++    input_dim = int(train_config.get("input_dim", DEFAULT_FEATURE_DIMENSION))
++    max_len = int(train_config.get("max_len", DEFAULT_SEQUENCE_LENGTH))
++    normalize_mode = train_config.get("stats", {}).get("normalize_mode", "none")
++
++    if input_dim != DEFAULT_FEATURE_DIMENSION:
++        raise ValueError(f"unsupported input_dim={input_dim}; expected {DEFAULT_FEATURE_DIMENSION}")
++    if max_len != DEFAULT_SEQUENCE_LENGTH:
++        raise ValueError(f"unsupported max_len={max_len}; expected {DEFAULT_SEQUENCE_LENGTH}")
++    if normalize_mode not in ("none", "raw", "off"):
++        raise ValueError(f"unsupported normalize_mode={normalize_mode}; expected none/raw/off")
++    if sorted(label_map) != list(range(len(label_map))):
++        raise ValueError("label_map indexes must be contiguous from 0")
++
++
++def parse_confidence_threshold(value: str) -> float:
++    threshold = float(value)
++    if threshold < 0.0 or threshold > 1.0:
++        raise ValueError("SIGN_CONFIDENCE_THRESHOLD must be between 0.0 and 1.0")
++    return threshold
++
++
++def load_state_dict(torch_module: Any, model_path: Path, device: Any) -> Any:
++    try:
++        return torch_module.load(model_path, map_location=device, weights_only=True)
++    except TypeError:
++        return torch_module.load(model_path, map_location=device)
++
++
++def load_python_module(module_path: Path) -> Any:
++    spec = importlib.util.spec_from_file_location("sign2text_tcn_model", module_path)
++    if spec is None or spec.loader is None:
++        raise ImportError(f"failed to load model module: {module_path}")
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
++def resolve_model_version(
++    settings: ModelSettings,
++    train_config: dict[str, Any],
++    model_path: Path,
++) -> str:
++    if settings.model_version:
++        return settings.model_version
++    model_dir_name = train_config.get("model_dir_name")
++    if model_dir_name:
++        return str(model_dir_name)
++    return model_path.stem
+
+
+diff --git a/ai/ai-server/Dockerfile b/ai/ai-server/Dockerfile
+--- a/ai/ai-server/Dockerfile
++++ b/ai/ai-server/Dockerfile
+@@ -4,11 +4,15 @@ WORKDIR /app
+ 
+ ENV PYTHONDONTWRITEBYTECODE=1
+ ENV PYTHONUNBUFFERED=1
++ENV SIGN_MODEL_PATH=/models/best_sign_model_v6.pt
++ENV SIGN_TRAIN_CONFIG_PATH=/models/train_config_v6.json
++ENV SIGN_LABEL_MAP_PATH=/models/label_map_v6.json
++ENV SIGN_MODEL_MODULE_PATH=/models/model.py
+ 
+-COPY requirements.txt .
++COPY ai-server/requirements.txt .
+ RUN pip install --no-cache-dir -r requirements.txt
+ 
+-COPY app ./app
++COPY ai-server/app ./app
+ 
+ EXPOSE 8000
+ 
+
+
+diff --git a/ai/ai-server/README.md b/ai/ai-server/README.md
+--- a/ai/ai-server/README.md
++++ b/ai/ai-server/README.md
+@@ -1,34 +1,56 @@
+ # Sign AI Server
+ 
+-FastAPI skeleton for server-side sign inference.
++V6 PyTorch TCN 모델을 사용해 서버 측 수어 인식을 수행하는 FastAPI 서버입니다.
+ 
+-## Run
++모델 artifact 파일은 repository에 커밋하지 않습니다. 로컬 실행 시에는 각 파일 경로를
++환경변수로 지정하고, Docker 실행 시에는 같은 artifact 디렉터리를 `/models` 경로에
++mount해서 사용합니다.
++
++## 로컬 실행
++
++아래 명령은 `ai/ai-server`에서 실행합니다. Docker 밖에서 실행할 때 상대 경로는 현재
++작업 디렉터리 기준으로 해석되므로, 모델/config 파일 경로는 절대 경로 사용을 권장합니다.
+ 
+ ```bash
++$env:SIGN_MODEL_PATH="C:\path\to\best_sign_model_v6.pt"
++$env:SIGN_TRAIN_CONFIG_PATH="C:\path\to\S14P31A404\ai\models\tcn_mobile\train_config_v6.json"
++$env:SIGN_LABEL_MAP_PATH="C:\path\to\S14P31A404\ai\models\tcn_mobile\label_map_v6.json"
++$env:SIGN_MODEL_MODULE_PATH="C:\path\to\S14P31A404\ai\src\sign2text_tcn\model.py"
+ pip install -r requirements.txt
+ uvicorn app.main:app --host 0.0.0.0 --port 8000
+ ```
+ 
+-## Docker
++## Docker 실행
+ 
+ ```bash
+ docker compose up --build ai-server
+ ```
+ 
+-The default Compose service exposes port `8000` only inside the Docker network. If you need to call
+-the AI server directly from the host, run it locally with `uvicorn` or open a localhost-only port in
+-a development override compose file.
++기본 Compose 설정에서는 `8000` 포트를 Docker network 내부에만 노출합니다. host에서 AI
++서버를 직접 호출해야 한다면 로컬에서 `uvicorn`으로 실행하거나, 개발용 override compose
++파일에서 localhost 전용 port를 열어 사용합니다.
++
++Docker 실행 시에는 `SIGN_MODEL_ARTIFACT_PATH`로 지정한 host 디렉터리가 컨테이너 내부
++`/models`로 mount됩니다. 이 디렉터리에는 같은 학습 run에서 나온 아래 파일들이 함께 있어야
++합니다.
+ 
+-When Spring runs in Docker Compose, it should call this service with
+-`SIGN_AI_BASE_URL=http://ai-server:8000`.
++- `best_sign_model_v6.pt`
++- `train_config_v6.json`
++- `label_map_v6.json`
++- `model.py`
+ 
+-When Spring runs locally, it should call this service with
+-`SIGN_AI_BASE_URL=http://localhost:8000`.
++Spring을 Docker Compose에서 실행하는 경우 이 서버는
++`SIGN_AI_BASE_URL=http://ai-server:8000`으로 호출합니다.
++
++Spring을 로컬에서 실행하는 경우 이 서버는 `SIGN_AI_BASE_URL=http://localhost:8000`으로
++호출합니다.
+ 
+ ## Endpoints
+ 
+ - `GET /health`
+ - `POST /internal/sign/predict`
+ 
+-The prediction endpoint currently returns a stub response. PyTorch model loading and real inference
+-will be added in a follow-up task.
++`GET /health`는 PyTorch 모델이 정상 로드되기 전까지 HTTP 503을 반환합니다.
++
++추론 endpoint는 flatten된 `30 * 332` feature sequence를 입력으로 받고, top candidates,
++confidence, margin, accepted/rejectionReason 정보를 반환합니다.
+
+
+diff --git a/ai/ai-server/requirements.txt b/ai/ai-server/requirements.txt
+--- a/ai/ai-server/requirements.txt
++++ b/ai/ai-server/requirements.txt
+@@ -1,3 +1,4 @@
+ fastapi>=0.110
+ uvicorn[standard]>=0.27
+ pydantic>=2.0
++torch>=2.3
+
+
+diff --git a/ai/ai-server/.dockerignore b/ai/.dockerignore
+--- a/ai/ai-server/.dockerignore
++++ b/ai/.dockerignore
+@@ -1,7 +1,11 @@
+-__pycache__/
+-*.py[cod]
+-.venv/
+-venv/
++**/__pycache__/
++**/*.py[cod]
+ .pytest_cache/
+ .mypy_cache/
+ .ruff_cache/
++ai-server/.venv/
++ai-server/venv/
++models/
++src/
++*.pt
++*.pth
+
+
+diff --git a/.env.example b/.env.example
+--- a/.env.example
++++ b/.env.example
+@@ -29,6 +29,18 @@ FRONTEND_PORT=5173
+ SIGN_AI_BASE_URL=http://localhost:8000
+ SIGN_AI_CONNECT_TIMEOUT=1s
+ SIGN_AI_READ_TIMEOUT=1s
++SIGN_MODEL_PATH=/absolute/path/to/best_sign_model_v6.pt
++SIGN_MODEL_ARTIFACT_PATH=/absolute/path/to/sign-model-artifact
++SIGN_MODEL_CONTAINER_PATH=/models/best_sign_model_v6.pt
++SIGN_TRAIN_CONFIG_PATH=/absolute/path/to/S14P31A404/ai/models/tcn_mobile/train_config_v6.json
++SIGN_LABEL_MAP_PATH=/absolute/path/to/S14P31A404/ai/models/tcn_mobile/label_map_v6.json
++SIGN_MODEL_MODULE_PATH=/absolute/path/to/S14P31A404/ai/src/sign2text_tcn/model.py
++SIGN_TRAIN_CONFIG_CONTAINER_PATH=/models/train_config_v6.json
++SIGN_LABEL_MAP_CONTAINER_PATH=/models/label_map_v6.json
++SIGN_MODEL_MODULE_CONTAINER_PATH=/models/model.py
++SIGN_CONFIDENCE_THRESHOLD=0.80
++SIGN_NONE_LABEL=none
++SIGN_MODEL_VERSION=v6_24words_tcn
+ 
+ # Frontend (Vite)
+ VITE_API_BASE_URL=http://localhost:8080
+
+
+diff --git a/.gitignore b/.gitignore
+--- a/.gitignore
++++ b/.gitignore
+@@ -4,6 +4,9 @@
+ .env
+ *.pem
+ *.key
++*.pt
++*.pth
++ai/model-artifacts/
+ local.properties
+ keystore.properties
+ secrets.xml
+
+
+diff --git a/docker-compose.yml b/docker-compose.yml
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -44,15 +44,24 @@ services:
+ 
+   ai-server:
+     build:
+-      context: ./ai/ai-server
+-      dockerfile: Dockerfile
++      context: ./ai
++      dockerfile: ai-server/Dockerfile
+     container_name: ai-server
+     environment:
+       TZ: Asia/Seoul
++      SIGN_MODEL_PATH: ${SIGN_MODEL_CONTAINER_PATH:-/models/best_sign_model_v6.pt}
++      SIGN_TRAIN_CONFIG_PATH: ${SIGN_TRAIN_CONFIG_CONTAINER_PATH:-/models/train_config_v6.json}
++      SIGN_LABEL_MAP_PATH: ${SIGN_LABEL_MAP_CONTAINER_PATH:-/models/label_map_v6.json}
++      SIGN_MODEL_MODULE_PATH: ${SIGN_MODEL_MODULE_CONTAINER_PATH:-/models/model.py}
++      SIGN_CONFIDENCE_THRESHOLD: ${SIGN_CONFIDENCE_THRESHOLD:-0.80}
++      SIGN_NONE_LABEL: ${SIGN_NONE_LABEL:-none}
++      SIGN_MODEL_VERSION: ${SIGN_MODEL_VERSION:-}
++    volumes:
++      - ${SIGN_MODEL_ARTIFACT_PATH:-./ai/model-artifacts}:/models:ro
+     expose:
+       - "8000"
+     healthcheck:
+-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2).read()\""]
++      test: ["CMD-SHELL", "python -c \"import json, sys, urllib.request; data=json.load(urllib.request.urlopen('http://localhost:8000/health', timeout=2)); sys.exit(0 if data.get('modelLoaded') is True else 1)\""]
+       interval: 5s
+       timeout: 3s
+       retries: 10
+
+

@@ -1,0 +1,184 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioPlayer.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioPlayer.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioPlayer.kt
+@@ -0,0 +1,69 @@
++package com.ssafy.mobile.core.audio
++
++import android.content.Context
++import android.media.MediaPlayer
++import dagger.hilt.android.qualifiers.ApplicationContext
++import java.io.File
++import java.io.FileOutputStream
++import javax.inject.Inject
++import javax.inject.Singleton
++
++/**
++ * Android MediaPlayer를 사용한 AudioPlayer 구현체.
++ */
++@Singleton
++class AndroidAudioPlayer
++    @Inject
++    constructor(
++        @ApplicationContext private val context: Context,
++    ) : AudioPlayer {
++        private var mediaPlayer: MediaPlayer? = null
++        private var tempAudioFile: File? = null
++
++        override fun play(
++            audioData: ByteArray,
++            onComplete: () -> Unit,
++        ) {
++            stop()
++
++            runCatching {
++                // 1. 임시 파일 생성
++                tempAudioFile =
++                    File.createTempFile("tts_cache", ".mp3", context.cacheDir).apply {
++                        FileOutputStream(this).use { it.write(audioData) }
++                    }
++
++                // 2. MediaPlayer 초기화 및 재생
++                mediaPlayer =
++                    MediaPlayer().apply {
++                        setDataSource(tempAudioFile?.absolutePath)
++                        setOnPreparedListener { start() }
++                        setOnCompletionListener {
++                            onComplete()
++                            stop()
++                        }
++                        prepareAsync()
++                    }
++            }.onFailure {
++                // 에러 로깅 처리 필요 시 추가
++                it.printStackTrace()
++                stop()
++            }
++        }
++
++        override fun stop() {
++            mediaPlayer?.let {
++                if (it.isPlaying) it.stop()
++                it.release()
++            }
++            mediaPlayer = null
++
++            // 사용한 임시 파일 삭제
++            tempAudioFile?.delete()
++            tempAudioFile = null
++        }
++
++        override fun release() {
++            stop()
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AudioPlayer.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AudioPlayer.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AudioPlayer.kt
+@@ -0,0 +1,26 @@
++package com.ssafy.mobile.core.audio
++
++/**
++ * 오디오 재생을 위한 인터페이스.
++ */
++interface AudioPlayer {
++    /**
++     * 바이트 배열 형태의 오디오 데이터를 재생합니다.
++     * @param audioData 재생할 오디오 바이너리 데이터
++     * @param onComplete 재생 완료 시 실행할 콜백
++     */
++    fun play(
++        audioData: ByteArray,
++        onComplete: () -> Unit = {},
++    )
++
++    /**
++     * 재생 중인 오디오를 중지합니다.
++     */
++    fun stop()
++
++    /**
++     * 리소스를 해제합니다.
++     */
++    fun release()
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/di/AudioModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/di/AudioModule.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/di/AudioModule.kt
+@@ -0,0 +1,17 @@
++package com.ssafy.mobile.core.di
++
++import com.ssafy.mobile.core.audio.AndroidAudioPlayer
++import com.ssafy.mobile.core.audio.AudioPlayer
++import dagger.Binds
++import dagger.Module
++import dagger.hilt.InstallIn
++import dagger.hilt.components.SingletonComponent
++import javax.inject.Singleton
++
++@Module
++@InstallIn(SingletonComponent::class)
++abstract class AudioModule {
++    @Binds
++    @Singleton
++    abstract fun bindAudioPlayer(androidAudioPlayer: AndroidAudioPlayer): AudioPlayer
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -1,7 +1,9 @@
+ package com.ssafy.mobile.feature.conversation.presentation
+ 
++import android.util.Base64
+ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.core.audio.AudioPlayer
+ import com.ssafy.mobile.core.model.SignRecognitionEvent
+ import com.ssafy.mobile.core.vision.SignRecognitionEngine
+ import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
+@@ -25,6 +27,7 @@ class ConversationViewModel
+     constructor(
+         private val signRecognitionEngine: SignRecognitionEngine,
+         private val translateRepository: TranslateRepository,
++        private val audioPlayer: AudioPlayer,
+     ) : ViewModel() {
+         private val _sessionState = MutableStateFlow(SessionState.Idle)
+         val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
+@@ -85,7 +88,16 @@ class ConversationViewModel
+                         .translateSignToSpeech(words)
+                         .onSuccess { response ->
+                             _translatedText.value = response.correctedText
+-                            // 번역 성공 시에만 단어 리스트 초기화
++
++                            // 1. 번역 성공 시 음성 재생 (Base64 데이터가 있는 경우)
++                            response.audioBase64?.let { base64Data ->
++                                runCatching {
++                                    val audioBytes = Base64.decode(base64Data, Base64.DEFAULT)
++                                    audioPlayer.play(audioBytes)
++                                }
++                            }
++
++                            // 2. 단어 리스트 초기화
+                             _lastGlosses.value = emptyList()
+                         }.onFailure {
+                             // 향후 사용자에게 번역 실패 알림 제공 로직 추가 예정
+@@ -105,6 +117,12 @@ class ConversationViewModel
+             _translatedText.value = ""
+             translationJob?.cancel()
+             completionTimerJob?.cancel()
++            audioPlayer.stop()
++        }
++
++        override fun onCleared() {
++            super.onCleared()
++            audioPlayer.release()
+         }
+ 
+         companion object {
+
+

@@ -1,0 +1,789 @@
+﻿diff --git a/mobile/app/schemas/com.ssafy.mobile.data.local.db.MobileDatabase/1.json b/mobile/app/schemas/com.ssafy.mobile.data.local.db.MobileDatabase/1.json
+--- /dev/null
++++ b/mobile/app/schemas/com.ssafy.mobile.data.local.db.MobileDatabase/1.json
+@@ -0,0 +1,55 @@
++{
++  "formatVersion": 1,
++  "database": {
++    "version": 1,
++    "identityHash": "ce5f3c963840e3127b947437b014b6e4",
++    "entities": [
++      {
++        "tableName": "sample_todo",
++        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `userId` INTEGER NOT NULL, `title` TEXT NOT NULL, `completed` INTEGER NOT NULL, `savedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
++        "fields": [
++          {
++            "fieldPath": "id",
++            "columnName": "id",
++            "affinity": "INTEGER",
++            "notNull": true
++          },
++          {
++            "fieldPath": "userId",
++            "columnName": "userId",
++            "affinity": "INTEGER",
++            "notNull": true
++          },
++          {
++            "fieldPath": "title",
++            "columnName": "title",
++            "affinity": "TEXT",
++            "notNull": true
++          },
++          {
++            "fieldPath": "completed",
++            "columnName": "completed",
++            "affinity": "INTEGER",
++            "notNull": true
++          },
++          {
++            "fieldPath": "savedAt",
++            "columnName": "savedAt",
++            "affinity": "INTEGER",
++            "notNull": true
++          }
++        ],
++        "primaryKey": {
++          "autoGenerate": false,
++          "columnNames": [
++            "id"
++          ]
++        }
++      }
++    ],
++    "setupQueries": [
++      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
++      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ce5f3c963840e3127b947437b014b6e4')"
++    ]
++  }
++}
+\ No newline at end of file
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/data/local/db/MobileDatabase.kt b/mobile/app/src/main/java/com/ssafy/mobile/data/local/db/MobileDatabase.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/data/local/db/MobileDatabase.kt
+@@ -0,0 +1,31 @@
++package com.ssafy.mobile.data.local.db
++
++import android.content.Context
++import androidx.room.Database
++import androidx.room.Room
++import androidx.room.RoomDatabase
++
++@Database(
++    entities = [SampleTodoEntity::class],
++    version = 1,
++    exportSchema = true
++)
++abstract class MobileDatabase : RoomDatabase() {
++    abstract fun sampleTodoDao(): SampleTodoDao
++
++    companion object {
++        private const val DATABASE_NAME = "mobile.db"
++
++        @Volatile
++        private var instance: MobileDatabase? = null
++
++        fun getInstance(context: Context): MobileDatabase =
++            instance ?: synchronized(this) {
++                instance ?: Room.databaseBuilder(
++                    context = context.applicationContext,
++                    klass = MobileDatabase::class.java,
++                    name = DATABASE_NAME
++                ).build().also { instance = it }
++            }
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/data/local/db/SampleTodoDao.kt b/mobile/app/src/main/java/com/ssafy/mobile/data/local/db/SampleTodoDao.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/data/local/db/SampleTodoDao.kt
+@@ -0,0 +1,16 @@
++package com.ssafy.mobile.data.local.db
++
++import androidx.room.Dao
++import androidx.room.Insert
++import androidx.room.OnConflictStrategy
++import androidx.room.Query
++import kotlinx.coroutines.flow.Flow
++
++@Dao
++interface SampleTodoDao {
++    @Query("SELECT * FROM sample_todo ORDER BY savedAt DESC LIMIT 1")
++    fun observeLatestTodo(): Flow<SampleTodoEntity?>
++
++    @Insert(onConflict = OnConflictStrategy.REPLACE)
++    suspend fun upsert(todo: SampleTodoEntity)
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/data/local/db/SampleTodoEntity.kt b/mobile/app/src/main/java/com/ssafy/mobile/data/local/db/SampleTodoEntity.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/data/local/db/SampleTodoEntity.kt
+@@ -0,0 +1,22 @@
++package com.ssafy.mobile.data.local.db
++
++import androidx.room.Entity
++import androidx.room.PrimaryKey
++import com.ssafy.mobile.data.model.SampleTodo
++
++@Entity(tableName = "sample_todo")
++data class SampleTodoEntity(
++    @PrimaryKey val id: Int,
++    val userId: Int,
++    val title: String,
++    val completed: Boolean,
++    val savedAt: Long
++)
++
++fun SampleTodoEntity.toModel(): SampleTodo =
++    SampleTodo(
++        id = id,
++        userId = userId,
++        title = title,
++        completed = completed
++    )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/data/local/preference/MobilePreferenceDataSource.kt b/mobile/app/src/main/java/com/ssafy/mobile/data/local/preference/MobilePreferenceDataSource.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/data/local/preference/MobilePreferenceDataSource.kt
+@@ -0,0 +1,43 @@
++package com.ssafy.mobile.data.local.preference
++
++import android.content.Context
++import androidx.datastore.core.DataStore
++import androidx.datastore.preferences.core.Preferences
++import androidx.datastore.preferences.core.edit
++import androidx.datastore.preferences.core.intPreferencesKey
++import androidx.datastore.preferences.core.longPreferencesKey
++import androidx.datastore.preferences.preferencesDataStore
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.distinctUntilChanged
++import kotlinx.coroutines.flow.map
++
++private val Context.mobileDataStore: DataStore<Preferences> by preferencesDataStore(
++    name = "mobile_preferences"
++)
++
++class MobilePreferenceDataSource(
++    private val dataStore: DataStore<Preferences>
++) {
++    val lastSyncAt: Flow<Long?> = dataStore.data
++        .map { preferences -> preferences[LAST_SYNC_AT] }
++        .distinctUntilChanged()
++
++    val lastSyncedTodoId: Flow<Int?> = dataStore.data
++        .map { preferences -> preferences[LAST_SYNC_TODO_ID] }
++        .distinctUntilChanged()
++
++    suspend fun updateSyncInfo(todoId: Int, syncedAt: Long) {
++        dataStore.edit { preferences ->
++            preferences[LAST_SYNC_TODO_ID] = todoId
++            preferences[LAST_SYNC_AT] = syncedAt
++        }
++    }
++
++    companion object {
++        private val LAST_SYNC_AT = longPreferencesKey("last_sync_at")
++        private val LAST_SYNC_TODO_ID = intPreferencesKey("last_sync_todo_id")
++
++        fun create(context: Context): MobilePreferenceDataSource =
++            MobilePreferenceDataSource(context.mobileDataStore)
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/data/model/SampleTodo.kt b/mobile/app/src/main/java/com/ssafy/mobile/data/model/SampleTodo.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/data/model/SampleTodo.kt
+@@ -0,0 +1,8 @@
++package com.ssafy.mobile.data.model
++
++data class SampleTodo(
++    val id: Int,
++    val userId: Int,
++    val title: String,
++    val completed: Boolean
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/data/remote/NetworkModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/data/remote/NetworkModule.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/data/remote/NetworkModule.kt
+@@ -0,0 +1,31 @@
++package com.ssafy.mobile.data.remote
++
++import okhttp3.OkHttpClient
++import okhttp3.logging.HttpLoggingInterceptor
++import retrofit2.Retrofit
++import retrofit2.converter.gson.GsonConverterFactory
++import java.util.concurrent.TimeUnit
++
++object NetworkModule {
++    private const val BASE_URL = "https://jsonplaceholder.typicode.com/"
++
++    fun createSampleApiService(): SampleApiService {
++        val loggingInterceptor = HttpLoggingInterceptor().apply {
++            level = HttpLoggingInterceptor.Level.BASIC
++        }
++
++        val okHttpClient = OkHttpClient.Builder()
++            .connectTimeout(15, TimeUnit.SECONDS)
++            .readTimeout(15, TimeUnit.SECONDS)
++            .writeTimeout(15, TimeUnit.SECONDS)
++            .addInterceptor(loggingInterceptor)
++            .build()
++
++        return Retrofit.Builder()
++            .baseUrl(BASE_URL)
++            .client(okHttpClient)
++            .addConverterFactory(GsonConverterFactory.create())
++            .build()
++            .create(SampleApiService::class.java)
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/data/remote/SampleApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/data/remote/SampleApiService.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/data/remote/SampleApiService.kt
+@@ -0,0 +1,11 @@
++package com.ssafy.mobile.data.remote
++
++import retrofit2.http.GET
++import retrofit2.http.Path
++
++interface SampleApiService {
++    @GET("todos/{id}")
++    suspend fun getSampleTodo(
++        @Path("id") id: Int
++    ): SampleTodoResponse
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/data/remote/SampleTodoResponse.kt b/mobile/app/src/main/java/com/ssafy/mobile/data/remote/SampleTodoResponse.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/data/remote/SampleTodoResponse.kt
+@@ -0,0 +1,28 @@
++package com.ssafy.mobile.data.remote
++
++import com.ssafy.mobile.data.local.db.SampleTodoEntity
++import com.ssafy.mobile.data.model.SampleTodo
++
++data class SampleTodoResponse(
++    val userId: Int,
++    val id: Int,
++    val title: String,
++    val completed: Boolean
++)
++
++fun SampleTodoResponse.toEntity(savedAt: Long): SampleTodoEntity =
++    SampleTodoEntity(
++        id = id,
++        userId = userId,
++        title = title,
++        completed = completed,
++        savedAt = savedAt
++    )
++
++fun SampleTodoResponse.toModel(): SampleTodo =
++    SampleTodo(
++        id = id,
++        userId = userId,
++        title = title,
++        completed = completed
++    )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/data/repository/DefaultSampleRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/data/repository/DefaultSampleRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/data/repository/DefaultSampleRepository.kt
+@@ -0,0 +1,45 @@
++package com.ssafy.mobile.data.repository
++
++import com.ssafy.mobile.data.local.db.SampleTodoDao
++import com.ssafy.mobile.data.local.db.toModel
++import com.ssafy.mobile.data.local.preference.MobilePreferenceDataSource
++import com.ssafy.mobile.data.model.SampleTodo
++import com.ssafy.mobile.data.remote.SampleApiService
++import com.ssafy.mobile.data.remote.toEntity
++import com.ssafy.mobile.data.remote.toModel
++import kotlinx.coroutines.CoroutineDispatcher
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.combine
++import kotlinx.coroutines.withContext
++
++class DefaultSampleRepository(
++    private val apiService: SampleApiService,
++    private val sampleTodoDao: SampleTodoDao,
++    private val preferenceDataSource: MobilePreferenceDataSource,
++    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
++) : SampleRepository {
++    override val localSnapshot: Flow<SampleLocalSnapshot> = combine(
++        sampleTodoDao.observeLatestTodo(),
++        preferenceDataSource.lastSyncAt,
++        preferenceDataSource.lastSyncedTodoId
++    ) { latestTodo, lastSyncAt, lastSyncedTodoId ->
++        SampleLocalSnapshot(
++            todo = latestTodo?.toModel(),
++            lastSyncAt = lastSyncAt,
++            lastSyncedTodoId = lastSyncedTodoId
++        )
++    }
++
++    override suspend fun refreshSampleTodo(todoId: Int): Result<SampleTodo> = withContext(ioDispatcher) {
++        runCatching {
++            val response = apiService.getSampleTodo(todoId)
++            val syncedAt = System.currentTimeMillis()
++
++            sampleTodoDao.upsert(response.toEntity(savedAt = syncedAt))
++            preferenceDataSource.updateSyncInfo(todoId = response.id, syncedAt = syncedAt)
++
++            response.toModel()
++        }
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/data/repository/RepositoryModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/data/repository/RepositoryModule.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/data/repository/RepositoryModule.kt
+@@ -0,0 +1,30 @@
++package com.ssafy.mobile.data.repository
++
++import android.content.Context
++import com.ssafy.mobile.data.local.db.MobileDatabase
++import com.ssafy.mobile.data.local.preference.MobilePreferenceDataSource
++import com.ssafy.mobile.data.remote.NetworkModule
++
++object RepositoryModule {
++    @Volatile
++    private var sampleRepository: SampleRepository? = null
++
++    fun provideSampleRepository(context: Context): SampleRepository =
++        sampleRepository ?: synchronized(this) {
++            sampleRepository ?: createSampleRepository(context.applicationContext).also {
++                sampleRepository = it
++            }
++        }
++
++    private fun createSampleRepository(context: Context): SampleRepository {
++        val database = MobileDatabase.getInstance(context)
++        val apiService = NetworkModule.createSampleApiService()
++        val preferenceDataSource = MobilePreferenceDataSource.create(context)
++
++        return DefaultSampleRepository(
++            apiService = apiService,
++            sampleTodoDao = database.sampleTodoDao(),
++            preferenceDataSource = preferenceDataSource
++        )
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/data/repository/SampleRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/data/repository/SampleRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/data/repository/SampleRepository.kt
+@@ -0,0 +1,16 @@
++package com.ssafy.mobile.data.repository
++
++import com.ssafy.mobile.data.model.SampleTodo
++import kotlinx.coroutines.flow.Flow
++
++data class SampleLocalSnapshot(
++    val todo: SampleTodo?,
++    val lastSyncAt: Long?,
++    val lastSyncedTodoId: Int?
++)
++
++interface SampleRepository {
++    val localSnapshot: Flow<SampleLocalSnapshot>
++
++    suspend fun refreshSampleTodo(todoId: Int = 1): Result<SampleTodo>
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/ui/MobileContract.kt b/mobile/app/src/main/java/com/ssafy/mobile/ui/MobileContract.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/ui/MobileContract.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/ui/MobileContract.kt
+@@ -1,11 +1,16 @@
+ package com.ssafy.mobile.ui
+ 
+ data class MobileUiState(
+-    val message: String = "Android mobile base is ready.",
+-    val tapCount: Int = 0
++    val statusMessage: String = "Tap the button to call sample API and sync local storage.",
++    val isLoading: Boolean = false,
++    val todoTitle: String = "No local data yet.",
++    val isCompleted: Boolean? = null,
++    val lastSyncedTodoId: Int? = null,
++    val lastSyncedAt: String = "-",
++    val errorMessage: String? = null
+ )
+ 
+ sealed interface MobileIntent {
+-    data object TapPrimaryButton : MobileIntent
++    data object FetchSampleData : MobileIntent
++    data object ClearError : MobileIntent
+ }
+-
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/ui/MobileRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/ui/MobileRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/ui/MobileRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/ui/MobileRoute.kt
+@@ -4,7 +4,10 @@ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.widthIn
+ import androidx.compose.material3.Button
++import androidx.compose.material3.CircularProgressIndicator
++import androidx.compose.material3.ElevatedCard
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Scaffold
+ import androidx.compose.material3.Text
+@@ -12,6 +15,7 @@ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.getValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.tooling.preview.Preview
+ import androidx.compose.ui.unit.dp
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+@@ -19,18 +23,24 @@ import androidx.lifecycle.viewmodel.compose.viewModel
+ import com.ssafy.mobile.ui.theme.MobileTheme
+ 
+ @Composable
+-fun MobileRoute(viewModel: MobileViewModel = viewModel()) {
++fun MobileRoute() {
++    val context = LocalContext.current.applicationContext
++    val viewModel: MobileViewModel = viewModel(
++        factory = MobileViewModel.provideFactory(context)
++    )
+     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+     MobileScreen(
+         uiState = uiState,
+-        onPrimaryClick = { viewModel.onIntent(MobileIntent.TapPrimaryButton) }
++        onRefreshClick = { viewModel.onIntent(MobileIntent.FetchSampleData) },
++        onClearError = { viewModel.onIntent(MobileIntent.ClearError) }
+     )
+ }
+ 
+ @Composable
+ private fun MobileScreen(
+     uiState: MobileUiState,
+-    onPrimaryClick: () -> Unit
++    onRefreshClick: () -> Unit,
++    onClearError: () -> Unit
+ ) {
+     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+         Column(
+@@ -46,18 +56,55 @@ private fun MobileScreen(
+                 style = MaterialTheme.typography.headlineMedium
+             )
+             Text(
+-                text = uiState.message,
++                text = uiState.statusMessage,
+                 modifier = Modifier.padding(top = 12.dp)
+             )
+-            Text(
+-                text = "Tap count: ${uiState.tapCount}",
+-                modifier = Modifier.padding(top = 8.dp)
+-            )
++
++            ElevatedCard(
++                modifier = Modifier
++                    .padding(top = 20.dp)
++                    .widthIn(max = 460.dp)
++            ) {
++                Column(modifier = Modifier.padding(16.dp)) {
++                    Text(text = "Cached Todo Title: ${uiState.todoTitle}")
++                    Text(
++                        text = "Completed: ${uiState.isCompleted?.toString() ?: "-"}",
++                        modifier = Modifier.padding(top = 6.dp)
++                    )
++                    Text(
++                        text = "Last Synced Todo ID: ${uiState.lastSyncedTodoId ?: "-"}",
++                        modifier = Modifier.padding(top = 6.dp)
++                    )
++                    Text(
++                        text = "Last Synced At: ${uiState.lastSyncedAt}",
++                        modifier = Modifier.padding(top = 6.dp)
++                    )
++                }
++            }
++
++            if (uiState.isLoading) {
++                CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
++            }
++
+             Button(
+-                onClick = onPrimaryClick,
++                onClick = onRefreshClick,
+                 modifier = Modifier.padding(top = 20.dp)
+             ) {
+-                Text("Change State")
++                Text("Fetch Sample API")
++            }
++
++            if (uiState.errorMessage != null) {
++                Text(
++                    text = "Error: ${uiState.errorMessage}",
++                    color = MaterialTheme.colorScheme.error,
++                    modifier = Modifier.padding(top = 12.dp)
++                )
++                Button(
++                    onClick = onClearError,
++                    modifier = Modifier.padding(top = 8.dp)
++                ) {
++                    Text("Clear Error")
++                }
+             }
+         }
+     }
+@@ -67,7 +114,10 @@ private fun MobileScreen(
+ @Composable
+ private fun MobileScreenPreview() {
+     MobileTheme {
+-        MobileScreen(uiState = MobileUiState(), onPrimaryClick = {})
++        MobileScreen(
++            uiState = MobileUiState(),
++            onRefreshClick = {},
++            onClearError = {}
++        )
+     }
+ }
+-
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/ui/MobileViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/ui/MobileViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/ui/MobileViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/ui/MobileViewModel.kt
+@@ -1,30 +1,106 @@
+ package com.ssafy.mobile.ui
+ 
++import android.content.Context
+ import androidx.lifecycle.ViewModel
++import androidx.lifecycle.ViewModelProvider
++import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.data.repository.RepositoryModule
++import com.ssafy.mobile.data.repository.SampleRepository
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.StateFlow
+ import kotlinx.coroutines.flow.asStateFlow
+ import kotlinx.coroutines.flow.update
++import kotlinx.coroutines.launch
++import java.time.Instant
++import java.time.ZoneId
++import java.time.format.DateTimeFormatter
+ 
+-class MobileViewModel : ViewModel() {
+-    private val initialMessage = "Android mobile base is ready."
+-    private val changedMessage = "State changed from ViewModel."
+-
++class MobileViewModel(
++    private val sampleRepository: SampleRepository
++) : ViewModel() {
+     private val _uiState = MutableStateFlow(MobileUiState())
+     val uiState: StateFlow<MobileUiState> = _uiState.asStateFlow()
+ 
++    init {
++        observeLocalSnapshot()
++    }
++
+     fun onIntent(intent: MobileIntent) {
+         when (intent) {
+-            MobileIntent.TapPrimaryButton -> {
++            MobileIntent.FetchSampleData -> fetchSampleData()
++            MobileIntent.ClearError -> _uiState.update { it.copy(errorMessage = null) }
++        }
++    }
++
++    private fun observeLocalSnapshot() {
++        viewModelScope.launch {
++            sampleRepository.localSnapshot.collect { snapshot ->
+                 _uiState.update { current ->
+-                    val nextTapCount = current.tapCount + 1
+                     current.copy(
+-                        message = if (nextTapCount % 2 == 0) initialMessage else changedMessage,
+-                        tapCount = nextTapCount
++                        todoTitle = snapshot.todo?.title ?: "No local data yet.",
++                        isCompleted = snapshot.todo?.completed,
++                        lastSyncedTodoId = snapshot.lastSyncedTodoId,
++                        lastSyncedAt = snapshot.lastSyncAt?.toDisplayDateTime() ?: "-",
++                        statusMessage = if (snapshot.todo == null) {
++                            "Tap the button to call sample API and sync local storage."
++                        } else {
++                            "Sample data is synced. Data loaded from Room + DataStore."
++                        }
+                     )
+                 }
+             }
+         }
+     }
+-}
+ 
++    private fun fetchSampleData() {
++        viewModelScope.launch {
++            _uiState.update {
++                it.copy(
++                    isLoading = true,
++                    errorMessage = null,
++                    statusMessage = "Fetching sample todo from API..."
++                )
++            }
++
++            val result = sampleRepository.refreshSampleTodo()
++            _uiState.update { current ->
++                result.fold(
++                    onSuccess = { todo ->
++                        current.copy(
++                            isLoading = false,
++                            statusMessage = "Sample API synced successfully (todo id: ${todo.id})."
++                        )
++                    },
++                    onFailure = { throwable ->
++                        current.copy(
++                            isLoading = false,
++                            statusMessage = "Sample API sync failed.",
++                            errorMessage = throwable.message ?: "Unknown error"
++                        )
++                    }
++                )
++            }
++        }
++    }
++
++    companion object {
++        private val dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
++
++        fun provideFactory(context: Context): ViewModelProvider.Factory =
++            object : ViewModelProvider.Factory {
++                @Suppress("UNCHECKED_CAST")
++                override fun <T : ViewModel> create(modelClass: Class<T>): T {
++                    if (modelClass.isAssignableFrom(MobileViewModel::class.java)) {
++                        val repository = RepositoryModule.provideSampleRepository(context)
++                        return MobileViewModel(sampleRepository = repository) as T
++                    }
++                    throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
++                }
++            }
++
++        private fun Long.toDisplayDateTime(): String =
++            Instant.ofEpochMilli(this)
++                .atZone(ZoneId.systemDefault())
++                .format(dateTimeFormatter)
++    }
++}
+
+
+diff --git a/mobile/app/src/main/AndroidManifest.xml b/mobile/app/src/main/AndroidManifest.xml
+--- a/mobile/app/src/main/AndroidManifest.xml
++++ b/mobile/app/src/main/AndroidManifest.xml
+@@ -2,6 +2,8 @@
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+     xmlns:tools="http://schemas.android.com/tools">
+ 
++    <uses-permission android:name="android.permission.INTERNET" />
++
+     <application
+         android:allowBackup="true"
+         android:dataExtractionRules="@xml/data_extraction_rules"
+@@ -24,4 +26,4 @@
+         </activity>
+     </application>
+ 
+-</manifest>
+\ No newline at end of file
++</manifest>
+
+
+diff --git a/mobile/app/build.gradle.kts b/mobile/app/build.gradle.kts
+--- a/mobile/app/build.gradle.kts
++++ b/mobile/app/build.gradle.kts
+@@ -1,6 +1,7 @@
+ plugins {
+     alias(libs.plugins.android.application)
+     alias(libs.plugins.kotlin.compose)
++    alias(libs.plugins.ksp)
+ }
+ 
+ android {
+@@ -35,6 +36,10 @@ android {
+     }
+ }
+ 
++ksp {
++    arg("room.schemaLocation", "$projectDir/schemas")
++}
++
+ dependencies {
+     implementation(libs.androidx.core.ktx)
+     implementation(libs.androidx.lifecycle.runtime.ktx)
+@@ -47,6 +52,14 @@ dependencies {
+     implementation(libs.androidx.compose.ui.graphics)
+     implementation(libs.androidx.compose.ui.tooling.preview)
+     implementation(libs.androidx.compose.material3)
++    implementation(libs.retrofit.core)
++    implementation(libs.retrofit.converter.gson)
++    implementation(libs.okhttp.core)
++    implementation(libs.okhttp.logging)
++    implementation(libs.androidx.room.runtime)
++    implementation(libs.androidx.room.ktx)
++    implementation(libs.androidx.datastore.preferences)
++    ksp(libs.androidx.room.compiler)
+     testImplementation(libs.junit)
+     androidTestImplementation(libs.androidx.junit)
+     androidTestImplementation(libs.androidx.espresso.core)
+
+
+diff --git a/mobile/gradle/libs.versions.toml b/mobile/gradle/libs.versions.toml
+--- a/mobile/gradle/libs.versions.toml
++++ b/mobile/gradle/libs.versions.toml
+@@ -8,6 +8,11 @@ lifecycleRuntimeKtx = "2.8.7"
+ activityCompose = "1.9.3"
+ kotlin = "2.3.20"
+ composeBom = "2026.02.01"
++retrofit = "2.11.0"
++okhttp = "4.12.0"
++room = "2.7.1"
++datastore = "1.1.2"
++ksp = "2.3.7"
+ 
+ [libraries]
+ androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+@@ -27,7 +32,16 @@ androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "u
+ androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+ androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+ androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
++retrofit-core = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
++retrofit-converter-gson = { group = "com.squareup.retrofit2", name = "converter-gson", version.ref = "retrofit" }
++okhttp-core = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
++okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
++androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
++androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
++androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
++androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+ 
+ [plugins]
+ android-application = { id = "com.android.application", version.ref = "agp" }
+ kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
++ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+
+
+diff --git a/mobile/build.gradle.kts b/mobile/build.gradle.kts
+--- a/mobile/build.gradle.kts
++++ b/mobile/build.gradle.kts
+@@ -2,4 +2,5 @@
+ plugins {
+     alias(libs.plugins.android.application) apply false
+     alias(libs.plugins.kotlin.compose) apply false
++    alias(libs.plugins.ksp) apply false
+ }
+
+

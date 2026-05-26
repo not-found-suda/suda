@@ -1,0 +1,199 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionHandler.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionHandler.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionHandler.kt
+@@ -0,0 +1,77 @@
++package com.ssafy.mobile.core.permission
++
++import android.Manifest
++import android.content.pm.PackageManager
++import androidx.activity.ComponentActivity
++import androidx.activity.result.ActivityResultLauncher
++import androidx.activity.result.contract.ActivityResultContracts
++import androidx.core.content.ContextCompat
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++
++/**
++ * 카메라 및 마이크 권한 요청을 통합 관리하는 핸들러.
++ * Activity에서 초기화하여 사용합니다.
++ */
++class PermissionHandler(
++    private val activity: ComponentActivity,
++) {
++    private val requiredPermissions =
++        arrayOf(
++            Manifest.permission.CAMERA,
++            Manifest.permission.RECORD_AUDIO,
++        )
++
++    private val _permissionState =
++        MutableStateFlow<PermissionRequestState>(PermissionRequestState.Idle)
++    val permissionState: StateFlow<PermissionRequestState> = _permissionState.asStateFlow()
++
++    /** 권한 요청 런처 등록 */
++    private val requestPermissionLauncher: ActivityResultLauncher<Array<String>> =
++        activity.registerForActivityResult(
++            ActivityResultContracts.RequestMultiplePermissions(),
++        ) { permissions ->
++            val allGranted = permissions.entries.all { it.value }
++            if (allGranted) {
++                _permissionState.value = PermissionRequestState.Granted
++            } else {
++                // 권한 거부 시, '다시 묻지 않음' 상태인지 확인
++                val shouldShowRationale =
++                    requiredPermissions.any {
++                        activity.shouldShowRequestPermissionRationale(it)
++                    }
++                _permissionState.value =
++                    if (shouldShowRationale) {
++                        PermissionRequestState.Denied
++                    } else {
++                        PermissionRequestState.PermanentlyDenied
++                    }
++            }
++        }
++
++    /** 현재 권한 상태 체크 및 요청 */
++    fun checkAndRequestPermissions() {
++        val allGranted =
++            requiredPermissions.all {
++                ContextCompat.checkSelfPermission(activity, it) == PackageManager.PERMISSION_GRANTED
++            }
++
++        if (allGranted) {
++            _permissionState.value = PermissionRequestState.Granted
++        } else {
++            _permissionState.value = PermissionRequestState.ShouldRequest
++            requestPermissionLauncher.launch(requiredPermissions)
++        }
++    }
++
++    /** 설정창으로 이동 (영구 거부 시 사용) */
++    fun openAppSettings() {
++        val intent =
++            android.content.Intent(
++                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
++                android.net.Uri.fromParts("package", activity.packageName, null),
++            )
++        activity.startActivity(intent)
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt b/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
+@@ -4,20 +4,82 @@ import android.os.Bundle
+ import androidx.activity.ComponentActivity
+ import androidx.activity.compose.setContent
+ import androidx.activity.enableEdgeToEdge
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.runtime.DisposableEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.lifecycle.Lifecycle
++import androidx.lifecycle.LifecycleEventObserver
++import androidx.lifecycle.compose.LocalLifecycleOwner
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import androidx.navigation.compose.rememberNavController
+ import com.ssafy.mobile.core.navigation.MobileNavHost
++import com.ssafy.mobile.core.permission.PermissionGuide
++import com.ssafy.mobile.core.permission.PermissionHandler
++import com.ssafy.mobile.core.permission.PermissionRequestState
+ import com.ssafy.mobile.core.ui.theme.MobileTheme
+ import dagger.hilt.android.AndroidEntryPoint
+ 
+ @AndroidEntryPoint
+ class MainActivity : ComponentActivity() {
++    private lateinit var permissionHandler: PermissionHandler
++
+     override fun onCreate(savedInstanceState: Bundle?) {
+         super.onCreate(savedInstanceState)
++
++        permissionHandler = PermissionHandler(this)
++        // 앱 시작 시 권한 체크 및 요청
++        permissionHandler.checkAndRequestPermissions()
++
+         enableEdgeToEdge()
+         setContent {
++            val lifecycleOwner = LocalLifecycleOwner.current
++
++            // 사용자가 설정 화면에서 돌아왔을 때를 대비하여 ON_RESUME 시점에 권한 재확인
++            DisposableEffect(lifecycleOwner) {
++                val observer =
++                    LifecycleEventObserver { _, event ->
++                        if (event == Lifecycle.Event.ON_RESUME) {
++                            permissionHandler.checkAndRequestPermissions()
++                        }
++                    }
++                lifecycleOwner.lifecycle.addObserver(observer)
++                onDispose {
++                    lifecycleOwner.lifecycle.removeObserver(observer)
++                }
++            }
++
+             MobileTheme {
+-                val navController = rememberNavController()
+-                MobileNavHost(navController = navController)
++                val permissionState by permissionHandler.permissionState
++                    .collectAsStateWithLifecycle()
++
++                Box(modifier = Modifier.fillMaxSize()) {
++                    val navController = rememberNavController()
++                    MobileNavHost(navController = navController)
++
++                    // 권한이 거부되었거나 영구 거부된 경우 안내 화면 표시
++                    when (permissionState) {
++                        is PermissionRequestState.Denied -> {
++                            PermissionGuide(
++                                title = "필수 권한 안내",
++                                description = "원활한 서비스 이용을 위해 카메라와 마이크 권한이 필요합니다.",
++                                onOpenSettings = { permissionHandler.checkAndRequestPermissions() },
++                                modifier = Modifier.align(Alignment.Center),
++                            )
++                        }
++                        is PermissionRequestState.PermanentlyDenied -> {
++                            PermissionGuide(
++                                title = "권한 설정 필요",
++                                description = "카메라 및 마이크 권한이 영구적으로 거부되었습니다. 설정에서 직접 권한을 허용해주세요.",
++                                onOpenSettings = { permissionHandler.openAppSettings() },
++                                modifier = Modifier.align(Alignment.Center),
++                            )
++                        }
++                        else -> { /* Idle, ShouldRequest, Granted 상태에서는 아무것도 표시하지 않음 */ }
++                    }
++                }
+             }
+         }
+     }
+
+
+diff --git a/mobile/app/src/main/AndroidManifest.xml b/mobile/app/src/main/AndroidManifest.xml
+--- a/mobile/app/src/main/AndroidManifest.xml
++++ b/mobile/app/src/main/AndroidManifest.xml
+@@ -3,6 +3,12 @@
+     xmlns:tools="http://schemas.android.com/tools">
+ 
+     <uses-permission android:name="android.permission.INTERNET" />
++    <uses-permission android:name="android.permission.CAMERA" />
++    <uses-permission android:name="android.permission.RECORD_AUDIO" />
++
++    <uses-feature
++        android:name="android.hardware.camera"
++        android:required="false" />
+ 
+     <application
+         android:name=".MobileApplication"
+@@ -17,7 +23,6 @@
+         <activity
+             android:name=".MainActivity"
+             android:exported="true"
+-            android:label="@string/app_name"
+             android:theme="@style/Theme.Mobile">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+
+

@@ -1,0 +1,1042 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningQuizApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningQuizApiService.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningQuizApiService.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningQuizApiService.kt
+@@ -1,6 +1,5 @@
+ package com.ssafy.mobile.feature.learning.data.api
+ 
+-import com.ssafy.mobile.feature.learning.data.dto.LearningQuizAnswerRequestDto
+ import com.ssafy.mobile.feature.learning.data.dto.LearningQuizAnswerResponseDto
+ import com.ssafy.mobile.feature.learning.data.dto.LearningQuizCurrentQuestionResponseDto
+ import com.ssafy.mobile.feature.learning.data.dto.LearningQuizResultResponseDto
+@@ -8,11 +7,15 @@ import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionRequestDto
+ import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionResponseDto
+ import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionStatusRequestDto
+ import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionStatusResponseDto
++import okhttp3.MultipartBody
++import okhttp3.RequestBody
+ import retrofit2.Response
+ import retrofit2.http.Body
+ import retrofit2.http.GET
++import retrofit2.http.Multipart
+ import retrofit2.http.PATCH
+ import retrofit2.http.POST
++import retrofit2.http.Part
+ import retrofit2.http.Path
+ 
+ interface LearningQuizApiService {
+@@ -26,10 +29,12 @@ interface LearningQuizApiService {
+         @Path("sessionId") sessionId: Long,
+     ): Response<LearningQuizCurrentQuestionResponseDto>
+ 
++    @Multipart
+     @POST("v1/learn/quizzes/sessions/{sessionId}/answers")
+     suspend fun submitAnswer(
+         @Path("sessionId") sessionId: Long,
+-        @Body request: LearningQuizAnswerRequestDto,
++        @Part("questionId") questionId: RequestBody,
++        @Part audioFile: MultipartBody.Part,
+     ): Response<LearningQuizAnswerResponseDto>
+ 
+     @PATCH("v1/learn/quizzes/sessions/{sessionId}")
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDto.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDto.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDto.kt
+@@ -79,15 +79,6 @@ data class LearningQuizCurrentQuestionResponseDto(
+         )
+ }
+ 
+-data class LearningQuizAnswerRequestDto(
+-    @SerializedName("questionId")
+-    val questionId: Long,
+-    @SerializedName("wordId")
+-    val wordId: Long,
+-    @SerializedName("recognizedText")
+-    val recognizedText: String,
+-)
+-
+ data class LearningQuizAnswerResponseDto(
+     @SerializedName("sessionId")
+     val sessionId: Long,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/LearningQuizAnswerSubmissionQueueSyncer.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/LearningQuizAnswerSubmissionQueueSyncer.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/LearningQuizAnswerSubmissionQueueSyncer.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/LearningQuizAnswerSubmissionQueueSyncer.kt
+@@ -2,27 +2,18 @@ package com.ssafy.mobile.feature.learning.data.repository
+ 
+ import android.util.Log
+ import com.ssafy.mobile.core.network.NetworkMonitor
+-import com.ssafy.mobile.feature.learning.data.api.LearningQuizApiService
+-import com.ssafy.mobile.feature.learning.data.dto.LearningQuizAnswerRequestDto
+-import com.ssafy.mobile.feature.learning.data.dto.LearningQuizAnswerResponseDto
+-import com.ssafy.mobile.feature.learning.domain.model.LearningQuizAnswerSubmissionSyncEvent
+ import com.ssafy.mobile.feature.learning.domain.model.PendingLearningQuizAnswerSubmission
+ import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizAnswerSubmissionQueueRepository
+-import java.io.IOException
+ import javax.inject.Inject
+ import javax.inject.Singleton
+ import kotlin.coroutines.cancellation.CancellationException
+ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.SupervisorJob
+-import kotlinx.coroutines.flow.MutableSharedFlow
+-import kotlinx.coroutines.flow.SharedFlow
+-import kotlinx.coroutines.flow.asSharedFlow
+ import kotlinx.coroutines.flow.filter
+ import kotlinx.coroutines.launch
+ import kotlinx.coroutines.sync.Mutex
+ import kotlinx.coroutines.sync.withLock
+-import retrofit2.Response
+ 
+ @Singleton
+ class LearningQuizAnswerSubmissionQueueSyncer
+@@ -30,13 +21,9 @@ class LearningQuizAnswerSubmissionQueueSyncer
+     constructor(
+         private val networkMonitor: NetworkMonitor,
+         private val queueRepository: LearningQuizAnswerSubmissionQueueRepository,
+-        private val apiService: LearningQuizApiService,
+     ) {
+         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+         private val syncMutex = Mutex()
+-        private val _events =
+-            MutableSharedFlow<LearningQuizAnswerSubmissionSyncEvent>(extraBufferCapacity = 16)
+-        val events: SharedFlow<LearningQuizAnswerSubmissionSyncEvent> = _events.asSharedFlow()
+         private var isStarted = false
+ 
+         fun start() {
+@@ -73,96 +60,24 @@ class LearningQuizAnswerSubmissionQueueSyncer
+             submission: PendingLearningQuizAnswerSubmission,
+         ): Boolean =
+             try {
+-                val response =
+-                    apiService.submitAnswer(
+-                        sessionId = submission.sessionId,
+-                        request =
+-                            LearningQuizAnswerRequestDto(
+-                                questionId = submission.questionId,
+-                                wordId = submission.wordId,
+-                                recognizedText = submission.recognizedText,
+-                            ),
+-                    )
+-
+-                handleSyncResponse(
+-                    submission = submission,
+-                    response = response,
++                Log.i(
++                    TAG,
++                    "Dropping legacy text quiz answer submission: " +
++                        "sessionId=${submission.sessionId}, questionId=${submission.questionId}",
++                )
++                queueRepository.deleteAnswerSubmission(
++                    sessionId = submission.sessionId,
++                    questionId = submission.questionId,
+                 )
++                true
+             } catch (e: CancellationException) {
+                 throw e
+-            } catch (e: IOException) {
+-                markRetryFailed(submission, e.message)
+-                false
+             } catch (e: Exception) {
+-                Log.e(TAG, "Failed to resend pending quiz answer", e)
++                Log.e(TAG, "Failed to drop legacy pending quiz answer", e)
+                 markRetryFailed(submission, e.message)
+                 true
+             }
+ 
+-        private suspend fun handleSyncResponse(
+-            submission: PendingLearningQuizAnswerSubmission,
+-            response: Response<LearningQuizAnswerResponseDto>,
+-        ): Boolean =
+-            when {
+-                response.isSuccessful -> {
+-                    val body = response.body()
+-                    queueRepository.deleteAnswerSubmission(
+-                        sessionId = submission.sessionId,
+-                        questionId = submission.questionId,
+-                    )
+-                    if (body != null) {
+-                        _events.emit(
+-                            LearningQuizAnswerSubmissionSyncEvent.AnswerSynced(
+-                                result = body.toDomain(),
+-                            ),
+-                        )
+-                    } else {
+-                        emitAnswerAcceptedWithoutResult(submission)
+-                    }
+-                    true
+-                }
+-                response.code() == HTTP_STATUS_CONFLICT -> {
+-                    queueRepository.deleteAnswerSubmission(
+-                        sessionId = submission.sessionId,
+-                        questionId = submission.questionId,
+-                    )
+-                    emitAnswerAcceptedWithoutResult(submission)
+-                    true
+-                }
+-                response.code().isPermanentFailureStatusCode() -> {
+-                    queueRepository.deleteAnswerSubmission(
+-                        sessionId = submission.sessionId,
+-                        questionId = submission.questionId,
+-                    )
+-                    true
+-                }
+-                response.code().isAuthFailureStatusCode() -> {
+-                    markRetryFailed(
+-                        submission = submission,
+-                        failureMessage = "인증 후 다시 전송이 필요합니다.",
+-                    )
+-                    false
+-                }
+-                else -> {
+-                    markRetryFailed(
+-                        submission = submission,
+-                        failureMessage = "서버 응답 오류: ${response.code()}",
+-                    )
+-                    true
+-                }
+-            }
+-
+-        private suspend fun emitAnswerAcceptedWithoutResult(
+-            submission: PendingLearningQuizAnswerSubmission,
+-        ) {
+-            _events.emit(
+-                LearningQuizAnswerSubmissionSyncEvent.AnswerAcceptedWithoutResult(
+-                    sessionId = submission.sessionId,
+-                    questionId = submission.questionId,
+-                ),
+-            )
+-        }
+-
+         private suspend fun markRetryFailed(
+             submission: PendingLearningQuizAnswerSubmission,
+             failureMessage: String?,
+@@ -175,19 +90,7 @@ class LearningQuizAnswerSubmissionQueueSyncer
+             )
+         }
+ 
+-        private fun Int.isPermanentFailureStatusCode(): Boolean =
+-            this == HTTP_STATUS_BAD_REQUEST ||
+-                this == HTTP_STATUS_NOT_FOUND
+-
+-        private fun Int.isAuthFailureStatusCode(): Boolean =
+-            this == HTTP_STATUS_UNAUTHORIZED || this == HTTP_STATUS_FORBIDDEN
+-
+         private companion object {
+             const val TAG = "LearningAnswerQueue"
+-            const val HTTP_STATUS_BAD_REQUEST = 400
+-            const val HTTP_STATUS_UNAUTHORIZED = 401
+-            const val HTTP_STATUS_FORBIDDEN = 403
+-            const val HTTP_STATUS_NOT_FOUND = 404
+-            const val HTTP_STATUS_CONFLICT = 409
+         }
+     }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningQuizRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningQuizRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningQuizRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningQuizRepository.kt
+@@ -2,7 +2,6 @@ package com.ssafy.mobile.feature.learning.data.repository
+ 
+ import android.util.Log
+ import com.ssafy.mobile.feature.learning.data.api.LearningQuizApiService
+-import com.ssafy.mobile.feature.learning.data.dto.LearningQuizAnswerRequestDto
+ import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionRequestDto
+ import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionStatusRequestDto
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizAnswerResult
+@@ -10,12 +9,15 @@ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizQuestion
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizResult
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSession
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSessionStatus
+-import com.ssafy.mobile.feature.learning.domain.model.PendingLearningQuizAnswerSubmission
+-import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizAnswerSubmissionQueueRepository
+ import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizRepository
++import java.io.File
+ import java.io.IOException
+ import javax.inject.Inject
+ import kotlin.coroutines.cancellation.CancellationException
++import okhttp3.MediaType.Companion.toMediaTypeOrNull
++import okhttp3.MultipartBody
++import okhttp3.RequestBody.Companion.asRequestBody
++import okhttp3.RequestBody.Companion.toRequestBody
+ import retrofit2.Response
+ 
+ private const val QUIZ_TAG = "RemoteLearningQuizRepo"
+@@ -32,7 +34,6 @@ class RemoteLearningQuizRepository
+     @Inject
+     constructor(
+         private val apiService: LearningQuizApiService,
+-        private val queueRepository: LearningQuizAnswerSubmissionQueueRepository,
+     ) : LearningQuizRepository {
+         override suspend fun createSession(
+             childProfileId: Long,
+@@ -64,66 +65,19 @@ class RemoteLearningQuizRepository
+         override suspend fun submitAnswer(
+             sessionId: Long,
+             questionId: Long,
+-            wordId: Long,
+-            recognizedText: String,
+-        ): Result<LearningQuizAnswerResult> {
+-            val result =
+-                runCatchingNetwork("Failed to submit quiz answer") {
+-                    apiService
+-                        .submitAnswer(
+-                            sessionId = sessionId,
+-                            request =
+-                                LearningQuizAnswerRequestDto(
+-                                    questionId = questionId,
+-                                    wordId = wordId,
+-                                    recognizedText = recognizedText,
+-                                ),
+-                        ).toResult { response ->
+-                            response.toDomain()
+-                        }
+-                }
+-
+-            enqueuePendingAnswerSubmissionIfNeeded(
+-                result = result,
+-                sessionId = sessionId,
+-                questionId = questionId,
+-                wordId = wordId,
+-                recognizedText = recognizedText,
+-            )
+-            return result
+-        }
+-
+-        @Suppress("TooGenericExceptionCaught")
+-        private suspend fun enqueuePendingAnswerSubmissionIfNeeded(
+-            result: Result<LearningQuizAnswerResult>,
+-            sessionId: Long,
+-            questionId: Long,
+-            wordId: Long,
+-            recognizedText: String,
+-        ) {
+-            val failure = result.exceptionOrNull()
+-            if (failure !is IOException) return
+-
+-            try {
+-                val now = System.currentTimeMillis()
+-                queueRepository.enqueueAnswerSubmission(
+-                    PendingLearningQuizAnswerSubmission(
++            audioFile: File,
++            audioMimeType: String,
++        ): Result<LearningQuizAnswerResult> =
++            runCatchingNetwork("Failed to submit quiz answer") {
++                apiService
++                    .submitAnswer(
+                         sessionId = sessionId,
+-                        questionId = questionId,
+-                        wordId = wordId,
+-                        recognizedText = recognizedText,
+-                        retryCount = 0,
+-                        createdAtMillis = now,
+-                        updatedAtMillis = now,
+-                        lastFailureMessage = failure.message,
+-                    ),
+-                )
+-            } catch (e: CancellationException) {
+-                throw e
+-            } catch (e: Exception) {
+-                Log.e(QUIZ_TAG, "Failed to enqueue pending quiz answer", e)
++                        questionId = questionId.toString().toTextRequestBody(),
++                        audioFile = audioFile.toMultipartAudioPart(audioMimeType),
++                    ).toResult { response ->
++                        response.toDomain()
++                    }
+             }
+-        }
+ 
+         override suspend fun completeSession(sessionId: Long): Result<LearningQuizSessionStatus> =
+             runCatchingNetwork("Failed to complete quiz session") {
+@@ -194,4 +148,17 @@ class RemoteLearningQuizRepository
+                 HTTP_STATUS_INTERNAL_SERVER_ERROR -> "서버에서 퀴즈 요청 처리에 실패했습니다."
+                 else -> "퀴즈 요청 처리 중 오류가 발생했습니다."
+             }
++
++        private fun String.toTextRequestBody() =
++            toRequestBody(TEXT_PLAIN_MEDIA_TYPE.toMediaTypeOrNull())
++
++        private fun File.toMultipartAudioPart(audioMimeType: String): MultipartBody.Part =
++            MultipartBody.Part.createFormData(
++                name = AUDIO_FILE_PART_NAME,
++                filename = name,
++                body = asRequestBody(audioMimeType.toMediaTypeOrNull()),
++            )
+     }
++
++private const val TEXT_PLAIN_MEDIA_TYPE = "text/plain"
++private const val AUDIO_FILE_PART_NAME = "audioFile"
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningQuizRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningQuizRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningQuizRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningQuizRepository.kt
+@@ -5,6 +5,7 @@ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizQuestion
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizResult
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSession
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizSessionStatus
++import java.io.File
+ 
+ interface LearningQuizRepository {
+     suspend fun createSession(
+@@ -19,8 +20,8 @@ interface LearningQuizRepository {
+     suspend fun submitAnswer(
+         sessionId: Long,
+         questionId: Long,
+-        wordId: Long,
+-        recognizedText: String,
++        audioFile: File,
++        audioMimeType: String,
+     ): Result<LearningQuizAnswerResult>
+ 
+     suspend fun completeSession(sessionId: Long): Result<LearningQuizSessionStatus>
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizAnswer.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizAnswer.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizAnswer.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizAnswer.kt
+@@ -1,5 +1,7 @@
+ package com.ssafy.mobile.feature.quiz.domain.model
+ 
++import java.io.File
++
+ data class QuizAnswer(
+     val questionId: Long,
+     val sttText: String,
+@@ -7,6 +9,8 @@ data class QuizAnswer(
+     val attemptCount: Int,
+     val isCorrect: Boolean? = star?.let { it >= PASSING_STAR },
+     val feedback: String? = null,
++    val audioFile: File? = null,
++    val audioMimeType: String? = null,
+ ) {
+     val isScored: Boolean
+         get() = star != null && isCorrect != null
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+@@ -61,7 +61,7 @@ fun quizQuestionRoute(
+     val quizState by quizViewModel.quizState.collectAsStateWithLifecycle()
+     val answerSubmitState by quizViewModel.answerSubmitState.collectAsStateWithLifecycle()
+     val recordingStatus by recordingViewModel.status.collectAsStateWithLifecycle()
+-    val recognizedText by recordingViewModel.recognizedText.collectAsStateWithLifecycle()
++    val recordedAudio by recordingViewModel.recordedAudio.collectAsStateWithLifecycle()
+     val recordingController =
+         QuizRecordingController(
+             status = recordingStatus,
+@@ -82,10 +82,13 @@ fun quizQuestionRoute(
+         recordingViewModel.reset()
+     }
+ 
+-    LaunchedEffect(recognizedText) {
+-        val sttText = recognizedText ?: return@LaunchedEffect
+-        quizViewModel.submitRecognizedText(sttText)
+-        recordingViewModel.consumeRecognizedText()
++    LaunchedEffect(recordedAudio?.eventId) {
++        val audio = recordedAudio ?: return@LaunchedEffect
++        quizViewModel.submitRecordedAudio(
++            audioFile = audio.file,
++            audioMimeType = audio.mimeType,
++        )
++        recordingViewModel.consumeRecordedAudio()
+     }
+ 
+     LaunchedEffect(quizState.isFinished) {
+@@ -379,7 +382,7 @@ private fun QuizPrompt(
+             textAlign = TextAlign.Center,
+         )
+         Text(
+-            text = "음성 인식 후 답변을 저장할게요",
++            text = "녹음한 답변을 확인하고 채점할게요",
+             style = MaterialTheme.typography.titleMedium,
+             color = MaterialTheme.colorScheme.onSurfaceVariant,
+             textAlign = TextAlign.Center,
+@@ -413,7 +416,6 @@ private fun QuizActionArea(
+         !isProcessing &&
+             !isSubmitting &&
+             !isCompletionPending &&
+-            !isSaveFailed &&
+             !hasSuccessfulAnswer &&
+             !retryLimitReached
+     val canMoveNext =
+@@ -441,10 +443,10 @@ private fun QuizActionArea(
+             text =
+                 when {
+                     isRecording -> "말하기 완료"
+-                    isProcessing -> "음성 인식 중..."
++                    isProcessing -> "답변 준비 중..."
+                     isSubmitting -> "답변 저장 중..."
+                     isCompletionPending -> "답변 저장 완료"
+-                    isSaveFailed -> "저장 재시도 대기"
++                    isSaveFailed -> quizRetryButtonText(remainingRetryCount)
+                     hasAnswered -> quizRetryButtonText(remainingRetryCount)
+                     else -> "말하기"
+                 },
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
+@@ -4,17 +4,16 @@ import androidx.lifecycle.SavedStateHandle
+ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
+ import com.ssafy.mobile.core.session.ActiveChildStorage
+-import com.ssafy.mobile.feature.learning.data.repository.LearningQuizAnswerSubmissionQueueSyncer
+ import com.ssafy.mobile.feature.learning.domain.model.DEFAULT_LEARNING_DIFFICULTY
+ import com.ssafy.mobile.feature.learning.domain.model.DEFAULT_QUIZ_QUESTION_COUNT
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizAnswerResult
+-import com.ssafy.mobile.feature.learning.domain.model.LearningQuizAnswerSubmissionSyncEvent
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizQuestion
+ import com.ssafy.mobile.feature.learning.domain.repository.LearningQuizRepository
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizQuestion
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionState
+ import dagger.hilt.android.lifecycle.HiltViewModel
++import java.io.File
+ import javax.inject.Inject
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.flow.MutableStateFlow
+@@ -30,7 +29,6 @@ class QuizQuestionViewModel
+     constructor(
+         savedStateHandle: SavedStateHandle,
+         private val quizRepository: LearningQuizRepository,
+-        private val queueSyncer: LearningQuizAnswerSubmissionQueueSyncer,
+         private val activeChildStorage: ActiveChildStorage,
+     ) : ViewModel() {
+         val categoryId: Long =
+@@ -48,15 +46,11 @@ class QuizQuestionViewModel
+         val answerSubmitState: StateFlow<QuizAnswerSubmitState> = _answerSubmitState.asStateFlow()
+ 
+         init {
+-            viewModelScope.launch {
+-                queueSyncer.events.collect { event ->
+-                    handleAnswerSubmissionSyncEvent(event)
+-                }
+-            }
+             startSession()
+         }
+ 
+         fun restart() {
++            deletePendingAudioFiles()
+             _answerSubmitState.value = QuizAnswerSubmitState.Idle
+             isCompletionPending = false
+             startSession()
+@@ -72,17 +66,22 @@ class QuizQuestionViewModel
+             }
+         }
+ 
+-        fun submitRecognizedText(recognizedText: String) {
++        fun submitRecordedAudio(
++            audioFile: File,
++            audioMimeType: String,
++        ) {
+             val state = _quizState.value
+             val sessionId = state.sessionId
+             val question = state.currentQuestion
+-            val trimmedText = recognizedText.trim()
+             when {
+                 _answerSubmitState.value == QuizAnswerSubmitState.Submitting -> Unit
+                 isCompletionPending -> Unit
+                 sessionId == null -> Unit
+                 question == null -> Unit
+-                trimmedText.isBlank() -> Unit
++                audioFile.exists().not() -> {
++                    _answerSubmitState.value =
++                        QuizAnswerSubmitState.Error("녹음 파일을 확인할 수 없습니다. 다시 시도해 주세요.")
++                }
+                 question.word.isBlank() -> {
+                     _answerSubmitState.value =
+                         QuizAnswerSubmitState.Error("문제 단어 정보를 확인할 수 없습니다.")
+@@ -93,10 +92,16 @@ class QuizQuestionViewModel
+                     val answer =
+                         QuizAnswer(
+                             questionId = question.id,
+-                            sttText = trimmedText,
++                            sttText = "",
+                             attemptCount = (previousAnswer?.attemptCount ?: 0) + 1,
++                            audioFile = audioFile,
++                            audioMimeType = audioMimeType,
+                         )
+ 
++                    previousAnswer
++                        ?.audioFile
++                        ?.takeIf { it != audioFile }
++                        ?.delete()
+                     _quizState.value =
+                         state.copy(
+                             answers = state.answers.replaceAnswer(answer),
+@@ -158,6 +163,11 @@ class QuizQuestionViewModel
+             }
+         }
+ 
++        override fun onCleared() {
++            deletePendingAudioFiles()
++            super.onCleared()
++        }
++
+         private fun startSession() {
+             viewModelScope.launch {
+                 _quizState.value = QuizSessionState(isLoading = true)
+@@ -315,6 +325,16 @@ class QuizQuestionViewModel
+         ) {
+             if (_answerSubmitState.value == QuizAnswerSubmitState.Submitting) return
+ 
++            val audioFile = answer.audioFile
++            val audioMimeType = answer.audioMimeType
++            if (audioFile == null || audioMimeType == null || audioFile.exists().not()) {
++                _answerSubmitState.value =
++                    QuizAnswerSubmitState.SaveFailed(
++                        "녹음 파일을 확인할 수 없습니다. 다시 말해 주세요.",
++                    )
++                return
++            }
++
+             _answerSubmitState.value = QuizAnswerSubmitState.Submitting
+             viewModelScope.launch {
+                 val result =
+@@ -322,13 +342,14 @@ class QuizQuestionViewModel
+                         quizRepository.submitAnswer(
+                             sessionId = sessionId,
+                             questionId = question.id,
+-                            wordId = question.wordId,
+-                            recognizedText = answer.sttText,
++                            audioFile = audioFile,
++                            audioMimeType = audioMimeType,
+                         )
+                     }
+ 
+                 result
+                     .onSuccess { answerResult ->
++                        audioFile.delete()
+                         applyAnswerResult(answerResult)
+                         _answerSubmitState.value = QuizAnswerSubmitState.Success
+                     }.onFailure { throwable ->
+@@ -360,50 +381,9 @@ class QuizQuestionViewModel
+                 }
+         }
+ 
+-        private fun handleAnswerSubmissionSyncEvent(event: LearningQuizAnswerSubmissionSyncEvent) {
+-            val state = _quizState.value
+-            val question = state.currentQuestion
+-            when (event) {
+-                is LearningQuizAnswerSubmissionSyncEvent.AnswerSynced -> {
+-                    val result = event.result
+-                    val isCurrentFailedAnswer =
+-                        _answerSubmitState.value is QuizAnswerSubmitState.SaveFailed &&
+-                            state.sessionId == result.sessionId &&
+-                            question?.id == result.questionId
+-
+-                    if (isCurrentFailedAnswer) {
+-                        applyAnswerResult(result)
+-                        if (result.hasNext) {
+-                            _answerSubmitState.value = QuizAnswerSubmitState.Success
+-                            loadCurrentQuestion(result.sessionId)
+-                        } else {
+-                            isCompletionPending = true
+-                            viewModelScope.launch {
+-                                _answerSubmitState.value = QuizAnswerSubmitState.Submitting
+-                                completeSession(result.sessionId)
+-                            }
+-                        }
+-                    }
+-                }
+-                is LearningQuizAnswerSubmissionSyncEvent.AnswerAcceptedWithoutResult -> {
+-                    val isCurrentFailedAnswer =
+-                        _answerSubmitState.value is QuizAnswerSubmitState.SaveFailed &&
+-                            state.sessionId == event.sessionId &&
+-                            question?.id == event.questionId
+-
+-                    if (isCurrentFailedAnswer) {
+-                        _answerSubmitState.value = QuizAnswerSubmitState.Success
+-                        if (state.isLastQuestion()) {
+-                            isCompletionPending = true
+-                            viewModelScope.launch {
+-                                _answerSubmitState.value = QuizAnswerSubmitState.Submitting
+-                                completeSession(event.sessionId)
+-                            }
+-                        } else {
+-                            loadCurrentQuestion(event.sessionId)
+-                        }
+-                    }
+-                }
++        private fun deletePendingAudioFiles() {
++            _quizState.value.answers.forEach { answer ->
++                answer.audioFile?.delete()
+             }
+         }
+     }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingState.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingState.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingState.kt
+@@ -72,10 +72,10 @@ private fun QuizRecordingStatus.message(
+         QuizRecordingStatus.Recording -> "듣고 있어요. 다 말했으면 버튼을 눌러 주세요."
+         QuizRecordingStatus.FallbackRecording ->
+             "서버 인식이 어려워 기기에서 다시 듣고 있어요. 한 번 더 말해 주세요."
+-        QuizRecordingStatus.Processing -> "말한 단어를 인식하고 있어요."
++        QuizRecordingStatus.Processing -> "녹음 파일을 준비하고 있어요."
+         QuizRecordingStatus.Completed ->
+             if (recognizedText.isNullOrBlank()) {
+-                "단어를 인식했어요."
++                "녹음을 저장했어요. 답변을 확인하고 있어요."
+             } else {
+                 "인식 결과: $recognizedText"
+             }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingViewModel.kt
+@@ -1,273 +1,87 @@
+ package com.ssafy.mobile.feature.quiz.presentation
+ 
+ import androidx.lifecycle.ViewModel
+-import androidx.lifecycle.viewModelScope
+ import com.ssafy.mobile.core.audio.AndroidAudioRecorder
+-import com.ssafy.mobile.core.network.NetworkMonitor
+-import com.ssafy.mobile.core.stt.SttEngine
+-import com.ssafy.mobile.core.stt.SttErrorType
+-import com.ssafy.mobile.core.stt.SttEvent
+-import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import java.io.File
+ import javax.inject.Inject
+-import kotlin.coroutines.cancellation.CancellationException
+-import kotlinx.coroutines.Dispatchers
+-import kotlinx.coroutines.Job
+-import kotlinx.coroutines.delay
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.StateFlow
+ import kotlinx.coroutines.flow.asStateFlow
+-import kotlinx.coroutines.launch
+-import kotlinx.coroutines.withContext
+ 
+-@Suppress("TooManyFunctions")
+ @HiltViewModel
+ class QuizRecordingViewModel
+     @Inject
+     constructor(
+-        private val sttEngine: SttEngine,
+         private val audioRecorder: AndroidAudioRecorder,
+-        private val translateRepository: TranslateRepository,
+-        private val networkMonitor: NetworkMonitor,
+     ) : ViewModel() {
+         private val _status = MutableStateFlow(QuizRecordingStatus.Idle)
+         val status: StateFlow<QuizRecordingStatus> = _status.asStateFlow()
+ 
+-        private val _recognizedText = MutableStateFlow<String?>(null)
+-        val recognizedText: StateFlow<String?> = _recognizedText.asStateFlow()
++        private val _recordedAudio = MutableStateFlow<QuizRecordedAudio?>(null)
++        val recordedAudio: StateFlow<QuizRecordedAudio?> = _recordedAudio.asStateFlow()
+ 
+-        private var activeSessionId = INITIAL_SESSION_ID
+-        private var processingFallbackJob: Job? = null
+-        private var serverUploadJob: Job? = null
+-        private var isOnline = true
+-        private var recordingMode = RecordingMode.None
+-        private var isLocalFallback = false
+-
+-        init {
+-            viewModelScope.launch {
+-                sttEngine.events.collect { event ->
+-                    if (event.sessionId == activeSessionId) {
+-                        handleSttEvent(event)
+-                    }
+-                }
+-            }
+-            viewModelScope.launch {
+-                networkMonitor.isOnline.collect { online ->
+-                    isOnline = online
+-                }
+-            }
+-        }
++        private var nextAudioEventId = INITIAL_AUDIO_EVENT_ID
+ 
+         fun startListening() {
+-            cancelProcessingFallback()
+-            cancelServerUpload()
+-            activeSessionId = sttEngine.nextSessionId()
+-            _recognizedText.value = null
+-            if (isOnline && audioRecorder.start(SERVER_STT_FILE_NAME)) {
+-                recordingMode = RecordingMode.Server
+-                isLocalFallback = false
+-                _status.value = QuizRecordingStatus.Recording
+-            } else {
+-                startLocalListening(isFallback = false)
+-            }
+-        }
+-
+-        fun stopListening() {
+-            if (
+-                _status.value == QuizRecordingStatus.Recording ||
+-                _status.value == QuizRecordingStatus.FallbackRecording
+-            ) {
+-                when (recordingMode) {
+-                    RecordingMode.Server -> stopServerRecordingAndUpload()
+-                    RecordingMode.Local -> {
+-                        moveToProcessing()
+-                        sttEngine.stopListening()
+-                    }
+-                    RecordingMode.None -> Unit
+-                }
+-            }
+-        }
+-
+-        fun reset() {
+-            activeSessionId = sttEngine.nextSessionId()
+-            cancelProcessingFallback()
+-            cancelServerUpload()
+-            sttEngine.stopListening()
+-            audioRecorder.stop()?.delete()
+-            recordingMode = RecordingMode.None
+-            isLocalFallback = false
+-            _status.value = QuizRecordingStatus.Idle
+-            _recognizedText.value = null
+-        }
+-
+-        fun consumeRecognizedText() {
+-            _recognizedText.value = null
+-        }
+-
+-        override fun onCleared() {
+-            cancelProcessingFallback()
+-            cancelServerUpload()
+-            sttEngine.stopListening()
+-            audioRecorder.stop()?.delete()
+-            super.onCleared()
+-        }
+-
+-        private fun handleSttEvent(event: SttEvent) {
+-            when (event) {
+-                is SttEvent.Started -> {
+-                    _status.value =
+-                        if (isLocalFallback) {
+-                            QuizRecordingStatus.FallbackRecording
+-                        } else {
+-                            QuizRecordingStatus.Recording
+-                        }
+-                }
+-                is SttEvent.EndOfSpeech -> moveToProcessing()
+-                is SttEvent.Results -> handleFinalResult(event.text)
+-                is SttEvent.Error -> {
+-                    cancelProcessingFallback()
+-                    _status.value = event.toRecordingStatus()
+-                }
+-                is SttEvent.Stopped -> {
+-                    cancelProcessingFallback()
+-                    if (_status.value == QuizRecordingStatus.Processing) {
+-                        _status.value = QuizRecordingStatus.NoSpeech
+-                    }
+-                }
+-                is SttEvent.PartialResults,
+-                is SttEvent.VolumeChanged,
+-                -> Unit
+-            }
+-        }
+-
+-        private fun handleFinalResult(text: String) {
+-            cancelProcessingFallback()
+-            recordingMode = RecordingMode.None
+-            isLocalFallback = false
+-            val trimmedText = text.trim()
+-            if (trimmedText.isBlank()) {
+-                _status.value = QuizRecordingStatus.NoSpeech
+-            } else {
+-                _recognizedText.value = trimmedText
+-                _status.value = QuizRecordingStatus.Completed
+-            }
+-        }
+-
+-        private fun SttEvent.Error.toRecordingStatus(): QuizRecordingStatus =
+-            when (type) {
+-                SttErrorType.PermissionRequired -> QuizRecordingStatus.PermissionError
+-                SttErrorType.SpeechTimeout -> QuizRecordingStatus.Timeout
+-                else -> QuizRecordingStatus.NoSpeech
+-            }
+-
+-        private fun startLocalListening(isFallback: Boolean) {
+-            recordingMode = RecordingMode.Local
+-            isLocalFallback = isFallback
++            deletePendingRecordedAudio()
++            _recordedAudio.value = null
++            val isStarted = audioRecorder.start(QUIZ_AUDIO_FILE_NAME)
+             _status.value =
+-                if (isFallback) {
+-                    QuizRecordingStatus.FallbackRecording
+-                } else {
++                if (isStarted) {
+                     QuizRecordingStatus.Recording
++                } else {
++                    QuizRecordingStatus.PermissionError
+                 }
+-            sttEngine.startListening(activeSessionId)
+         }
+ 
+-        private fun stopServerRecordingAndUpload() {
+-            cancelProcessingFallback()
++        fun stopListening() {
++            if (_status.value != QuizRecordingStatus.Recording) return
++
+             _status.value = QuizRecordingStatus.Processing
+             val audioFile = audioRecorder.stop()
+-            recordingMode = RecordingMode.None
+             if (audioFile == null) {
+-                startLocalListening(isFallback = true)
+-                return
+-            }
+-            uploadServerStt(audioFile)
+-        }
+-
+-        private fun uploadServerStt(audioFile: File) {
+-            cancelServerUpload()
+-            val uploadJob =
+-                viewModelScope.launch {
+-                    uploadServerSttSafely(audioFile)
+-                }
+-            serverUploadJob = uploadJob
+-            uploadJob.invokeOnCompletion {
+-                if (serverUploadJob === uploadJob) {
+-                    serverUploadJob = null
+-                }
+-            }
+-        }
+-
+-        private suspend fun uploadServerSttSafely(audioFile: File) {
+-            try {
+-                val result =
+-                    withContext(Dispatchers.IO) {
+-                        translateRepository.translateSpeechToText(
+-                            audioFile = audioFile,
+-                            mimeType = SERVER_STT_AUDIO_MIME_TYPE,
+-                        )
+-                    }
+-                result
+-                    .onSuccess { response ->
+-                        val text =
+-                            response.correctedText
+-                                .trim()
+-                                .ifBlank { response.recognizedText.trim() }
+-                        handleFinalResult(text)
+-                    }.onFailure { throwable ->
+-                        if (throwable is CancellationException) {
+-                            throw throwable
+-                        }
+-                        startLocalListening(isFallback = true)
+-                    }
+-            } finally {
+-                deleteTempAudio(audioFile)
++                _status.value = QuizRecordingStatus.NoSpeech
++            } else {
++                _recordedAudio.value =
++                    QuizRecordedAudio(
++                        file = audioFile,
++                        mimeType = QUIZ_AUDIO_MIME_TYPE,
++                        eventId = nextAudioEventId++,
++                    )
++                _status.value = QuizRecordingStatus.Completed
+             }
+         }
+ 
+-        private fun moveToProcessing() {
+-            _status.value = QuizRecordingStatus.Processing
+-            processingFallbackJob?.cancel()
+-            val sessionId = activeSessionId
+-            processingFallbackJob =
+-                viewModelScope.launch {
+-                    delay(PROCESSING_FALLBACK_TIMEOUT_MS)
+-                    if (
+-                        activeSessionId == sessionId &&
+-                        _status.value == QuizRecordingStatus.Processing
+-                    ) {
+-                        _status.value = QuizRecordingStatus.NoSpeech
+-                    }
+-                }
+-        }
+-
+-        private fun cancelProcessingFallback() {
+-            processingFallbackJob?.cancel()
+-            processingFallbackJob = null
++        fun reset() {
++            deletePendingRecordedAudio()
++            audioRecorder.stop()?.delete()
++            _recordedAudio.value = null
++            _status.value = QuizRecordingStatus.Idle
+         }
+ 
+-        private fun cancelServerUpload() {
+-            serverUploadJob?.cancel()
+-            serverUploadJob = null
++        fun consumeRecordedAudio() {
++            _recordedAudio.value = null
+         }
+ 
+-        private fun deleteTempAudio(audioFile: File) {
+-            if (audioFile.exists()) {
+-                audioFile.delete()
+-            }
++        override fun onCleared() {
++            reset()
++            super.onCleared()
+         }
+ 
+-        private enum class RecordingMode {
+-            None,
+-            Server,
+-            Local,
++        private fun deletePendingRecordedAudio() {
++            _recordedAudio.value?.file?.delete()
+         }
+ 
+         companion object {
+-            private const val INITIAL_SESSION_ID = 0
+-            private const val PROCESSING_FALLBACK_TIMEOUT_MS = 3_000L
+-            private const val SERVER_STT_FILE_NAME = "quiz_stt_audio"
+-            private const val SERVER_STT_AUDIO_MIME_TYPE = "audio/wav"
++            private const val INITIAL_AUDIO_EVENT_ID = 1L
++            private const val QUIZ_AUDIO_FILE_NAME = "quiz_answer_audio"
++            private const val QUIZ_AUDIO_MIME_TYPE = "audio/wav"
+         }
+     }
++
++data class QuizRecordedAudio(
++    val file: File,
++    val mimeType: String,
++    val eventId: Long,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
+@@ -64,7 +64,7 @@ internal fun QuizStarResultCard(
+                 textAlign = TextAlign.Center,
+             )
+             Text(
+-                text = "인식 결과: ${answer.sttText}",
++                text = "인식 결과: ${answer.recognizedTextLabel()}",
+                 style = MaterialTheme.typography.labelLarge,
+                 color = MaterialTheme.colorScheme.primary,
+                 textAlign = TextAlign.Center,
+@@ -109,6 +109,15 @@ private fun retryDescription(remainingRetryCount: Int): String =
+         "충분히 연습했어요. 다음 문제로 넘어가도 괜찮아요."
+     }
+ 
++private fun QuizAnswer.recognizedTextLabel(): String =
++    sttText
++        .takeIf { it.isNotBlank() }
++        ?: if (isScored) {
++            "인식 결과가 없어요"
++        } else {
++            "서버에서 음성을 확인하고 있어요"
++        }
++
+ @Composable
+ private fun Int?.starResultContainerColor(): Color =
+     when (this?.coerceIn(MIN_STAR, MAX_STAR)) {
+
+

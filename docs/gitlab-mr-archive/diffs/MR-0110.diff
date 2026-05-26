@@ -1,0 +1,547 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/api/ChildProfileApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/api/ChildProfileApiService.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/api/ChildProfileApiService.kt
+@@ -0,0 +1,18 @@
++package com.ssafy.mobile.feature.childprofile.data.api
++
++import com.ssafy.mobile.feature.childprofile.data.dto.ChildProfileCreateRequestDto
++import com.ssafy.mobile.feature.childprofile.data.dto.ChildProfileResponseDto
++import retrofit2.Response
++import retrofit2.http.Body
++import retrofit2.http.GET
++import retrofit2.http.POST
++
++interface ChildProfileApiService {
++    @GET("v1/children")
++    suspend fun getChildProfiles(): Response<List<ChildProfileResponseDto>>
++
++    @POST("v1/children")
++    suspend fun createChildProfile(
++        @Body request: ChildProfileCreateRequestDto,
++    ): Response<ChildProfileResponseDto>
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/dto/ChildProfileDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/dto/ChildProfileDto.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/dto/ChildProfileDto.kt
+@@ -0,0 +1,26 @@
++package com.ssafy.mobile.feature.childprofile.data.dto
++
++import com.google.gson.annotations.SerializedName
++import com.ssafy.mobile.feature.childprofile.domain.model.ChildProfile
++
++data class ChildProfileResponseDto(
++    @SerializedName("childId") val childId: Long,
++    @SerializedName("name") val name: String,
++    @SerializedName("birthDate") val birthDate: String,
++    @SerializedName("age") val age: Int?,
++    @SerializedName("active") val active: Boolean,
++) {
++    fun toDomain(): ChildProfile =
++        ChildProfile(
++            childId = childId,
++            name = name,
++            birthDate = birthDate,
++            age = age,
++            active = active,
++        )
++}
++
++data class ChildProfileCreateRequestDto(
++    @SerializedName("name") val name: String,
++    @SerializedName("birthDate") val birthDate: String,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/FakeChildProfileRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/FakeChildProfileRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/FakeChildProfileRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/FakeChildProfileRepository.kt
+@@ -26,8 +26,20 @@ class FakeChildProfileRepository
+             val baseProfiles =
+                 if (BuildConfig.DEBUG && USE_SAMPLE_DATA) {
+                     listOf(
+-                        ChildProfile(childId = 1L, name = "민준", age = 6),
+-                        ChildProfile(childId = 2L, name = "서연", age = 4),
++                        ChildProfile(
++                            childId = 1L,
++                            name = "민준",
++                            birthDate = "2020-05-01",
++                            age = 6,
++                            active = true,
++                        ),
++                        ChildProfile(
++                            childId = 2L,
++                            name = "서연",
++                            birthDate = "2022-03-15",
++                            age = 4,
++                            active = true,
++                        ),
+                     )
+                 } else {
+                     emptyList()
+@@ -38,7 +50,7 @@ class FakeChildProfileRepository
+ 
+         override suspend fun createChildProfile(
+             name: String,
+-            age: Int,
++            birthDate: String,
+         ) {
+             // 네트워크 지연 시뮬레이션
+             delay(LOADING_DELAY_MS)
+@@ -49,7 +61,9 @@ class FakeChildProfileRepository
+                 ChildProfile(
+                     childId = newId,
+                     name = name,
+-                    age = age,
++                    birthDate = birthDate,
++                    age = 6, // Fake age
++                    active = true,
+                 )
+             createdProfiles.add(newProfile)
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/RemoteChildProfileRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/RemoteChildProfileRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/data/repository/RemoteChildProfileRepository.kt
+@@ -0,0 +1,88 @@
++package com.ssafy.mobile.feature.childprofile.data.repository
++
++import android.util.Log
++import com.ssafy.mobile.feature.childprofile.data.api.ChildProfileApiService
++import com.ssafy.mobile.feature.childprofile.data.dto.ChildProfileCreateRequestDto
++import com.ssafy.mobile.feature.childprofile.domain.model.ChildProfile
++import com.ssafy.mobile.feature.childprofile.domain.repository.ChildProfileRepository
++import java.io.IOException
++import javax.inject.Inject
++import kotlin.coroutines.cancellation.CancellationException
++import retrofit2.HttpException
++
++private const val TAG = "RemoteChildProfile"
++private const val HTTP_STATUS_BAD_REQUEST = 400
++private const val HTTP_STATUS_UNAUTHORIZED = 401
++private const val HTTP_STATUS_CONFLICT = 409
++
++@Suppress("TooGenericExceptionCaught")
++class RemoteChildProfileRepository
++    @Inject
++    constructor(
++        private val apiService: ChildProfileApiService,
++    ) : ChildProfileRepository {
++        override suspend fun getChildProfiles(): List<ChildProfile> =
++            try {
++                val response = apiService.getChildProfiles()
++                if (response.isSuccessful) {
++                    val body = response.body() ?: error("아이 목록 응답이 비어 있습니다.")
++                    body.map { it.toDomain() }
++                } else {
++                    throw HttpException(response)
++                }
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: HttpException) {
++                Log.e(TAG, "getChildProfiles HttpException: ${e.code()}", e)
++                val message =
++                    when (e.code()) {
++                        HTTP_STATUS_UNAUTHORIZED -> "세션이 만료되었습니다. 다시 로그인해 주세요."
++                        else -> "아이 목록을 불러오지 못했습니다."
++                    }
++                error(message)
++            } catch (e: IOException) {
++                Log.e(TAG, "getChildProfiles IOException", e)
++                error("네트워크 연결을 확인해 주세요.")
++            } catch (e: IllegalStateException) {
++                Log.e(TAG, "getChildProfiles IllegalStateException", e)
++                error(e.message ?: "목록을 불러오는 중 오류가 발생했습니다.")
++            } catch (e: Exception) {
++                Log.e(TAG, "getChildProfiles Unknown Exception", e)
++                error("목록을 불러오는 중 오류가 발생했습니다.")
++            }
++
++        override suspend fun createChildProfile(
++            name: String,
++            birthDate: String,
++        ) {
++            try {
++                val request =
++                    ChildProfileCreateRequestDto(
++                        name = name,
++                        birthDate = birthDate,
++                    )
++                val response = apiService.createChildProfile(request)
++                if (!response.isSuccessful) {
++                    throw HttpException(response)
++                }
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: HttpException) {
++                Log.e(TAG, "createChildProfile HttpException: ${e.code()}", e)
++                val message =
++                    when (e.code()) {
++                        HTTP_STATUS_BAD_REQUEST -> "입력 형식이 올바르지 않습니다."
++                        HTTP_STATUS_UNAUTHORIZED -> "세션이 만료되었습니다."
++                        HTTP_STATUS_CONFLICT -> "같은 이름의 아이가 이미 등록되어 있습니다."
++                        else -> "아이 프로필을 생성하지 못했습니다."
++                    }
++                error(message)
++            } catch (e: IOException) {
++                Log.e(TAG, "createChildProfile IOException", e)
++                error("네트워크 연결을 확인해 주세요.")
++            } catch (e: Exception) {
++                Log.e(TAG, "createChildProfile Unknown Exception", e)
++                error("프로필 생성 중 오류가 발생했습니다.")
++            }
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/di/ChildProfileModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/di/ChildProfileModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/di/ChildProfileModule.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/di/ChildProfileModule.kt
+@@ -1,12 +1,15 @@
+ package com.ssafy.mobile.feature.childprofile.di
+ 
+-import com.ssafy.mobile.feature.childprofile.data.repository.FakeChildProfileRepository
++import com.ssafy.mobile.feature.childprofile.data.api.ChildProfileApiService
++import com.ssafy.mobile.feature.childprofile.data.repository.RemoteChildProfileRepository
+ import com.ssafy.mobile.feature.childprofile.domain.repository.ChildProfileRepository
+ import dagger.Binds
+ import dagger.Module
++import dagger.Provides
+ import dagger.hilt.InstallIn
+ import dagger.hilt.components.SingletonComponent
+ import javax.inject.Singleton
++import retrofit2.Retrofit
+ 
+ @Module
+ @InstallIn(SingletonComponent::class)
+@@ -14,6 +17,13 @@ abstract class ChildProfileModule {
+     @Binds
+     @Singleton
+     abstract fun bindChildProfileRepository(
+-        fakeChildProfileRepository: FakeChildProfileRepository,
++        remoteChildProfileRepository: RemoteChildProfileRepository,
+     ): ChildProfileRepository
++
++    companion object {
++        @Provides
++        @Singleton
++        fun provideChildProfileApiService(retrofit: Retrofit): ChildProfileApiService =
++            retrofit.create(ChildProfileApiService::class.java)
++    }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/model/ChildProfile.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/model/ChildProfile.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/model/ChildProfile.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/model/ChildProfile.kt
+@@ -3,5 +3,7 @@ package com.ssafy.mobile.feature.childprofile.domain.model
+ data class ChildProfile(
+     val childId: Long,
+     val name: String,
++    val birthDate: String,
+     val age: Int?,
++    val active: Boolean = true,
+ )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/repository/ChildProfileRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/repository/ChildProfileRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/repository/ChildProfileRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/repository/ChildProfileRepository.kt
+@@ -7,6 +7,6 @@ interface ChildProfileRepository {
+ 
+     suspend fun createChildProfile(
+         name: String,
+-        age: Int,
++        birthDate: String,
+     )
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/ActiveChildProfileManager.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/ActiveChildProfileManager.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/ActiveChildProfileManager.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/ActiveChildProfileManager.kt
+@@ -4,7 +4,6 @@ import android.util.Log
+ import com.ssafy.mobile.core.session.ActiveChildStorage
+ import com.ssafy.mobile.feature.childprofile.domain.model.ChildProfile
+ import com.ssafy.mobile.feature.childprofile.domain.repository.ChildProfileRepository
+-import java.io.IOException
+ import javax.inject.Inject
+ import javax.inject.Singleton
+ import kotlin.coroutines.cancellation.CancellationException
+@@ -44,7 +43,7 @@ class ActiveChildProfileManager
+                         ?: return ActiveChildProfileState.Missing
+ 
+                 val profiles = childProfileRepository.getChildProfiles()
+-                val activeProfile = profiles.find { it.childId == activeChildId }
++                val activeProfile = profiles.find { it.childId == activeChildId && it.active }
+ 
+                 if (activeProfile != null) {
+                     ActiveChildProfileState.Selected(activeProfile)
+@@ -53,13 +52,10 @@ class ActiveChildProfileManager
+                 }
+             } catch (e: CancellationException) {
+                 throw e
+-            } catch (e: IOException) {
+-                Log.e(TAG, "Network error while fetching active child profile", e)
+-                ActiveChildProfileState.Error("네트워크 오류가 발생했습니다.")
+             } catch (e: Exception) {
+-                // 알 수 없는 다양한 런타임 예외를 UI 상태로 변환하여 크래시 방지
+-                Log.e(TAG, "Unknown error while fetching active child profile", e)
+-                ActiveChildProfileState.Error("아이 정보를 불러오지 못했습니다.")
++                Log.e(TAG, "Error while fetching active child profile", e)
++                val message = e.message ?: "아이 정보를 불러오지 못했습니다."
++                ActiveChildProfileState.Error(message)
+             }
+         }
+     }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt
+@@ -34,7 +34,7 @@ fun ChildProfileEditRoute(
+ ) {
+     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+     val name by viewModel.name.collectAsStateWithLifecycle()
+-    val age by viewModel.age.collectAsStateWithLifecycle()
++    val birthDate by viewModel.birthDate.collectAsStateWithLifecycle()
+ 
+     LaunchedEffect(uiState) {
+         if (uiState is ChildProfileEditUiState.Success) {
+@@ -45,9 +45,9 @@ fun ChildProfileEditRoute(
+     ChildProfileEditScreen(
+         uiState = uiState,
+         name = name,
+-        age = age,
++        birthDate = birthDate,
+         onNameChange = viewModel::onNameChange,
+-        onAgeChange = viewModel::onAgeChange,
++        onBirthDateChange = viewModel::onBirthDateChange,
+         onSave = viewModel::saveProfile,
+         onBack = { onNavigateBack(false) },
+         modifier = modifier,
+@@ -59,9 +59,9 @@ fun ChildProfileEditRoute(
+ private fun ChildProfileEditScreen(
+     uiState: ChildProfileEditUiState,
+     name: String,
+-    age: String,
++    birthDate: String,
+     onNameChange: (String) -> Unit,
+-    onAgeChange: (String) -> Unit,
++    onBirthDateChange: (String) -> Unit,
+     onSave: () -> Unit,
+     onBack: () -> Unit,
+     modifier: Modifier = Modifier,
+@@ -97,6 +97,7 @@ private fun ChildProfileEditScreen(
+                 value = name,
+                 onValueChange = onNameChange,
+                 label = { Text("아이 이름") },
++                placeholder = { Text("예: 민준") },
+                 modifier = Modifier.fillMaxWidth(),
+                 enabled = !isSaving,
+                 singleLine = true,
+@@ -105,9 +106,10 @@ private fun ChildProfileEditScreen(
+             Spacer(modifier = Modifier.height(16.dp))
+ 
+             OutlinedTextField(
+-                value = age,
+-                onValueChange = onAgeChange,
+-                label = { Text("아이 나이") },
++                value = birthDate,
++                onValueChange = onBirthDateChange,
++                label = { Text("생년월일") },
++                placeholder = { Text("예: 20200501") },
+                 modifier = Modifier.fillMaxWidth(),
+                 enabled = !isSaving,
+                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditViewModel.kt
+@@ -22,32 +22,41 @@ class ChildProfileEditViewModel
+     ) : ViewModel() {
+         companion object {
+             private const val TAG = "ChildProfileEditViewModel"
+-            private const val MAX_AGE = 18
++            private const val MAX_NAME_LENGTH = 20
++            private const val MAX_AGE_LIMIT = 18
++            private const val YEAR_START = 0
++            private const val YEAR_END = 4
++            private const val MONTH_START = 4
++            private const val MONTH_END = 6
++            private const val DAY_START = 6
++            private const val DAY_END = 8
+         }
+ 
+         private val _uiState =
+-            MutableStateFlow<ChildProfileEditUiState>(ChildProfileEditUiState.Idle)
++            MutableStateFlow<ChildProfileEditUiState>(
++                ChildProfileEditUiState.Idle,
++            )
+         val uiState: StateFlow<ChildProfileEditUiState> = _uiState.asStateFlow()
+ 
+         var name = MutableStateFlow("")
+             private set
+ 
+-        var age = MutableStateFlow("")
++        var birthDate = MutableStateFlow("")
+             private set
+ 
+-        @Suppress("TooGenericExceptionCaught")
+         fun saveProfile() {
+             if (_uiState.value is ChildProfileEditUiState.Saving) return
+ 
+             val currentName = name.value.trim()
+-            val currentAgeText = age.value.trim()
+-            val currentAge = currentAgeText.toIntOrNull()
++            val rawBirthDate = birthDate.value.trim()
+ 
++            val validationResult = validateAndNormalizeBirthDate(rawBirthDate)
+             val errorMessage =
+                 when {
+                     currentName.isEmpty() -> "이름을 입력해 주세요."
+-                    currentAge == null -> "나이를 숫자로 입력해 주세요."
+-                    currentAge !in 0..MAX_AGE -> "나이는 0세에서 ${MAX_AGE}세 사이여야 합니다."
++                    currentName.length > MAX_NAME_LENGTH ->
++                        "아이 이름은 ${MAX_NAME_LENGTH}자 이하로 입력해 주세요."
++                    validationResult.error != null -> validationResult.error
+                     else -> null
+                 }
+ 
+@@ -56,13 +65,22 @@ class ChildProfileEditViewModel
+                 return
+             }
+ 
++            val normalizedBirthDate = validationResult.normalizedDate!!
++            performSave(currentName, normalizedBirthDate)
++        }
++
++        @Suppress("TooGenericExceptionCaught")
++        private fun performSave(
++            currentName: String,
++            normalizedBirthDate: String,
++        ) {
+             _uiState.value = ChildProfileEditUiState.Saving
+             viewModelScope.launch {
+                 try {
+                     withContext(Dispatchers.IO) {
+                         childProfileRepository.createChildProfile(
+                             name = currentName,
+-                            age = currentAge!!,
++                            birthDate = normalizedBirthDate,
+                         )
+                     }
+                     _uiState.value = ChildProfileEditUiState.Success
+@@ -70,7 +88,8 @@ class ChildProfileEditViewModel
+                     throw e
+                 } catch (e: Exception) {
+                     Log.e(TAG, "Failed to save child profile", e)
+-                    _uiState.value = ChildProfileEditUiState.Error("아이 정보를 저장하지 못했습니다.")
++                    val message = e.message ?: "아이 정보를 저장하지 못했습니다."
++                    _uiState.value = ChildProfileEditUiState.Error(message)
+                 }
+             }
+         }
+@@ -82,13 +101,50 @@ class ChildProfileEditViewModel
+             }
+         }
+ 
+-        fun onAgeChange(newAge: String) {
+-            // 숫자만 허용
+-            if (newAge.isEmpty() || newAge.all { it.isDigit() }) {
+-                age.value = newAge
++        fun onBirthDateChange(newBirthDate: String) {
++            if (newBirthDate.isEmpty() || newBirthDate.all { it.isDigit() || it == '-' }) {
++                birthDate.value = newBirthDate
+             }
+             if (_uiState.value is ChildProfileEditUiState.Error) {
+                 _uiState.value = ChildProfileEditUiState.Idle
+             }
+         }
++
++        private fun validateAndNormalizeBirthDate(raw: String): BirthDateValidationResult {
++            val normalized =
++                when {
++                    raw.matches(Regex("""^\d{4}-\d{2}-\d{2}$""")) -> raw
++                    raw.matches(Regex("""^\d{8}$""")) -> {
++                        val y = raw.substring(YEAR_START, YEAR_END)
++                        val m = raw.substring(MONTH_START, MONTH_END)
++                        val d = raw.substring(DAY_START, DAY_END)
++                        "$y-$m-$d"
++                    }
++                    else ->
++                        return BirthDateValidationResult(
++                            error = "생년월일 형식이 올바르지 않습니다. (예: 2020-05-01)",
++                        )
++                }
++
++            return try {
++                val date = java.time.LocalDate.parse(normalized)
++                val now = java.time.LocalDate.now()
++
++                when {
++                    date.isAfter(now) -> BirthDateValidationResult(error = "미래 날짜는 입력할 수 없습니다.")
++                    java.time.Period
++                        .between(date, now)
++                        .years > MAX_AGE_LIMIT ->
++                        BirthDateValidationResult(error = "나이는 0세에서 ${MAX_AGE_LIMIT}세 사이여야 합니다.")
++                    else -> BirthDateValidationResult(normalizedDate = normalized)
++                }
++            } catch (e: java.time.format.DateTimeParseException) {
++                BirthDateValidationResult(error = "유효하지 않은 날짜입니다.")
++            }
++        }
++
++        private data class BirthDateValidationResult(
++            val normalizedDate: String? = null,
++            val error: String? = null,
++        )
+     }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectViewModel.kt
+@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
+ import com.ssafy.mobile.core.session.ActiveChildStorage
+ import com.ssafy.mobile.feature.childprofile.domain.repository.ChildProfileRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
+-import java.io.IOException
+ import javax.inject.Inject
+ import kotlin.coroutines.cancellation.CancellationException
+ import kotlinx.coroutines.Dispatchers
+@@ -60,23 +59,23 @@ class ChildProfileSelectViewModel
+                             activeChildStorage.getActiveChildId()
+                         }
+ 
++                    val activeProfiles = profiles.filter { it.active }
++
+                     _uiState.value =
+-                        if (profiles.isEmpty()) {
++                        if (activeProfiles.isEmpty()) {
+                             ChildProfileSelectUiState.Empty
+                         } else {
+                             ChildProfileSelectUiState.Success(
+-                                profiles = profiles,
++                                profiles = activeProfiles,
+                                 activeChildId = activeChildId,
+                             )
+                         }
+                 } catch (e: CancellationException) {
+                     throw e
+-                } catch (e: IOException) {
+-                    Log.e(TAG, "Failed to load child profiles", e)
+-                    _uiState.value = ChildProfileSelectUiState.Error("네트워크 연결을 확인해 주세요.")
+                 } catch (e: Exception) {
+                     Log.e(TAG, "Failed to load child profiles", e)
+-                    _uiState.value = ChildProfileSelectUiState.Error("아이 프로필 목록을 불러오지 못했습니다.")
++                    val message = e.message ?: "아이 프로필 목록을 불러오지 못했습니다."
++                    _uiState.value = ChildProfileSelectUiState.Error(message)
+                 }
+             }
+         }
+
+

@@ -1,0 +1,514 @@
+﻿diff --git a/mobile/app/src/main/assets/models/.gitkeep b/mobile/app/src/main/assets/models/.gitkeep
+--- /dev/null
++++ b/mobile/app/src/main/assets/models/.gitkeep
+@@ -0,0 +1 @@
++
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/MediaPipeHolisticLandmarkExtractor.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/MediaPipeHolisticLandmarkExtractor.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/MediaPipeHolisticLandmarkExtractor.kt
+@@ -0,0 +1,128 @@
++package com.ssafy.mobile.core.vision.landmark
++
++import android.content.Context
++import android.graphics.Bitmap
++import com.google.mediapipe.framework.image.BitmapImageBuilder
++import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
++import com.google.mediapipe.tasks.core.BaseOptions
++import com.google.mediapipe.tasks.vision.core.RunningMode
++import com.google.mediapipe.tasks.vision.holisticlandmarker.HolisticLandmarker
++import com.google.mediapipe.tasks.vision.holisticlandmarker.HolisticLandmarkerResult
++import java.io.IOException
++import java.util.concurrent.atomic.AtomicLong
++
++class MediaPipeHolisticLandmarkExtractor private constructor(
++    private val landmarker: HolisticLandmarker?,
++) : AutoCloseable {
++    private val lastTimestampMs = AtomicLong(Long.MIN_VALUE)
++
++    fun detect(
++        bitmap: Bitmap,
++        timestampMs: Long,
++    ): LandmarkFrameResult {
++        val activeLandmarker = landmarker ?: return LandmarkFrameResult.empty(timestampMs)
++        val inputTimestampMs = nextTimestamp(timestampMs)
++        val result =
++            runCatching {
++                activeLandmarker.detectForVideo(
++                    BitmapImageBuilder(bitmap).build(),
++                    inputTimestampMs,
++                )
++            }.getOrNull()
++
++        return result?.toLandmarkFrameResult() ?: LandmarkFrameResult.empty(inputTimestampMs)
++    }
++
++    override fun close() {
++        landmarker?.close()
++    }
++
++    private fun nextTimestamp(timestampMs: Long): Long {
++        while (true) {
++            val previous = lastTimestampMs.get()
++            val next = timestampMs.coerceAtLeast(previous + 1)
++            if (lastTimestampMs.compareAndSet(previous, next)) {
++                return next
++            }
++        }
++    }
++
++    companion object {
++        const val MODEL_ASSET_PATH = "models/holistic_landmarker.task"
++
++        fun create(context: Context): MediaPipeHolisticLandmarkExtractor {
++            val appContext = context.applicationContext
++            val landmarker =
++                if (appContext.hasAsset(MODEL_ASSET_PATH)) {
++                    runCatching { createLandmarker(appContext) }.getOrNull()
++                } else {
++                    null
++                }
++
++            return MediaPipeHolisticLandmarkExtractor(landmarker)
++        }
++
++        private fun createLandmarker(context: Context): HolisticLandmarker {
++            val baseOptions =
++                BaseOptions
++                    .builder()
++                    .setModelAssetPath(MODEL_ASSET_PATH)
++                    .build()
++            val options =
++                HolisticLandmarker.HolisticLandmarkerOptions
++                    .builder()
++                    .setBaseOptions(baseOptions)
++                    .setRunningMode(RunningMode.VIDEO)
++                    .build()
++
++            return HolisticLandmarker.createFromOptions(context, options)
++        }
++    }
++}
++
++private fun Context.hasAsset(assetPath: String): Boolean =
++    try {
++        assets.open(assetPath).use { true }
++    } catch (_: IOException) {
++        false
++    }
++
++private fun HolisticLandmarkerResult.toLandmarkFrameResult(): LandmarkFrameResult =
++    MediaPipeLandmarkMapper.map(
++        MediaPipeLandmarkResult(
++            timestampMs = timestampMs(),
++            pose = poseLandmarks().toMediaPipePoints(),
++            leftHand = leftHandLandmarks().toMediaPipePoints(),
++            rightHand = rightHandLandmarks().toMediaPipePoints(),
++            lips = faceLandmarks().toLipMediaPipePoints(),
++        ),
++    )
++
++private fun List<NormalizedLandmark>.toMediaPipePoints(): List<MediaPipeLandmarkPoint> =
++    map { landmark ->
++        MediaPipeLandmarkPoint(
++            x = landmark.x(),
++            y = landmark.y(),
++            z = landmark.z(),
++        )
++    }
++
++private fun List<NormalizedLandmark>.toLipMediaPipePoints(): List<MediaPipeLandmarkPoint> =
++    filterIndexed { index, _ -> index in LIP_LANDMARK_INDICES }
++        .map { landmark ->
++            MediaPipeLandmarkPoint(
++                x = landmark.x(),
++                y = landmark.y(),
++                z = landmark.z(),
++            )
++        }
++
++private val LIP_LANDMARK_INDICES: Set<Int> =
++    LIP_LANDMARK_INDEX_CSV
++        .split(',')
++        .map { index -> index.trim().toInt() }
++        .toSet()
++
++private const val LIP_LANDMARK_INDEX_CSV =
++    "61,146,91,181,84,17,314,405,321,375,291,185,40,39,37,0,267,269,270,409," +
++        "78,95,88,178,87,14,317,402,318,324,308,191,80,81,82,13,312,311,310,415"
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
+@@ -57,7 +57,7 @@ class RealSignRecognitionEngine(
+         _events.tryEmit(SignRecognitionEvent.Stopped)
+     }
+ 
+-    fun onLandmarkFrame(frame: LandmarkFrameResult) {
++    override fun submitFrame(frame: LandmarkFrameResult) {
+         if (!isStarted.get()) {
+             return
+         }
+@@ -73,6 +73,10 @@ class RealSignRecognitionEngine(
+             }
+     }
+ 
++    fun onLandmarkFrame(frame: LandmarkFrameResult) {
++        submitFrame(frame)
++    }
++
+     private fun processFrame(frame: LandmarkFrameResult) {
+         if (handleNoHandsFrame(frame)) {
+             return
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionEngine.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionEngine.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionEngine.kt
+@@ -1,21 +1,15 @@
+-package com.ssafy.mobile.core.vision
++﻿package com.ssafy.mobile.core.vision
+ 
+ import com.ssafy.mobile.core.model.SignRecognitionEvent
++import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
+ import kotlinx.coroutines.flow.Flow
+ 
+-/**
+- * A 파트(수어 인식 파이프라인)가 B 파트(UI/통신)에게 제공하는 유일한 소통 창구.
+- * A 파트의 내부 구현(CameraX, MediaPipe, TFLite)을 몰라도 B는 이 인터페이스만으로 개발 가능.
+- *
+- * 구현체: RealSignRecognitionEngine (A 파트 구현)
+- */
+ interface SignRecognitionEngine {
+-    /** B 파트가 구독할 수어 인식 이벤트 스트림 */
+     val events: Flow<SignRecognitionEvent>
+ 
+-    /** 카메라 및 AI 파이프라인 시작 */
+     fun start()
+ 
+-    /** 카메라 및 AI 파이프라인 중지 및 리소스 해제 */
++    fun submitFrame(frame: LandmarkFrameResult)
++
+     fun stop()
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
+ import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
+ 
+ private const val TAG = "ConversationWakelock"
+@@ -73,6 +74,7 @@ fun ConversationRoute(
+         lastGlosses = lastGlosses,
+         onStartSession = viewModel::startSession,
+         onStopSession = viewModel::stopSession,
++        onLandmarkFrame = viewModel::onLandmarkFrame,
+         modifier = modifier,
+     )
+ }
+@@ -83,6 +85,7 @@ private fun ConversationScreen(
+     lastGlosses: List<String>,
+     onStartSession: () -> Unit,
+     onStopSession: () -> Unit,
++    onLandmarkFrame: (LandmarkFrameResult) -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+     Scaffold(
+@@ -113,6 +116,7 @@ private fun ConversationScreen(
+             ) {
+                 SignRecognitionScreen(
+                     isSessionActive = sessionState == SessionState.Active,
++                    onLandmarkFrameAvailable = onLandmarkFrame,
+                     modifier = Modifier.fillMaxSize(),
+                 )
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
+ import com.ssafy.mobile.core.model.SignRecognitionEvent
+ import com.ssafy.mobile.core.vision.SignRecognitionEngine
++import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
+ import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import javax.inject.Inject
+@@ -107,6 +108,12 @@ class ConversationViewModel
+             completionTimerJob?.cancel()
+         }
+ 
++        fun onLandmarkFrame(frame: LandmarkFrameResult) {
++            if (_sessionState.value != SessionState.Active) return
++
++            signRecognitionEngine.submitFrame(frame)
++        }
++
+         companion object {
+             private const val COMPLETION_THRESHOLD_MS = 2000L
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt
+@@ -1,5 +1,11 @@
+ package com.ssafy.mobile.feature.sign.presentation
+ 
++import android.graphics.Bitmap
++import android.graphics.BitmapFactory
++import android.graphics.ImageFormat
++import android.graphics.Matrix
++import android.graphics.Rect
++import android.graphics.YuvImage
+ import android.view.Surface
+ import androidx.camera.core.CameraSelector
+ import androidx.camera.core.ImageAnalysis
+@@ -8,14 +14,17 @@ import androidx.camera.core.Preview
+ import androidx.camera.lifecycle.ProcessCameraProvider
+ import androidx.camera.view.PreviewView
+ import androidx.lifecycle.LifecycleOwner
++import java.io.ByteArrayOutputStream
+ import java.nio.ByteBuffer
+ import java.util.concurrent.Executor
+ 
+ data class YuvAnalysisFrame(
+     val timestampNanos: Long,
++    val timestampMs: Long,
+     val width: Int,
+     val height: Int,
+     val rotationDegrees: Int,
++    val bitmap: Bitmap,
+     val planes: List<YuvPlane>,
+ )
+ 
+@@ -108,9 +117,11 @@ private class SignFrameAnalyzer(
+ private fun ImageProxy.toYuvAnalysisFrame(): YuvAnalysisFrame =
+     YuvAnalysisFrame(
+         timestampNanos = imageInfo.timestamp,
++        timestampMs = imageInfo.timestamp / NANOS_PER_MILLIS,
+         width = width,
+         height = height,
+         rotationDegrees = imageInfo.rotationDegrees,
++        bitmap = toUprightBitmap(),
+         planes =
+             planes.map { plane ->
+                 YuvPlane(
+@@ -122,3 +133,100 @@ private fun ImageProxy.toYuvAnalysisFrame(): YuvAnalysisFrame =
+     )
+ 
+ private fun ByteBuffer.asAnalyzerReadOnlyBuffer(): ByteBuffer = asReadOnlyBuffer()
++
++private fun ImageProxy.toUprightBitmap(): Bitmap {
++    val nv21 = toNv21()
++    val jpegBytes =
++        ByteArrayOutputStream().use { outputStream ->
++            YuvImage(
++                nv21,
++                ImageFormat.NV21,
++                width,
++                height,
++                null,
++            ).compressToJpeg(
++                Rect(0, 0, width, height),
++                JPEG_QUALITY,
++                outputStream,
++            )
++            outputStream.toByteArray()
++        }
++    val bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
++    return bitmap.rotate(imageInfo.rotationDegrees)
++}
++
++private fun ImageProxy.toNv21(): ByteArray {
++    val ySize = width * height
++    val chromaWidth = width / CHROMA_DIVISOR
++    val chromaHeight = height / CHROMA_DIVISOR
++    val nv21 = ByteArray(ySize + chromaWidth * chromaHeight * CHROMA_DIVISOR)
++
++    planes[Y_PLANE_INDEX].copyTo(
++        width = width,
++        height = height,
++        output = nv21,
++        outputOffset = 0,
++        outputPixelStride = 1,
++    )
++    planes[V_PLANE_INDEX].copyTo(
++        width = chromaWidth,
++        height = chromaHeight,
++        output = nv21,
++        outputOffset = ySize,
++        outputPixelStride = CHROMA_DIVISOR,
++    )
++    planes[U_PLANE_INDEX].copyTo(
++        width = chromaWidth,
++        height = chromaHeight,
++        output = nv21,
++        outputOffset = ySize + 1,
++        outputPixelStride = CHROMA_DIVISOR,
++    )
++
++    return nv21
++}
++
++private fun ImageProxy.PlaneProxy.copyTo(
++    width: Int,
++    height: Int,
++    output: ByteArray,
++    outputOffset: Int,
++    outputPixelStride: Int,
++) {
++    val source = buffer.duplicate()
++    var outputIndex = outputOffset
++
++    repeat(height) { row ->
++        val sourceRowOffset = row * rowStride
++        repeat(width) { column ->
++            output[outputIndex] = source.get(sourceRowOffset + column * pixelStride)
++            outputIndex += outputPixelStride
++        }
++    }
++}
++
++private fun Bitmap.rotate(rotationDegrees: Int): Bitmap {
++    if (rotationDegrees == 0) return this
++
++    val rotated =
++        Bitmap.createBitmap(
++            this,
++            0,
++            0,
++            width,
++            height,
++            Matrix().apply { postRotate(rotationDegrees.toFloat()) },
++            true,
++        )
++    if (rotated != this) {
++        recycle()
++    }
++    return rotated
++}
++
++private const val NANOS_PER_MILLIS = 1_000_000L
++private const val JPEG_QUALITY = 90
++private const val CHROMA_DIVISOR = 2
++private const val Y_PLANE_INDEX = 0
++private const val U_PLANE_INDEX = 1
++private const val V_PLANE_INDEX = 2
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt
+@@ -29,6 +29,8 @@ import androidx.core.content.ContextCompat
+ import androidx.lifecycle.LifecycleOwner
+ import androidx.lifecycle.compose.LocalLifecycleOwner
+ import com.google.common.util.concurrent.ListenableFuture
++import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
++import com.ssafy.mobile.core.vision.landmark.MediaPipeHolisticLandmarkExtractor
+ import java.util.Locale
+ import java.util.concurrent.Executor
+ import java.util.concurrent.Executors
+@@ -43,11 +45,13 @@ fun SignRecognitionScreen(
+     isSessionActive: Boolean,
+     modifier: Modifier = Modifier,
+     onFrameAvailable: (YuvAnalysisFrame) -> Unit = {},
++    onLandmarkFrameAvailable: (LandmarkFrameResult) -> Unit = {},
+ ) {
+     // 권한은 MainActivity에서 이미 허용되었으므로 즉시 카메라 프리뷰를 실행합니다.
+     CameraPreviewContent(
+         isSessionActive = isSessionActive,
+         onFrameAvailable = onFrameAvailable,
++        onLandmarkFrameAvailable = onLandmarkFrameAvailable,
+         modifier = modifier,
+     )
+ }
+@@ -56,13 +60,19 @@ fun SignRecognitionScreen(
+ private fun CameraPreviewContent(
+     isSessionActive: Boolean,
+     onFrameAvailable: (YuvAnalysisFrame) -> Unit,
++    onLandmarkFrameAvailable: (LandmarkFrameResult) -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+     val context = LocalContext.current
+     val configuration = LocalConfiguration.current
+     val lifecycleOwner = LocalLifecycleOwner.current
+     val currentOnFrameAvailable by rememberUpdatedState(onFrameAvailable)
++    val currentOnLandmarkFrameAvailable by rememberUpdatedState(onLandmarkFrameAvailable)
+     val appContext = remember(context) { context.applicationContext }
++    val landmarkExtractor =
++        remember(appContext) {
++            MediaPipeHolisticLandmarkExtractor.create(appContext)
++        }
+     val previewView =
+         remember {
+             PreviewView(context).apply {
+@@ -75,6 +85,10 @@ private fun CameraPreviewContent(
+     var frameCount by remember { mutableStateOf(0L) }
+     var fps by remember { mutableStateOf(0.0) }
+ 
++    DisposableEffect(landmarkExtractor) {
++        onDispose { landmarkExtractor.close() }
++    }
++
+     LaunchedEffect(analyzedFrameCount, isSessionActive) {
+         if (!isSessionActive) {
+             frameCount = 0L
+@@ -111,6 +125,12 @@ private fun CameraPreviewContent(
+             orientation = configuration.orientation,
+             onFrameAvailable = { frame ->
+                 analyzedFrameCount.incrementAndGet()
++                val landmarkFrame =
++                    landmarkExtractor.detect(
++                        bitmap = frame.bitmap,
++                        timestampMs = frame.timestampMs,
++                    )
++                currentOnLandmarkFrameAvailable(landmarkFrame)
+                 currentOnFrameAvailable(frame)
+             },
+             onCameraErrorChanged = { message -> cameraErrorMessage = message },
+
+
+diff --git a/mobile/app/build.gradle.kts b/mobile/app/build.gradle.kts
+--- a/mobile/app/build.gradle.kts
++++ b/mobile/app/build.gradle.kts
+@@ -97,6 +97,7 @@ dependencies {
+     implementation(libs.androidx.camera.camera2)
+     implementation(libs.androidx.camera.lifecycle)
+     implementation(libs.androidx.camera.view)
++    implementation(libs.mediapipe.tasks.vision)
+     implementation(libs.androidx.navigation.compose)
+     implementation(libs.androidx.hilt.navigation.compose)
+     implementation(libs.androidx.compose.ui.tooling.preview)
+
+
+diff --git a/mobile/gradle/libs.versions.toml b/mobile/gradle/libs.versions.toml
+--- a/mobile/gradle/libs.versions.toml
++++ b/mobile/gradle/libs.versions.toml
+@@ -19,6 +19,7 @@ hilt = "2.59.2"
+ navigationCompose = "2.8.7"
+ hiltNavigationCompose = "1.2.0"
+ cameraX = "1.4.2"
++mediaPipeTasksVision = "0.10.33"
+ 
+ [libraries]
+ androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+@@ -54,6 +55,7 @@ androidx-camera-core = { group = "androidx.camera", name = "camera-core", versio
+ androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "cameraX" }
+ androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "cameraX" }
+ androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "cameraX" }
++mediapipe-tasks-vision = { group = "com.google.mediapipe", name = "tasks-vision", version.ref = "mediaPipeTasksVision" }
+ 
+ [plugins]
+ android-application = { id = "com.android.application", version.ref = "agp" }
+
+

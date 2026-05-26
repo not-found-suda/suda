@@ -1,0 +1,463 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoder.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoder.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoder.kt
+@@ -0,0 +1,169 @@
++package com.ssafy.mobile.core.vision.feature
++
++import com.ssafy.mobile.core.vision.inference.SignModelContract
++import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
++import com.ssafy.mobile.core.vision.landmark.LandmarkPoint
++import kotlin.math.sqrt
++
++class LandmarkFeatureEncoder {
++    private var previousPose: List<LandmarkPoint>? = null
++    private var previousLeftHand: List<LandmarkPoint>? = null
++    private var previousRightHand: List<LandmarkPoint>? = null
++    private var previousLips: List<LandmarkPoint>? = null
++    private var previousShoulderWidth: Float? = null
++
++    fun encode(frame: LandmarkFrameResult): LandmarkFeatureFrame {
++        val pose =
++            fillLandmarks(
++                frame.pose.landmarks,
++                previousPose,
++                SignFeatureSpec.POSE_LANDMARK_COUNT,
++            )
++        val leftHand =
++            fillLandmarks(
++                frame.leftHand.landmarks,
++                previousLeftHand,
++                SignFeatureSpec.HAND_LANDMARK_COUNT,
++            )
++        val rightHand =
++            fillLandmarks(
++                frame.rightHand.landmarks,
++                previousRightHand,
++                SignFeatureSpec.HAND_LANDMARK_COUNT,
++            )
++        val lips =
++            fillLandmarks(
++                frame.lips.landmarks,
++                previousLips,
++                SignFeatureSpec.LIPS_LANDMARK_COUNT,
++            )
++        val normalizer = createNormalizer(pose)
++        val values =
++            FloatArray(SignModelContract.FEATURE_DIMENSION).also { output ->
++                var offset = 0
++                offset = writeLandmarks(output, offset, pose, normalizer)
++                offset = writeLandmarks(output, offset, leftHand, normalizer)
++                offset = writeLandmarks(output, offset, rightHand, normalizer)
++                writeLandmarks(output, offset, lips, normalizer)
++            }
++
++        previousPose = pose
++        previousLeftHand = leftHand
++        previousRightHand = rightHand
++        previousLips = lips
++
++        return LandmarkFeatureFrame(
++            timestampMs = frame.timestampMs,
++            values = values,
++        )
++    }
++
++    fun reset() {
++        previousPose = null
++        previousLeftHand = null
++        previousRightHand = null
++        previousLips = null
++        previousShoulderWidth = null
++    }
++
++    private fun fillLandmarks(
++        current: List<LandmarkPoint>,
++        previous: List<LandmarkPoint>?,
++        requiredCount: Int,
++    ): List<LandmarkPoint> =
++        List(requiredCount) { index ->
++            current.getOrNull(index)
++                ?: previous?.getOrNull(index)
++                ?: ZERO_POINT
++        }
++
++    private fun createNormalizer(pose: List<LandmarkPoint>): LandmarkNormalizer {
++        val leftShoulder = pose[SignFeatureSpec.LEFT_SHOULDER_INDEX]
++        val rightShoulder = pose[SignFeatureSpec.RIGHT_SHOULDER_INDEX]
++        val shoulderCenter =
++            LandmarkPoint(
++                x = (leftShoulder.x + rightShoulder.x) / 2f,
++                y = (leftShoulder.y + rightShoulder.y) / 2f,
++                z = (leftShoulder.z + rightShoulder.z) / 2f,
++            )
++        val shoulderWidth = leftShoulder.distance2dTo(rightShoulder)
++        val scale =
++            when {
++                shoulderWidth > MIN_SHOULDER_WIDTH ->
++                    shoulderWidth.also { width ->
++                        previousShoulderWidth = width
++                    }
++                previousShoulderWidth != null -> previousShoulderWidth
++                else -> DEFAULT_SCALE
++            }
++
++        return LandmarkNormalizer(
++            center = shoulderCenter,
++            scale = scale ?: DEFAULT_SCALE,
++        )
++    }
++
++    private fun writeLandmarks(
++        output: FloatArray,
++        startOffset: Int,
++        landmarks: List<LandmarkPoint>,
++        normalizer: LandmarkNormalizer,
++    ): Int {
++        var offset = startOffset
++        landmarks.forEach { landmark ->
++            val normalized = normalizer.normalize(landmark)
++            output[offset++] = normalized.x
++            output[offset++] = normalized.y
++            output[offset++] = normalized.z
++        }
++        return offset
++    }
++
++    private data class LandmarkNormalizer(
++        val center: LandmarkPoint,
++        val scale: Float,
++    ) {
++        fun normalize(point: LandmarkPoint): LandmarkPoint =
++            LandmarkPoint(
++                x = (point.x - center.x) / scale,
++                y = (point.y - center.y) / scale,
++                z = (point.z - center.z) / scale,
++            )
++    }
++
++    private fun LandmarkPoint.distance2dTo(other: LandmarkPoint): Float {
++        val dx = x - other.x
++        val dy = y - other.y
++        return sqrt(dx * dx + dy * dy)
++    }
++
++    private companion object {
++        const val MIN_SHOULDER_WIDTH = 0.0001f
++        const val DEFAULT_SCALE = 1f
++        val ZERO_POINT = LandmarkPoint(0f, 0f, 0f)
++    }
++}
++
++class LandmarkFeatureFrame(
++    val timestampMs: Long,
++    val values: FloatArray,
++) {
++    init {
++        require(values.size == SignModelContract.FEATURE_DIMENSION) {
++            "Feature length must be ${SignModelContract.FEATURE_DIMENSION}."
++        }
++    }
++}
++
++object SignFeatureSpec {
++    const val POSE_LANDMARK_COUNT = 33
++    const val HAND_LANDMARK_COUNT = 21
++    const val LIPS_LANDMARK_COUNT = 40
++    const val COORDINATE_SIZE = 3
++    const val LEFT_SHOULDER_INDEX = 11
++    const val RIGHT_SHOULDER_INDEX = 12
++    const val POSE_OFFSET = 0
++    const val LEFT_HAND_OFFSET = POSE_LANDMARK_COUNT * COORDINATE_SIZE
++    const val RIGHT_HAND_OFFSET = LEFT_HAND_OFFSET + HAND_LANDMARK_COUNT * COORDINATE_SIZE
++    const val LIPS_OFFSET = RIGHT_HAND_OFFSET + HAND_LANDMARK_COUNT * COORDINATE_SIZE
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/SignSequenceBuffer.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/SignSequenceBuffer.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/SignSequenceBuffer.kt
+@@ -0,0 +1,44 @@
++package com.ssafy.mobile.core.vision.feature
++
++import com.ssafy.mobile.core.vision.inference.SignModelContract
++import java.util.ArrayDeque
++
++class SignSequenceBuffer(
++    private val sequenceLength: Int = SignModelContract.SEQUENCE_LENGTH,
++) {
++    private val frames = ArrayDeque<LandmarkFeatureFrame>(sequenceLength)
++
++    val size: Int
++        get() = frames.size
++
++    val hasEnoughFrames: Boolean
++        get() = frames.size == sequenceLength
++
++    fun add(frame: LandmarkFeatureFrame) {
++        if (frames.size == sequenceLength) {
++            frames.removeFirst()
++        }
++        frames.addLast(frame)
++    }
++
++    fun buildSequenceInput(): FloatArray? {
++        if (!hasEnoughFrames) {
++            return null
++        }
++
++        val sequence = FloatArray(sequenceLength * SignModelContract.FEATURE_DIMENSION)
++        var offset = 0
++        frames.forEach { frame ->
++            frame.values.copyInto(
++                destination = sequence,
++                destinationOffset = offset,
++            )
++            offset += SignModelContract.FEATURE_DIMENSION
++        }
++        return sequence
++    }
++
++    fun clear() {
++        frames.clear()
++    }
++}
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoderTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoderTest.kt
+--- /dev/null
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoderTest.kt
+@@ -0,0 +1,147 @@
++package com.ssafy.mobile.core.vision.feature
++
++import com.ssafy.mobile.core.vision.inference.SignModelContract
++import com.ssafy.mobile.core.vision.landmark.HandLandmarks
++import com.ssafy.mobile.core.vision.landmark.HandSide
++import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
++import com.ssafy.mobile.core.vision.landmark.LandmarkGroup
++import com.ssafy.mobile.core.vision.landmark.LandmarkGroupType
++import com.ssafy.mobile.core.vision.landmark.LandmarkPoint
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class LandmarkFeatureEncoderTest {
++    @Test
++    fun encodesLandmarkFrameToFixedLengthFeature() {
++        val feature = LandmarkFeatureEncoder().encode(createFrame()).values
++
++        assertEquals(SignModelContract.FEATURE_DIMENSION, feature.size)
++        assertEquals(POSE_X_NORMALIZED, feature[SignFeatureSpec.POSE_OFFSET], FLOAT_DELTA)
++        assertEquals(LEFT_HAND_X_NORMALIZED, feature[SignFeatureSpec.LEFT_HAND_OFFSET], FLOAT_DELTA)
++        assertEquals(
++            RIGHT_HAND_X_NORMALIZED,
++            feature[SignFeatureSpec.RIGHT_HAND_OFFSET],
++            FLOAT_DELTA,
++        )
++        assertEquals(LIPS_X_NORMALIZED, feature[SignFeatureSpec.LIPS_OFFSET], FLOAT_DELTA)
++    }
++
++    @Test
++    fun forwardFillsMissingLandmarksFromPreviousFrame() {
++        val encoder = LandmarkFeatureEncoder()
++        encoder.encode(createFrame())
++
++        val feature =
++            encoder
++                .encode(createFrame(leftHand = emptyList()))
++                .values
++
++        assertEquals(
++            LEFT_HAND_X_NORMALIZED,
++            feature[SignFeatureSpec.LEFT_HAND_OFFSET],
++            FLOAT_DELTA,
++        )
++    }
++
++    @Test
++    fun resetClearsForwardFillState() {
++        val encoder = LandmarkFeatureEncoder()
++        encoder.encode(createFrame())
++        encoder.reset()
++
++        val feature =
++            encoder
++                .encode(createFrame(leftHand = emptyList()))
++                .values
++
++        assertEquals(
++            INITIAL_EMPTY_X_NORMALIZED,
++            feature[SignFeatureSpec.LEFT_HAND_OFFSET],
++            FLOAT_DELTA,
++        )
++    }
++
++    @Test
++    fun encodesInitialEmptyFrameToFixedLengthNoneFrame() {
++        val feature =
++            LandmarkFeatureEncoder()
++                .encode(LandmarkFrameResult.empty(timestampMs = TIMESTAMP_MS))
++                .values
++
++        assertEquals(SignModelContract.FEATURE_DIMENSION, feature.size)
++        assertTrue(feature.all { it == 0f })
++    }
++
++    private fun createFrame(
++        leftHand: List<LandmarkPoint> = createDefaultLeftHandLandmarks(),
++    ): LandmarkFrameResult =
++        LandmarkFrameResult(
++            timestampMs = TIMESTAMP_MS,
++            pose =
++                LandmarkGroup(
++                    type = LandmarkGroupType.POSE,
++                    landmarks = createPoseLandmarks(),
++                ),
++            leftHand =
++                HandLandmarks(
++                    side = HandSide.LEFT,
++                    landmarks = leftHand,
++                ),
++            rightHand =
++                HandLandmarks(
++                    side = HandSide.RIGHT,
++                    landmarks =
++                        createLandmarks(
++                            count = SignFeatureSpec.HAND_LANDMARK_COUNT,
++                            firstPoint = LandmarkPoint(0.25f, 0f, 0f),
++                        ),
++                ),
++            lips =
++                LandmarkGroup(
++                    type = LandmarkGroupType.LIPS,
++                    landmarks =
++                        createLandmarks(
++                            count = SignFeatureSpec.LIPS_LANDMARK_COUNT,
++                            firstPoint = LandmarkPoint(1f, 0f, 0f),
++                        ),
++                ),
++        )
++
++    private fun createDefaultLeftHandLandmarks(): List<LandmarkPoint> =
++        createLandmarks(
++            count = SignFeatureSpec.HAND_LANDMARK_COUNT,
++            firstPoint = LandmarkPoint(0.75f, 0f, 0f),
++        )
++
++    private fun createPoseLandmarks(): List<LandmarkPoint> =
++        createLandmarks(
++            count = SignFeatureSpec.POSE_LANDMARK_COUNT,
++            firstPoint = LandmarkPoint(0.5f, 0f, 0f),
++        ).toMutableList().also { landmarks ->
++            landmarks[SignFeatureSpec.LEFT_SHOULDER_INDEX] = LandmarkPoint(0f, 0f, 0f)
++            landmarks[SignFeatureSpec.RIGHT_SHOULDER_INDEX] = LandmarkPoint(1f, 0f, 0f)
++        }
++
++    private fun createLandmarks(
++        count: Int,
++        firstPoint: LandmarkPoint,
++    ): List<LandmarkPoint> =
++        List(count) { index ->
++            if (index == 0) {
++                firstPoint
++            } else {
++                LandmarkPoint(0f, 0f, 0f)
++            }
++        }
++
++    private companion object {
++        const val TIMESTAMP_MS = 1_000L
++        const val FLOAT_DELTA = 0.0001f
++        const val POSE_X_NORMALIZED = 0f
++        const val LEFT_HAND_X_NORMALIZED = 0.25f
++        const val RIGHT_HAND_X_NORMALIZED = -0.25f
++        const val LIPS_X_NORMALIZED = 0.5f
++        const val INITIAL_EMPTY_X_NORMALIZED = -0.5f
++    }
++}
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/SignSequenceBufferTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/SignSequenceBufferTest.kt
+--- /dev/null
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/SignSequenceBufferTest.kt
+@@ -0,0 +1,79 @@
++package com.ssafy.mobile.core.vision.feature
++
++import com.ssafy.mobile.core.vision.inference.SignModelContract
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertNull
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class SignSequenceBufferTest {
++    @Test
++    fun returnsNullUntilSequenceLengthIsSatisfied() {
++        val buffer = SignSequenceBuffer(sequenceLength = TEST_SEQUENCE_LENGTH)
++
++        buffer.add(createFeatureFrame(value = 1f))
++
++        assertFalse(buffer.hasEnoughFrames)
++        assertNull(buffer.buildSequenceInput())
++    }
++
++    @Test
++    fun buildsSequenceInputWhenEnoughFramesAreBuffered() {
++        val buffer = SignSequenceBuffer(sequenceLength = TEST_SEQUENCE_LENGTH)
++
++        buffer.add(createFeatureFrame(value = 1f))
++        buffer.add(createFeatureFrame(value = 2f))
++        buffer.add(createFeatureFrame(value = 3f))
++
++        val sequence = requireNotNull(buffer.buildSequenceInput())
++
++        assertTrue(buffer.hasEnoughFrames)
++        assertEquals(TEST_SEQUENCE_LENGTH * SignModelContract.FEATURE_DIMENSION, sequence.size)
++        assertEquals(1f, sequence[0], FLOAT_DELTA)
++        assertEquals(2f, sequence[SignModelContract.FEATURE_DIMENSION], FLOAT_DELTA)
++        assertEquals(3f, sequence[SignModelContract.FEATURE_DIMENSION * 2], FLOAT_DELTA)
++    }
++
++    @Test
++    fun keepsOnlyRecentFrames() {
++        val buffer = SignSequenceBuffer(sequenceLength = TEST_SEQUENCE_LENGTH)
++
++        buffer.add(createFeatureFrame(value = 1f))
++        buffer.add(createFeatureFrame(value = 2f))
++        buffer.add(createFeatureFrame(value = 3f))
++        buffer.add(createFeatureFrame(value = 4f))
++
++        val sequence = requireNotNull(buffer.buildSequenceInput())
++
++        assertEquals(TEST_SEQUENCE_LENGTH, buffer.size)
++        assertEquals(2f, sequence[0], FLOAT_DELTA)
++        assertEquals(4f, sequence[SignModelContract.FEATURE_DIMENSION * 2], FLOAT_DELTA)
++    }
++
++    @Test
++    fun clearRemovesBufferedFrames() {
++        val buffer = SignSequenceBuffer(sequenceLength = TEST_SEQUENCE_LENGTH)
++        buffer.add(createFeatureFrame(value = 1f))
++        buffer.add(createFeatureFrame(value = 2f))
++        buffer.add(createFeatureFrame(value = 3f))
++
++        buffer.clear()
++
++        assertEquals(0, buffer.size)
++        assertFalse(buffer.hasEnoughFrames)
++        assertNull(buffer.buildSequenceInput())
++    }
++
++    private fun createFeatureFrame(value: Float): LandmarkFeatureFrame =
++        LandmarkFeatureFrame(
++            timestampMs = TIMESTAMP_MS,
++            values = FloatArray(SignModelContract.FEATURE_DIMENSION) { value },
++        )
++
++    private companion object {
++        const val TEST_SEQUENCE_LENGTH = 3
++        const val TIMESTAMP_MS = 1_000L
++        const val FLOAT_DELTA = 0.0001f
++    }
++}
+
+

@@ -1,0 +1,570 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/dto/ChildSpeechCorrectionResult.java b/backend/src/main/java/com/ssafy/backend/domain/comms/dto/ChildSpeechCorrectionResult.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/dto/ChildSpeechCorrectionResult.java
+@@ -0,0 +1,3 @@
++package com.ssafy.backend.domain.comms.dto;
++
++public record ChildSpeechCorrectionResult(String originalText, String correctedText) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/service/ChildSpeechCorrectionClient.java b/backend/src/main/java/com/ssafy/backend/domain/comms/service/ChildSpeechCorrectionClient.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/service/ChildSpeechCorrectionClient.java
+@@ -0,0 +1,51 @@
++package com.ssafy.backend.domain.comms.service;
++
++import com.ssafy.backend.domain.comms.dto.ChildSpeechCorrectionResult;
++import org.springframework.stereotype.Component;
++
++@Component
++public class ChildSpeechCorrectionClient {
++
++  private final OpenAiClient openAiClient;
++
++  public ChildSpeechCorrectionClient(OpenAiClient openAiClient) {
++    this.openAiClient = openAiClient;
++  }
++
++  public ChildSpeechCorrectionResult correct(String rawText) {
++    if (rawText == null || rawText.isBlank()) {
++      return new ChildSpeechCorrectionResult("", "");
++    }
++
++    String systemInstruction =
++        """
++      너는 0~5세 아이의 부정확한 발화를 자연스러운 한국어로 보정하는 역할이다.
++
++      규칙:
++      - 설명 없이 보정된 문장만 출력한다.
++      - 원래 의미를 과하게 바꾸지 않는다.
++      - 아이가 말한 것처럼 짧고 자연스럽게 보정한다.
++      - 감탄문이면 자연스럽게 느낌표를 붙여도 된다.
++      - 확실하지 않으면 입력 문장을 최대한 유지한다.
++
++      예시:
++      옴마 -> 엄마!
++      압빠 -> 아빠!
++      무 주 -> 물 줘!
++      까까 조 -> 까까 줘!
++      안아 조 -> 안아 줘!
++      맘마 머거 -> 맘마 먹어!
++      이거 모야 -> 이거 뭐야?
++      """;
++
++    String correctedText;
++
++    try {
++      correctedText = openAiClient.generateText(systemInstruction, rawText).trim();
++    } catch (IllegalStateException e) {
++      correctedText = rawText.trim();
++    }
++
++    return new ChildSpeechCorrectionResult(rawText, correctedText);
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaSttClient.java b/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaSttClient.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaSttClient.java
+@@ -0,0 +1,64 @@
++package com.ssafy.backend.domain.comms.service;
++
++import com.ssafy.backend.global.ai.AiProperties;
++import java.io.IOException;
++import org.springframework.http.MediaType;
++import org.springframework.stereotype.Component;
++import org.springframework.web.client.RestClient;
++import org.springframework.web.multipart.MultipartFile;
++
++@Component
++public class ClovaSttClient {
++
++  private final RestClient restClient;
++  private final AiProperties aiProperties;
++
++  public ClovaSttClient(RestClient restClient, AiProperties aiProperties) {
++    this.restClient = restClient;
++    this.aiProperties = aiProperties;
++  }
++
++  public String transcribe(MultipartFile audioFile) {
++    if (audioFile == null || audioFile.isEmpty()) {
++      throw new IllegalArgumentException("음성 파일은 필수입니다.");
++    }
++
++    try {
++      return transcribe(audioFile.getBytes());
++    } catch (IOException e) {
++      throw new IllegalStateException("음성 파일을 읽는 중 오류가 발생했습니다.", e);
++    }
++  }
++
++  public String transcribe(byte[] audioBytes) {
++    if (audioBytes == null || audioBytes.length == 0) {
++      throw new IllegalArgumentException("음성 파일은 필수입니다.");
++    }
++
++    AiProperties.Clova clova = aiProperties.clova();
++
++    try {
++      ClovaSttResponse response =
++          restClient
++              .post()
++              .uri(clova.sttUrl() + "?lang=" + clova.sttLanguage())
++              .header("X-NCP-APIGW-API-KEY-ID", clova.clientId())
++              .header("X-NCP-APIGW-API-KEY", clova.clientSecret())
++              .contentType(MediaType.APPLICATION_OCTET_STREAM)
++              .body(audioBytes)
++              .retrieve()
++              .body(ClovaSttResponse.class);
++
++      if (response == null || response.text() == null || response.text().isBlank()) {
++        throw new IllegalStateException("Clova STT 응답이 비어 있습니다.");
++      }
++
++      return response.text().trim();
++
++    } catch (Exception e) {
++      throw new IllegalStateException("Clova STT 호출 중 오류가 발생했습니다.", e);
++    }
++  }
++
++  private record ClovaSttResponse(String text) {}
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaTtsClient.java b/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaTtsClient.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaTtsClient.java
+@@ -0,0 +1,68 @@
++package com.ssafy.backend.domain.comms.service;
++
++import com.ssafy.backend.global.ai.AiProperties;
++import java.nio.charset.StandardCharsets;
++import org.springframework.http.MediaType;
++import org.springframework.stereotype.Component;
++import org.springframework.util.LinkedMultiValueMap;
++import org.springframework.util.MultiValueMap;
++import org.springframework.web.client.RestClient;
++
++@Component
++public class ClovaTtsClient {
++
++  private static final int MAX_TEXT_LENGTH = 500;
++
++  private final RestClient restClient;
++  private final AiProperties aiProperties;
++
++  public ClovaTtsClient(RestClient restClient, AiProperties aiProperties) {
++    this.restClient = restClient;
++    this.aiProperties = aiProperties;
++  }
++
++  public byte[] synthesize(String text) {
++    String normalizedText = validateAndNormalizeText(text);
++
++    AiProperties.Clova clova = aiProperties.clova();
++
++    MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
++    form.add("speaker", clova.speaker());
++    form.add("format", clova.format());
++    form.add("text", normalizedText);
++    form.add("speed", "0");
++
++    byte[] audio =
++        restClient
++            .post()
++            .uri(clova.ttsUrl())
++            .header("X-NCP-APIGW-API-KEY-ID", clova.clientId())
++            .header("X-NCP-APIGW-API-KEY", clova.clientSecret())
++            .contentType(
++                new MediaType("application", "x-www-form-urlencoded", StandardCharsets.UTF_8))
++            .body(form)
++            .retrieve()
++            .body(byte[].class);
++
++    if (audio == null || audio.length == 0) {
++      throw new IllegalStateException("Clova TTS 응답이 비어 있습니다.");
++    }
++
++    return audio;
++  }
++
++  // TTS 응답 검증 추가
++  private String validateAndNormalizeText(String text) {
++    if (text == null || text.isBlank()) {
++      throw new IllegalArgumentException("TTS 변환할 텍스트는 필수입니다.");
++    }
++
++    String normalizedText = text.trim();
++
++    if (normalizedText.length() > MAX_TEXT_LENGTH) {
++      throw new IllegalArgumentException("TTS 변환할 텍스트는 " + MAX_TEXT_LENGTH + "자 이하로 입력해주세요.");
++    }
++
++    return normalizedText;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/service/OpenAiClient.java b/backend/src/main/java/com/ssafy/backend/domain/comms/service/OpenAiClient.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/service/OpenAiClient.java
+@@ -0,0 +1,106 @@
++package com.ssafy.backend.domain.comms.service;
++
++import com.ssafy.backend.global.ai.AiProperties;
++import java.util.List;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.http.MediaType;
++import org.springframework.stereotype.Component;
++import org.springframework.web.client.RestClient;
++
++@Component
++public class OpenAiClient {
++
++  private static final Logger log = LoggerFactory.getLogger(OpenAiClient.class);
++
++  private final RestClient restClient;
++  private final AiProperties aiProperties;
++
++  public OpenAiClient(RestClient restClient, AiProperties aiProperties) {
++    this.restClient = restClient;
++    this.aiProperties = aiProperties;
++  }
++
++  public String generateText(String systemInstruction, String userInput) {
++    if (userInput == null || userInput.isBlank()) {
++      return "";
++    }
++
++    try {
++      String result = callGemini(systemInstruction, userInput);
++
++      if (result == null || result.isBlank()) {
++        throw new IllegalStateException("Gemini 응답 텍스트가 비어 있습니다.");
++      }
++
++      return clean(result);
++    } catch (Exception e) {
++      log.warn("Gemini request failed. reason={}", e.getMessage());
++      throw new IllegalStateException("Gemini 문장 보정 호출에 실패했습니다.", e);
++    }
++  }
++
++  private String callGemini(String systemInstruction, String userInput) {
++    AiProperties.Gemini gemini = aiProperties.gemini();
++
++    if (gemini == null) {
++      throw new IllegalStateException("Gemini 설정이 없습니다.");
++    }
++
++    if (gemini.apiKey() == null || gemini.apiKey().isBlank()) {
++      throw new IllegalStateException("Gemini API key가 설정되지 않았습니다.");
++    }
++
++    String url = "%s/v1beta/models/%s:generateContent".formatted(gemini.baseUrl(), gemini.model());
++
++    GeminiRequest request =
++        new GeminiRequest(
++            new GeminiContent(List.of(new GeminiPart(systemInstruction))),
++            List.of(new GeminiContent(List.of(new GeminiPart(userInput)))),
++            new GeminiGenerationConfig(0.1, 64, new GeminiThinkingConfig(0)));
++
++    GeminiResponse response =
++        restClient
++            .post()
++            .uri(url)
++            .header("x-goog-api-key", gemini.apiKey())
++            .contentType(MediaType.APPLICATION_JSON)
++            .body(request)
++            .retrieve()
++            .body(GeminiResponse.class);
++
++    if (response == null || response.candidates() == null || response.candidates().isEmpty()) {
++      throw new IllegalStateException("Gemini 응답이 비어 있습니다.");
++    }
++
++    GeminiContent content = response.candidates().get(0).content();
++
++    if (content == null || content.parts() == null || content.parts().isEmpty()) {
++      throw new IllegalStateException("Gemini 응답 텍스트가 비어 있습니다.");
++    }
++
++    return content.parts().get(0).text();
++  }
++
++  private String clean(String result) {
++    return result.trim().replace("\"", "").replace("'", "").replace("`", "").split("\\n")[0].trim();
++  }
++
++  private record GeminiRequest(
++      GeminiContent systemInstruction,
++      List<GeminiContent> contents,
++      GeminiGenerationConfig generationConfig) {}
++
++  private record GeminiContent(List<GeminiPart> parts) {}
++
++  private record GeminiPart(String text) {}
++
++  private record GeminiGenerationConfig(
++      Double temperature, Integer maxOutputTokens, GeminiThinkingConfig thinkingConfig) {}
++
++  private record GeminiThinkingConfig(Integer thinkingBudget) {}
++
++  private record GeminiResponse(List<GeminiCandidate> candidates) {}
++
++  private record GeminiCandidate(GeminiContent content) {}
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/service/SignLanguageCorrectionClient.java b/backend/src/main/java/com/ssafy/backend/domain/comms/service/SignLanguageCorrectionClient.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/service/SignLanguageCorrectionClient.java
+@@ -0,0 +1,46 @@
++package com.ssafy.backend.domain.comms.service;
++
++import org.springframework.stereotype.Component;
++
++@Component
++public class SignLanguageCorrectionClient {
++
++  private final OpenAiClient openAiClient;
++
++  public SignLanguageCorrectionClient(OpenAiClient openAiClient) {
++    this.openAiClient = openAiClient;
++  }
++
++  public String correct(String signText) {
++    if (signText == null || signText.isBlank()) {
++      return "";
++    }
++
++    String systemInstruction =
++        """
++      입력은 수어식 단어 배열이다.
++
++      규칙:
++      - 0~5세 아이에게 부모가 말하듯 자연스러운 한국어 구어체 문장 하나로 바꾼다.
++      - 반드시 반말로 말한다.
++      - 존댓말은 사용하지 않는다.
++      - 입력 단어의 핵심 의미는 유지한다.
++      - 조사, 어미, 시제, 어순은 자연스럽게 바꿔도 된다.
++      - 입력에 없는 새 주제는 추가하지 않는다.
++      - 설명 없이 문장 하나만 출력한다.
++
++      예시:
++      [오늘, 뭐, 먹다] -> 오늘 뭐 먹고 싶어?
++      [무슨, 아이스크림, 먹다] -> 무슨 아이스크림 먹을래?
++      [우리 아이, 배, 좋아하다] -> 우리 아이는 배 좋아해?
++      [엄마, 같이, 가다] -> 엄마랑 같이 가자.
++      [이리, 오다] -> 이리 와!
++      """;
++
++    try {
++      return openAiClient.generateText(systemInstruction, signText).trim();
++    } catch (IllegalStateException e) {
++      throw new IllegalStateException("수어 문맥 보정에 실패했습니다.", e);
++    }
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/ai/AiProperties.java b/backend/src/main/java/com/ssafy/backend/global/ai/AiProperties.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/ai/AiProperties.java
+@@ -0,0 +1,18 @@
++package com.ssafy.backend.global.ai;
++
++import org.springframework.boot.context.properties.ConfigurationProperties;
++
++@ConfigurationProperties(prefix = "ai")
++public record AiProperties(Gemini gemini, Clova clova) {
++
++  public record Gemini(String apiKey, String model, String baseUrl) {}
++
++  public record Clova(
++      String clientId,
++      String clientSecret,
++      String ttsUrl,
++      String speaker,
++      String format,
++      String sttUrl,
++      String sttLanguage) {}
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/config/ExternalApiProperties.java b/backend/src/main/java/com/ssafy/backend/global/config/ExternalApiProperties.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/config/ExternalApiProperties.java
+@@ -0,0 +1,9 @@
++package com.ssafy.backend.global.config;
++
++import java.time.Duration;
++import org.springframework.boot.context.properties.ConfigurationProperties;
++
++@ConfigurationProperties(prefix = "external-api")
++public record ExternalApiProperties(Timeout timeout) {
++  public record Timeout(Duration connect, Duration read) {}
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/config/RestClientConfig.java b/backend/src/main/java/com/ssafy/backend/global/config/RestClientConfig.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/config/RestClientConfig.java
+@@ -0,0 +1,25 @@
++package com.ssafy.backend.global.config;
++
++import java.time.Duration;
++import org.springframework.boot.context.properties.EnableConfigurationProperties;
++import org.springframework.context.annotation.Bean;
++import org.springframework.context.annotation.Configuration;
++import org.springframework.http.client.SimpleClientHttpRequestFactory;
++import org.springframework.web.client.RestClient;
++
++@Configuration
++@EnableConfigurationProperties(ExternalApiProperties.class)
++public class RestClientConfig {
++
++  @Bean
++  public RestClient restClient(ExternalApiProperties externalApiProperties) {
++    Duration connectTimeout = externalApiProperties.timeout().connect();
++    Duration readTimeout = externalApiProperties.timeout().read();
++
++    SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
++    requestFactory.setConnectTimeout(connectTimeout);
++    requestFactory.setReadTimeout(readTimeout);
++
++    return RestClient.builder().requestFactory(requestFactory).build();
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/BackendApplication.java b/backend/src/main/java/com/ssafy/backend/BackendApplication.java
+--- a/backend/src/main/java/com/ssafy/backend/BackendApplication.java
++++ b/backend/src/main/java/com/ssafy/backend/BackendApplication.java
+@@ -2,7 +2,9 @@ package com.ssafy.backend;
+ 
+ import org.springframework.boot.SpringApplication;
+ import org.springframework.boot.autoconfigure.SpringBootApplication;
++import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+ 
++@ConfigurationPropertiesScan
+ @SpringBootApplication
+ public class BackendApplication {
+ 
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/TestRunner.java b/backend/src/main/java/com/ssafy/backend/TestRunner.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/TestRunner.java
+@@ -0,0 +1,29 @@
++package com.ssafy.backend;
++
++import com.ssafy.backend.domain.comms.service.SignLanguageCorrectionClient;
++import org.springframework.boot.CommandLineRunner;
++import org.springframework.stereotype.Component;
++
++@Component
++public class TestRunner implements CommandLineRunner {
++
++  private final SignLanguageCorrectionClient signLanguageCorrectionClient;
++
++  public TestRunner(SignLanguageCorrectionClient signLanguageCorrectionClient) {
++    this.signLanguageCorrectionClient = signLanguageCorrectionClient;
++  }
++
++  @Override
++  public void run(String... args) {
++    System.out.println("===== Gemini 수어 문맥 보정 테스트 시작 =====");
++
++    String signText = "[물, 마시다, 원하다]";
++
++    String correctedText = signLanguageCorrectionClient.correct(signText);
++
++    System.out.println("수어 모델 결과: " + signText);
++    System.out.println("보정 문장: " + correctedText);
++
++    System.out.println("===== Gemini 수어 문맥 보정 테스트 종료 =====");
++  }
++}
+
+
+diff --git a/backend/src/main/resources/application-dev.yml b/backend/src/main/resources/application-dev.yml
+--- a/backend/src/main/resources/application-dev.yml
++++ b/backend/src/main/resources/application-dev.yml
+@@ -25,3 +25,25 @@ auth:
+     refresh-token-cookie-secure: "${AUTH_REFRESH_COOKIE_SECURE}"
+     refresh-token-cookie-same-site: "${AUTH_REFRESH_COOKIE_SAME_SITE}"
+     refresh-token-cookie-path: "${AUTH_REFRESH_COOKIE_PATH}"
++
++ai:
++  gemini:
++    api-key: ${GMS_KEY}
++    model: ${GEMINI_MODEL:gemini-2.5-flash-lite}
++    base-url: ${GEMINI_BASE_URL:https://gms.ssafy.io/gmsapi/generativelanguage.googleapis.com}
++
++  clova:
++    client-id: ${CLOVA_CLIENT_ID}
++    client-secret: ${CLOVA_CLIENT_SECRET}
++
++    tts-url: ${CLOVA_TTS_URL:https://naveropenapi.apigw.ntruss.com/tts-premium/v1/tts}
++    speaker: ${CLOVA_TTS_SPEAKER:nara}
++    format: ${CLOVA_TTS_FORMAT:mp3}
++
++    stt-url: ${CLOVA_STT_URL:https://naveropenapi.apigw.ntruss.com/recog/v1/stt}
++    stt-language: ${CLOVA_STT_LANGUAGE:Kor}
++
++external-api:
++  timeout:
++    connect: 3s
++    read: 10s
+
+
+diff --git a/.env.example b/.env.example
+--- a/.env.example
++++ b/.env.example
+@@ -15,15 +15,34 @@ AUTH_REFRESH_COOKIE_NAME=refresh_token
+ AUTH_REFRESH_COOKIE_SECURE=false
+ AUTH_REFRESH_COOKIE_SAME_SITE=Lax
+ AUTH_REFRESH_COOKIE_PATH=/
+-SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS=http://localhost:8080
++SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS=http://localhost:5173,http://127.0.0.1:5173
++
+ REDIS_HOST=localhost
+ REDIS_PORT=6379
+ REDIS_PASSWORD=redispassword
+ 
+ # App ports
+ BACKEND_PORT=8080
++FRONTEND_PORT=5173
++
++# Frontend (Vite)
++VITE_API_BASE_URL=http://localhost:8080
++VITE_API_TIMEOUT_MS=10000
++
++# Gemini via GMS
++GMS_KEY=your-gms-key
++GEMINI_MODEL=gemini-2.5-flash-lite
++GEMINI_BASE_URL=https://gms.ssafy.io/gmsapi/generativelanguage.googleapis.com
++
++# Clova common credentials
++CLOVA_CLIENT_ID=your-clova-client-id
++CLOVA_CLIENT_SECRET=your-clova-client-secret
++
++# Clova TTS
++CLOVA_TTS_URL=https://naveropenapi.apigw.ntruss.com/tts-premium/v1/tts
++CLOVA_TTS_SPEAKER=nara
++CLOVA_TTS_FORMAT=mp3
+ 
+-# Mobile (Android)
+-# 에뮬레이터에서 개발 PC localhost를 가리키는 주소: 10.0.2.2
+-# 실기기 테스트 시 개발 PC의 실제 LAN IP로 변경 필요 (예: 192.168.x.x)
+-MOBILE_API_BASE_URL=http://10.0.2.2:8080/api/
++# Clova STT
++CLOVA_STT_URL=https://naveropenapi.apigw.ntruss.com/recog/v1/stt
++CLOVA_STT_LANGUAGE=Kor
+
+

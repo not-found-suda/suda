@@ -1,0 +1,258 @@
+﻿diff --git a/backend/src/main/resources/db/migration/V20260506187000__seed_learn_categories.sql b/backend/src/main/resources/db/migration/V20260506191000__seed_learn_categories.sql
+--- a/backend/src/main/resources/db/migration/V20260506187000__seed_learn_categories.sql
++++ b/backend/src/main/resources/db/migration/V20260506191000__seed_learn_categories.sql
+
+diff --git a/backend/src/main/resources/application.yml b/backend/src/main/resources/application.yml
+--- a/backend/src/main/resources/application.yml
++++ b/backend/src/main/resources/application.yml
+@@ -17,7 +17,7 @@ spring:
+       port: "${REDIS_PORT}"
+       password: "${REDIS_PASSWORD}"
+   flyway:
+-    enabled: true
++    enabled: ${SPRING_FLYWAY_ENABLED:false}
+     locations: classpath:db/migration
+ 
+ ai:
+
+
+diff --git a/backend/Dockerfile.migration b/backend/Dockerfile.migration
+--- /dev/null
++++ b/backend/Dockerfile.migration
+@@ -0,0 +1,5 @@
++FROM flyway/flyway:11
++
++COPY src/main/resources/db/migration /flyway/sql
++
++ENTRYPOINT ["flyway"]
+
+
+diff --git a/.gitlab-ci.yml b/.gitlab-ci.yml
+--- a/.gitlab-ci.yml
++++ b/.gitlab-ci.yml
+@@ -6,6 +6,9 @@ workflow:
+     # main 브랜치에 실제 merge/push 되었을 때 배포 파이프라인 실행
+     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+ 
++    # develop 브랜치에 실제 merge/push 되었을 때 dev DB 마이그레이션 파이프라인 실행
++    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
++
+     - when: never
+ 
+ stages:
+@@ -62,6 +65,121 @@ backend-check:
+     - ./gradlew spotlessCheck --no-daemon
+     - ./gradlew build -x test --no-daemon
+ 
++backend-flyway-check:
++  stage: verify
++  image:
++    name: flyway/flyway:11
++    entrypoint: [""]
++  services:
++    - name: postgres:16
++      alias: postgres
++  rules:
++    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && ($CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop" || $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main")'
++      changes:
++        - backend/src/main/resources/db/migration/**/*
++        - backend/Dockerfile.migration
++        - .gitlab-ci.yml
++    - when: never
++  variables:
++    POSTGRES_DB: flyway_ci
++    POSTGRES_USER: flyway
++    POSTGRES_PASSWORD: flyway
++  script:
++    - |
++      echo "[backend-flyway-check] 마이그레이션 파일명 규칙 확인"
++      invalid_files=$(find backend/src/main/resources/db/migration -type f -name "*.sql" | grep -Ev '/V[0-9]{14}__[a-z0-9_]+\.sql$' || true)
++
++      if [ -n "$invalid_files" ]; then
++        echo "잘못된 Flyway 마이그레이션 파일명:"
++        echo "$invalid_files"
++        echo "기대 형식: VyyyyMMddHHmmss__description.sql"
++        exit 1
++      fi
++    - |
++      echo "[backend-flyway-check] 마이그레이션 timestamp 유효성 확인"
++      invalid_timestamps=$(find backend/src/main/resources/db/migration -type f -name "V*.sql" -exec basename {} \; | awk '
++        function leap_year(year) {
++          return (year % 400 == 0) || (year % 4 == 0 && year % 100 != 0)
++        }
++
++        function valid_timestamp(timestamp) {
++          year = substr(timestamp, 1, 4) + 0
++          month = substr(timestamp, 5, 2) + 0
++          day = substr(timestamp, 7, 2) + 0
++          hour = substr(timestamp, 9, 2) + 0
++          minute = substr(timestamp, 11, 2) + 0
++          second = substr(timestamp, 13, 2) + 0
++
++          if (month < 1 || month > 12) return 0
++          if (hour < 0 || hour > 23) return 0
++          if (minute < 0 || minute > 59) return 0
++          if (second < 0 || second > 59) return 0
++
++          days_in_month[1] = 31
++          days_in_month[2] = leap_year(year) ? 29 : 28
++          days_in_month[3] = 31
++          days_in_month[4] = 30
++          days_in_month[5] = 31
++          days_in_month[6] = 30
++          days_in_month[7] = 31
++          days_in_month[8] = 31
++          days_in_month[9] = 30
++          days_in_month[10] = 31
++          days_in_month[11] = 30
++          days_in_month[12] = 31
++
++          return day >= 1 && day <= days_in_month[month]
++        }
++
++        {
++          timestamp = substr($0, 2, 14)
++          if (!valid_timestamp(timestamp)) print $0
++        }
++      ')
++
++      if [ -n "$invalid_timestamps" ]; then
++        echo "잘못된 Flyway 마이그레이션 timestamp:"
++        echo "$invalid_timestamps"
++        echo "실제로 존재하는 날짜/시간 형식이어야 합니다: VyyyyMMddHHmmss__description.sql"
++        exit 1
++      fi
++    - |
++      echo "[backend-flyway-check] 마이그레이션 버전 중복 확인"
++      versions=$(find backend/src/main/resources/db/migration -type f -name "V*.sql" -exec basename {} \; | sed -E 's/^V([0-9]+)__.*/\1/')
++      duplicated=$(echo "$versions" | sort | uniq -d)
++
++      if [ -n "$duplicated" ]; then
++        echo "중복된 Flyway 마이그레이션 버전:"
++        echo "$duplicated"
++        exit 1
++      fi
++    - |
++      echo "[backend-flyway-check] 임시 PostgreSQL에서 마이그레이션 검증"
++      flyway \
++        -url=jdbc:postgresql://postgres:5432/flyway_ci \
++        -user=flyway \
++        -password=flyway \
++        -locations=filesystem:backend/src/main/resources/db/migration \
++        -connectRetries=60 \
++        -outOfOrder=false \
++        migrate
++      flyway \
++        -url=jdbc:postgresql://postgres:5432/flyway_ci \
++        -user=flyway \
++        -password=flyway \
++        -locations=filesystem:backend/src/main/resources/db/migration \
++        -connectRetries=60 \
++        -outOfOrder=false \
++        validate
++      flyway \
++        -url=jdbc:postgresql://postgres:5432/flyway_ci \
++        -user=flyway \
++        -password=flyway \
++        -locations=filesystem:backend/src/main/resources/db/migration \
++        -connectRetries=60 \
++        -outOfOrder=false \
++        info
++
+ mobile-check:
+   stage: verify
+   image: eclipse-temurin:21-jdk
+@@ -110,6 +228,71 @@ secret-scan:
+   script:
+     - gitleaks detect --source . --no-git --redact --exit-code 1
+ 
++build-and-push-migration-ecr:
++  stage: deploy
++  image: docker:27
++  services:
++    - name: docker:27-dind
++      alias: docker
++  variables:
++    DOCKER_TLS_CERTDIR: ""
++    DOCKER_HOST: tcp://docker:2375
++  rules:
++    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
++      changes:
++        - backend/src/main/resources/db/migration/**/*
++        - backend/Dockerfile.migration
++        - .gitlab-ci.yml
++      variables:
++        MIGRATION_IMAGE_TAG: "develop"
++    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
++      changes:
++        - backend/**/*
++        - backend/Dockerfile.migration
++        - .gitlab-ci.yml
++      variables:
++        MIGRATION_IMAGE_TAG: "latest"
++    - when: never
++  before_script:
++    - apk add --no-cache aws-cli
++    - aws --version
++    - docker --version
++    - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
++  script:
++    - |
++      if [ -z "$ECR_MIGRATION_IMAGE" ]; then
++        echo "ECR_MIGRATION_IMAGE 변수가 필요합니다."
++        exit 1
++      fi
++      docker build -f backend/Dockerfile.migration -t s14p31a404-backend-migration:"$CI_COMMIT_SHORT_SHA" ./backend
++      docker tag s14p31a404-backend-migration:"$CI_COMMIT_SHORT_SHA" "$ECR_MIGRATION_IMAGE:$MIGRATION_IMAGE_TAG"
++      docker tag s14p31a404-backend-migration:"$CI_COMMIT_SHORT_SHA" "$ECR_MIGRATION_IMAGE:$CI_COMMIT_SHORT_SHA"
++      docker push "$ECR_MIGRATION_IMAGE:$MIGRATION_IMAGE_TAG"
++      docker push "$ECR_MIGRATION_IMAGE:$CI_COMMIT_SHORT_SHA"
++
++trigger-dev-rds-migration-jenkins:
++  stage: deploy
++  image: curlimages/curl:latest
++  needs:
++    - build-and-push-migration-ecr
++  resource_group: development-db
++  rules:
++    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
++      changes:
++        - backend/src/main/resources/db/migration/**/*
++        - backend/Dockerfile.migration
++        - .gitlab-ci.yml
++    - when: never
++  script:
++    - |
++      if [ -z "$JENKINS_DEV_MIGRATION_WEBHOOK_URL" ]; then
++        echo "JENKINS_DEV_MIGRATION_WEBHOOK_URL 변수가 필요합니다."
++        exit 1
++      fi
++      curl --fail --silent --show-error -X POST \
++        --data-urlencode "MIGRATION_IMAGE_TAG=$CI_COMMIT_SHORT_SHA" \
++        "$JENKINS_DEV_MIGRATION_WEBHOOK_URL"
++
+ build-and-push-backend-ecr:
+   stage: deploy
+   image: docker:27
+@@ -139,7 +322,8 @@ trigger-deploy-jenkins:
+   stage: deploy
+   image: curlimages/curl:latest
+   needs:
+-    - build-and-push-backend-ecr
++    - job: build-and-push-backend-ecr
++    - job: build-and-push-migration-ecr
+   resource_group: production
+   rules:
+     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+@@ -148,4 +332,7 @@ trigger-deploy-jenkins:
+         - .gitlab-ci.yml
+     - when: never
+   script:
+-    - curl -X POST "$JENKINS_DEPLOY_WEBHOOK_URL"
+\ No newline at end of file
++    - |
++      curl --fail --silent --show-error -X POST \
++        --data-urlencode "MIGRATION_IMAGE_TAG=$CI_COMMIT_SHORT_SHA" \
++        "$JENKINS_DEPLOY_WEBHOOK_URL"
+
+

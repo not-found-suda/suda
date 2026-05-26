@@ -1,0 +1,731 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+@@ -55,10 +55,12 @@ private const val TAG = "ConversationRoute"
+ private const val SUBTITLE_WIDTH_FRACTION = 0.95f
+ private const val SUBTITLE_HEIGHT_FRACTION = 0.4f
+ private const val PHASE_CARD_ALPHA = 0.88f
++private const val INPUT_LANE_LABEL_ALPHA = 0.14f
+ 
+ data class ConversationUiState(
+     val sessionState: SessionState,
+-    val conversationPhase: ConversationPhase,
++    val signInputPhase: SignInputPhase,
++    val speechInputPhase: SpeechInputPhase,
+     val isOnline: Boolean,
+     val messages: List<ChatMessage>,
+     val lastGlosses: List<String>,
+@@ -73,7 +75,8 @@ fun conversationRoute(
+     viewModel: ConversationViewModel = hiltViewModel(),
+ ) {
+     val sessionState by viewModel.sessionState.collectAsStateWithLifecycle()
+-    val conversationPhase by viewModel.conversationPhase.collectAsStateWithLifecycle()
++    val signInputPhase by viewModel.signInputPhase.collectAsStateWithLifecycle()
++    val speechInputPhase by viewModel.speechInputPhase.collectAsStateWithLifecycle()
+     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+     val messages by viewModel.messages.collectAsStateWithLifecycle()
+     val lastGlosses by viewModel.lastGlosses.collectAsStateWithLifecycle()
+@@ -106,7 +109,8 @@ fun conversationRoute(
+     val uiState =
+         ConversationUiState(
+             sessionState = sessionState,
+-            conversationPhase = conversationPhase,
++            signInputPhase = signInputPhase,
++            speechInputPhase = speechInputPhase,
+             isOnline = isOnline,
+             messages = messages,
+             lastGlosses = lastGlosses,
+@@ -141,7 +145,8 @@ private fun ConversationScreen(
+             Column {
+                 SessionHeader(
+                     sessionState = uiState.sessionState,
+-                    conversationPhase = uiState.conversationPhase,
++                    signInputPhase = uiState.signInputPhase,
++                    speechInputPhase = uiState.speechInputPhase,
+                     translationMode = uiState.translationMode,
+                     onTranslationModeSelected = onTranslationModeSelected,
+                     onOpenSignDebug = onOpenSignDebug,
+@@ -167,7 +172,8 @@ private fun ConversationScreen(
+             // 카메라 인식 영역 및 자막 오버레이
+             SignRecognitionArea(
+                 sessionState = uiState.sessionState,
+-                conversationPhase = uiState.conversationPhase,
++                signInputPhase = uiState.signInputPhase,
++                speechInputPhase = uiState.speechInputPhase,
+                 messages = uiState.messages,
+                 onLandmarkFrame = onLandmarkFrame,
+                 modifier = Modifier.weight(1.0f),
+@@ -176,7 +182,7 @@ private fun ConversationScreen(
+             // 실시간 인식 결과 영역 (글로스 나열)
+             GlossRecognitionArea(
+                 lastGlosses = uiState.lastGlosses,
+-                conversationPhase = uiState.conversationPhase,
++                signInputPhase = uiState.signInputPhase,
+             )
+         }
+     }
+@@ -185,7 +191,8 @@ private fun ConversationScreen(
+ @Composable
+ private fun SignRecognitionArea(
+     sessionState: SessionState,
+-    conversationPhase: ConversationPhase,
++    signInputPhase: SignInputPhase,
++    speechInputPhase: SpeechInputPhase,
+     messages: List<ChatMessage>,
+     onLandmarkFrame: (LandmarkFrameResult) -> Unit,
+     modifier: Modifier = Modifier,
+@@ -210,13 +217,14 @@ private fun SignRecognitionArea(
+         ) {
+             SubtitleList(
+                 messages = messages,
+-                emptyText = conversationPhase.subtitlePlaceholder(),
++                emptyText = subtitlePlaceholder(signInputPhase, speechInputPhase),
+             )
+         }
+ 
+         if (sessionState == SessionState.Active) {
+-            ConversationPhaseCard(
+-                phase = conversationPhase,
++            ParallelInputStatusCard(
++                signInputPhase = signInputPhase,
++                speechInputPhase = speechInputPhase,
+                 modifier =
+                     Modifier
+                         .align(Alignment.TopCenter)
+@@ -245,7 +253,7 @@ private fun SignRecognitionArea(
+ @Composable
+ private fun GlossRecognitionArea(
+     lastGlosses: List<String>,
+-    conversationPhase: ConversationPhase,
++    signInputPhase: SignInputPhase,
+ ) {
+     val glossListState = rememberLazyListState()
+ 
+@@ -267,7 +275,7 @@ private fun GlossRecognitionArea(
+     ) {
+         if (lastGlosses.isEmpty()) {
+             Text(
+-                text = conversationPhase.glossPlaceholder(),
++                text = signInputPhase.glossPlaceholder(),
+                 style = MaterialTheme.typography.bodyMedium,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+             )
+@@ -287,7 +295,8 @@ private fun GlossRecognitionArea(
+ @Composable
+ private fun SessionHeader(
+     sessionState: SessionState,
+-    conversationPhase: ConversationPhase,
++    signInputPhase: SignInputPhase,
++    speechInputPhase: SpeechInputPhase,
+     translationMode: TranslationMode,
+     onTranslationModeSelected: (TranslationMode) -> Unit,
+     onOpenSignDebug: (() -> Unit)?,
+@@ -351,7 +360,12 @@ private fun SessionHeader(
+                             ),
+                 )
+                 Text(
+-                    text = conversationPhase.headerLabel(sessionState),
++                    text =
++                        headerLabel(
++                            sessionState = sessionState,
++                            signInputPhase = signInputPhase,
++                            speechInputPhase = speechInputPhase,
++                        ),
+                     modifier = Modifier.padding(start = 4.dp),
+                     style = MaterialTheme.typography.labelMedium,
+                     color = if (sessionState == SessionState.Active) Color.Green else Color.Gray,
+@@ -367,29 +381,80 @@ private fun SessionHeader(
+ }
+ 
+ @Composable
+-private fun ConversationPhaseCard(
+-    phase: ConversationPhase,
++private fun ParallelInputStatusCard(
++    signInputPhase: SignInputPhase,
++    speechInputPhase: SpeechInputPhase,
+     modifier: Modifier = Modifier,
+ ) {
+     Surface(
+         modifier = modifier.fillMaxWidth(),
+         shape = RoundedCornerShape(14.dp),
+-        color = phase.containerColor(),
++        color = MaterialTheme.colorScheme.surface.copy(alpha = PHASE_CARD_ALPHA),
+     ) {
+         Column(
+             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+-            verticalArrangement = Arrangement.spacedBy(4.dp),
++            verticalArrangement = Arrangement.spacedBy(8.dp),
++        ) {
++            InputLaneStatusRow(
++                label = "수어",
++                title = signInputPhase.title(),
++                description = signInputPhase.description(),
++                isWarning = signInputPhase.isWarning(),
++            )
++            InputLaneStatusRow(
++                label = "음성",
++                title = speechInputPhase.title(),
++                description = speechInputPhase.description(),
++                isWarning = speechInputPhase.isWarning(),
++            )
++        }
++    }
++}
++
++@Composable
++private fun InputLaneStatusRow(
++    label: String,
++    title: String,
++    description: String,
++    isWarning: Boolean,
++    modifier: Modifier = Modifier,
++) {
++    val statusColor =
++        if (isWarning) {
++            MaterialTheme.colorScheme.error
++        } else {
++            MaterialTheme.colorScheme.primary
++        }
++
++    Row(
++        modifier = modifier.fillMaxWidth(),
++        verticalAlignment = Alignment.CenterVertically,
++        horizontalArrangement = Arrangement.spacedBy(10.dp),
++    ) {
++        Surface(
++            shape = RoundedCornerShape(999.dp),
++            color = statusColor.copy(alpha = INPUT_LANE_LABEL_ALPHA),
+         ) {
+             Text(
+-                text = phase.title(),
++                text = label,
++                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
++                style = MaterialTheme.typography.labelMedium,
++                color = statusColor,
++                fontWeight = FontWeight.Bold,
++            )
++        }
++
++        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
++            Text(
++                text = title,
+                 style = MaterialTheme.typography.titleSmall,
+-                color = phase.contentColor(),
++                color = MaterialTheme.colorScheme.onSurface,
+                 fontWeight = FontWeight.Bold,
+             )
+             Text(
+-                text = phase.description(),
++                text = description,
+                 style = MaterialTheme.typography.bodySmall,
+-                color = phase.contentColor(),
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
+             )
+         }
+     }
+@@ -476,87 +541,97 @@ private fun TranslationMode.label(): String =
+         TranslationMode.ON_DEVICE -> "기기"
+     }
+ 
+-private fun ConversationPhase.headerLabel(sessionState: SessionState): String =
++private fun headerLabel(
++    sessionState: SessionState,
++    signInputPhase: SignInputPhase,
++    speechInputPhase: SpeechInputPhase,
++): String =
+     if (sessionState == SessionState.Active) {
+-        " ${title()}"
++        if (signInputPhase.isWarning() || speechInputPhase.isWarning()) {
++            " 확인 필요"
++        } else {
++            " 병렬 소통 중"
++        }
+     } else {
+         " IDLE"
+     }
+ 
+-private fun ConversationPhase.title(): String =
++private fun SignInputPhase.title(): String =
+     when (this) {
+-        ConversationPhase.Idle -> "대기 중"
+-        ConversationPhase.Preparing -> "준비 중"
+-        ConversationPhase.RecognizingSign -> "수어 인식 중"
+-        ConversationPhase.NoHandsDetected -> "손 인식 대기"
+-        ConversationPhase.CollectingSigns -> "문장 수집 중"
+-        ConversationPhase.Translating -> "번역 중"
+-        ConversationPhase.Speaking -> "음성 재생 중"
+-        ConversationPhase.ListeningSpeech -> "음성 듣는 중"
+-        ConversationPhase.AnalyzingSpeech -> "음성 분석 중"
+-        ConversationPhase.Fallback -> "기기 처리 전환"
+-        ConversationPhase.Error -> "확인 필요"
++        SignInputPhase.Idle -> "대기 중"
++        SignInputPhase.Preparing -> "준비 중"
++        SignInputPhase.Recognizing -> "수어 인식 중"
++        SignInputPhase.NoHandsDetected -> "손 인식 대기"
++        SignInputPhase.Collecting -> "문장 수집 중"
++        SignInputPhase.Translating -> "번역 중"
++        SignInputPhase.Fallback -> "기기 처리 전환"
++        SignInputPhase.Error -> "확인 필요"
+     }
+ 
+-private fun ConversationPhase.description(): String =
++private fun SignInputPhase.description(): String =
+     when (this) {
+-        ConversationPhase.Idle -> "대화를 시작하면 카메라와 음성 인식이 함께 동작합니다."
+-        ConversationPhase.Preparing -> "카메라와 수어 인식 모델을 준비하고 있어요."
+-        ConversationPhase.RecognizingSign -> "화면 안에서 수어를 보여 주세요."
+-        ConversationPhase.NoHandsDetected -> "손이 화면에 잘 보이도록 위치를 맞춰 주세요."
+-        ConversationPhase.CollectingSigns -> "인식된 수어를 문장으로 묶고 있어요."
+-        ConversationPhase.Translating -> "수어 문장을 자연스러운 말로 바꾸는 중입니다."
+-        ConversationPhase.Speaking -> "번역된 문장을 음성으로 재생하고 있어요."
+-        ConversationPhase.ListeningSpeech -> "상대방의 말을 듣고 자막으로 옮길 준비가 됐어요."
+-        ConversationPhase.AnalyzingSpeech -> "방금 들은 음성을 분석하고 있어요."
+-        ConversationPhase.Fallback -> "서버 대신 기기 내 처리로 이어가고 있어요."
+-        ConversationPhase.Error -> "일시적으로 처리하지 못했습니다. 세션을 다시 시도해 주세요."
++        SignInputPhase.Idle -> "대화를 시작하면 카메라 인식이 준비됩니다."
++        SignInputPhase.Preparing -> "카메라와 수어 인식 모델을 준비하고 있어요."
++        SignInputPhase.Recognizing -> "화면 안에서 수어를 보여 주세요."
++        SignInputPhase.NoHandsDetected -> "손이 화면에 잘 보이도록 위치를 맞춰 주세요."
++        SignInputPhase.Collecting -> "인식된 수어를 문장으로 묶고 있어요."
++        SignInputPhase.Translating -> "수어 문장을 자연스러운 말로 바꾸는 중입니다."
++        SignInputPhase.Fallback -> "서버 대신 기기 내 처리로 이어가고 있어요."
++        SignInputPhase.Error -> "수어 인식을 일시적으로 처리하지 못했습니다."
+     }
+ 
+-private fun ConversationPhase.subtitlePlaceholder(): String =
++private fun SpeechInputPhase.title(): String =
+     when (this) {
+-        ConversationPhase.Idle -> "대화를 시작하면 자막이 여기에 표시됩니다."
+-        ConversationPhase.Preparing -> "소통 세션을 준비하고 있어요."
+-        ConversationPhase.RecognizingSign,
+-        ConversationPhase.NoHandsDetected,
+-        -> "수어 또는 음성 자막이 여기에 표시됩니다."
+-        ConversationPhase.CollectingSigns -> "수어 문장을 모으고 있어요."
+-        ConversationPhase.Translating -> "번역 결과를 기다리는 중입니다."
+-        ConversationPhase.Speaking -> "번역 음성을 재생하고 있어요."
+-        ConversationPhase.ListeningSpeech -> "상대방의 말을 듣고 있어요."
+-        ConversationPhase.AnalyzingSpeech -> "음성을 분석하고 있어요."
+-        ConversationPhase.Fallback -> "기기 내 처리로 자막을 이어가고 있어요."
+-        ConversationPhase.Error -> "상태 안내 또는 오류 메시지가 여기에 표시됩니다."
++        SpeechInputPhase.Idle -> "대기 중"
++        SpeechInputPhase.Listening -> "음성 듣는 중"
++        SpeechInputPhase.Analyzing -> "음성 분석 중"
++        SpeechInputPhase.PausedForOutput -> "음성 잠시 멈춤"
++        SpeechInputPhase.Fallback -> "기기 인식 전환"
++        SpeechInputPhase.Error -> "확인 필요"
+     }
+ 
+-private fun ConversationPhase.glossPlaceholder(): String =
++private fun SpeechInputPhase.description(): String =
+     when (this) {
+-        ConversationPhase.Idle -> "세션 시작 전입니다."
+-        ConversationPhase.Preparing -> "수어 인식 준비 중..."
+-        ConversationPhase.NoHandsDetected -> "손을 화면 안에 보여 주세요."
+-        ConversationPhase.Translating -> "번역 중..."
+-        ConversationPhase.Speaking -> "음성 재생 중..."
+-        ConversationPhase.Fallback -> "기기 내 처리로 전환됨"
+-        ConversationPhase.Error -> "세션 상태를 확인해 주세요."
+-        else -> "수어 인식 대기 중..."
++        SpeechInputPhase.Idle -> "대화를 시작하면 마이크 인식이 준비됩니다."
++        SpeechInputPhase.Listening -> "상대방의 말을 듣고 자막으로 옮길 준비가 됐어요."
++        SpeechInputPhase.Analyzing -> "방금 들은 음성을 분석하고 있어요."
++        SpeechInputPhase.PausedForOutput -> "앱 음성이 다시 입력되지 않도록 마이크만 잠시 멈췄어요."
++        SpeechInputPhase.Fallback -> "서버 대신 기기 내 음성 인식으로 이어가고 있어요."
++        SpeechInputPhase.Error -> "음성 인식을 일시적으로 처리하지 못했습니다."
+     }
+ 
+-@Composable
+-private fun ConversationPhase.containerColor(): Color =
+-    when (this) {
+-        ConversationPhase.Error -> MaterialTheme.colorScheme.errorContainer
+-        ConversationPhase.Fallback -> MaterialTheme.colorScheme.tertiaryContainer
+-        else -> MaterialTheme.colorScheme.surface.copy(alpha = PHASE_CARD_ALPHA)
++private fun subtitlePlaceholder(
++    signInputPhase: SignInputPhase,
++    speechInputPhase: SpeechInputPhase,
++): String =
++    when {
++        signInputPhase == SignInputPhase.Translating -> "수어 번역 결과를 기다리는 중입니다."
++        speechInputPhase == SpeechInputPhase.Analyzing -> "음성을 분석하고 있어요."
++        speechInputPhase == SpeechInputPhase.PausedForOutput -> "번역 음성을 재생하는 동안 마이크만 잠시 멈췄어요."
++        signInputPhase.isWarning() || speechInputPhase.isWarning() ->
++            "상태 안내 또는 오류 메시지가 여기에 표시됩니다."
++        else -> "수어 또는 음성 자막이 여기에 표시됩니다."
+     }
+ 
+-@Composable
+-private fun ConversationPhase.contentColor(): Color =
++private fun SignInputPhase.glossPlaceholder(): String =
+     when (this) {
+-        ConversationPhase.Error -> MaterialTheme.colorScheme.onErrorContainer
+-        ConversationPhase.Fallback -> MaterialTheme.colorScheme.onTertiaryContainer
+-        else -> MaterialTheme.colorScheme.onSurface
++        SignInputPhase.Idle -> "세션 시작 전입니다."
++        SignInputPhase.Preparing -> "수어 인식 준비 중..."
++        SignInputPhase.NoHandsDetected -> "손을 화면 안에 보여 주세요."
++        SignInputPhase.Translating -> "번역 중..."
++        SignInputPhase.Fallback -> "기기 내 처리로 전환됨"
++        SignInputPhase.Error -> "세션 상태를 확인해 주세요."
++        else -> "수어 인식 대기 중..."
+     }
+ 
++private fun SignInputPhase.isWarning(): Boolean =
++    this == SignInputPhase.NoHandsDetected ||
++        this == SignInputPhase.Fallback ||
++        this == SignInputPhase.Error
++
++private fun SpeechInputPhase.isWarning(): Boolean =
++    this == SpeechInputPhase.Fallback || this == SpeechInputPhase.Error
++
+ @Composable
+ private fun SessionControls(
+     sessionState: SessionState,
+@@ -607,7 +682,7 @@ private fun Context.findActivity(): Activity? {
+     var currentContext = this
+     while (currentContext is ContextWrapper) {
+         if (currentContext is Activity) return currentContext
+-        currentContext = (currentContext as ContextWrapper).baseContext
++        currentContext = currentContext.baseContext
+     }
+     return null
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -36,16 +36,22 @@ enum class SessionState {
+     Active,
+ }
+ 
+-enum class ConversationPhase {
++enum class SignInputPhase {
+     Idle,
+     Preparing,
+-    RecognizingSign,
++    Recognizing,
+     NoHandsDetected,
+-    CollectingSigns,
++    Collecting,
+     Translating,
+-    Speaking,
+-    ListeningSpeech,
+-    AnalyzingSpeech,
++    Fallback,
++    Error,
++}
++
++enum class SpeechInputPhase {
++    Idle,
++    Listening,
++    Analyzing,
++    PausedForOutput,
+     Fallback,
+     Error,
+ }
+@@ -67,8 +73,11 @@ class ConversationViewModel
+         private val _sessionState = MutableStateFlow(SessionState.Idle)
+         val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
+ 
+-        private val _conversationPhase = MutableStateFlow(ConversationPhase.Idle)
+-        val conversationPhase: StateFlow<ConversationPhase> = _conversationPhase.asStateFlow()
++        private val _signInputPhase = MutableStateFlow(SignInputPhase.Idle)
++        val signInputPhase: StateFlow<SignInputPhase> = _signInputPhase.asStateFlow()
++
++        private val _speechInputPhase = MutableStateFlow(SpeechInputPhase.Idle)
++        val speechInputPhase: StateFlow<SpeechInputPhase> = _speechInputPhase.asStateFlow()
+ 
+         private val _isOnline = MutableStateFlow(true)
+         val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
+@@ -129,15 +138,16 @@ class ConversationViewModel
+                     _isOnline.value = online
+                     if (
+                         wasOnline != online &&
+-                        _sessionState.value == SessionState.Active &&
+-                        !isTtsPlaying
++                        _sessionState.value == SessionState.Active
+                     ) {
+                         if (online) {
+                             resetCloudSttFallback()
+                         }
+                         updateNetworkFallbackNotice(online)
+-                        stopRecordingForStt()
+-                        startRecordingForStt()
++                        if (!isTtsPlaying) {
++                            stopRecordingForStt()
++                            startRecordingForStt()
++                        }
+                     }
+                 }
+             }
+@@ -154,10 +164,10 @@ class ConversationViewModel
+         private fun handleEvent(event: SignRecognitionEvent) {
+             when (event) {
+                 SignRecognitionEvent.ModelLoading ->
+-                    _conversationPhase.value = ConversationPhase.Preparing
++                    _signInputPhase.value = SignInputPhase.Preparing
+                 SignRecognitionEvent.Ready,
+                 SignRecognitionEvent.Started,
+-                -> _conversationPhase.value = ConversationPhase.RecognizingSign
++                -> _signInputPhase.value = SignInputPhase.Recognizing
+                 SignRecognitionEvent.NoHandsDetected -> handleNoHandsDetected()
+                 is SignRecognitionEvent.Prediction -> handlePrediction(event)
+                 is SignRecognitionEvent.Utterance -> handleUtterance(event)
+@@ -171,7 +181,7 @@ class ConversationViewModel
+         private fun handlePrediction(event: SignRecognitionEvent.Prediction) {
+             val currentGlosses = _lastGlosses.value + event.gloss
+             _lastGlosses.value = currentGlosses
+-            _conversationPhase.value = ConversationPhase.CollectingSigns
++            _signInputPhase.value = SignInputPhase.Collecting
+ 
+             restartTranslationTimer(currentGlosses)
+         }
+@@ -180,18 +190,18 @@ class ConversationViewModel
+             if (event.glosses.isEmpty()) return
+ 
+             _lastGlosses.value = event.glosses
+-            _conversationPhase.value = ConversationPhase.CollectingSigns
++            _signInputPhase.value = SignInputPhase.Collecting
+             restartTranslationTimer(event.glosses)
+         }
+ 
+         private fun handleNoHandsDetected() {
+             if (_lastGlosses.value.isEmpty()) {
+-                _conversationPhase.value = ConversationPhase.NoHandsDetected
++                _signInputPhase.value = SignInputPhase.NoHandsDetected
+             }
+         }
+ 
+         private fun handleSignRecognitionError(event: SignRecognitionEvent.Error) {
+-            _conversationPhase.value = ConversationPhase.Error
++            _signInputPhase.value = SignInputPhase.Error
+             addSystemMessage(event.message)
+         }
+ 
+@@ -208,7 +218,7 @@ class ConversationViewModel
+ 
+         private fun requestTranslation(words: List<String>) {
+             translationJob?.cancel()
+-            _conversationPhase.value = ConversationPhase.Translating
++            _signInputPhase.value = SignInputPhase.Translating
+             when (_translationMode.value) {
+                 TranslationMode.AUTO ->
+                     if (_isOnline.value) {
+@@ -230,7 +240,10 @@ class ConversationViewModel
+                             fallbackOnFailure = false,
+                         )
+                     } else {
+-                        showServerOnlyUnavailableMessage()
++                        showServerOnlyUnavailableMessage(
++                            affectsSign = true,
++                            affectsSpeech = false,
++                        )
+                     }
+ 
+                 TranslationMode.ON_DEVICE -> performOnDeviceTranslation(words = words)
+@@ -241,7 +254,7 @@ class ConversationViewModel
+             words: List<String>,
+             fallbackOnFailure: Boolean,
+         ) {
+-            _conversationPhase.value = ConversationPhase.Translating
++            _signInputPhase.value = SignInputPhase.Translating
+ 
+             // 0. 교정 중인 부모 메시지 추가
+             addOrUpdateMessage(
+@@ -299,11 +312,11 @@ class ConversationViewModel
+             notice: String? = null,
+         ) {
+             notice?.let { _translationModeNotice.value = it }
+-            _conversationPhase.value =
++            _signInputPhase.value =
+                 if (notice == null) {
+-                    ConversationPhase.Translating
++                    SignInputPhase.Translating
+                 } else {
+-                    ConversationPhase.Fallback
++                    SignInputPhase.Fallback
+                 }
+             val fallbackText = words.joinToString(" ")
+             _translatedText.value = fallbackText
+@@ -316,9 +329,9 @@ class ConversationViewModel
+             )
+ 
+             // 시스템 TTS로 재생
+-            sttEngine.stopListening()
++            stopRecordingForStt()
+             isTtsPlaying = true
+-            _conversationPhase.value = ConversationPhase.Speaking
++            _speechInputPhase.value = SpeechInputPhase.PausedForOutput
+             ttsPlayer.speak(
+                 text = fallbackText,
+                 onComplete = { resumeListeningAfterTts() },
+@@ -331,7 +344,7 @@ class ConversationViewModel
+         private fun startRecordingForStt() {
+             if (_sessionState.value != SessionState.Active || isTtsPlaying) return
+ 
+-            _conversationPhase.value = ConversationPhase.ListeningSpeech
++            _speechInputPhase.value = SpeechInputPhase.Listening
+ 
+             // 새 세션 시작 시 상태 초기화 (오염 방지)
+             isResultsReceived = false
+@@ -340,7 +353,11 @@ class ConversationViewModel
+             when {
+                 shouldUseCloudStt() -> startCloudRecordingLoop()
+                 shouldUseLocalStt() -> startLocalSttListening()
+-                else -> showServerOnlyUnavailableMessage()
++                else ->
++                    showServerOnlyUnavailableMessage(
++                        affectsSign = false,
++                        affectsSpeech = true,
++                    )
+             }
+         }
+ 
+@@ -348,7 +365,7 @@ class ConversationViewModel
+             cloudSttJob?.cancel()
+             cloudSttJob = null
+             androidAudioRecorder.stop()
+-            _conversationPhase.value = ConversationPhase.ListeningSpeech
++            _speechInputPhase.value = SpeechInputPhase.Listening
+             currentSttSessionId = sttEngine.nextSessionId()
+             sttEngine.startListening(currentSttSessionId)
+         }
+@@ -357,7 +374,7 @@ class ConversationViewModel
+             if (cloudSttJob?.isActive == true) return
+ 
+             sttEngine.stopListening()
+-            _conversationPhase.value = ConversationPhase.ListeningSpeech
++            _speechInputPhase.value = SpeechInputPhase.Listening
+             currentSttSessionId = sttEngine.nextSessionId()
+ 
+             cloudSttJob =
+@@ -373,7 +390,7 @@ class ConversationViewModel
+                                 Log.d(TAG, "Cloud STT recording started: $fileName")
+                                 val audioFile = waitForCloudSpeechFile()
+                                 if (audioFile != null && canUseCloudStt()) {
+-                                    _conversationPhase.value = ConversationPhase.AnalyzingSpeech
++                                    _speechInputPhase.value = SpeechInputPhase.Analyzing
+                                     updateOrAddChildMessage(
+                                         text = CLOUD_STT_ANALYZING_MESSAGE,
+                                         isFinal = false,
+@@ -496,7 +513,7 @@ class ConversationViewModel
+         private fun startLocalSttFromCloudLoop() {
+             cloudSttJob = null
+             androidAudioRecorder.stop()
+-            _conversationPhase.value = ConversationPhase.ListeningSpeech
++            _speechInputPhase.value = SpeechInputPhase.Listening
+             currentSttSessionId = sttEngine.nextSessionId()
+             sttEngine.startListening(currentSttSessionId)
+         }
+@@ -552,8 +569,10 @@ class ConversationViewModel
+         }
+ 
+         fun startSession() {
++            isTtsPlaying = false
+             _sessionState.value = SessionState.Active
+-            _conversationPhase.value = ConversationPhase.Preparing
++            _signInputPhase.value = SignInputPhase.Preparing
++            _speechInputPhase.value = SpeechInputPhase.Listening
+             resetCloudSttFallback()
+             signRecognitionEngine.start()
+ 
+@@ -572,14 +591,14 @@ class ConversationViewModel
+                             is SttEvent.PartialResults -> {
+                                 isResultsReceived = false
+                                 isStoppedReceived = false
+-                                _conversationPhase.value = ConversationPhase.ListeningSpeech
++                                _speechInputPhase.value = SpeechInputPhase.Listening
+                                 updateOrAddChildMessage(
+                                     event.text,
+                                     isFinal = false,
+                                 )
+                             }
+                             is SttEvent.Results -> {
+-                                _conversationPhase.value = ConversationPhase.ListeningSpeech
++                                _speechInputPhase.value = SpeechInputPhase.Listening
+                                 updateOrAddChildMessage(
+                                     event.text,
+                                     isFinal = true,
+@@ -588,7 +607,7 @@ class ConversationViewModel
+                                 checkAndRestartStt()
+                             }
+                             is SttEvent.EndOfSpeech -> {
+-                                _conversationPhase.value = ConversationPhase.AnalyzingSpeech
++                                _speechInputPhase.value = SpeechInputPhase.Analyzing
+                             }
+                             is SttEvent.Stopped -> {
+                                 if (_sessionState.value == SessionState.Active && !isTtsPlaying) {
+@@ -602,7 +621,7 @@ class ConversationViewModel
+                             is SttEvent.VolumeChanged -> _micVolume.value = event.db
+                             is SttEvent.Error -> {
+                                 Log.w(TAG, "Local STT error: ${event.message}")
+-                                _conversationPhase.value = ConversationPhase.Error
++                                _speechInputPhase.value = SpeechInputPhase.Error
+                                 isResultsReceived = true
+                                 isStoppedReceived = false
+                                 addSystemMessage("음성 인식에 실패했습니다. 다시 말해 주세요.")
+@@ -626,7 +645,7 @@ class ConversationViewModel
+                     .translateSpeechToText(audioFile, CLOUD_STT_AUDIO_MIME_TYPE)
+                     .onSuccess { response ->
+                         cloudSttFailureCount = 0
+-                        _conversationPhase.value = ConversationPhase.ListeningSpeech
++                        _speechInputPhase.value = SpeechInputPhase.Listening
+                         val displayText =
+                             buildCloudSttDisplayText(
+                                 recognizedText = response.recognizedText,
+@@ -647,11 +666,11 @@ class ConversationViewModel
+                         restartDelayMs = getCloudSttFailureRetryDelay()
+                         if (shouldFallbackToLocalStt()) {
+                             isCloudSttFallbackActive = true
+-                            _conversationPhase.value = ConversationPhase.Fallback
++                            _speechInputPhase.value = SpeechInputPhase.Fallback
+                             _translationModeNotice.value = NOTICE_AUTO_STT_FALLBACK
+                             restartDelayMs = STT_RESTART_DELAY_MS
+                         } else {
+-                            _conversationPhase.value = ConversationPhase.Error
++                            _speechInputPhase.value = SpeechInputPhase.Error
+                         }
+                         Log.w(
+                             TAG,
+@@ -705,7 +724,7 @@ class ConversationViewModel
+         private fun handleTtsSuccess(base64Audio: String) {
+             stopRecordingForStt()
+             isTtsPlaying = true
+-            _conversationPhase.value = ConversationPhase.Speaking
++            _speechInputPhase.value = SpeechInputPhase.PausedForOutput
+             audioPlayer.playBase64(
+                 base64Data = base64Audio,
+                 onComplete = { resumeListeningAfterTts() },
+@@ -725,8 +744,10 @@ class ConversationViewModel
+         }
+ 
+         fun stopSession() {
++            isTtsPlaying = false
+             _sessionState.value = SessionState.Idle
+-            _conversationPhase.value = ConversationPhase.Idle
++            _signInputPhase.value = SignInputPhase.Idle
++            _speechInputPhase.value = SpeechInputPhase.Idle
+             signRecognitionEngine.stop()
+             stopRecordingForStt()
+             isResultsReceived = false
+@@ -827,8 +848,16 @@ class ConversationViewModel
+             cloudSttFailureCount = 0
+         }
+ 
+-        private fun showServerOnlyUnavailableMessage() {
+-            _conversationPhase.value = ConversationPhase.Error
++        private fun showServerOnlyUnavailableMessage(
++            affectsSign: Boolean = true,
++            affectsSpeech: Boolean = true,
++        ) {
++            if (affectsSign) {
++                _signInputPhase.value = SignInputPhase.Error
++            }
++            if (affectsSpeech) {
++                _speechInputPhase.value = SpeechInputPhase.Error
++            }
+             _translationModeNotice.value = NOTICE_SERVER_OFFLINE
+             addOrUpdateMessage(
+                 text = "서버 모드에서는 네트워크 연결이 필요합니다.",
+
+

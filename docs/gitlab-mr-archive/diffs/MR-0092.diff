@@ -1,0 +1,370 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizRetryPolicy.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizRetryPolicy.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizRetryPolicy.kt
+@@ -0,0 +1,25 @@
++package com.ssafy.mobile.feature.quiz.domain.model
++
++object QuizRetryPolicy {
++    fun hasSuccessfulAnswer(answer: QuizAnswer?): Boolean = (answer?.star ?: 0) >= PASSING_STAR
++
++    fun remainingRetryCount(answer: QuizAnswer?): Int =
++        if (answer == null || hasSuccessfulAnswer(answer)) {
++            MAX_ANSWER_ATTEMPTS - 1
++        } else {
++            (MAX_ANSWER_ATTEMPTS - answer.attemptCount).coerceAtLeast(0)
++        }
++
++    fun isRetryLimitReached(answer: QuizAnswer?): Boolean =
++        answer != null &&
++            !hasSuccessfulAnswer(answer) &&
++            remainingRetryCount(answer) == 0
++
++    fun canMoveNext(
++        answer: QuizAnswer?,
++        canSkipQuestion: Boolean,
++    ): Boolean = hasSuccessfulAnswer(answer) || isRetryLimitReached(answer) || canSkipQuestion
++
++    private const val PASSING_STAR = 3
++    private const val MAX_ANSWER_ATTEMPTS = 3
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizSessionReducer.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizSessionReducer.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizSessionReducer.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizSessionReducer.kt
+@@ -34,16 +34,21 @@ object QuizSessionReducer {
+         star: Int,
+     ): QuizSessionState {
+         val question = state.currentQuestion ?: return state
++        val previousAnswer =
++            state.answers.firstOrNull {
++                it.questionId == question.id
++            }
+         val answer =
+             QuizAnswer(
+                 questionId = question.id,
+                 sttText = sttText,
+                 star = star,
+-                attemptCount = state.retryCount + 1,
++                attemptCount = (previousAnswer?.attemptCount ?: 0) + 1,
+             )
+ 
+         return state.copy(
+             answers = state.answers.replaceAnswer(answer),
++            retryCount = (answer.attemptCount - 1).coerceAtLeast(0),
+         )
+     }
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+@@ -44,6 +44,7 @@ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ import com.ssafy.mobile.feature.quiz.domain.model.MockQuizQuestions
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizQuestion
++import com.ssafy.mobile.feature.quiz.domain.model.QuizRetryPolicy
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionReducer
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionState
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizStarScorer
+@@ -356,15 +357,27 @@ private fun QuizActionArea(
+             recordingStatus == QuizRecordingStatus.FallbackRecording
+     val isProcessing = recordingStatus == QuizRecordingStatus.Processing
+     val canSkipQuestion = recordingStatus.canSkipQuestion
+-    val hasSuccessfulAnswer = (answer?.star ?: 0) >= PASSING_STAR
+-    val canMoveNext = (hasSuccessfulAnswer || canSkipQuestion) && !isRecording && !isProcessing
++    val hasSuccessfulAnswer = QuizRetryPolicy.hasSuccessfulAnswer(answer)
++    val remainingRetryCount = QuizRetryPolicy.remainingRetryCount(answer)
++    val retryLimitReached = QuizRetryPolicy.isRetryLimitReached(answer)
++    val canMoveNext =
++        QuizRetryPolicy.canMoveNext(
++            answer = answer,
++            canSkipQuestion = canSkipQuestion,
++        ) &&
++            !isRecording &&
++            !isProcessing
++    val canRecordAnswer = !isProcessing && !retryLimitReached
+ 
+     Column(
+         modifier = modifier.fillMaxWidth(),
+         verticalArrangement = Arrangement.spacedBy(12.dp),
+     ) {
+         if (answer != null) {
+-            QuizStarResultCard(answer = answer)
++            QuizStarResultCard(
++                answer = answer,
++                remainingRetryCount = remainingRetryCount,
++            )
+         }
+ 
+         AppPrimaryButton(
+@@ -372,19 +385,21 @@ private fun QuizActionArea(
+                 when {
+                     isRecording -> "말하기 완료"
+                     isProcessing -> "녹음 확인 중"
+-                    hasAnswered -> "다시 말하기"
++                    retryLimitReached -> "재도전 완료"
++                    hasAnswered -> quizRetryButtonText(remainingRetryCount)
+                     else -> "답변하기"
+                 },
+             onClick = onAnswerClick,
+-            enabled = !isProcessing,
++            enabled = canRecordAnswer,
+         )
+ 
+         AppSecondaryButton(
+             text =
+-                nextButtonText(
++                quizNextButtonText(
+                     canSkipQuestion = canSkipQuestion,
+                     hasAnswered = hasAnswered,
+                     hasSuccessfulAnswer = hasSuccessfulAnswer,
++                    retryLimitReached = retryLimitReached,
+                     isLastQuestion = isLastQuestion,
+                 ),
+             onClick = onNextClick,
+@@ -399,37 +414,17 @@ private fun QuizActionArea(
+     }
+ }
+ 
+-private fun nextButtonText(
+-    canSkipQuestion: Boolean,
+-    hasAnswered: Boolean,
+-    hasSuccessfulAnswer: Boolean,
+-    isLastQuestion: Boolean,
+-): String =
+-    when {
+-        canSkipQuestion -> "이번 문제 넘어가기"
+-        hasAnswered && !hasSuccessfulAnswer -> "별 3개에 도전해요"
+-        isLastQuestion -> "결과 보기"
+-        else -> "다음 문제"
+-    }
+-
+ private const val PERCENT_MAX = 100
+ private const val FIRST_LETTER_COUNT = 1
+-private const val PASSING_STAR = 3
+ 
+ private fun submitSttAnswer(
+     state: QuizSessionState,
+     sttText: String,
+ ): QuizSessionState {
+     val question = state.currentQuestion ?: return state
+-    val submitState =
+-        if (state.answers.any { it.questionId == question.id }) {
+-            QuizSessionReducer.retryCurrentQuestion(state)
+-        } else {
+-            state
+-        }
+ 
+     return QuizSessionReducer.submitCurrentAnswer(
+-        state = submitState,
++        state = state,
+         sttText = sttText,
+         star =
+             QuizStarScorer.score(
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRetryText.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRetryText.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRetryText.kt
+@@ -0,0 +1,23 @@
++package com.ssafy.mobile.feature.quiz.presentation
++
++internal fun quizNextButtonText(
++    canSkipQuestion: Boolean,
++    hasAnswered: Boolean,
++    hasSuccessfulAnswer: Boolean,
++    retryLimitReached: Boolean,
++    isLastQuestion: Boolean,
++): String =
++    when {
++        canSkipQuestion -> "이번 문제 넘어가기"
++        retryLimitReached -> if (isLastQuestion) "결과 보기" else "다음 문제"
++        hasAnswered && !hasSuccessfulAnswer -> "별 3개에 도전해요"
++        isLastQuestion -> "결과 보기"
++        else -> "다음 문제"
++    }
++
++internal fun quizRetryButtonText(remainingRetryCount: Int): String =
++    if (remainingRetryCount > 0) {
++        "다시 말하기 (${remainingRetryCount}회 남음)"
++    } else {
++        "다시 말하기"
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
+@@ -23,9 +23,10 @@ import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
+ @Composable
+ internal fun QuizStarResultCard(
+     answer: QuizAnswer,
++    remainingRetryCount: Int,
+     modifier: Modifier = Modifier,
+ ) {
+-    val resultText = answer.star.toStarResultText()
++    val resultText = answer.toStarResultText(remainingRetryCount)
+     Card(
+         modifier = modifier.fillMaxWidth(),
+         shape = RoundedCornerShape(24.dp),
+@@ -77,8 +78,8 @@ private data class StarResultText(
+     val description: String,
+ )
+ 
+-private fun Int.toStarResultText(): StarResultText =
+-    when (coerceIn(MIN_STAR, MAX_STAR)) {
++private fun QuizAnswer.toStarResultText(remainingRetryCount: Int): StarResultText =
++    when (star.coerceIn(MIN_STAR, MAX_STAR)) {
+         MAX_STAR ->
+             StarResultText(
+                 title = "정말 잘했어요!",
+@@ -87,15 +88,22 @@ private fun Int.toStarResultText(): StarResultText =
+         TWO_STARS ->
+             StarResultText(
+                 title = "거의 다 왔어요!",
+-                description = "조금만 더 또박또박 말하면 더 좋아요.",
++                description = retryDescription(remainingRetryCount),
+             )
+         else ->
+             StarResultText(
+                 title = "다시 한 번 해봐요!",
+-                description = "천천히 듣고 같은 단어를 다시 말해볼 수 있어요.",
++                description = retryDescription(remainingRetryCount),
+             )
+     }
+ 
++private fun retryDescription(remainingRetryCount: Int): String =
++    if (remainingRetryCount > 0) {
++        "천천히 듣고 다시 말해볼 수 있어요. ${remainingRetryCount}번 더 도전할 수 있어요."
++    } else {
++        "충분히 연습했어요. 다음 문제로 넘어가도 괜찮아요."
++    }
++
+ @Composable
+ private fun Int.starResultContainerColor(): Color =
+     when (coerceIn(MIN_STAR, MAX_STAR)) {
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/feature/quiz/domain/model/QuizRetryPolicyTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/feature/quiz/domain/model/QuizRetryPolicyTest.kt
+--- /dev/null
++++ b/mobile/app/src/test/java/com/ssafy/mobile/feature/quiz/domain/model/QuizRetryPolicyTest.kt
+@@ -0,0 +1,61 @@
++package com.ssafy.mobile.feature.quiz.domain.model
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class QuizRetryPolicyTest {
++    @Test
++    fun lowStarAnswerCanRetryBeforeLimit() {
++        val answer = answer(star = ONE_STAR, attemptCount = ONE_ATTEMPT)
++
++        assertEquals(TWO_RETRIES_LEFT, QuizRetryPolicy.remainingRetryCount(answer))
++        assertFalse(QuizRetryPolicy.isRetryLimitReached(answer))
++        assertFalse(QuizRetryPolicy.canMoveNext(answer, canSkipQuestion = false))
++    }
++
++    @Test
++    fun lowStarAnswerCanMoveNextAfterRetryLimit() {
++        val answer = answer(star = TWO_STARS, attemptCount = MAX_ATTEMPTS)
++
++        assertEquals(NO_RETRY_LEFT, QuizRetryPolicy.remainingRetryCount(answer))
++        assertTrue(QuizRetryPolicy.isRetryLimitReached(answer))
++        assertTrue(QuizRetryPolicy.canMoveNext(answer, canSkipQuestion = false))
++    }
++
++    @Test
++    fun threeStarAnswerCanMoveNextImmediately() {
++        val answer = answer(star = THREE_STARS, attemptCount = ONE_ATTEMPT)
++
++        assertTrue(QuizRetryPolicy.hasSuccessfulAnswer(answer))
++        assertTrue(QuizRetryPolicy.canMoveNext(answer, canSkipQuestion = false))
++    }
++
++    @Test
++    fun skipStateCanMoveNextWithoutAnswer() {
++        assertTrue(QuizRetryPolicy.canMoveNext(answer = null, canSkipQuestion = true))
++    }
++
++    private fun answer(
++        star: Int,
++        attemptCount: Int,
++    ): QuizAnswer =
++        QuizAnswer(
++            questionId = QUESTION_ID,
++            sttText = "테스트",
++            star = star,
++            attemptCount = attemptCount,
++        )
++
++    private companion object {
++        const val QUESTION_ID = 1L
++        const val NO_RETRY_LEFT = 0
++        const val ONE_ATTEMPT = 1
++        const val TWO_RETRIES_LEFT = 2
++        const val MAX_ATTEMPTS = 3
++        const val ONE_STAR = 1
++        const val TWO_STARS = 2
++        const val THREE_STARS = 3
++    }
++}
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/feature/quiz/domain/model/QuizSessionReducerTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/feature/quiz/domain/model/QuizSessionReducerTest.kt
+--- a/mobile/app/src/test/java/com/ssafy/mobile/feature/quiz/domain/model/QuizSessionReducerTest.kt
++++ b/mobile/app/src/test/java/com/ssafy/mobile/feature/quiz/domain/model/QuizSessionReducerTest.kt
+@@ -77,14 +77,16 @@ class QuizSessionReducerTest {
+ 
+     @Test
+     fun submitCurrentAnswerStoresLatestAnswerForCurrentQuestion() {
+-        val retryState =
+-            QuizSessionReducer.retryCurrentQuestion(
+-                QuizSessionReducer.start(MockQuizQuestions.items),
++        val firstAnsweredState =
++            QuizSessionReducer.submitCurrentAnswer(
++                state = QuizSessionReducer.start(MockQuizQuestions.items),
++                sttText = "물",
++                star = ONE_STAR,
+             )
+ 
+         val answeredState =
+             QuizSessionReducer.submitCurrentAnswer(
+-                state = retryState,
++                state = firstAnsweredState,
+                 sttText = "밥",
+                 star = THREE_STARS,
+             )
+@@ -130,6 +132,27 @@ class QuizSessionReducerTest {
+         assertEquals(1, secondAnsweredState.answers.size)
+         assertEquals("밥", secondAnsweredState.answers.first().sttText)
+         assertEquals(THREE_STARS, secondAnsweredState.answers.first().star)
++        assertEquals(TWO_ATTEMPTS, secondAnsweredState.answers.first().attemptCount)
++    }
++
++    @Test
++    fun submitCurrentAnswerUsesPreviousAnswerAttemptCountEvenWhenRetryCountIsReset() {
++        val firstAnsweredState =
++            QuizSessionReducer.submitCurrentAnswer(
++                state = QuizSessionReducer.start(MockQuizQuestions.items),
++                sttText = "물",
++                star = ONE_STAR,
++            )
++        val stateWithResetRetryCount = firstAnsweredState.copy(retryCount = NO_RETRY)
++
++        val secondAnsweredState =
++            QuizSessionReducer.submitCurrentAnswer(
++                state = stateWithResetRetryCount,
++                sttText = "밥",
++                star = THREE_STARS,
++            )
++
++        assertEquals(TWO_ATTEMPTS, secondAnsweredState.answers.first().attemptCount)
+     }
+ 
+     @Test
+
+

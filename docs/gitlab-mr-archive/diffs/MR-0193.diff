@@ -1,0 +1,740 @@
+﻿diff --git a/ai/docs/20260516_시나리오_기반_온디바이스_수어인식_성능점검.md b/ai/docs/20260516_시나리오_기반_온디바이스_수어인식_성능점검.md
+--- /dev/null
++++ b/ai/docs/20260516_시나리오_기반_온디바이스_수어인식_성능점검.md
+@@ -0,0 +1,186 @@
++# 2026-05-16 시나리오 기반 온디바이스 수어 인식 성능 점검
++
++## 작업 목적
++- 모바일 온디바이스 수어 인식 파이프라인의 실제 사용성을 점검한다.
++- 기존 24단어급 V6 모델과 117클래스 V7 모델의 모바일 적용 가능성을 비교한다.
++- 발표 시연에서 사용할 수 있는 안정적인 gloss 단어와 2~3단어 이상 문장 조합을 찾는다.
++- 단어 감지 시점, 최종 문장 확정 시점, 채팅/TTS 출력 시점을 서비스 관점에서 정리한다.
++
++## 기준 파이프라인
++- 입력: MediaPipe Holistic landmark
++- feature: `30 x 332` RAW landmark sequence
++- 모델: TCN 기반 TFLite 모델
++- hand forward-fill: 비활성화
++- 최소 추론 프레임: 15프레임
++- 최대 추론 프레임: 30프레임
++- 단어 안정화: 최근 예측 window에서 동일 gloss가 안정적으로 반복될 때 `Detected` 처리
++- 문장 확정: 손 미검출 또는 손 비활성 상태가 일정 시간 지속되면 sentence buffer를 최종 문장으로 방출
++
++## 주요 코드/로직 변경
++
++### 1. 최종 문장 확정 전까지 채팅/TTS 지연
++- 기존에는 실제 모드에서 단어가 `Detected`되기만 해도 채팅과 음성이 나올 수 있었다.
++- 서비스 관점에서는 사용자가 수어 문장을 끝내기 전 중간 단어가 바로 발화되는 것이 부자연스럽다.
++- 따라서 `Prediction` 이벤트에서는 채팅/TTS를 실행하지 않고, `Utterance` 이벤트, 즉 최종 문장이 확정된 뒤에만 sLLM 변환과 음성 출력을 수행하도록 변경했다.
++
++### 2. 서버 오디오 지연 대응
++- 서버 번역 응답에서 `audioBase64`가 비어 있으면, 기존에는 음성이 나오지 않거나 다음 STT 흐름으로 넘어가는 문제가 있었다.
++- 서버가 음성 파일을 주지 않더라도 `correctedText`가 있으면 기기 TTS로 fallback하도록 수정했다.
++- 서버 번역 요청은 6초 timeout을 적용했다.
++- 목적은 AUTO/서버 모드에서 응답이 1분 가까이 지연되는 현상을 막고, 시연 중 음성 출력 지연을 줄이는 것이다.
++
++### 3. 단어 전환 구간 오염 완화
++- 단어가 `Detected`된 뒤에도 이전 단어 프레임이 `SignSequenceBuffer`에 남아 다음 단어 추론에 섞일 수 있었다.
++- 안정 단어가 문장 버퍼에 추가되면, 최종 문장 버퍼는 유지하되 라이브 추론용 sequence buffer는 초기화하도록 변경했다.
++- 목적은 `기차 -> 놀다 -> 주다`처럼 연속 수어를 할 때 이전 단어의 마지막 자세가 다음 단어 top1에 영향을 주는 현상을 줄이는 것이다.
++
++### 4. no-hands 종료 지연 조정
++- no-hands 종료 지연을 너무 짧게 두면 마지막 단어가 안정화되기 전에 최종 문장이 확정될 수 있다.
++- 특히 `주다`처럼 손을 내리는 동작은 손 미검출/비활성으로 빨리 판단될 위험이 있다.
++- 기본 no-hands 종료 지연은 1.5초로 조정했다.
++
++## V7 모델 적용 기록
++
++### 모델 파일
++- 모바일 assets에 V7 모델 파일을 추가했다.
++- 적용 파일:
++  - `models/best_sign_model_v7_float16.tflite`
++  - `models/label_map_v7.json`
++  - `models/train_config_v7.json`
++- 기존 V6 모델 파일은 삭제하지 않고 보존했다.
++
++### 모델 계약
++- input shape: `[1, 30, 332]`
++- output shape: `[1, 117]`
++- 클래스 수: 117
++- 마지막 label: `none`
++- `train_config_v7.json` 기준 `normalize_mode=none`
++- 모바일 feature encoder도 RAW feature를 사용하므로 입력 정규화 방향은 일치한다.
++
++### V7 재학습/변환 기록
++- V7 모델은 116개 단어 + `none` 구조로 학습했다.
++- 데이터는 일부 부족 클래스인 `병원`, `엄마`를 제외하고 클래스별 최대 80개 원본 데이터를 사용하도록 조정했다.
++- augmentation은 적용했지만, 수어 의미를 깨뜨릴 수 있는 좌우/상하 반전은 사용하지 않았다.
++- 재학습 결과:
++  - Best F1: `0.9806`
++  - Val Acc@BestF1: `98.07%`
++  - Best Train Acc: `97.09%`
++- 변환 산출물:
++  - `best_sign_model_v7.pt`
++  - `best_sign_model_v7.onnx`
++  - `best_sign_model_v7_float32.tflite`
++  - `best_sign_model_v7_float16.tflite`
++  - `label_map_v7.json`
++  - `train_config_v7.json`
++
++## V7 초기 모바일 테스트에서 확인한 문제
++
++### 기차/서점 혼동
++- `기차` 단독 테스트에서 손 위치가 조금 낮으면 `서점`으로 나오는 경우가 있었다.
++- 손 위치가 상대적으로 위로 올라가면 `기차`로 안정적으로 나오는 경향이 있었다.
++- V7 모델이 수어의 동작 변화보다 손의 위치/프레임 내 좌표에 크게 반응하는 것으로 보인다.
++
++### 놀다/입원/돼지고기/소개 혼동
++- `놀다`는 단독으로는 잘 되는 경우가 많았지만, 연속 문장에서는 `입원`, `돼지고기`, `소개` 등으로 튀는 구간이 있었다.
++- 특히 천천히 동작하면 최근 30프레임만 추론에 반영되면서 마지막 자세 위주로 판단되는 느낌이 있었다.
++
++### 주다 누락
++- `주다`는 단독 성공 로그도 있었지만, 연속 문장에서는 마지막 단어로 들어갈 때 최종 문장이 먼저 확정되는 문제가 있었다.
++- 원인 후보는 두 가지다.
++- 첫째, MediaPipe가 오른손을 화면에서 보이는 것과 별개로 landmark를 놓쳐 `right=0`을 반환하는 순간이 있다.
++- 둘째, `hasHands=true`여도 한 손이 없고 다른 손이 아래에 있으면 `areBothHandsInactiveByHeight()`에 의해 no-active 상태로 처리될 수 있다.
++- 따라서 `주다`는 현재 시연 주력 단어에서 제외하는 편이 안전하다.
++
++### 음성 출력 지연
++- 최종 문장 로그가 나온 뒤 음성이 1분 가까이 늦게 나오는 현상이 있었다.
++- 원인은 on-device 추론 자체보다 서버 번역/TTS 응답 지연 가능성이 높았다.
++- 서버 응답 timeout과 기기 TTS fallback을 적용해 지연을 줄였다.
++
++## 카메라 거리/프레이밍 관찰
++- 너무 가까우면 손목이나 손 전체가 프레임 밖으로 잘려 landmark가 끊길 수 있다.
++- 너무 멀면 손가락과 손목 landmark가 작아져 안정성이 떨어진다.
++- 추천 프레이밍:
++  - 얼굴, 양어깨, 가슴-허리 위쪽이 화면에 들어올 것
++  - 손을 아래로 내려도 손목이 화면 밖으로 나가지 않을 것
++  - 사람 상반신이 화면 세로 높이의 약 60~80%를 차지할 것
++
++## V7 단독 단어 테스트 결과
++
++### 테스트 조건
++- 모드: 기기 모드
++- 목적: 3단어 이상 시연 문장 구성 전, 후보 단어를 단독으로 검증
++- 판정 기준:
++  - 목표 단어와 최종 문장이 일치하면 O
++  - 다른 단어로 확정되면 X
++  - 목표는 아니지만 시연 후보로 활용 가능하면 대체 후보로 기록
++
++| 번호 | 목표 gloss | 최종 인식 | 판정 | 메모 |
++| --- | --- | --- | --- | --- |
++| 1 | 엄마 | 엄마 | O | 매우 안정적 |
++| 2 | 아프다 | 아프다 | O | 안정적 |
++| 3 | 병원 | 의사 | X/대체 | 병원보다 의사로 강하게 인식 |
++| 4 | 가다 | 가다 | △ | 성공은 했지만 여러 시도 필요 |
++| 5 | 치료 | 치료 | O | 안정적 |
++| 6 | 받다 | 우유 | X/대체 | 받다는 실패 |
++| 7 | 의사 | 의사 | △ | 성공 로그는 있으나 사용자 체감상 불안정 |
++| 8 | 친구 | 위로 | X/대체 | 친구보다 위로로 인식 |
++| 9 | 놀다 | 놀다 | O | 단독 안정적 |
++| 10 | 좋다 | 눈 | X | 과거 성공 로그가 있으나 이번 테스트에서는 실패 |
++| 11 | 우유 | 시험 | X | 우유 단독 실패 |
++| 12 | 주다 | 기차역 | X/대체 | 주다는 실패 |
++| 13 | 감사 | 가수 | X | 감사 실패 |
++| 14 | 시험 | 시험 | O | 안정적 |
++| 15 | 모르다 | 모르다 | O | 안정적 |
++| 16 | 위로 | 위로 | O | 안정적 |
++| 17 | 서점 | 서점 | O | 안정적 |
++| 18 | 독서 | 독서 | △ | 단독 성공은 있었지만 연속 문장에서 흔들림 |
++
++### 단어 분류
++- 안정 단어: `엄마`, `아프다`, `치료`, `놀다`, `시험`, `모르다`, `위로`, `서점`
++- 조건부 단어: `가다`, `의사`, `독서`
++- 보류 단어: `좋다`, `병원`, `받다`, `친구`, `우유`, `주다`, `감사`
++- 대체 활용 가능 단어: `위로`, `기차역`, `시험`, `의사`
++
++## V7 3단어 이상 시연 문장 테스트
++
++| 목표 gloss 문장 | 최종 인식 문장 | 판정 | 한국어 변환 예시 | 메모 |
++| --- | --- | --- | --- | --- |
++| 엄마 아프다 치료 | 엄마 아프다 치료 | O | 엄마가 아파서 치료가 필요해요. | 시연 주력 후보 |
++| 시험 모르다 위로 | 시험 모르다 위로 | O | 시험을 잘 몰라서 위로가 필요해요. | 시연 주력 후보 |
++| 엄마 서점 독서 | 엄마 서점 서다 | △ | 엄마가 서점에 서 있어요. | 독서가 서다로 바뀜 |
++
++## 현재 시연 후보
++
++### 1순위
++- `엄마 아프다 치료`
++  - 한국어 예시: 엄마가 아파서 치료가 필요해요.
++  - 장점: 세 단어 모두 안정적이고 sLLM 변환 효과가 분명하다.
++- `시험 모르다 위로`
++  - 한국어 예시: 시험을 잘 몰라서 위로가 필요해요.
++  - 장점: 세 단어 모두 안정적이고 문장 의미가 자연스럽다.
++
++### 2순위
++- `엄마 서점 서다`
++  - 한국어 예시: 엄마가 서점에 서 있어요.
++  - 장점: 실제 최종 문장으로 나온 조합이다.
++  - 단점: 의도한 `독서`가 아니라 `서다`로 바뀐 결과라, 시연 의도에 맞는지는 별도 판단이 필요하다.
++
++### 보류
++- `엄마 서점 독서`
++- `서점 가다 독서`
++- `병원 치료 받다`
++- `우유 주다 감사`
++- `엄마 병원 가다`
++
++## 현재 결론
++- V7 모델은 117클래스 확장 자체는 모바일에서 정상적으로 동작한다.
++- 단일 단어 기준으로는 성공 단어가 충분히 있지만, 연속 문장에서는 단어 전환 구간과 마지막 30프레임 중심 추론의 영향이 크다.
++- 발표 시연 목표는 전체 단어 커버리지가 아니라 “안정적인 3단어 이상 문장 + sLLM 자연어 변환 + 음성 출력”으로 잡는 것이 현실적이다.
++- 현재 가장 안전한 시연 문장은 `엄마 아프다 치료`, `시험 모르다 위로`이다.
++- `주다`, `받다`, `감사`, `병원`은 서비스 의미는 좋지만 현재 모델/파이프라인에서는 실패 위험이 높아 시연 주력에서 제외한다.
++
++## 후속 작업
++- 2026-05-18부터는 새 문서에서 V7 시연 문장 발굴과 연속 인식 안정성 테스트를 이어간다.
++- 새 후보 단어로 `교수`, `서다`, `커피`를 검증한다.
++- 안정 단어만 사용한 3단어 이상 문장을 추가로 구성한다.
++- 필요하면 한 손 미검출 + 손 비활성 조건을 분리해 `주다` 조기 종료 문제를 완화한다.
+
+
+diff --git a/mobile/app/src/main/assets/models/best_sign_model_v7_float16.tflite b/mobile/app/src/main/assets/models/best_sign_model_v7_float16.tflite
+--- /dev/null
++++ b/mobile/app/src/main/assets/models/best_sign_model_v7_float16.tflite
+Binary files /dev/null and b/mobile/app/src/main/assets/models/best_sign_model_v7_float16.tflite differ
+
+
+diff --git a/mobile/app/src/main/assets/models/label_map_v7.json b/mobile/app/src/main/assets/models/label_map_v7.json
+--- /dev/null
++++ b/mobile/app/src/main/assets/models/label_map_v7.json
+@@ -0,0 +1,119 @@
++{
++    "0": "걷다",
++    "1": "가다",
++    "2": "주다",
++    "3": "돕다",
++    "4": "배고프다",
++    "5": "아기",
++    "6": "좋다",
++    "7": "싫다",
++    "8": "감기",
++    "9": "기차",
++    "10": "놀다",
++    "11": "목마르다",
++    "12": "무섭다",
++    "13": "밥",
++    "14": "손",
++    "15": "아프다",
++    "16": "웃다",
++    "17": "장난감",
++    "18": "조심",
++    "19": "병원",
++    "20": "엄마",
++    "21": "감사",
++    "22": "슬프다",
++    "23": "고민",
++    "24": "화나다",
++    "25": "당황",
++    "26": "귀엽다",
++    "27": "안타깝다",
++    "28": "창피하다",
++    "29": "소심",
++    "30": "불행",
++    "31": "침착",
++    "32": "자다",
++    "33": "서다",
++    "34": "일어나다",
++    "35": "달리다",
++    "36": "듣다",
++    "37": "쓰다",
++    "38": "포기",
++    "39": "집중",
++    "40": "눈",
++    "41": "몸",
++    "42": "팔",
++    "43": "라면",
++    "44": "딸기",
++    "45": "사과",
++    "46": "두부",
++    "47": "커피",
++    "48": "콜라",
++    "49": "우유",
++    "50": "소주",
++    "51": "식당",
++    "52": "돼지고기",
++    "53": "비빔밥",
++    "54": "냄비",
++    "55": "음료수",
++    "56": "에어컨",
++    "57": "이불",
++    "58": "운동화",
++    "59": "치약",
++    "60": "마스크",
++    "61": "남자",
++    "62": "여자",
++    "63": "남녀",
++    "64": "손자",
++    "65": "손녀",
++    "66": "외국인",
++    "67": "장애인",
++    "68": "농인",
++    "69": "의사",
++    "70": "교수",
++    "71": "간호사",
++    "72": "요리사",
++    "73": "경찰서",
++    "74": "가수",
++    "75": "코치",
++    "76": "통역사",
++    "77": "기차역",
++    "78": "주차장",
++    "79": "터미널",
++    "80": "서점",
++    "81": "백화점",
++    "82": "주유소",
++    "83": "하늘",
++    "84": "강",
++    "85": "파도",
++    "86": "강아지",
++    "87": "입원",
++    "88": "치료",
++    "89": "퇴원",
++    "90": "당뇨병",
++    "91": "불면증",
++    "92": "모르다",
++    "93": "알다",
++    "94": "없다",
++    "95": "오다",
++    "96": "받다",
++    "97": "행복",
++    "98": "즐겁다",
++    "99": "피곤하다",
++    "100": "바쁘다",
++    "101": "친구",
++    "102": "여동생",
++    "103": "할머니",
++    "104": "할아버지",
++    "105": "비",
++    "106": "바람",
++    "107": "연구",
++    "108": "회복",
++    "109": "시험",
++    "110": "학습",
++    "111": "독서",
++    "112": "실수",
++    "113": "위로",
++    "114": "소개",
++    "115": "성실",
++    "116": "none"
++}
+\ No newline at end of file
+
+
+diff --git a/mobile/app/src/main/assets/models/train_config_v7.json b/mobile/app/src/main/assets/models/train_config_v7.json
+--- /dev/null
++++ b/mobile/app/src/main/assets/models/train_config_v7.json
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt
+@@ -4,13 +4,13 @@ object SignModelContract {
+     const val BATCH_SIZE = 1
+     const val SEQUENCE_LENGTH = 30
+     const val FEATURE_DIMENSION = 332
+-    const val CLASS_COUNT = 23
++    const val CLASS_COUNT = 117
+     const val CONFIDENCE_THRESHOLD = 0.80f
+     const val MARGIN_THRESHOLD = 0.0f
+     const val FLOAT_BYTE_SIZE = 4
+     const val FLAT_SEQUENCE_INPUT_SIZE = SEQUENCE_LENGTH * FEATURE_DIMENSION
+     val MODEL_ASSET_PATH = SignModelVariant.DEFAULT.modelAssetPath
+-    const val LABEL_MAP_ASSET_PATH = "models/label_map_v6.json"
++    const val LABEL_MAP_ASSET_PATH = "models/label_map_v7.json"
+     const val UNKNOWN_GLOSS = "unknown"
+     val inputShape: IntArray = intArrayOf(BATCH_SIZE, SEQUENCE_LENGTH, FEATURE_DIMENSION)
+     val outputShape: IntArray = intArrayOf(BATCH_SIZE, CLASS_COUNT)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelVariant.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelVariant.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelVariant.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelVariant.kt
+@@ -12,9 +12,13 @@ enum class SignModelVariant(
+         displayName = "v6-float32",
+         modelAssetPath = "models/sign_model_v6_float32.tflite",
+     ),
++    V7_FLOAT16(
++        displayName = "v7-117words-float16",
++        modelAssetPath = "models/best_sign_model_v7_float16.tflite",
++    ),
+     ;
+ 
+     companion object {
+-        val DEFAULT = FLOAT16
++        val DEFAULT = V7_FLOAT16
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/NoHandsDetectionTracker.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/NoHandsDetectionTracker.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/NoHandsDetectionTracker.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/NoHandsDetectionTracker.kt
+@@ -21,10 +21,14 @@ class NoHandsDetectionTracker(
+             return null
+         }
+ 
+-        val startedAtMs = noHandsStartedAtMs ?: frame.timestampMs
++        return onNoActiveHands(frame.timestampMs)
++    }
++
++    fun onNoActiveHands(timestampMs: Long): SignRecognitionEvent.NoHandsDetected? {
++        val startedAtMs = noHandsStartedAtMs ?: timestampMs
+         noHandsStartedAtMs = startedAtMs
+ 
+-        val elapsedMs = (frame.timestampMs - startedAtMs).coerceAtLeast(0L)
++        val elapsedMs = (timestampMs - startedAtMs).coerceAtLeast(0L)
+         return if (!hasEmittedNoHands && elapsedMs >= detectionDelayMs) {
+             hasEmittedNoHands = true
+             SignRecognitionEvent.NoHandsDetected
+@@ -38,7 +42,7 @@ class NoHandsDetectionTracker(
+         hasEmittedNoHands = false
+     }
+ 
+-    private companion object {
++    companion object {
+         const val DEFAULT_DETECTION_DELAY_MS = 1_500L
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
+@@ -36,7 +36,7 @@ class RealSignRecognitionEngine(
+     private var sequenceBuffer: SignSequenceBuffer = SignSequenceBuffer(),
+     private val inferenceAdapter: SignInferenceAdapter = FakeSignInferenceAdapter(),
+     private val wordSpottingScanner: WordSpottingScanner = NoOpWordSpottingScanner,
+-    private val noHandsDetectionTracker: NoHandsDetectionTracker = NoHandsDetectionTracker(),
++    private var noHandsDetectionTracker: NoHandsDetectionTracker = NoHandsDetectionTracker(),
+     private var predictionStabilizer: SignPredictionStabilizer = SignPredictionStabilizer(),
+     private val logger: SignPipelineLogger = SignPipelineLogger(),
+ ) : SignRecognitionEngine {
+@@ -61,7 +61,6 @@ class RealSignRecognitionEngine(
+     private val isStarted = AtomicBoolean(false)
+     private var config = SignRecognitionConfig()
+     private var hasSeenHandsInSegment = false
+-    private var missingHandFrames = 0
+     private var sentenceIsQuestion = false
+     private val segmentFrames = mutableListOf<LandmarkFeatureFrame>()
+     private val sentenceBuffer = mutableListOf<StableSignPrediction>()
+@@ -115,6 +114,10 @@ class RealSignRecognitionEngine(
+                 requiredVotes = config.smoothingRequiredVotes,
+                 emitCooldownMs = config.emitCooldownMs,
+             )
++        noHandsDetectionTracker =
++            NoHandsDetectionTracker(
++                detectionDelayMs = config.noHandsDetectionDelayMs,
++            )
+         resetRecognitionState()
+     }
+ 
+@@ -149,7 +152,6 @@ class RealSignRecognitionEngine(
+         if (!hasSeenHandsInSegment) {
+             hasSeenHandsInSegment = true
+         }
+-        missingHandFrames = 0
+         updateSentenceType(frame)
+         noHandsDetectionTracker.reset()
+         processFeatureFrame(frame)
+@@ -246,6 +248,7 @@ class RealSignRecognitionEngine(
+             confidence = stablePrediction.confidence,
+         )
+         appendSentencePrediction(stablePrediction)
++        resetLivePredictionWindow()
+         _events.tryEmit(
+             SignRecognitionEvent.Prediction(
+                 gloss = stablePrediction.gloss,
+@@ -261,6 +264,10 @@ class RealSignRecognitionEngine(
+         }
+     }
+ 
++    private fun resetLivePredictionWindow() {
++        sequenceBuffer.clear()
++    }
++
+     private fun updateSentenceType(frame: LandmarkFrameResult) {
+         val currentGap = frame.normalizedEyebrowGap() ?: return
+         if (neutralEyebrowGaps.size < MIN_NEUTRAL_FACE_SAMPLES) {
+@@ -285,8 +292,7 @@ class RealSignRecognitionEngine(
+             return
+         }
+ 
+-        missingHandFrames += 1
+-        if (missingHandFrames <= MAX_MISSING_HAND_FRAMES) {
++        if (noHandsDetectionTracker.onNoActiveHands(frame.timestampMs) == null) {
+             frame.normalizedEyebrowGap()?.let(::addNeutralEyebrowGap)
+             return
+         }
+@@ -341,7 +347,6 @@ class RealSignRecognitionEngine(
+ 
+     private fun resetRecognitionState() {
+         hasSeenHandsInSegment = false
+-        missingHandFrames = 0
+         sentenceIsQuestion = false
+         sentenceBuffer.clear()
+         featureEncoder.reset()
+@@ -353,7 +358,6 @@ class RealSignRecognitionEngine(
+     private companion object {
+         const val EVENT_BUFFER_CAPACITY = 64
+         const val NANOS_PER_MILLIS = 1_000_000.0
+-        const val MAX_MISSING_HAND_FRAMES = 15
+         const val NEUTRAL_FACE_WINDOW = 45
+         const val MIN_NEUTRAL_FACE_SAMPLES = 15
+         const val QUESTION_EYEBROW_DELTA_THRESHOLD = 0.055f
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPredictionStabilizer.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPredictionStabilizer.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPredictionStabilizer.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPredictionStabilizer.kt
+@@ -85,43 +85,28 @@ class SignPredictionStabilizer(
+         recentPredictions.addLast(result)
+     }
+ 
+-    private fun findStableCandidate(): StableSignPrediction? =
+-        recentPredictions
+-            .withIndex()
+-            .groupBy { (_, prediction) -> prediction.gloss }
+-            .mapValues { (_, indexedPredictions) ->
+-                val predictions = indexedPredictions.map { (_, prediction) -> prediction }
+-                PredictionVote(
+-                    gloss = predictions.first().gloss,
+-                    count = predictions.size,
+-                    lastIndex = indexedPredictions.maxOf { (index, _) -> index },
+-                    confidence =
+-                        predictions
+-                            .map { prediction -> prediction.confidence }
+-                            .average()
+-                            .toFloat(),
+-                )
+-            }.values
+-            .filter { vote -> vote.count >= requiredVotes }
+-            .filter { vote -> vote.lastIndex == recentPredictions.lastIndex }
+-            .maxWithOrNull(
+-                compareBy<PredictionVote> { vote -> vote.count }
+-                    .thenBy { vote -> vote.lastIndex }
+-                    .thenBy { vote -> vote.confidence },
+-            )?.takeIf { vote -> vote.gloss.trim().lowercase() !in ignoredGlosses }
+-            ?.let { vote ->
+-                StableSignPrediction(
+-                    gloss = vote.gloss,
+-                    confidence = vote.confidence,
+-                )
+-            }
++    private fun findStableCandidate(): StableSignPrediction? {
++        val tailPredictions = recentPredictions.toList().takeLast(requiredVotes)
++        val candidateGloss = tailPredictions.lastOrNull()?.gloss
++        val isStable =
++            candidateGloss != null &&
++                tailPredictions.size == requiredVotes &&
++                tailPredictions.all { prediction -> prediction.gloss == candidateGloss } &&
++                candidateGloss.trim().lowercase() !in ignoredGlosses
+ 
+-    private data class PredictionVote(
+-        val gloss: String,
+-        val count: Int,
+-        val lastIndex: Int,
+-        val confidence: Float,
+-    )
++        return if (isStable && candidateGloss != null) {
++            StableSignPrediction(
++                gloss = candidateGloss,
++                confidence =
++                    tailPredictions
++                        .map { prediction -> prediction.confidence }
++                        .average()
++                        .toFloat(),
++            )
++        } else {
++            null
++        }
++    }
+ 
+     companion object {
+         const val DEFAULT_WINDOW_SIZE = 5
+@@ -134,9 +119,6 @@ class SignPredictionStabilizer(
+     }
+ }
+ 
+-private val <T> ArrayDeque<T>.lastIndex: Int
+-    get() = size - 1
+-
+ data class StableSignPrediction(
+     val gloss: String,
+     val confidence: Float,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionConfig.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionConfig.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionConfig.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionConfig.kt
+@@ -11,6 +11,7 @@ data class SignRecognitionConfig(
+     val smoothingWindowSize: Int = SignPredictionStabilizer.DEFAULT_WINDOW_SIZE,
+     val smoothingRequiredVotes: Int = SignPredictionStabilizer.DEFAULT_REQUIRED_VOTES,
+     val emitCooldownMs: Long = SignPredictionStabilizer.DEFAULT_EMIT_COOLDOWN_MS,
++    val noHandsDetectionDelayMs: Long = NoHandsDetectionTracker.DEFAULT_DETECTION_DELAY_MS,
+ ) {
+     init {
+         require(sequenceLength == SignModelContract.SEQUENCE_LENGTH) {
+@@ -34,6 +35,9 @@ data class SignRecognitionConfig(
+         require(emitCooldownMs >= 0L) {
+             "Emit cooldown must be 0 or greater."
+         }
++        require(noHandsDetectionDelayMs >= 0L) {
++            "No-hands detection delay must be 0 or greater."
++        }
+     }
+ 
+     companion object {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -40,6 +40,7 @@ import kotlinx.coroutines.isActive
+ import kotlinx.coroutines.launch
+ import kotlinx.coroutines.sync.Mutex
+ import kotlinx.coroutines.sync.withLock
++import kotlinx.coroutines.withTimeout
+ 
+ enum class SessionState {
+     Idle,
+@@ -220,8 +221,6 @@ class ConversationViewModel
+             _lastGlosses.value = currentGlosses
+             _signInputPhase.value = SignInputPhase.Collecting
+             _predictionFeedbackToken.value = event.timestampMs
+-
+-            restartTranslationTimer(glosses = currentGlosses)
+         }
+ 
+         private fun handleUtterance(event: SignRecognitionEvent.Utterance) {
+@@ -229,8 +228,9 @@ class ConversationViewModel
+ 
+             _lastGlosses.value = event.glosses
+             _signInputPhase.value = SignInputPhase.Collecting
+-            restartTranslationTimer(
+-                glosses = event.glosses,
++            completionTimerJob?.cancel()
++            requestTranslation(
++                words = event.glosses,
+                 sentenceType = event.sentenceType,
+             )
+         }
+@@ -246,23 +246,6 @@ class ConversationViewModel
+             addSystemMessage(event.message)
+         }
+ 
+-        private fun restartTranslationTimer(
+-            glosses: List<String>,
+-            sentenceType: String? = null,
+-        ) {
+-            completionTimerJob?.cancel()
+-            completionTimerJob =
+-                viewModelScope.launch {
+-                    delay(COMPLETION_THRESHOLD_MS)
+-                    if (glosses.isNotEmpty()) {
+-                        requestTranslation(
+-                            words = glosses,
+-                            sentenceType = sentenceType,
+-                        )
+-                    }
+-                }
+-        }
+-
+         private fun requestTranslation(
+             words: List<String>,
+             sentenceType: String? = null,
+@@ -325,10 +308,16 @@ class ConversationViewModel
+                 viewModelScope.launch {
+                     val sessionId = ensureCommsSessionForServerStorage()
+                     val result =
+-                        translateRepository.translateSignToSpeech(
+-                            words = words,
+-                            sessionId = sessionId,
+-                        )
++                        runCatching {
++                            withTimeout(SIGN_TRANSLATION_TIMEOUT_MS) {
++                                translateRepository.translateSignToSpeech(
++                                    words = words,
++                                    sessionId = sessionId,
++                                )
++                            }
++                        }.getOrElse { throwable ->
++                            Result.failure(throwable)
++                        }
+ 
+                     result.fold(
+                         onSuccess = { response ->
+@@ -341,10 +330,11 @@ class ConversationViewModel
+                                 isFeedbackAvailable = true,
+                             )
+ 
+-                            response.audioBase64?.let { base64Audio ->
+-                                handleTtsSuccess(base64Audio)
+-                            } ?: run {
+-                                startRecordingForStt()
++                            val audioBase64 = response.audioBase64
++                            if (audioBase64.isNullOrBlank()) {
++                                speakTranslatedTextWithDeviceTts(response.correctedText)
++                            } else {
++                                handleTtsSuccess(audioBase64)
+                             }
+ 
+                             _lastGlosses.value = emptyList()
+@@ -1118,6 +1108,20 @@ class ConversationViewModel
+             )
+         }
+ 
++        private fun speakTranslatedTextWithDeviceTts(text: String) {
++            if (text.isBlank()) {
++                startRecordingForStt()
++                return
++            }
++
++            markAppSpeech(text)
++            ttsPlayer.speak(
++                text = text,
++                onComplete = { startRecordingForStt() },
++                onError = { startRecordingForStt() },
++            )
++        }
++
+         fun updateTranslationMode(mode: TranslationMode) {
+             viewModelScope.launch {
+                 translationModeRepository.saveTranslationMode(mode)
+@@ -1353,8 +1357,8 @@ class ConversationViewModel
+ 
+         companion object {
+             private const val TAG = "ConversationViewModel"
++            private const val SIGN_TRANSLATION_TIMEOUT_MS = 6000L
+             private const val NONE_GLOSS = "none"
+-            private const val COMPLETION_THRESHOLD_MS = 2000L
+             private const val STT_RESTART_DELAY_MS = 500L
+             private const val STT_UNRECOGNIZED_NOTICE_MS = 1200L
+             private const val CLOUD_STT_POLL_INTERVAL_MS = 150L
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngineTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngineTest.kt
+--- a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngineTest.kt
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngineTest.kt
+@@ -132,8 +132,8 @@ class RealSignRecognitionEngineTest {
+                     predictionStabilizer =
+                         SignPredictionStabilizer(
+                             confidenceThreshold = TEST_CONFIDENCE_THRESHOLD,
+-                            windowSize = 1,
+-                            requiredVotes = 1,
++                            windowSize = TEST_PREDICTION_WINDOW_SIZE,
++                            requiredVotes = TEST_PREDICTION_WINDOW_SIZE,
+                         ),
+                 )
+ 
+@@ -413,7 +413,7 @@ class RealSignRecognitionEngineTest {
+         const val TEST_STABLE_SEGMENT_FRAMES = 8
+         const val TEST_FRAME_INTERVAL_MS = 50L
+         const val NO_HANDS_DELAY_MS = 1_000L
+-        const val MISSING_HAND_RESET_FRAMES = 16
++        const val MISSING_HAND_RESET_FRAMES = 22
+         const val FULL_POSE_LANDMARK_COUNT = 33
+         const val FLOAT_DELTA = 0.0001f
+         const val TIMEOUT_MS = 1_000L
+
+

@@ -1,0 +1,396 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/controller/LearnController.java b/backend/src/main/java/com/ssafy/backend/domain/learn/controller/LearnController.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/controller/LearnController.java
+@@ -0,0 +1,34 @@
++package com.ssafy.backend.domain.learn.controller;
++
++import com.ssafy.backend.domain.learn.docs.LearnControllerDocs;
++import com.ssafy.backend.domain.learn.dto.response.LearnCategoryResponse;
++import com.ssafy.backend.domain.learn.dto.response.LearnWordResponse;
++import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
++import com.ssafy.backend.domain.learn.service.LearnService;
++import java.util.List;
++import org.springframework.web.bind.annotation.GetMapping;
++import org.springframework.web.bind.annotation.RequestMapping;
++import org.springframework.web.bind.annotation.RequestParam;
++import org.springframework.web.bind.annotation.RestController;
++
++@RestController
++@RequestMapping("/api/v1/learn")
++public class LearnController implements LearnControllerDocs {
++
++  private final LearnService learnService;
++
++  public LearnController(LearnService learnService) {
++    this.learnService = learnService;
++  }
++
++  @GetMapping("/categories")
++  public List<LearnCategoryResponse> getCategories() {
++    return learnService.getCategories();
++  }
++
++  @GetMapping("/words")
++  public List<LearnWordResponse> getWords(
++      @RequestParam Long categoryId, @RequestParam LearnDifficulty difficulty) {
++    return learnService.getWords(categoryId, difficulty);
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/docs/LearnControllerDocs.java b/backend/src/main/java/com/ssafy/backend/domain/learn/docs/LearnControllerDocs.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/docs/LearnControllerDocs.java
+@@ -0,0 +1,30 @@
++package com.ssafy.backend.domain.learn.docs;
++
++import com.ssafy.backend.domain.learn.dto.response.LearnCategoryResponse;
++import com.ssafy.backend.domain.learn.dto.response.LearnWordResponse;
++import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
++import com.ssafy.backend.global.docs.ApiErrorCodes;
++import io.swagger.v3.oas.annotations.Operation;
++import io.swagger.v3.oas.annotations.security.SecurityRequirement;
++import io.swagger.v3.oas.annotations.tags.Tag;
++import java.util.List;
++import org.springframework.web.bind.annotation.RequestParam;
++
++@Tag(name = "학습 API", description = "카테고리 및 단어장 학습 API")
++public interface LearnControllerDocs {
++
++  @Operation(
++      summary = "학습 카테고리 목록 조회",
++      description = "학습 가능한 카테고리 목록을 조회합니다.",
++      security = {@SecurityRequirement(name = "bearerAuth")})
++  @ApiErrorCodes({"COMMON_UNAUTHORIZED"})
++  List<LearnCategoryResponse> getCategories();
++
++  @Operation(
++      summary = "카테고리/난이도별 단어 목록 조회",
++      description = "선택한 카테고리와 난이도에 해당하는 단어 목록을 조회합니다.",
++      security = {@SecurityRequirement(name = "bearerAuth")})
++  @ApiErrorCodes({"COMMON_UNAUTHORIZED"})
++  List<LearnWordResponse> getWords(
++      @RequestParam Long categoryId, @RequestParam LearnDifficulty difficulty);
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnCategoryResponse.java b/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnCategoryResponse.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnCategoryResponse.java
+@@ -0,0 +1,5 @@
++package com.ssafy.backend.domain.learn.dto.response;
++
++// 카테고리 목록 화면용
++public record LearnCategoryResponse(
++    Long id, String name, String description, String thumbnailUrl) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnWordResponse.java b/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnWordResponse.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnWordResponse.java
+@@ -0,0 +1,5 @@
++package com.ssafy.backend.domain.learn.dto.response;
++
++// (카테고리 + 난이도) 단어장 화면
++public record LearnWordResponse(
++    Long wordId, String word, String displayText, String imageUrl, String audioUrl) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/repository/LearnRepository.java b/backend/src/main/java/com/ssafy/backend/domain/learn/repository/LearnRepository.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/repository/LearnRepository.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/repository/LearnRepository.java
+@@ -1,12 +1,27 @@
+ package com.ssafy.backend.domain.learn.repository;
+ 
+ import com.ssafy.backend.domain.learn.entity.Learn;
+-import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
+ import java.util.List;
+ import org.springframework.data.jpa.repository.JpaRepository;
++import org.springframework.data.jpa.repository.Query;
++import org.springframework.data.repository.query.Param;
+ 
+ public interface LearnRepository extends JpaRepository<Learn, Long> {
+ 
+-  List<Learn> findByCategory_IdAndDifficultyAndActiveTrueOrderBySortOrderAsc(
+-      Long categoryId, LearnDifficulty difficulty);
++  @Query(
++      value =
++          """
++          SELECT *
++          FROM learn
++          WHERE category_id = :categoryId
++            AND difficulty = :difficulty
++            AND active = true
++          ORDER BY RANDOM()
++          LIMIT :limit
++          """,
++      nativeQuery = true)
++  List<Learn> findRandomWordsByCategoryAndDifficulty(
++      @Param("categoryId") Long categoryId,
++      @Param("difficulty") String difficulty,
++      @Param("limit") int limit);
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/service/LearnService.java b/backend/src/main/java/com/ssafy/backend/domain/learn/service/LearnService.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/service/LearnService.java
+@@ -0,0 +1,53 @@
++package com.ssafy.backend.domain.learn.service;
++
++import com.ssafy.backend.domain.learn.dto.response.LearnCategoryResponse;
++import com.ssafy.backend.domain.learn.dto.response.LearnWordResponse;
++import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
++import com.ssafy.backend.domain.learn.repository.LearnCategoryRepository;
++import com.ssafy.backend.domain.learn.repository.LearnRepository;
++import java.util.List;
++import org.springframework.stereotype.Service;
++import org.springframework.transaction.annotation.Transactional;
++
++@Service
++@Transactional(readOnly = true)
++public class LearnService {
++
++  private static final int DEFAULT_WORD_COUNT = 5;
++
++  private final LearnCategoryRepository learnCategoryRepository;
++  private final LearnRepository learnRepository;
++
++  public LearnService(
++      LearnCategoryRepository learnCategoryRepository, LearnRepository learnRepository) {
++    this.learnCategoryRepository = learnCategoryRepository;
++    this.learnRepository = learnRepository;
++  }
++
++  public List<LearnCategoryResponse> getCategories() {
++    return learnCategoryRepository.findByActiveTrueOrderBySortOrderAsc().stream()
++        .map(
++            category ->
++                new LearnCategoryResponse(
++                    category.getId(),
++                    category.getName(),
++                    category.getDescription(),
++                    category.getThumbnailUrl()))
++        .toList();
++  }
++
++  public List<LearnWordResponse> getWords(Long categoryId, LearnDifficulty difficulty) {
++    return learnRepository
++        .findRandomWordsByCategoryAndDifficulty(categoryId, difficulty.name(), DEFAULT_WORD_COUNT)
++        .stream()
++        .map(
++            word ->
++                new LearnWordResponse(
++                    word.getId(),
++                    word.getWord(),
++                    word.getDisplayText(),
++                    word.getImageUrl(),
++                    word.getAudioUrl()))
++        .toList();
++  }
++}
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260506221000__update_learn_category_thumbnails.sql b/backend/src/main/resources/db/migration/V20260506221000__update_learn_category_thumbnails.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260506221000__update_learn_category_thumbnails.sql
+@@ -0,0 +1,19 @@
++UPDATE learn_categories
++SET thumbnail_url = 'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/learn/categories/animal.png'
++WHERE name = '동물';
++
++UPDATE learn_categories
++SET thumbnail_url = 'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/learn/categories/food.png'
++WHERE name = '음식';
++
++UPDATE learn_categories
++SET thumbnail_url = 'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/learn/categories/family.png'
++WHERE name = '가족';
++
++UPDATE learn_categories
++SET thumbnail_url = 'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/learn/categories/color.png'
++WHERE name = '색깔';
++
++UPDATE learn_categories
++SET thumbnail_url = 'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/learn/categories/vehicle.png'
++WHERE name = '탈 것';
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260506222000__seed_test_animal_learn_words.sql b/backend/src/main/resources/db/migration/V20260506222000__seed_test_animal_learn_words.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260506222000__seed_test_animal_learn_words.sql
+@@ -0,0 +1,71 @@
++INSERT INTO learn (
++  category_id,
++  difficulty,
++  word,
++  display_text,
++  pronunciation_text,
++  image_url,
++  audio_url,
++  active,
++  sort_order
++)
++SELECT
++  id,
++  'EASY',
++  '강아지',
++  '강아지',
++  '강아지',
++  'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/learn/words/animals/easy/dog.png',
++  'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/learn/words/animals/easy/dog.mp3',
++  true,
++  1
++FROM learn_categories
++WHERE name = '동물';
++
++INSERT INTO learn (
++  category_id,
++  difficulty,
++  word,
++  display_text,
++  pronunciation_text,
++  image_url,
++  audio_url,
++  active,
++  sort_order
++)
++SELECT
++  id,
++  'MEDIUM',
++  '토끼',
++  '토끼',
++  '토끼',
++  'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/learn/words/animals/medium/rabit.png',
++  'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/learn/words/animals/medium/rabit.mp3',
++  true,
++  1
++FROM learn_categories
++WHERE name = '동물';
++
++INSERT INTO learn (
++  category_id,
++  difficulty,
++  word,
++  display_text,
++  pronunciation_text,
++  image_url,
++  audio_url,
++  active,
++  sort_order
++)
++SELECT
++  id,
++  'HARD',
++  '기린',
++  '기린',
++  '기린',
++  'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/learn/words/animals/hard/giraffe.png',
++  'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/learn/words/animals/hard/giraffe.mp3',
++  true,
++  1
++FROM learn_categories
++WHERE name = '동물';
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260506223000__seed_animal_easy_learn_words.sql b/backend/src/main/resources/db/migration/V20260506223000__seed_animal_easy_learn_words.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260506223000__seed_animal_easy_learn_words.sql
+@@ -0,0 +1,95 @@
++INSERT INTO learn (
++  category_id,
++  difficulty,
++  word,
++  display_text,
++  pronunciation_text,
++  image_url,
++  audio_url,
++  active,
++  sort_order
++)
++SELECT
++  id,
++  'EASY',
++  '곰',
++  '곰',
++  '곰',
++  'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/learn/words/animals/easy/bear.png',
++  'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/learn/words/animals/easy/bear.mp3',
++  true,
++  2
++FROM learn_categories
++WHERE name = '동물';
++
++INSERT INTO learn (
++  category_id,
++  difficulty,
++  word,
++  display_text,
++  pronunciation_text,
++  image_url,
++  audio_url,
++  active,
++  sort_order
++)
++SELECT
++  id,
++  'EASY',
++  '소',
++  '소',
++  '소',
++  'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/learn/words/animals/easy/cow.png',
++  'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/learn/words/animals/easy/cow.mp3',
++  true,
++  3
++FROM learn_categories
++WHERE name = '동물';
++
++INSERT INTO learn (
++  category_id,
++  difficulty,
++  word,
++  display_text,
++  pronunciation_text,
++  image_url,
++  audio_url,
++  active,
++  sort_order
++)
++SELECT
++  id,
++  'EASY',
++  '말',
++  '말',
++  '말',
++  'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/learn/words/animals/easy/horse.png',
++  'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/learn/words/animals/easy/horse.mp3',
++  true,
++  4
++FROM learn_categories
++WHERE name = '동물';
++
++INSERT INTO learn (
++  category_id,
++  difficulty,
++  word,
++  display_text,
++  pronunciation_text,
++  image_url,
++  audio_url,
++  active,
++  sort_order
++)
++SELECT
++  id,
++  'EASY',
++  '새',
++  '새',
++  '새',
++  'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/learn/words/animals/easy/bird.png',
++  'https://suda-s3-bucket-570515227038-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com/learn/words/animals/easy/bird.mp3',
++  true,
++  5
++FROM learn_categories
++WHERE name = '동물';
+
+

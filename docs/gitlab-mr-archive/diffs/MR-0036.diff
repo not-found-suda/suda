@@ -1,0 +1,675 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/model/SignRecognitionEvent.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/model/SignRecognitionEvent.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/model/SignRecognitionEvent.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/model/SignRecognitionEvent.kt
+@@ -1,6 +1,12 @@
+ package com.ssafy.mobile.core.model
+ 
+ sealed interface SignRecognitionEvent {
++    data object Ready : SignRecognitionEvent
++
++    data object Started : SignRecognitionEvent
++
++    data object Stopped : SignRecognitionEvent
++
+     // 단일 단어 추론 결과
+     data class Prediction(
+         val gloss: String,
+@@ -22,5 +28,6 @@ sealed interface SignRecognitionEvent {
+ 
+     data class Error(
+         val message: String,
++        val cause: Throwable? = null,
+     ) : SignRecognitionEvent
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -25,7 +25,10 @@ fun MobileNavHost(
+         }
+ 
+         composable(Screen.Sign.route) {
+-            SignRecognitionScreen(modifier = Modifier.fillMaxSize())
++            SignRecognitionScreen(
++                isSessionActive = true,
++                modifier = Modifier.fillMaxSize(),
++            )
+         }
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/FakeSignInferenceAdapter.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/FakeSignInferenceAdapter.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/FakeSignInferenceAdapter.kt
+@@ -0,0 +1,33 @@
++package com.ssafy.mobile.core.vision.inference
++
++class FakeSignInferenceAdapter(
++    private val result: SignInferenceResult = DEFAULT_RESULT,
++) : SignInferenceAdapter {
++    private var isClosed = false
++
++    override fun predict(sequence: FloatArray): SignInferenceResult {
++        check(!isClosed) { "이미 종료된 fake 수어 추론 어댑터입니다." }
++        require(sequence.size == EXPECTED_SEQUENCE_INPUT_SIZE) {
++            "Sequence 입력 크기는 $EXPECTED_SEQUENCE_INPUT_SIZE 이어야 합니다."
++        }
++
++        return result
++    }
++
++    override fun close() {
++        isClosed = true
++    }
++
++    companion object {
++        const val DEFAULT_GLOSS = "엄마"
++        const val DEFAULT_CONFIDENCE = 0.92f
++        const val EXPECTED_SEQUENCE_INPUT_SIZE =
++            SignModelContract.SEQUENCE_LENGTH * SignModelContract.FEATURE_DIMENSION
++
++        val DEFAULT_RESULT =
++            SignInferenceResult(
++                gloss = DEFAULT_GLOSS,
++                confidence = DEFAULT_CONFIDENCE,
++            )
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapter.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapter.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapter.kt
+@@ -0,0 +1,23 @@
++package com.ssafy.mobile.core.vision.inference
++
++interface SignInferenceAdapter {
++    fun predict(sequence: FloatArray): SignInferenceResult
++
++    fun close()
++}
++
++data class SignInferenceResult(
++    val gloss: String,
++    val confidence: Float,
++) {
++    init {
++        require(confidence in MIN_CONFIDENCE..MAX_CONFIDENCE) {
++            "Confidence must be between $MIN_CONFIDENCE and $MAX_CONFIDENCE."
++        }
++    }
++
++    private companion object {
++        const val MIN_CONFIDENCE = 0f
++        const val MAX_CONFIDENCE = 1f
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
+@@ -0,0 +1,97 @@
++package com.ssafy.mobile.core.vision
++
++import com.ssafy.mobile.core.model.SignRecognitionEvent
++import com.ssafy.mobile.core.vision.feature.LandmarkFeatureEncoder
++import com.ssafy.mobile.core.vision.feature.SignSequenceBuffer
++import com.ssafy.mobile.core.vision.inference.FakeSignInferenceAdapter
++import com.ssafy.mobile.core.vision.inference.SignInferenceAdapter
++import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
++import java.util.concurrent.atomic.AtomicBoolean
++import javax.inject.Inject
++import kotlinx.coroutines.channels.BufferOverflow
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.MutableSharedFlow
++import kotlinx.coroutines.flow.asSharedFlow
++
++class RealSignRecognitionEngine(
++    private val featureEncoder: LandmarkFeatureEncoder = LandmarkFeatureEncoder(),
++    private val sequenceBuffer: SignSequenceBuffer = SignSequenceBuffer(),
++    private val inferenceAdapter: SignInferenceAdapter = FakeSignInferenceAdapter(),
++) : SignRecognitionEngine {
++    @Inject
++    constructor() : this(
++        featureEncoder = LandmarkFeatureEncoder(),
++        sequenceBuffer = SignSequenceBuffer(),
++        inferenceAdapter = FakeSignInferenceAdapter(),
++    )
++
++    private val isStarted = AtomicBoolean(false)
++    private val _events =
++        MutableSharedFlow<SignRecognitionEvent>(
++            extraBufferCapacity = EVENT_BUFFER_CAPACITY,
++            onBufferOverflow = BufferOverflow.DROP_OLDEST,
++        )
++
++    override val events: Flow<SignRecognitionEvent> = _events.asSharedFlow()
++
++    override fun start() {
++        if (!isStarted.compareAndSet(false, true)) {
++            return
++        }
++
++        resetSessionState()
++        _events.tryEmit(SignRecognitionEvent.Started)
++        _events.tryEmit(SignRecognitionEvent.Ready)
++    }
++
++    override fun stop() {
++        if (!isStarted.compareAndSet(true, false)) {
++            return
++        }
++
++        resetSessionState()
++        _events.tryEmit(SignRecognitionEvent.Stopped)
++    }
++
++    fun onLandmarkFrame(frame: LandmarkFrameResult) {
++        if (!isStarted.get()) {
++            return
++        }
++
++        runCatching {
++            val feature = featureEncoder.encode(frame)
++            sequenceBuffer.add(feature)
++            val sequence = sequenceBuffer.buildSequenceInput() ?: return
++            val result = inferenceAdapter.predict(sequence)
++
++            _events.tryEmit(
++                SignRecognitionEvent.Prediction(
++                    gloss = result.gloss,
++                    confidence = result.confidence,
++                    timestampMs = frame.timestampMs,
++                ),
++            )
++        }.onFailure { throwable ->
++            _events.tryEmit(
++                SignRecognitionEvent.Error(
++                    message = "수어 인식 처리 중 오류가 발생했습니다.",
++                    cause = throwable,
++                ),
++            )
++        }
++    }
++
++    fun close() {
++        stop()
++        inferenceAdapter.close()
++    }
++
++    private fun resetSessionState() {
++        featureEncoder.reset()
++        sequenceBuffer.clear()
++    }
++
++    private companion object {
++        const val EVENT_BUFFER_CAPACITY = 64
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+@@ -1,5 +1,6 @@
+ package com.ssafy.mobile.feature.conversation.di
+ 
++import com.ssafy.mobile.core.vision.RealSignRecognitionEngine
+ import com.ssafy.mobile.core.vision.SignRecognitionEngine
+ import com.ssafy.mobile.feature.conversation.data.remote.TranslateApiService
+ import com.ssafy.mobile.feature.conversation.data.repository.DefaultTranslateRepository
+@@ -24,7 +25,7 @@ abstract class ConversationModule {
+     @Binds
+     @Singleton
+     abstract fun bindSignRecognitionEngine(
+-        engine: FakeSignRecognitionEngine,
++        realEngine: RealSignRecognitionEngine,
+     ): SignRecognitionEngine
+ 
+     companion object {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+@@ -64,6 +64,10 @@ fun ConversationRoute(
+         }
+     }
+ 
++    DisposableEffect(Unit) {
++        onDispose { viewModel.stopSession() }
++    }
++
+     ConversationScreen(
+         sessionState = sessionState,
+         lastGlosses = lastGlosses,
+@@ -108,6 +112,7 @@ private fun ConversationScreen(
+                         .fillMaxWidth(),
+             ) {
+                 SignRecognitionScreen(
++                    isSessionActive = sessionState == SessionState.Active,
+                     modifier = Modifier.fillMaxSize(),
+                 )
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt
+@@ -40,11 +40,13 @@ private const val FPS_SAMPLE_INTERVAL_MILLIS = 1_000L
+ 
+ @Composable
+ fun SignRecognitionScreen(
++    isSessionActive: Boolean,
+     modifier: Modifier = Modifier,
+     onFrameAvailable: (YuvAnalysisFrame) -> Unit = {},
+ ) {
+     // 권한은 MainActivity에서 이미 허용되었으므로 즉시 카메라 프리뷰를 실행합니다.
+     CameraPreviewContent(
++        isSessionActive = isSessionActive,
+         onFrameAvailable = onFrameAvailable,
+         modifier = modifier,
+     )
+@@ -52,6 +54,7 @@ fun SignRecognitionScreen(
+ 
+ @Composable
+ private fun CameraPreviewContent(
++    isSessionActive: Boolean,
+     onFrameAvailable: (YuvAnalysisFrame) -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+@@ -67,13 +70,18 @@ private fun CameraPreviewContent(
+             }
+         }
+     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(appContext) }
+-    val analyzerExecutor = remember { Executors.newSingleThreadExecutor() }
+     val analyzedFrameCount = remember { AtomicLong(0L) }
+     var cameraErrorMessage by remember { mutableStateOf<String?>(null) }
+     var frameCount by remember { mutableStateOf(0L) }
+     var fps by remember { mutableStateOf(0.0) }
+ 
+-    LaunchedEffect(analyzedFrameCount) {
++    LaunchedEffect(analyzedFrameCount, isSessionActive) {
++        if (!isSessionActive) {
++            frameCount = 0L
++            fps = 0.0
++            return@LaunchedEffect
++        }
++
+         var previousFrameCount = analyzedFrameCount.get()
+         var previousSampleTimeMillis = SystemClock.elapsedRealtime()
+ 
+@@ -95,6 +103,40 @@ private fun CameraPreviewContent(
+         }
+     }
+ 
++    if (isSessionActive) {
++        ActiveCameraBinding(
++            lifecycleOwner = lifecycleOwner,
++            previewView = previewView,
++            cameraProviderFuture = cameraProviderFuture,
++            orientation = configuration.orientation,
++            onFrameAvailable = { frame ->
++                analyzedFrameCount.incrementAndGet()
++                currentOnFrameAvailable(frame)
++            },
++            onCameraErrorChanged = { message -> cameraErrorMessage = message },
++        )
++    }
++
++    CameraPreviewBox(
++        previewView = previewView,
++        cameraErrorMessage = cameraErrorMessage,
++        frameCount = frameCount,
++        fps = fps,
++        modifier = modifier,
++    )
++}
++
++@Composable
++private fun ActiveCameraBinding(
++    lifecycleOwner: LifecycleOwner,
++    previewView: PreviewView,
++    cameraProviderFuture: ListenableFuture<ProcessCameraProvider>,
++    orientation: Int,
++    onFrameAvailable: (YuvAnalysisFrame) -> Unit,
++    onCameraErrorChanged: (String?) -> Unit,
++) {
++    val analyzerExecutor = remember { Executors.newSingleThreadExecutor() }
++
+     DisposableEffect(analyzerExecutor) {
+         onDispose { analyzerExecutor.shutdown() }
+     }
+@@ -104,20 +146,9 @@ private fun CameraPreviewContent(
+         previewView = previewView,
+         cameraProviderFuture = cameraProviderFuture,
+         analyzerExecutor = analyzerExecutor,
+-        orientation = configuration.orientation,
+-        onFrameAvailable = { frame ->
+-            analyzedFrameCount.incrementAndGet()
+-            currentOnFrameAvailable(frame)
+-        },
+-        onCameraErrorChanged = { message -> cameraErrorMessage = message },
+-    )
+-
+-    CameraPreviewBox(
+-        previewView = previewView,
+-        cameraErrorMessage = cameraErrorMessage,
+-        frameCount = frameCount,
+-        fps = fps,
+-        modifier = modifier,
++        orientation = orientation,
++        onFrameAvailable = onFrameAvailable,
++        onCameraErrorChanged = onCameraErrorChanged,
+     )
+ }
+ 
+@@ -164,7 +195,9 @@ private fun CameraBindingEffect(
+ 
+         onDispose {
+             boundAnalysisUseCase?.clearAnalyzer()
+-            runCatching { cameraProviderFuture.get().unbindAll() }
++            if (cameraProviderFuture.isDone) {
++                runCatching { cameraProviderFuture.get().unbindAll() }
++            }
+         }
+     }
+ }
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/FakeSignInferenceAdapterTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/FakeSignInferenceAdapterTest.kt
+--- /dev/null
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/FakeSignInferenceAdapterTest.kt
+@@ -0,0 +1,59 @@
++package com.ssafy.mobile.core.vision.inference
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertThrows
++import org.junit.Test
++
++class FakeSignInferenceAdapterTest {
++    @Test
++    fun returnsDefaultFakePredictionForValidSequence() {
++        val result = FakeSignInferenceAdapter().predict(createSequence())
++
++        assertEquals(FakeSignInferenceAdapter.DEFAULT_GLOSS, result.gloss)
++        assertEquals(FakeSignInferenceAdapter.DEFAULT_CONFIDENCE, result.confidence, FLOAT_DELTA)
++    }
++
++    @Test
++    fun returnsConfiguredFakePrediction() {
++        val adapter =
++            FakeSignInferenceAdapter(
++                result =
++                    SignInferenceResult(
++                        gloss = CUSTOM_GLOSS,
++                        confidence = CUSTOM_CONFIDENCE,
++                    ),
++            )
++
++        val result = adapter.predict(createSequence())
++
++        assertEquals(CUSTOM_GLOSS, result.gloss)
++        assertEquals(CUSTOM_CONFIDENCE, result.confidence, FLOAT_DELTA)
++    }
++
++    @Test
++    fun rejectsInvalidSequenceSize() {
++        assertThrows(IllegalArgumentException::class.java) {
++            FakeSignInferenceAdapter().predict(FloatArray(1))
++        }
++    }
++
++    @Test
++    fun rejectsPredictionAfterClose() {
++        val adapter = FakeSignInferenceAdapter()
++
++        adapter.close()
++
++        assertThrows(IllegalStateException::class.java) {
++            adapter.predict(createSequence())
++        }
++    }
++
++    private fun createSequence(): FloatArray =
++        FloatArray(FakeSignInferenceAdapter.EXPECTED_SEQUENCE_INPUT_SIZE)
++
++    private companion object {
++        const val FLOAT_DELTA = 0.0001f
++        const val CUSTOM_GLOSS = "안녕"
++        const val CUSTOM_CONFIDENCE = 0.88f
++    }
++}
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngineTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngineTest.kt
+--- /dev/null
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngineTest.kt
+@@ -0,0 +1,222 @@
++﻿package com.ssafy.mobile.core.vision
++
++import com.ssafy.mobile.core.model.SignRecognitionEvent
++import com.ssafy.mobile.core.vision.feature.LandmarkFeatureEncoder
++import com.ssafy.mobile.core.vision.feature.SignFeatureSpec
++import com.ssafy.mobile.core.vision.feature.SignSequenceBuffer
++import com.ssafy.mobile.core.vision.inference.SignInferenceAdapter
++import com.ssafy.mobile.core.vision.inference.SignInferenceResult
++import com.ssafy.mobile.core.vision.landmark.HandLandmarks
++import com.ssafy.mobile.core.vision.landmark.HandSide
++import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
++import com.ssafy.mobile.core.vision.landmark.LandmarkGroup
++import com.ssafy.mobile.core.vision.landmark.LandmarkGroupType
++import com.ssafy.mobile.core.vision.landmark.LandmarkPoint
++import kotlinx.coroutines.async
++import kotlinx.coroutines.flow.filterIsInstance
++import kotlinx.coroutines.flow.first
++import kotlinx.coroutines.flow.take
++import kotlinx.coroutines.flow.toList
++import kotlinx.coroutines.runBlocking
++import kotlinx.coroutines.withTimeout
++import kotlinx.coroutines.yield
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class RealSignRecognitionEngineTest {
++    @Test
++    fun emitsStartedAndReadyWhenStarted() =
++        runBlocking {
++            val engine = createEngine()
++            val eventsDeferred =
++                async {
++                    withTimeout(TIMEOUT_MS) {
++                        engine.events.take(2).toList()
++                    }
++                }
++
++            yield()
++            engine.start()
++
++            val events = eventsDeferred.await()
++            assertEquals(SignRecognitionEvent.Started, events[0])
++            assertEquals(SignRecognitionEvent.Ready, events[1])
++        }
++
++    @Test
++    fun ignoresDuplicatedStartCalls() =
++        runBlocking {
++            val engine = createEngine()
++            val eventsDeferred =
++                async {
++                    withTimeout(TIMEOUT_MS) {
++                        engine.events.take(2).toList()
++                    }
++                }
++
++            yield()
++            engine.start()
++            engine.start()
++
++            val events = eventsDeferred.await()
++            assertEquals(listOf(SignRecognitionEvent.Started, SignRecognitionEvent.Ready), events)
++        }
++
++    @Test
++    fun emitsPredictionWhenSequenceIsReady() =
++        runBlocking {
++            val engine = createEngine()
++            val predictionDeferred =
++                async {
++                    withTimeout(TIMEOUT_MS) {
++                        engine.events.filterIsInstance<SignRecognitionEvent.Prediction>().first()
++                    }
++                }
++
++            yield()
++            engine.start()
++            engine.onLandmarkFrame(createFrame(timestampMs = 1L))
++            engine.onLandmarkFrame(createFrame(timestampMs = 2L))
++
++            val prediction = predictionDeferred.await()
++            assertEquals(TEST_GLOSS, prediction.gloss)
++            assertEquals(TEST_CONFIDENCE, prediction.confidence, FLOAT_DELTA)
++            assertEquals(2L, prediction.timestampMs)
++        }
++
++    @Test
++    fun ignoresFramesWhenStopped() =
++        runBlocking {
++            val inferenceAdapter = RecordingInferenceAdapter()
++            val engine = createEngine(inferenceAdapter = inferenceAdapter)
++
++            engine.onLandmarkFrame(createFrame(timestampMs = 1L))
++
++            assertEquals(0, inferenceAdapter.predictCallCount)
++        }
++
++    @Test
++    fun emitsStoppedAndClearsSessionState() =
++        runBlocking {
++            val inferenceAdapter = RecordingInferenceAdapter()
++            val engine = createEngine(inferenceAdapter = inferenceAdapter)
++            val stoppedDeferred =
++                async {
++                    withTimeout(TIMEOUT_MS) {
++                        engine.events.filterIsInstance<SignRecognitionEvent.Stopped>().first()
++                    }
++                }
++
++            yield()
++            engine.start()
++            engine.onLandmarkFrame(createFrame(timestampMs = 1L))
++            engine.stop()
++            engine.start()
++            engine.onLandmarkFrame(createFrame(timestampMs = 2L))
++
++            assertEquals(SignRecognitionEvent.Stopped, stoppedDeferred.await())
++            assertEquals(0, inferenceAdapter.predictCallCount)
++        }
++
++    @Test
++    fun emitsErrorWhenInferenceFails() =
++        runBlocking {
++            val engine =
++                createEngine(
++                    inferenceAdapter =
++                        RecordingInferenceAdapter(
++                            shouldThrow = true,
++                        ),
++                )
++            val errorDeferred =
++                async {
++                    withTimeout(TIMEOUT_MS) {
++                        engine.events.filterIsInstance<SignRecognitionEvent.Error>().first()
++                    }
++                }
++
++            yield()
++            engine.start()
++            engine.onLandmarkFrame(createFrame(timestampMs = 1L))
++            engine.onLandmarkFrame(createFrame(timestampMs = 2L))
++
++            val error = errorDeferred.await()
++            assertTrue(error.cause is IllegalStateException)
++        }
++
++    private fun createEngine(
++        inferenceAdapter: SignInferenceAdapter = RecordingInferenceAdapter(),
++    ): RealSignRecognitionEngine =
++        RealSignRecognitionEngine(
++            featureEncoder = LandmarkFeatureEncoder(),
++            sequenceBuffer = SignSequenceBuffer(sequenceLength = TEST_SEQUENCE_LENGTH),
++            inferenceAdapter = inferenceAdapter,
++        )
++
++    private class RecordingInferenceAdapter(
++        private val shouldThrow: Boolean = false,
++    ) : SignInferenceAdapter {
++        var predictCallCount = 0
++            private set
++
++        override fun predict(sequence: FloatArray): SignInferenceResult {
++            predictCallCount += 1
++            check(!shouldThrow) { "테스트용 추론 실패" }
++            return SignInferenceResult(
++                gloss = TEST_GLOSS,
++                confidence = TEST_CONFIDENCE,
++            )
++        }
++
++        override fun close() = Unit
++    }
++
++    private fun createFrame(timestampMs: Long): LandmarkFrameResult =
++        LandmarkFrameResult(
++            timestampMs = timestampMs,
++            pose =
++                LandmarkGroup(
++                    type = LandmarkGroupType.POSE,
++                    landmarks = createPoseLandmarks(),
++                ),
++            leftHand =
++                HandLandmarks(
++                    side = HandSide.LEFT,
++                    landmarks = createLandmarks(SignFeatureSpec.HAND_LANDMARK_COUNT),
++                ),
++            rightHand =
++                HandLandmarks(
++                    side = HandSide.RIGHT,
++                    landmarks = createLandmarks(SignFeatureSpec.HAND_LANDMARK_COUNT),
++                ),
++            lips =
++                LandmarkGroup(
++                    type = LandmarkGroupType.LIPS,
++                    landmarks = createLandmarks(SignFeatureSpec.LIPS_LANDMARK_COUNT),
++                ),
++        )
++
++    private fun createPoseLandmarks(): List<LandmarkPoint> =
++        createLandmarks(SignFeatureSpec.POSE_LANDMARK_COUNT).toMutableList().also { landmarks ->
++            landmarks[SignFeatureSpec.LEFT_SHOULDER_INDEX] = LandmarkPoint(0f, 0f, 0f)
++            landmarks[SignFeatureSpec.RIGHT_SHOULDER_INDEX] = LandmarkPoint(1f, 0f, 0f)
++        }
++
++    private fun createLandmarks(count: Int): List<LandmarkPoint> =
++        List(count) { index ->
++            LandmarkPoint(
++                x = index.toFloat() / count,
++                y = 0f,
++                z = 0f,
++            )
++        }
++
++    private companion object {
++        const val TEST_SEQUENCE_LENGTH = 2
++        const val TEST_GLOSS = "엄마"
++        const val TEST_CONFIDENCE = 0.91f
++        const val FLOAT_DELTA = 0.0001f
++        const val TIMEOUT_MS = 1_000L
++    }
++}
+
+

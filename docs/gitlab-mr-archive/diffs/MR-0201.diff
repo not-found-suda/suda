@@ -1,0 +1,552 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -86,6 +86,11 @@ fun MobileNavHost(
+                 onNavigateToSignup = {
+                     navController.navigate(Screen.Signup.route)
+                 },
++                onNavigateToConversation = {
++                    navController.navigate(Screen.GuestConversation.route) {
++                        launchSingleTop = true
++                    }
++                },
+                 modifier = Modifier.fillMaxSize(),
+             )
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/SudaMascot.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/SudaMascot.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/SudaMascot.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/SudaMascot.kt
+@@ -15,6 +15,8 @@ enum class SudaMascot(
+ ) {
+     Default(R.drawable.mascot_default),
+     Icon(R.drawable.mascot_icon),
++    IconNormal(R.drawable.mascot_icon_normal),
++    IconDifficult(R.drawable.mascot_icon_difficult),
+     WordCard(R.drawable.mascot_word_card),
+     Microphone(R.drawable.mascot_microphone),
+     Success3Star(R.drawable.mascot_success_3star),
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/appentry/AppEntryRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/appentry/AppEntryRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/appentry/AppEntryRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/appentry/AppEntryRoute.kt
+@@ -42,7 +42,7 @@ fun AppEntryRoute(
+         when (authState) {
+             is AuthState.Restoring -> Unit
+             is AuthState.RestoreFailed -> Unit
+-            is AuthState.Unauthenticated -> onNavigateToConversation()
++            is AuthState.Unauthenticated -> onNavigateToLogin()
+             is AuthState.AuthenticatedWithoutChild -> onNavigateToHome()
+             is AuthState.AuthenticatedWithChild -> onNavigateToHome()
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectViewModel.kt
+@@ -4,6 +4,7 @@ import android.util.Log
+ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
+ import com.ssafy.mobile.core.auth.AuthSessionManager
++import com.ssafy.mobile.core.auth.AuthState
+ import com.ssafy.mobile.core.session.ActiveChildStorage
+ import com.ssafy.mobile.feature.childprofile.domain.repository.ChildProfileRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
+@@ -94,6 +95,9 @@ class ChildProfileSelectViewModel
+                 try {
+                     withContext(Dispatchers.IO) {
+                         activeChildStorage.saveActiveChildId(childId)
++                        authSessionManager.updateAuthState(
++                            AuthState.AuthenticatedWithChild(childId),
++                        )
+                     }
+                     _navigationEvent.emit(ChildProfileSelectNavigationEvent.NavigateToHome)
+                 } catch (e: CancellationException) {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DataStoreTranslationModeRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DataStoreTranslationModeRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DataStoreTranslationModeRepository.kt
++++ /dev/null
+@@ -1,41 +0,0 @@
+-package com.ssafy.mobile.feature.conversation.data.repository
+-
+-import android.content.Context
+-import androidx.datastore.core.DataStore
+-import androidx.datastore.preferences.core.Preferences
+-import androidx.datastore.preferences.core.edit
+-import androidx.datastore.preferences.core.stringPreferencesKey
+-import androidx.datastore.preferences.preferencesDataStore
+-import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
+-import com.ssafy.mobile.feature.conversation.domain.repository.TranslationModeRepository
+-import dagger.hilt.android.qualifiers.ApplicationContext
+-import javax.inject.Inject
+-import kotlinx.coroutines.flow.Flow
+-import kotlinx.coroutines.flow.distinctUntilChanged
+-import kotlinx.coroutines.flow.map
+-
+-private val Context.translationModeDataStore: DataStore<Preferences> by preferencesDataStore(
+-    name = "translation_mode_prefs",
+-)
+-
+-class DataStoreTranslationModeRepository
+-    @Inject
+-    constructor(
+-        @param:ApplicationContext private val context: Context,
+-    ) : TranslationModeRepository {
+-        override val translationMode: Flow<TranslationMode> =
+-            context.translationModeDataStore.data
+-                .map { preferences ->
+-                    TranslationMode.fromStorageValue(preferences[KEY_TRANSLATION_MODE])
+-                }.distinctUntilChanged()
+-
+-        override suspend fun saveTranslationMode(mode: TranslationMode) {
+-            context.translationModeDataStore.edit { preferences ->
+-                preferences[KEY_TRANSLATION_MODE] = mode.name
+-            }
+-        }
+-
+-        private companion object {
+-            val KEY_TRANSLATION_MODE = stringPreferencesKey("translation_mode")
+-        }
+-    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+@@ -9,10 +9,8 @@ import com.ssafy.mobile.core.vision.wordspotting.NoOpWordSpottingScanner
+ import com.ssafy.mobile.core.vision.wordspotting.WordSpottingScanner
+ import com.ssafy.mobile.feature.conversation.data.remote.CommsSessionApiService
+ import com.ssafy.mobile.feature.conversation.data.remote.TranslateApiService
+-import com.ssafy.mobile.feature.conversation.data.repository.DataStoreTranslationModeRepository
+ import com.ssafy.mobile.feature.conversation.data.repository.DefaultTranslateRepository
+ import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
+-import com.ssafy.mobile.feature.conversation.domain.repository.TranslationModeRepository
+ import com.ssafy.mobile.translation.OnDeviceTranslationEngine
+ import com.ssafy.mobile.translation.QwenLiteRtTranslationEngine
+ import dagger.Binds
+@@ -33,12 +31,6 @@ abstract class ConversationModule {
+         repository: DefaultTranslateRepository,
+     ): TranslateRepository
+ 
+-    @Binds
+-    @Singleton
+-    abstract fun bindTranslationModeRepository(
+-        repository: DataStoreTranslationModeRepository,
+-    ): TranslationModeRepository
+-
+     @Binds
+     @Singleton
+     abstract fun bindSignRecognitionEngine(
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/repository/TranslationModeRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/repository/TranslationModeRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/repository/TranslationModeRepository.kt
++++ /dev/null
+@@ -1,10 +0,0 @@
+-package com.ssafy.mobile.feature.conversation.domain.repository
+-
+-import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
+-import kotlinx.coroutines.flow.Flow
+-
+-interface TranslationModeRepository {
+-    val translationMode: Flow<TranslationMode>
+-
+-    suspend fun saveTranslationMode(mode: TranslationMode)
+-}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -24,7 +24,6 @@ import com.ssafy.mobile.feature.conversation.domain.model.SenderType
+ import com.ssafy.mobile.feature.conversation.domain.model.TranslationFeedbackReason
+ import com.ssafy.mobile.feature.conversation.domain.model.TranslationMode
+ import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
+-import com.ssafy.mobile.feature.conversation.domain.repository.TranslationModeRepository
+ import com.ssafy.mobile.translation.OnDeviceTranslationEngine
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import java.io.File
+@@ -67,14 +66,13 @@ enum class SpeechInputPhase {
+     Error,
+ }
+ 
+-@Suppress("LargeClass", "LongParameterList", "TooManyFunctions")
++@Suppress("LargeClass", "LongParameterList", "TooManyFunctions", "UnusedPrivateMember")
+ @HiltViewModel
+ class ConversationViewModel
+     @Inject
+     constructor(
+         private val signRecognitionEngine: SignRecognitionEngine,
+         private val translateRepository: TranslateRepository,
+-        private val translationModeRepository: TranslationModeRepository,
+         private val audioPlayer: AudioPlayer,
+         private val ttsPlayer: TtsPlayer,
+         private val sttEngine: SttEngine,
+@@ -97,7 +95,7 @@ class ConversationViewModel
+         private val _isOnline = MutableStateFlow(true)
+         val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
+ 
+-        private val _translationMode = MutableStateFlow(TranslationMode.DEFAULT)
++        private val _translationMode = MutableStateFlow(TranslationMode.ON_DEVICE)
+         val translationMode: StateFlow<TranslationMode> = _translationMode.asStateFlow()
+ 
+         private val _translationModeNotice = MutableStateFlow<String?>(null)
+@@ -147,27 +145,6 @@ class ConversationViewModel
+         private val onDeviceSpeechStyle = LocalSignSentenceGenerator.SpeechStyle.Polite
+ 
+         init {
+-            viewModelScope.launch {
+-                translationModeRepository.translationMode.collect { mode ->
+-                    val previousMode = _translationMode.value
+-                    _translationMode.value = mode
+-                    if (mode == TranslationMode.ON_DEVICE) {
+-                        preloadOnDeviceTranslationEngine()
+-                    }
+-                    if (previousMode != mode) {
+-                        resetCloudSttFailures()
+-                        _translationModeNotice.value = null
+-                        if (
+-                            _sessionState.value == SessionState.Active &&
+-                            sessionRuntimeStarted
+-                        ) {
+-                            stopRecordingForStt()
+-                            startRecordingForStt()
+-                        }
+-                    }
+-                }
+-            }
+-
+             // 네트워크 상태 모니터링
+             viewModelScope.launch {
+                 networkMonitor.isOnline.collect { online ->
+@@ -252,42 +229,10 @@ class ConversationViewModel
+         ) {
+             translationJob?.cancel()
+             _signInputPhase.value = SignInputPhase.Translating
+-            when (_translationMode.value) {
+-                TranslationMode.AUTO ->
+-                    if (_isOnline.value) {
+-                        performCloudTranslation(
+-                            words = words,
+-                            sentenceType = sentenceType,
+-                            fallbackOnFailure = true,
+-                        )
+-                    } else {
+-                        performOnDeviceTranslation(
+-                            words = words,
+-                            sentenceType = sentenceType,
+-                            notice = NOTICE_AUTO_OFFLINE_FALLBACK,
+-                        )
+-                    }
+-
+-                TranslationMode.SERVER ->
+-                    if (_isOnline.value) {
+-                        performCloudTranslation(
+-                            words = words,
+-                            sentenceType = sentenceType,
+-                            fallbackOnFailure = false,
+-                        )
+-                    } else {
+-                        showServerOnlyUnavailableMessage(
+-                            affectsSign = true,
+-                            affectsSpeech = false,
+-                        )
+-                    }
+-
+-                TranslationMode.ON_DEVICE ->
+-                    performOnDeviceTranslation(
+-                        words = words,
+-                        sentenceType = sentenceType,
+-                    )
+-            }
++            performOnDeviceTranslation(
++                words = words,
++                sentenceType = sentenceType,
++            )
+         }
+ 
+         private fun performCloudTranslation(
+@@ -521,15 +466,7 @@ class ConversationViewModel
+             isResultsReceived = false
+             isStoppedReceived = false
+ 
+-            when {
+-                shouldUseCloudStt() -> startCloudRecordingLoop()
+-                shouldUseLocalStt() -> startLocalSttListening()
+-                else ->
+-                    showServerOnlyUnavailableMessage(
+-                        affectsSign = false,
+-                        affectsSpeech = true,
+-                    )
+-            }
++            startLocalSttListening()
+         }
+ 
+         private fun startLocalSttListening() {
+@@ -1122,11 +1059,9 @@ class ConversationViewModel
+             )
+         }
+ 
+-        fun updateTranslationMode(mode: TranslationMode) {
+-            viewModelScope.launch {
+-                translationModeRepository.saveTranslationMode(mode)
+-            }
+-        }
++        fun updateTranslationMode(
++            @Suppress("UNUSED_PARAMETER") mode: TranslationMode,
++        ) = Unit
+ 
+         fun submitTranslationFeedback(
+             message: ChatMessage,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginRoute.kt
+@@ -51,6 +51,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import com.navercorp.nid.NaverIdLoginSDK
+ import com.ssafy.mobile.R
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
++import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ import com.ssafy.mobile.core.ui.components.AuthMessageCard
+ import com.ssafy.mobile.core.ui.components.AuthMessageType
+ import com.ssafy.mobile.core.ui.components.AuthTextField
+@@ -60,6 +61,7 @@ import com.ssafy.mobile.core.ui.theme.SudaFriendlyFontFamily
+ fun LoginRoute(
+     onNavigateToHome: () -> Unit,
+     onNavigateToSignup: () -> Unit,
++    onNavigateToConversation: () -> Unit,
+     modifier: Modifier = Modifier,
+     viewModel: LoginViewModel = hiltViewModel(),
+ ) {
+@@ -109,6 +111,7 @@ fun LoginRoute(
+         onPasswordChanged = viewModel::onPasswordChanged,
+         onLoginClick = viewModel::login,
+         onSignupClick = onNavigateToSignup,
++        onConversationClick = onNavigateToConversation,
+         onNaverLoginClick = {
+             if (viewModel.isNaverConfigValid()) {
+                 NaverIdLoginSDK.authenticate(context, naverLoginLauncher)
+@@ -133,6 +136,7 @@ private fun LoginScreen(
+     onPasswordChanged: (String) -> Unit,
+     onLoginClick: () -> Unit,
+     onSignupClick: () -> Unit,
++    onConversationClick: () -> Unit,
+     onNaverLoginClick: () -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+@@ -198,6 +202,15 @@ private fun LoginScreen(
+                     onClick = onNaverLoginClick,
+                     enabled = !isLoading && isNaverLoginEnabled,
+                 )
++
++                Spacer(modifier = Modifier.height(12.dp))
++
++                AppSecondaryButton(
++                    text = "\uAC8C\uC2A4\uD2B8 \uBAA8\uB4DC",
++                    onClick = onConversationClick,
++                    enabled = !isLoading,
++                    modifier = Modifier.fillMaxWidth(),
++                )
+             }
+ 
+             Spacer(modifier = Modifier.height(24.dp))
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizActionUiState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizActionUiState.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizActionUiState.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizActionUiState.kt
+@@ -37,6 +37,7 @@ internal data class QuizActionUiState(
+     val nextButton: QuizButtonUiState,
+     val recording: QuizRecordingUiState,
+     val answerSubmitState: QuizAnswerSubmitState,
++    val isAwaitingNextQuestion: Boolean,
+ )
+ 
+ internal data class QuizButtonUiState(
+@@ -105,6 +106,7 @@ internal fun quizActionUiState(
+                 recognizedText = answer?.sttText,
+             ),
+         answerSubmitState = answerSubmitState,
++        isAwaitingNextQuestion = answerSubmitState is QuizAnswerSubmitState.TimedOut,
+     )
+ 
+ @Composable
+@@ -125,7 +127,23 @@ internal fun QuizActionCard(
+         horizontalAlignment = Alignment.CenterHorizontally,
+         verticalArrangement = Arrangement.spacedBy(14.dp),
+     ) {
+-        if (canMoveNext) {
++        if (actionState.isAwaitingNextQuestion) {
++            ChunkyButton(
++                text = "실패!",
++                onClick = {},
++                enabled = false,
++                tone = ChunkyButtonTone.Primary,
++                modifier = Modifier.fillMaxWidth(0.62f),
++            )
++            Text(
++                text = actionState.toShortGuideMessage(),
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++                fontWeight = FontWeight.Bold,
++                textAlign = TextAlign.Center,
++            )
++            AnswerSubmitStatusBadge(state = actionState.answerSubmitState)
++        } else if (canMoveNext) {
+             ChunkyButton(
+                 text = actionState.nextButton.text,
+                 onClick = onNextClick,
+@@ -299,11 +317,12 @@ private fun AnswerSubmitStatusBadge(
+ 
+ private fun QuizActionUiState.toShortGuideMessage(): String =
+     when {
++        answerSubmitState is QuizAnswerSubmitState.TimedOut -> answerSubmitState.message
++        answerSubmitState is QuizAnswerSubmitState.SaveFailed -> "실패!"
+         recording.status.isRecordingStatus() -> "다 말했으면 한 번 더 눌러요."
+         recording.status == QuizRecordingStatus.Processing -> "목소리를 확인하고 있어요."
+         answerSubmitState == QuizAnswerSubmitState.Submitting -> "답변을 저장하고 있어요."
+         answerSubmitState is QuizAnswerSubmitState.Error -> answerSubmitState.message
+-        answerSubmitState is QuizAnswerSubmitState.SaveFailed -> answerSubmitState.message
+         recording.answerAttemptCount != null -> "천천히 다시 말해볼까요?"
+         else -> "버튼을 누르고 단어를 말해요."
+     }
+@@ -314,16 +333,18 @@ private fun QuizRecordingStatus.isRecordingStatus(): Boolean =
+ 
+ private fun QuizAnswerSubmitState.toStatusMessage(): String? =
+     when (this) {
++        is QuizAnswerSubmitState.TimedOut -> message
+         QuizAnswerSubmitState.Idle -> null
+         QuizAnswerSubmitState.Submitting -> "답변을 저장하고 있어요..."
+         QuizAnswerSubmitState.Success -> "답변을 저장했어요."
+         is QuizAnswerSubmitState.CompletionPending -> message
+-        is QuizAnswerSubmitState.SaveFailed -> message
++        is QuizAnswerSubmitState.SaveFailed -> "실패!"
+         is QuizAnswerSubmitState.Error -> message
+     }
+ 
+ private fun QuizAnswerSubmitState.toBadgeTone(): AppBadgeTone =
+     when (this) {
++        is QuizAnswerSubmitState.TimedOut -> AppBadgeTone.Error
+         QuizAnswerSubmitState.Success -> AppBadgeTone.Success
+         QuizAnswerSubmitState.Submitting -> AppBadgeTone.Primary
+         QuizAnswerSubmitState.Idle -> AppBadgeTone.Neutral
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizAnswerSubmitState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizAnswerSubmitState.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizAnswerSubmitState.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizAnswerSubmitState.kt
+@@ -5,6 +5,10 @@ sealed interface QuizAnswerSubmitState {
+ 
+     data object Submitting : QuizAnswerSubmitState
+ 
++    data class TimedOut(
++        val message: String,
++    ) : QuizAnswerSubmitState
++
+     data object Success : QuizAnswerSubmitState
+ 
+     data class CompletionPending(
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+@@ -90,6 +90,15 @@ fun quizQuestionRoute(
+         recordingViewModel.consumeRecordedAudio()
+     }
+ 
++    LaunchedEffect(recordingStatus) {
++        if (
++            recordingStatus == QuizRecordingStatus.NoSpeech ||
++            recordingStatus == QuizRecordingStatus.Timeout
++        ) {
++            quizViewModel.submitFallbackIncorrectAnswer(recordingStatus)
++        }
++    }
++
+     LaunchedEffect(quizState.isFinished) {
+         if (quizState.isFinished) {
+             val sessionId = quizState.sessionId
+@@ -136,13 +145,16 @@ private fun QuizQuestionScreen(
+     modifier: Modifier = Modifier,
+ ) {
+     val imagesReady = rememberNetworkImagesPreloaded(state.preloadImageUrls)
++    val shouldKeepQuestionVisible =
++        answerSubmitState is QuizAnswerSubmitState.TimedOut ||
++            answerSubmitState is QuizAnswerSubmitState.SaveFailed
+ 
+     Surface(
+         modifier = modifier.fillMaxSize(),
+         color = MaterialTheme.colorScheme.background,
+     ) {
+         when {
+-            state.isLoading -> {
++            state.isLoading && !shouldKeepQuestionVisible -> {
+                 QuizMessageState(
+                     title = "퀴즈 그림을 저장하고 있어요",
+                     description = "5개 이미지를 모두 준비한 뒤 시작할게요.",
+@@ -160,7 +172,7 @@ private fun QuizQuestionScreen(
+                 )
+             }
+ 
+-            state.errorMessage != null -> {
++            state.errorMessage != null && !shouldKeepQuestionVisible -> {
+                 QuizMessageState(
+                     title = "퀴즈를 불러오지 못했어요",
+                     description = state.errorMessage,
+@@ -410,6 +422,7 @@ private fun QuizActionArea(
+             recordingStatus == QuizRecordingStatus.FallbackRecording
+     val isProcessing = recordingStatus == QuizRecordingStatus.Processing
+     val isSubmitting = answerSubmitState == QuizAnswerSubmitState.Submitting
++    val isTimedOut = answerSubmitState is QuizAnswerSubmitState.TimedOut
+     val isCompletionPending = answerSubmitState is QuizAnswerSubmitState.CompletionPending
+     val isSaveFailed = answerSubmitState is QuizAnswerSubmitState.SaveFailed
+     val canSkipQuestion = false
+@@ -419,6 +432,7 @@ private fun QuizActionArea(
+     val canRecordAnswer =
+         !isProcessing &&
+             !isSubmitting &&
++            !isTimedOut &&
+             !isCompletionPending &&
+             !hasSuccessfulAnswer &&
+             !retryLimitReached
+@@ -430,7 +444,8 @@ private fun QuizActionArea(
+         ) &&
+             !isRecording &&
+             !isProcessing &&
+-            !isSubmitting
++            !isSubmitting &&
++            !isTimedOut
+     val actionState =
+         quizActionUiState(
+             answer = answer,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
+
+diff --git a/mobile/app/src/main/res/drawable/mascot_icon_difficult.webp b/mobile/app/src/main/res/drawable/mascot_icon_difficult.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable/mascot_icon_difficult.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable/mascot_icon_difficult.webp differ
+
+
+diff --git a/mobile/app/src/main/res/drawable/mascot_icon_normal.webp b/mobile/app/src/main/res/drawable/mascot_icon_normal.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable/mascot_icon_normal.webp
+Binary files /dev/null and b/mobile/app/src/main/res/drawable/mascot_icon_normal.webp differ
+
+

@@ -1,0 +1,445 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/auth/AuthSessionManager.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/auth/AuthSessionManager.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/auth/AuthSessionManager.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/auth/AuthSessionManager.kt
+@@ -3,6 +3,9 @@ package com.ssafy.mobile.core.auth
+ import com.ssafy.mobile.core.session.ActiveChildStorage
+ import javax.inject.Inject
+ import javax.inject.Singleton
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
+ 
+ @Singleton
+ class AuthSessionManager
+@@ -11,24 +14,36 @@ class AuthSessionManager
+         private val tokenStorage: TokenStorage,
+         private val activeChildStorage: ActiveChildStorage,
+     ) {
++        private val _authState = MutableStateFlow<AuthState>(AuthState.Restoring)
++        val authState: StateFlow<AuthState> = _authState.asStateFlow()
++
+         suspend fun restoreSession(): AuthState {
+             val accessToken = tokenStorage.getAccessToken()
+ 
+-            if (accessToken.isNullOrEmpty()) {
+-                return AuthState.Unauthenticated
+-            }
++            val result =
++                if (accessToken.isNullOrEmpty()) {
++                    AuthState.Unauthenticated
++                } else {
++                    val childId = activeChildStorage.getActiveChildId()
+ 
+-            val childId = activeChildStorage.getActiveChildId()
++                    if (childId != null) {
++                        AuthState.AuthenticatedWithChild(childId)
++                    } else {
++                        AuthState.AuthenticatedWithoutChild
++                    }
++                }
+ 
+-            return if (childId != null) {
+-                AuthState.AuthenticatedWithChild(childId)
+-            } else {
+-                AuthState.AuthenticatedWithoutChild
+-            }
++            _authState.value = result
++            return result
+         }
+ 
+         suspend fun clearSession() {
+             tokenStorage.clearTokens()
+             activeChildStorage.clearActiveChildId()
++            _authState.value = AuthState.Unauthenticated
++        }
++
++        fun updateAuthState(state: AuthState) {
++            _authState.value = state
+         }
+     }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -51,19 +51,40 @@ fun MobileNavHost(
+                         popUpTo(Screen.AppEntry.route) { inclusive = true }
+                     }
+                 },
++                onNavigateToConversation = {
++                    navController.navigate(Screen.Conversation.route) {
++                        popUpTo(Screen.AppEntry.route) { inclusive = true }
++                    }
++                },
+             )
+         }
+ 
+         composable(Screen.Login.route) {
+             LoginRoute(
+                 onNavigateToHome = {
++                    val popTarget =
++                        if (navController.previousBackStackEntry?.destination?.route ==
++                            Screen.Conversation.route
++                        ) {
++                            Screen.Conversation.route
++                        } else {
++                            Screen.Login.route
++                        }
+                     navController.navigate(Screen.Home.route) {
+-                        popUpTo(Screen.Login.route) { inclusive = true }
++                        popUpTo(popTarget) { inclusive = true }
+                     }
+                 },
+                 onNavigateToChildSelect = {
++                    val popTarget =
++                        if (navController.previousBackStackEntry?.destination?.route ==
++                            Screen.Conversation.route
++                        ) {
++                            Screen.Conversation.route
++                        } else {
++                            Screen.Login.route
++                        }
+                     navController.navigate(Screen.ChildSelect.route) {
+-                        popUpTo(Screen.Login.route) { inclusive = true }
++                        popUpTo(popTarget) { inclusive = true }
+                     }
+                 },
+                 onNavigateToSignup = {
+@@ -193,8 +214,8 @@ fun MobileNavHost(
+ 
+         composable(Screen.MyPage.route) {
+             MyPageRoute(
+-                onNavigateToLogin = {
+-                    navController.navigate(Screen.Login.route) {
++                onLogoutSuccess = {
++                    navController.navigate(Screen.Conversation.route) {
+                         popUpTo(Screen.Home.route) { inclusive = true }
+                         launchSingleTop = true
+                     }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/network/TokenAuthenticator.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/network/TokenAuthenticator.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/network/TokenAuthenticator.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/network/TokenAuthenticator.kt
+@@ -1,5 +1,6 @@
+ package com.ssafy.mobile.core.network
+ 
++import com.ssafy.mobile.core.auth.AuthSessionManager
+ import com.ssafy.mobile.core.auth.TokenStorage
+ import java.net.HttpURLConnection
+ import javax.inject.Inject
+@@ -16,6 +17,7 @@ class TokenAuthenticator
+     @Inject
+     constructor(
+         private val tokenStorage: TokenStorage,
++        private val authSessionManager: AuthSessionManager,
+         private val refreshTokenClient: RefreshTokenClient,
+     ) : Authenticator {
+         companion object {
+@@ -73,8 +75,7 @@ class TokenAuthenticator
+ 
+                     // 2. Refresh Token 자체가 없으면 더 이상 갱신 불가 (로그아웃 처리 필요)
+                     if (refreshToken.isNullOrEmpty()) {
+-                        tokenStorage.clearTokens()
+-                        // [S14P31A404-226] EventBus나 Callback 을 통해 세션 만료 이벤트를 UI(LoginActivity 이동)에 전달
++                        authSessionManager.clearSession()
+                         return@runBlocking null
+                     }
+ 
+@@ -93,11 +94,11 @@ class TokenAuthenticator
+                             throw e
+                         } catch (e: IllegalArgumentException) {
+                             android.util.Log.e("TokenAuthenticator", "Invalid token format", e)
+-                            tokenStorage.clearTokens()
++                            authSessionManager.clearSession()
+                             return@runBlocking null
+                         } catch (e: java.security.GeneralSecurityException) {
+                             android.util.Log.e("TokenAuthenticator", "Security storage error", e)
+-                            tokenStorage.clearTokens()
++                            authSessionManager.clearSession()
+                             return@runBlocking null
+                         }
+ 
+@@ -107,8 +108,7 @@ class TokenAuthenticator
+                             .build()
+                     } else {
+                         // 실패: 토큰 파기 및 인증 만료 처리
+-                        tokenStorage.clearTokens()
+-                        // [S14P31A404-226] EventBus나 Callback 을 통해 세션 만료 이벤트를 UI에 전달
++                        authSessionManager.clearSession()
+                         null
+                     }
+                 }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/appentry/AppEntryRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/appentry/AppEntryRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/appentry/AppEntryRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/appentry/AppEntryRoute.kt
+@@ -32,6 +32,7 @@ fun AppEntryRoute(
+     onNavigateToLogin: () -> Unit,
+     onNavigateToChildSelect: () -> Unit,
+     onNavigateToHome: () -> Unit,
++    onNavigateToConversation: () -> Unit,
+     modifier: Modifier = Modifier,
+     viewModel: AppEntryViewModel = hiltViewModel(),
+ ) {
+@@ -41,7 +42,7 @@ fun AppEntryRoute(
+         when (authState) {
+             is AuthState.Restoring -> Unit
+             is AuthState.RestoreFailed -> Unit
+-            is AuthState.Unauthenticated -> onNavigateToLogin()
++            is AuthState.Unauthenticated -> onNavigateToConversation()
+             is AuthState.AuthenticatedWithoutChild -> onNavigateToChildSelect()
+             is AuthState.AuthenticatedWithChild -> onNavigateToHome()
+         }
+@@ -60,6 +61,7 @@ fun AppEntryRoute(
+                 RestoreFailedContent(
+                     onRetry = viewModel::retryRestoreSession,
+                     onNavigateToLogin = onNavigateToLogin,
++                    onNavigateToConversation = onNavigateToConversation,
+                 )
+             }
+ 
+@@ -104,6 +106,7 @@ private fun RestoringContent(modifier: Modifier = Modifier) {
+ private fun RestoreFailedContent(
+     onRetry: () -> Unit,
+     onNavigateToLogin: () -> Unit,
++    onNavigateToConversation: () -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+     Column(
+@@ -141,5 +144,11 @@ private fun RestoreFailedContent(
+             onClick = onNavigateToLogin,
+             modifier = Modifier.fillMaxWidth(),
+         )
++        Spacer(modifier = Modifier.height(12.dp))
++        AppSecondaryButton(
++            text = "로그인 없이 소통 시작하기",
++            onClick = onNavigateToConversation,
++            modifier = Modifier.fillMaxWidth(),
++        )
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+@@ -16,6 +16,7 @@ import dagger.Provides
+ import dagger.hilt.InstallIn
+ import dagger.hilt.android.qualifiers.ApplicationContext
+ import dagger.hilt.components.SingletonComponent
++import javax.inject.Named
+ import javax.inject.Singleton
+ import retrofit2.Retrofit
+ 
+@@ -43,8 +44,9 @@ abstract class ConversationModule {
+     companion object {
+         @Provides
+         @Singleton
+-        fun provideTranslateApiService(retrofit: Retrofit): TranslateApiService =
+-            retrofit.create(TranslateApiService::class.java)
++        fun provideTranslateApiService(
++            @Named("NoAuth") retrofit: Retrofit,
++        ): TranslateApiService = retrofit.create(TranslateApiService::class.java)
+ 
+         @Provides
+         @Singleton
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleBubble.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleBubble.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleBubble.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleBubble.kt
+@@ -26,6 +26,9 @@ private const val SUDA_BG_COLOR = 0xFFF0F0F0
+ private const val PENDING_ALPHA = 0.6f
+ private const val MAX_BUBBLE_WIDTH = 280
+ 
++// 후속 작업: 번역 신고/피드백 백엔드 미구현 상태라 임시 숨김 처리 (백엔드 연동 시 true로 변경)
++private const val IS_TRANSLATION_FEEDBACK_ENABLED = false
++
+ @Composable
+ fun SubtitleBubble(
+     message: ChatMessage,
+@@ -60,7 +63,10 @@ fun SubtitleBubble(
+                 )
+             }
+ 
+-            if (message.canReportTranslation() && onFeedbackClick != null) {
++            if (IS_TRANSLATION_FEEDBACK_ENABLED &&
++                message.canReportTranslation() &&
++                onFeedbackClick != null
++            ) {
+                 TextButton(onClick = { onFeedbackClick(message) }) {
+                     Text(
+                         text = "신고",
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginViewModel.kt
+@@ -5,6 +5,8 @@ import android.util.Log
+ import android.util.Patterns
+ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.core.auth.AuthSessionManager
++import com.ssafy.mobile.core.auth.AuthState
+ import com.ssafy.mobile.core.auth.TokenStorage
+ import com.ssafy.mobile.core.session.ActiveChildStorage
+ import com.ssafy.mobile.feature.learning.data.repository.LearningQuizAnswerSubmissionQueueSyncer
+@@ -32,6 +34,7 @@ class LoginViewModel
+         private val tokenStorage: TokenStorage,
+         private val activeChildStorage: ActiveChildStorage,
+         private val naverOAuthManager: NaverOAuthManager,
++        private val authSessionManager: AuthSessionManager,
+         private val learningQuizAnswerSubmissionQueueSyncer:
+             LearningQuizAnswerSubmissionQueueSyncer,
+     ) : ViewModel() {
+@@ -150,11 +153,22 @@ class LoginViewModel
+                 return
+             }
+ 
+-            val hasActiveChild =
++            val activeChildId =
+                 withContext(Dispatchers.IO) {
+-                    activeChildStorage.getActiveChildId() != null
++                    activeChildStorage.getActiveChildId()
+                 }
+ 
++            val hasActiveChild = activeChildId != null
++
++            // 인증 상태 업데이트
++            val authState =
++                if (activeChildId != null) {
++                    AuthState.AuthenticatedWithChild(activeChildId)
++                } else {
++                    AuthState.AuthenticatedWithoutChild
++                }
++            authSessionManager.updateAuthState(authState)
++
+             learningQuizAnswerSubmissionQueueSyncer.requestSync()
+             _uiState.value = LoginUiState.Success(hasActiveChild = hasActiveChild)
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt
+@@ -31,7 +31,7 @@ import com.ssafy.mobile.core.ui.components.AppDialog
+ 
+ @Composable
+ fun MyPageRoute(
+-    onNavigateToLogin: () -> Unit,
++    onLogoutSuccess: () -> Unit,
+     modifier: Modifier = Modifier,
+     viewModel: MyPageViewModel = hiltViewModel(),
+ ) {
+@@ -42,7 +42,7 @@ fun MyPageRoute(
+     LaunchedEffect(logoutState) {
+         when (logoutState) {
+             is MyPageLogoutState.Success -> {
+-                onNavigateToLogin()
++                onLogoutSuccess()
+             }
+             is MyPageLogoutState.Error -> {
+                 snackbarHostState.showSnackbar((logoutState as MyPageLogoutState.Error).message)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt b/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
+@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
++import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.Lifecycle
+ import androidx.lifecycle.LifecycleEventObserver
+ import androidx.lifecycle.compose.LocalLifecycleOwner
+@@ -35,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import androidx.navigation.NavHostController
+ import androidx.navigation.compose.currentBackStackEntryAsState
+ import androidx.navigation.compose.rememberNavController
++import com.ssafy.mobile.core.auth.AuthState
+ import com.ssafy.mobile.core.navigation.MobileNavHost
+ import com.ssafy.mobile.core.navigation.Screen
+ import com.ssafy.mobile.core.permission.PermissionGuide
+@@ -135,7 +137,11 @@ private fun PermissionGate(
+ }
+ 
+ @Composable
+-private fun MobileAppShell(modifier: Modifier = Modifier) {
++private fun MobileAppShell(
++    modifier: Modifier = Modifier,
++    viewModel: MainViewModel = hiltViewModel(),
++) {
++    val authState by viewModel.authState.collectAsStateWithLifecycle()
+     val navController = rememberNavController()
+     val navBackStackEntry by navController.currentBackStackEntryAsState()
+     val currentRoute = navBackStackEntry?.destination?.route
+@@ -147,6 +153,7 @@ private fun MobileAppShell(modifier: Modifier = Modifier) {
+                 AppBottomNavigationBar(
+                     navController = navController,
+                     currentRoute = currentRoute,
++                    authState = authState,
+                 )
+             }
+         },
+@@ -165,6 +172,7 @@ private fun MobileAppShell(modifier: Modifier = Modifier) {
+ private fun AppBottomNavigationBar(
+     navController: NavHostController,
+     currentRoute: String?,
++    authState: AuthState,
+ ) {
+     NavigationBar {
+         bottomNavigationItems.forEach { item ->
+@@ -173,11 +181,20 @@ private fun AppBottomNavigationBar(
+                 selected = selected,
+                 onClick = {
+                     if (!selected) {
+-                        navController.navigate(item.screen.route) {
+-                            launchSingleTop = true
+-                            restoreState = true
+-                            popUpTo(Screen.Home.route) {
+-                                saveState = true
++                        val isAuthRequired = item.screen != Screen.Conversation
++                        val isAuthenticated =
++                            authState is AuthState.AuthenticatedWithChild ||
++                                authState is AuthState.AuthenticatedWithoutChild
++
++                        if (isAuthRequired && !isAuthenticated) {
++                            navController.navigate(Screen.Login.route)
++                        } else {
++                            navController.navigate(item.screen.route) {
++                                launchSingleTop = true
++                                restoreState = true
++                                popUpTo(Screen.Home.route) {
++                                    saveState = true
++                                }
+                             }
+                         }
+                     }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/MainViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/MainViewModel.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/MainViewModel.kt
+@@ -0,0 +1,17 @@
++package com.ssafy.mobile
++
++import androidx.lifecycle.ViewModel
++import com.ssafy.mobile.core.auth.AuthSessionManager
++import com.ssafy.mobile.core.auth.AuthState
++import dagger.hilt.android.lifecycle.HiltViewModel
++import javax.inject.Inject
++import kotlinx.coroutines.flow.StateFlow
++
++@HiltViewModel
++class MainViewModel
++    @Inject
++    constructor(
++        private val authSessionManager: AuthSessionManager,
++    ) : ViewModel() {
++        val authState: StateFlow<AuthState> = authSessionManager.authState
++    }
+
+

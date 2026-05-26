@@ -1,0 +1,845 @@
+﻿diff --git a/ai/.gitignore b/ai/.gitignore
+--- a/ai/.gitignore
++++ b/ai/.gitignore
+@@ -4,7 +4,6 @@ data/
+ ### Models ###
+ models/
+ 
+-
+ ### Python Cache ###
+ __pycache__/
+ *.py[cod]
+@@ -12,7 +11,9 @@ __pycache__/
+ 
+ ### Virtual Environment ###
+ venv/
+-.env
++.venv/
++env/
++.env/
+ 
+ ### System Files ###
+ .DS_Store
+
+
+diff --git a/backend/.gitignore b/backend/.gitignore
+--- a/backend/.gitignore
++++ b/backend/.gitignore
+@@ -5,7 +5,18 @@ build/
+ !**/src/main/**/build/
+ !**/src/test/**/build/
+ 
+-### STS ###
++# =========================
++# Java & Spring Boot
++# =========================
++*.jar
++*.war
++*.ear
++hs_err_pid*
++*.log
++
++# =========================
++# STS
++# =========================
+ .apt_generated
+ .classpath
+ .factorypath
+@@ -17,7 +28,9 @@ bin/
+ !**/src/main/**/bin/
+ !**/src/test/**/bin/
+ 
+-### IntelliJ IDEA ###
++# =========================
++# IntelliJ IDEA
++# =========================
+ .idea
+ *.iws
+ *.iml
+@@ -26,12 +39,16 @@ out/
+ !**/src/main/**/out/
+ !**/src/test/**/out/
+ 
+-### NetBeans ###
++# =========================
++# NetBeans
++# =========================
+ /nbproject/private/
+ /nbbuild/
+ /dist/
+ /nbdist/
+ /.nb-gradle/
+ 
+-### VS Code ###
++# =========================
++# VS Code
++# =========================
+ .vscode/
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/network/TranslateRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/domain/TranslateRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/network/TranslateRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/domain/TranslateRepository.kt
+@@ -1,10 +1,16 @@
+-package com.ssafy.mobile.core.network
++package com.ssafy.mobile.core.domain
+ 
+ import com.ssafy.mobile.core.model.SignTranslateResult
+ import com.ssafy.mobile.core.model.VoiceTranslateResult
+ 
++/**
++ * 서버 통역 API와의 소통 계약을 정의하는 도메인 인터페이스.
++ * 구현체는 B 파트가 feature/conversation/data 레이어에서 작성합니다.
++ */
+ interface TranslateRepository {
++    /** 수어 단어 목록(gloss)을 서버로 전송하여 자연어 문장으로 교정받습니다. (PATOCH_004) */
+     suspend fun translateSign(glosses: List<String>): SignTranslateResult
+ 
++    /** 아이의 음성 텍스트를 서버로 전송하여 영유아 발음을 보정받습니다. (CHTOPA_002) */
+     suspend fun translateVoice(rawText: String): VoiceTranslateResult
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/network/di/NetworkModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/network/di/NetworkModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/network/di/NetworkModule.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/network/di/NetworkModule.kt
+@@ -16,9 +16,6 @@ import retrofit2.converter.gson.GsonConverterFactory
+ object NetworkModule {
+     private const val NETWORK_TIMEOUT_SEC = 30L
+ 
+-    // 백엔드 서버 URL 확정 시 변경 필요
+-    private const val BASE_URL = "http://localhost:8080/api/"
+-
+     @Provides
+     @Singleton
+     fun provideHttpLoggingInterceptor(): HttpLoggingInterceptor =
+@@ -44,7 +41,7 @@ object NetworkModule {
+     fun provideRetrofit(okHttpClient: OkHttpClient): Retrofit =
+         Retrofit
+             .Builder()
+-            .baseUrl(BASE_URL)
++            .baseUrl(com.ssafy.mobile.BuildConfig.BASE_URL)
+             .client(okHttpClient)
+             .addConverterFactory(GsonConverterFactory.create())
+             .build()
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/network/NetworkModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/network/NetworkModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/network/NetworkModule.kt
++++ /dev/null
+@@ -1,36 +0,0 @@
+-﻿package com.ssafy.mobile.core.network
+-
+-import com.ssafy.mobile.feature.sample.data.remote.SampleApiService
+-import java.util.concurrent.TimeUnit
+-import okhttp3.OkHttpClient
+-import okhttp3.logging.HttpLoggingInterceptor
+-import retrofit2.Retrofit
+-import retrofit2.converter.gson.GsonConverterFactory
+-
+-object NetworkModule {
+-    private const val BASE_URL = "https://jsonplaceholder.typicode.com/"
+-
+-    fun createSampleApiService(): SampleApiService {
+-        val loggingInterceptor =
+-            HttpLoggingInterceptor().apply {
+-                level = HttpLoggingInterceptor.Level.BASIC
+-            }
+-
+-        val okHttpClient =
+-            OkHttpClient
+-                .Builder()
+-                .connectTimeout(15, TimeUnit.SECONDS)
+-                .readTimeout(15, TimeUnit.SECONDS)
+-                .writeTimeout(15, TimeUnit.SECONDS)
+-                .addInterceptor(loggingInterceptor)
+-                .build()
+-
+-        return Retrofit
+-            .Builder()
+-            .baseUrl(BASE_URL)
+-            .client(okHttpClient)
+-            .addConverterFactory(GsonConverterFactory.create())
+-            .build()
+-            .create(SampleApiService::class.java)
+-    }
+-}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionGuide.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionGuide.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionGuide.kt
+@@ -0,0 +1,48 @@
++package com.ssafy.mobile.core.permission
++
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.core.ui.components.AppPrimaryButton
++
++/**
++ * 권한 거부 시 사용자에게 설정창 이동을 유도하는 안내 UI. (COMM_002)
++ */
++@Composable
++fun PermissionGuide(
++    title: String,
++    description: String,
++    onOpenSettings: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Column(
++        modifier = modifier.padding(24.dp),
++        horizontalAlignment = Alignment.CenterHorizontally,
++    ) {
++        Text(
++            text = title,
++            style = MaterialTheme.typography.titleMedium,
++            textAlign = TextAlign.Center,
++        )
++        Spacer(modifier = Modifier.height(8.dp))
++        Text(
++            text = description,
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            textAlign = TextAlign.Center,
++        )
++        Spacer(modifier = Modifier.height(16.dp))
++        AppPrimaryButton(
++            text = "설정에서 권한 허용하기",
++            onClick = onOpenSettings,
++        )
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionRequestState.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionRequestState.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionRequestState.kt
+@@ -0,0 +1,22 @@
++package com.ssafy.mobile.core.permission
++
++/**
++ * 권한 요청 흐름의 상태를 나타내는 클래스.
++ * B 파트가 권한 요청 분기 처리 시 ViewModel State로 사용합니다. (COMM_002)
++ */
++sealed interface PermissionRequestState {
++    /** 권한 상태를 아직 확인하지 않은 초기 상태 */
++    data object Idle : PermissionRequestState
++
++    /** 권한 요청 다이얼로그를 표시해야 하는 상태 */
++    data object ShouldRequest : PermissionRequestState
++
++    /** 모든 필요 권한이 허용된 상태 */
++    data object Granted : PermissionRequestState
++
++    /** 권한이 거부되어 설정창 이동 안내를 표시해야 하는 상태 */
++    data object Denied : PermissionRequestState
++
++    /** 권한이 영구 거부(다시 묻지 않음)되어 설정창으로만 해결 가능한 상태 */
++    data object PermanentlyDenied : PermissionRequestState
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppDialog.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppDialog.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppDialog.kt
+@@ -0,0 +1,34 @@
++package com.ssafy.mobile.core.ui.components
++
++import androidx.compose.material3.AlertDialog
++import androidx.compose.material3.Text
++import androidx.compose.material3.TextButton
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++
++@Composable
++fun AppDialog(
++    title: String,
++    message: String,
++    confirmText: String,
++    onConfirm: () -> Unit,
++    onDismiss: () -> Unit,
++    modifier: Modifier = Modifier,
++    dismissText: String? = null,
++) {
++    AlertDialog(
++        onDismissRequest = onDismiss,
++        title = { Text(text = title) },
++        text = { Text(text = message) },
++        confirmButton = {
++            TextButton(onClick = onConfirm) {
++                Text(text = confirmText)
++            }
++        },
++        dismissButton =
++            dismissText?.let {
++                { TextButton(onClick = onDismiss) { Text(text = it) } }
++            },
++        modifier = modifier,
++    )
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppLoadingIndicator.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppLoadingIndicator.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppLoadingIndicator.kt
+@@ -0,0 +1,18 @@
++package com.ssafy.mobile.core.ui.components
++
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.material3.CircularProgressIndicator
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++
++@Composable
++fun AppLoadingIndicator(modifier: Modifier = Modifier) {
++    Box(
++        modifier = modifier.fillMaxSize(),
++        contentAlignment = Alignment.Center,
++    ) {
++        CircularProgressIndicator()
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppPrimaryButton.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppPrimaryButton.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppPrimaryButton.kt
+@@ -0,0 +1,28 @@
++package com.ssafy.mobile.core.ui.components
++
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.material3.Button
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.unit.dp
++
++@Composable
++fun AppPrimaryButton(
++    text: String,
++    onClick: () -> Unit,
++    modifier: Modifier = Modifier,
++    enabled: Boolean = true,
++) {
++    Button(
++        onClick = onClick,
++        modifier =
++            modifier
++                .fillMaxWidth()
++                .height(52.dp),
++        enabled = enabled,
++    ) {
++        Text(text = text)
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppSecondaryButton.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppSecondaryButton.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppSecondaryButton.kt
+@@ -0,0 +1,28 @@
++package com.ssafy.mobile.core.ui.components
++
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.material3.OutlinedButton
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.unit.dp
++
++@Composable
++fun AppSecondaryButton(
++    text: String,
++    onClick: () -> Unit,
++    modifier: Modifier = Modifier,
++    enabled: Boolean = true,
++) {
++    OutlinedButton(
++        onClick = onClick,
++        modifier =
++            modifier
++                .fillMaxWidth()
++                .height(52.dp),
++        enabled = enabled,
++    ) {
++        Text(text = text)
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppTextField.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppTextField.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppTextField.kt
+@@ -0,0 +1,34 @@
++package com.ssafy.mobile.core.ui.components
++
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.material3.OutlinedTextField
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.unit.dp
++
++@Composable
++fun AppTextField(
++    value: String,
++    onValueChange: (String) -> Unit,
++    label: String,
++    modifier: Modifier = Modifier,
++    enabled: Boolean = true,
++    isError: Boolean = false,
++    supportingText: String? = null,
++) {
++    OutlinedTextField(
++        value = value,
++        onValueChange = onValueChange,
++        label = { Text(text = label) },
++        modifier =
++            modifier
++                .fillMaxWidth()
++                .padding(vertical = 4.dp),
++        enabled = enabled,
++        isError = isError,
++        supportingText = supportingText?.let { { Text(text = it) } },
++        singleLine = true,
++    )
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/feedback/AppEmptyState.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/feedback/AppEmptyState.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/feedback/AppEmptyState.kt
+@@ -0,0 +1,31 @@
++package com.ssafy.mobile.core.ui.feedback
++
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.style.TextAlign
++
++/**
++ * 데이터가 비어있을 때 보여주는 빈 화면 피드백 컴포넌트.
++ */
++@Composable
++fun AppEmptyState(
++    message: String,
++    modifier: Modifier = Modifier,
++) {
++    Box(
++        modifier = modifier.fillMaxSize(),
++        contentAlignment = Alignment.Center,
++    ) {
++        Text(
++            text = message,
++            style = MaterialTheme.typography.bodyLarge,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            textAlign = TextAlign.Center,
++        )
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/feedback/AppErrorText.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/feedback/AppErrorText.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/feedback/AppErrorText.kt
+@@ -0,0 +1,25 @@
++package com.ssafy.mobile.core.ui.feedback
++
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.style.TextAlign
++
++/**
++ * 에러 상태를 텍스트로만 표시하는 순수 피드백 컴포넌트.
++ * 버튼 등 인터랙션이 필요하면 상위 화면에서 별도 구성합니다.
++ */
++@Composable
++fun AppErrorText(
++    message: String,
++    modifier: Modifier = Modifier,
++) {
++    Text(
++        text = message,
++        style = MaterialTheme.typography.bodyMedium,
++        color = MaterialTheme.colorScheme.error,
++        textAlign = TextAlign.Center,
++        modifier = modifier,
++    )
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/feedback/AppOfflineBanner.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/feedback/AppOfflineBanner.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/feedback/AppOfflineBanner.kt
+@@ -0,0 +1,29 @@
++package com.ssafy.mobile.core.ui.feedback
++
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.unit.dp
++
++/**
++ * 네트워크 오프라인 상태를 화면 상단에 알리는 배너 피드백 컴포넌트. (COMM_004)
++ */
++@Composable
++fun AppOfflineBanner(modifier: Modifier = Modifier) {
++    Text(
++        text = "네트워크 연결이 불안정합니다.",
++        style = MaterialTheme.typography.labelMedium,
++        color = MaterialTheme.colorScheme.onError,
++        textAlign = TextAlign.Center,
++        modifier =
++            modifier
++                .fillMaxWidth()
++                .background(MaterialTheme.colorScheme.error)
++                .padding(vertical = 6.dp),
++    )
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionEngine.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionEngine.kt
+@@ -0,0 +1,22 @@
++package com.ssafy.mobile.core.vision
++
++import com.ssafy.mobile.core.model.SignRecognitionEvent
++import kotlinx.coroutines.flow.Flow
++
++/**
++ * A 파트(수어 인식 파이프라인)가 B 파트(UI/통신)에게 제공하는 유일한 소통 창구.
++ * A 파트의 내부 구현(CameraX, MediaPipe, TFLite)을 몰라도 B는 이 인터페이스만으로 개발 가능.
++ *
++ * 구현체: 실제 구현체는 A 파트 담당 (본 개발 시)
++ * 테스트용: FakeSignRecognitionEngine 구현 권장
++ */
++interface SignRecognitionEngine {
++    /** B 파트가 구독할 수어 인식 이벤트 스트림 */
++    val events: Flow<SignRecognitionEvent>
++
++    /** 카메라 및 AI 파이프라인 시작 */
++    fun start()
++
++    /** 카메라 및 AI 파이프라인 중지 및 리소스 해제 */
++    fun stop()
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/database/MobileDatabase.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sample/data/local/db/SampleDatabase.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/database/MobileDatabase.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sample/data/local/db/SampleDatabase.kt
+@@ -1,32 +1,34 @@
+-﻿package com.ssafy.mobile.core.database
++package com.ssafy.mobile.feature.sample.data.local.db
+ 
+ import android.content.Context
+ import androidx.room.Database
+ import androidx.room.Room
+ import androidx.room.RoomDatabase
+-import com.ssafy.mobile.feature.sample.data.local.db.SampleTodoDao
+-import com.ssafy.mobile.feature.sample.data.local.db.SampleTodoEntity
+ 
++/**
++ * Sample 피처 전용 Room 데이터베이스.
++ * 본 개발 시 실제 DB는 각 피처 모듈에 독립적으로 정의합니다.
++ */
+ @Database(
+     entities = [SampleTodoEntity::class],
+     version = 1,
+     exportSchema = true,
+ )
+-abstract class MobileDatabase : RoomDatabase() {
++abstract class SampleDatabase : RoomDatabase() {
+     abstract fun sampleTodoDao(): SampleTodoDao
+ 
+     companion object {
+-        private const val DATABASE_NAME = "mobile.db"
++        private const val DATABASE_NAME = "sample.db"
+ 
+         @Volatile
+-        private var instance: MobileDatabase? = null
++        private var instance: SampleDatabase? = null
+ 
+-        fun getInstance(context: Context): MobileDatabase =
++        fun getInstance(context: Context): SampleDatabase =
+             instance ?: synchronized(this) {
+                 instance ?: Room
+                     .databaseBuilder(
+                         context = context.applicationContext,
+-                        klass = MobileDatabase::class.java,
++                        klass = SampleDatabase::class.java,
+                         name = DATABASE_NAME,
+                     ).build()
+                     .also { instance = it }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sample/di/SampleDataModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sample/di/SampleDataModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sample/di/SampleDataModule.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sample/di/SampleDataModule.kt
+@@ -1,13 +1,21 @@
+-﻿package com.ssafy.mobile.feature.sample.di
++package com.ssafy.mobile.feature.sample.di
+ 
+ import android.content.Context
+-import com.ssafy.mobile.core.database.MobileDatabase
+-import com.ssafy.mobile.core.network.NetworkModule
++import com.ssafy.mobile.BuildConfig
++import com.ssafy.mobile.feature.sample.data.local.db.SampleDatabase
+ import com.ssafy.mobile.feature.sample.data.local.preference.SamplePreferenceDataSource
++import com.ssafy.mobile.feature.sample.data.remote.SampleApiService
+ import com.ssafy.mobile.feature.sample.data.repository.DefaultSampleRepository
+ import com.ssafy.mobile.feature.sample.domain.repository.SampleRepository
++import java.util.concurrent.TimeUnit
++import okhttp3.OkHttpClient
++import okhttp3.logging.HttpLoggingInterceptor
++import retrofit2.Retrofit
++import retrofit2.converter.gson.GsonConverterFactory
+ 
+ object SampleDataModule {
++    private const val SAMPLE_NETWORK_TIMEOUT_SEC = 15L
++
+     @Volatile
+     private var sampleRepository: SampleRepository? = null
+ 
+@@ -19,8 +27,8 @@ object SampleDataModule {
+         }
+ 
+     private fun createSampleRepository(context: Context): SampleRepository {
+-        val database = MobileDatabase.getInstance(context)
+-        val apiService = NetworkModule.createSampleApiService()
++        val database = SampleDatabase.getInstance(context)
++        val apiService = createSampleApiService()
+         val preferenceDataSource = SamplePreferenceDataSource.create(context)
+ 
+         return DefaultSampleRepository(
+@@ -29,4 +37,27 @@ object SampleDataModule {
+             preferenceDataSource = preferenceDataSource,
+         )
+     }
++
++    private fun createSampleApiService(): SampleApiService {
++        val loggingInterceptor =
++            HttpLoggingInterceptor().apply {
++                level = HttpLoggingInterceptor.Level.BASIC
++            }
++        val okHttpClient =
++            OkHttpClient
++                .Builder()
++                .connectTimeout(SAMPLE_NETWORK_TIMEOUT_SEC, TimeUnit.SECONDS)
++                .readTimeout(SAMPLE_NETWORK_TIMEOUT_SEC, TimeUnit.SECONDS)
++                .writeTimeout(SAMPLE_NETWORK_TIMEOUT_SEC, TimeUnit.SECONDS)
++                .addInterceptor(loggingInterceptor)
++                .build()
++
++        return Retrofit
++            .Builder()
++            .baseUrl(BuildConfig.BASE_URL)
++            .client(okHttpClient)
++            .addConverterFactory(GsonConverterFactory.create())
++            .build()
++            .create(SampleApiService::class.java)
++    }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sample/presentation/SampleRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sample/presentation/SampleRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sample/presentation/SampleRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sample/presentation/SampleRoute.kt
+@@ -1,5 +1,3 @@
+-@file:Suppress("ktlint:standard:function-naming")
+-
+ package com.ssafy.mobile.feature.sample.presentation
+ 
+ import androidx.compose.foundation.layout.Arrangement
+
+
+diff --git a/mobile/app/build.gradle.kts b/mobile/app/build.gradle.kts
+--- a/mobile/app/build.gradle.kts
++++ b/mobile/app/build.gradle.kts
+@@ -1,5 +1,15 @@
+ import io.gitlab.arturbosch.detekt.Detekt
+ import io.gitlab.arturbosch.detekt.DetektCreateBaselineTask
++import java.util.Properties
++
++// 모노레포 루트 .env 파일에서 환경변수 로드
++val envFile = rootDir.parentFile.resolve(".env")
++val envProps =
++    Properties().also { props ->
++        if (envFile.exists()) props.load(envFile.inputStream())
++    }
++val mobileBaseUrl: String =
++    envProps.getProperty("MOBILE_API_BASE_URL", "http://10.0.2.2:8080/api/")
+ 
+ plugins {
+     alias(libs.plugins.android.application)
+@@ -22,6 +32,7 @@ android {
+         versionName = "1.0.0"
+ 
+         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
++        buildConfigField("String", "BASE_URL", "\"$mobileBaseUrl\"")
+     }
+ 
+     buildTypes {
+@@ -39,6 +50,7 @@ android {
+     }
+     buildFeatures {
+         compose = true
++        buildConfig = true
+     }
+     lint {
+         // local.properties path escaping can fail differently by host OS.
+
+
+diff --git a/mobile/.gitignore b/mobile/.gitignore
+--- a/mobile/.gitignore
++++ b/mobile/.gitignore
+@@ -1,16 +1,33 @@
+-*.iml
++# =========================
++# Android & Kotlin
++# =========================
++*.apk
++*.ap_
++*.aab
++*.dex
++*.class
++captures/
++/captures
++.externalNativeBuild/
++.cxx/
++lint-baseline.xml
++
++# =========================
++# Gradle & IDE Cache (Mobile specific)
++# =========================
+ .gradle
++/build
+ /local.properties
++local.properties
++/gradle/gradle-daemon-jvm.properties
++
++# IntelliJ / Android Studio Specific
++*.iml
+ /.idea/caches
+ /.idea/libraries
+ /.idea/modules.xml
+ /.idea/workspace.xml
+ /.idea/navEditor.xml
+ /.idea/assetWizardSettings.xml
++
+ .DS_Store
+-/build
+-/captures
+-.externalNativeBuild
+-.cxx
+-local.properties
+-/gradle/gradle-daemon-jvm.properties
+
+
+diff --git a/mobile/gradle.properties b/mobile/gradle.properties
+--- a/mobile/gradle.properties
++++ b/mobile/gradle.properties
+@@ -15,3 +15,4 @@ org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+ kotlin.code.style=official
+ android.useAndroidX=true
+ android.nonTransitiveRClass=true
++org.gradle.configuration-cache=true
+
+
+diff --git a/.env.example b/.env.example
+--- a/.env.example
++++ b/.env.example
+@@ -22,3 +22,8 @@ REDIS_PASSWORD=redispassword
+ 
+ # App ports
+ BACKEND_PORT=8080
++
++# Mobile (Android)
++# 에뮬레이터에서 개발 PC localhost를 가리키는 주소: 10.0.2.2
++# 실기기 테스트 시 개발 PC의 실제 LAN IP로 변경 필요 (예: 192.168.x.x)
++MOBILE_API_BASE_URL=http://10.0.2.2:8080/api/
+
+
+diff --git a/.gitignore b/.gitignore
+--- a/.gitignore
++++ b/.gitignore
+@@ -9,49 +9,16 @@ keystore.properties
+ secrets.xml
+ 
+ # =========================
+-# Build & Gradle
++# Build & Gradle (Global)
+ # =========================
+ build/
+ */build/
+ .gradle/
+-!gradle/wrapper/gradle-wrapper.jar
++!**/gradle/wrapper/gradle-wrapper.jar
+ out/
+ bin/
+ target/
+ 
+-# =========================
+-# Android & Kotlin
+-# =========================
+-*.apk
+-*.ap_
+-*.aab
+-*.dex
+-*.class
+-captures/
+-.externalNativeBuild/
+-.cxx/
+-lint-baseline.xml
+-
+-# =========================
+-# Spring Boot & Java
+-# =========================
+-*.log
+-*.jar
+-*.war
+-*.ear
+-hs_err_pid*
+-
+-# =========================
+-# Python & AI (MediaPipe/TFLite)
+-# =========================
+-__pycache__/
+-*.py[cod]
+-*$py.class
+-venv/
+-.venv/
+-env/
+-.env/
+-
+ # =========================
+ # IDE & OS
+ # =========================
+
+

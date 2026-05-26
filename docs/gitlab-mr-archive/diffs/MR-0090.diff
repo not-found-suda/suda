@@ -1,0 +1,368 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizStarScorer.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizStarScorer.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizStarScorer.kt
+@@ -0,0 +1,80 @@
++package com.ssafy.mobile.feature.quiz.domain.model
++
++object QuizStarScorer {
++    fun score(
++        targetWord: String,
++        sttText: String,
++    ): Int {
++        val target = targetWord.normalizedForScoring()
++        val spoken = sttText.normalizedForScoring()
++
++        return when {
++            target.isBlank() || spoken.isBlank() -> ONE_STAR
++            spoken == target || sttText.containsTargetToken(target) -> THREE_STARS
++            target.length >= MIN_CONTAINED_TARGET_LENGTH && spoken.contains(target) -> THREE_STARS
++            target.length < MIN_PARTIAL_TARGET_LENGTH -> ONE_STAR
++            isCloseEnough(target, spoken) -> TWO_STARS
++            else -> ONE_STAR
++        }
++    }
++
++    private fun isCloseEnough(
++        target: String,
++        spoken: String,
++    ): Boolean {
++        val editDistanceLimit =
++            maxOf(
++                MIN_EDIT_DISTANCE_LIMIT,
++                target.length / EDIT_DISTANCE_DIVISOR,
++            )
++        if (target.editDistanceTo(spoken) <= editDistanceLimit) return true
++
++        val overlapCount = target.toSet().count { it in spoken.toSet() }
++        val overlapLimit = maxOf(MIN_OVERLAP_COUNT, target.length / OVERLAP_DIVISOR)
++        return overlapCount >= overlapLimit
++    }
++
++    private fun String.normalizedForScoring(): String =
++        trim()
++            .lowercase()
++            .filterNot { it.isWhitespace() || it in IGNORED_CHARACTERS }
++
++    private fun String.containsTargetToken(target: String): Boolean =
++        trim()
++            .splitToSequence(WHITESPACE_REGEX)
++            .map { it.normalizedForScoring() }
++            .any { it == target }
++
++    private fun String.editDistanceTo(other: String): Int {
++        val previous = IntArray(other.length + 1) { it }
++        val current = IntArray(other.length + 1)
++
++        for (i in indices) {
++            current[0] = i + 1
++            for (j in other.indices) {
++                val cost = if (this[i] == other[j]) 0 else 1
++                current[j + 1] =
++                    minOf(
++                        current[j] + 1,
++                        previous[j + 1] + 1,
++                        previous[j] + cost,
++                    )
++            }
++            current.copyInto(previous)
++        }
++
++        return previous[other.length]
++    }
++
++    private const val ONE_STAR = 1
++    private const val TWO_STARS = 2
++    private const val THREE_STARS = 3
++    private const val MIN_CONTAINED_TARGET_LENGTH = 2
++    private const val MIN_PARTIAL_TARGET_LENGTH = 2
++    private const val MIN_EDIT_DISTANCE_LIMIT = 1
++    private const val EDIT_DISTANCE_DIVISOR = 3
++    private const val MIN_OVERLAP_COUNT = 1
++    private const val OVERLAP_DIVISOR = 2
++    private val WHITESPACE_REGEX = Regex("\\s+")
++    private val IGNORED_CHARACTERS = setOf('.', ',', '!', '?', '~')
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+@@ -46,6 +46,7 @@ import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizQuestion
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionReducer
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizSessionState
++import com.ssafy.mobile.feature.quiz.domain.model.QuizStarScorer
+ import kotlin.math.roundToInt
+ 
+ @Composable
+@@ -355,12 +356,17 @@ private fun QuizActionArea(
+             recordingStatus == QuizRecordingStatus.FallbackRecording
+     val isProcessing = recordingStatus == QuizRecordingStatus.Processing
+     val canSkipQuestion = recordingStatus.canSkipQuestion
+-    val canMoveNext = (hasAnswered || canSkipQuestion) && !isRecording && !isProcessing
++    val hasSuccessfulAnswer = (answer?.star ?: 0) >= PASSING_STAR
++    val canMoveNext = (hasSuccessfulAnswer || canSkipQuestion) && !isRecording && !isProcessing
+ 
+     Column(
+         modifier = modifier.fillMaxWidth(),
+         verticalArrangement = Arrangement.spacedBy(12.dp),
+     ) {
++        if (answer != null) {
++            QuizStarResultCard(answer = answer)
++        }
++
+         AppPrimaryButton(
+             text =
+                 when {
+@@ -375,11 +381,12 @@ private fun QuizActionArea(
+ 
+         AppSecondaryButton(
+             text =
+-                when {
+-                    canSkipQuestion -> "이번 문제 넘어가기"
+-                    isLastQuestion -> "결과 보기"
+-                    else -> "다음 문제"
+-                },
++                nextButtonText(
++                    canSkipQuestion = canSkipQuestion,
++                    hasAnswered = hasAnswered,
++                    hasSuccessfulAnswer = hasSuccessfulAnswer,
++                    isLastQuestion = isLastQuestion,
++                ),
+             onClick = onNextClick,
+             enabled = canMoveNext,
+         )
+@@ -392,9 +399,22 @@ private fun QuizActionArea(
+     }
+ }
+ 
+-private const val MOCK_SUCCESS_STAR = 3
++private fun nextButtonText(
++    canSkipQuestion: Boolean,
++    hasAnswered: Boolean,
++    hasSuccessfulAnswer: Boolean,
++    isLastQuestion: Boolean,
++): String =
++    when {
++        canSkipQuestion -> "이번 문제 넘어가기"
++        hasAnswered && !hasSuccessfulAnswer -> "별 3개에 도전해요"
++        isLastQuestion -> "결과 보기"
++        else -> "다음 문제"
++    }
++
+ private const val PERCENT_MAX = 100
+ private const val FIRST_LETTER_COUNT = 1
++private const val PASSING_STAR = 3
+ 
+ private fun submitSttAnswer(
+     state: QuizSessionState,
+@@ -411,6 +431,10 @@ private fun submitSttAnswer(
+     return QuizSessionReducer.submitCurrentAnswer(
+         state = submitState,
+         sttText = sttText,
+-        star = MOCK_SUCCESS_STAR,
++        star =
++            QuizStarScorer.score(
++                targetWord = question.word,
++                sttText = sttText,
++            ),
+     )
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
+@@ -0,0 +1,130 @@
++@file:Suppress("MagicNumber")
++
++package com.ssafy.mobile.feature.quiz.presentation
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.Card
++import androidx.compose.material3.CardDefaults
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
++
++@Composable
++internal fun QuizStarResultCard(
++    answer: QuizAnswer,
++    modifier: Modifier = Modifier,
++) {
++    val resultText = answer.star.toStarResultText()
++    Card(
++        modifier = modifier.fillMaxWidth(),
++        shape = RoundedCornerShape(24.dp),
++        colors =
++            CardDefaults.cardColors(
++                containerColor = answer.star.starResultContainerColor(),
++            ),
++    ) {
++        Column(
++            modifier =
++                Modifier
++                    .fillMaxWidth()
++                    .padding(18.dp),
++            horizontalAlignment = Alignment.CenterHorizontally,
++            verticalArrangement = Arrangement.spacedBy(8.dp),
++        ) {
++            Text(
++                text = answer.star.toStarDisplay(),
++                style = MaterialTheme.typography.headlineMedium,
++                color = answer.star.starResultColor(),
++                fontWeight = FontWeight.Black,
++                textAlign = TextAlign.Center,
++            )
++            Text(
++                text = resultText.title,
++                style = MaterialTheme.typography.titleMedium,
++                color = MaterialTheme.colorScheme.onSurface,
++                fontWeight = FontWeight.Bold,
++                textAlign = TextAlign.Center,
++            )
++            Text(
++                text = resultText.description,
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++                textAlign = TextAlign.Center,
++            )
++            Text(
++                text = "인식 결과: ${answer.sttText}",
++                style = MaterialTheme.typography.labelLarge,
++                color = MaterialTheme.colorScheme.primary,
++                textAlign = TextAlign.Center,
++            )
++        }
++    }
++}
++
++private data class StarResultText(
++    val title: String,
++    val description: String,
++)
++
++private fun Int.toStarResultText(): StarResultText =
++    when (coerceIn(MIN_STAR, MAX_STAR)) {
++        MAX_STAR ->
++            StarResultText(
++                title = "정말 잘했어요!",
++                description = "단어를 또렷하게 말했어요. 다음 문제로 가볼까요?",
++            )
++        TWO_STARS ->
++            StarResultText(
++                title = "거의 다 왔어요!",
++                description = "조금만 더 또박또박 말하면 더 좋아요.",
++            )
++        else ->
++            StarResultText(
++                title = "다시 한 번 해봐요!",
++                description = "천천히 듣고 같은 단어를 다시 말해볼 수 있어요.",
++            )
++    }
++
++@Composable
++private fun Int.starResultContainerColor(): Color =
++    when (coerceIn(MIN_STAR, MAX_STAR)) {
++        MAX_STAR -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
++        TWO_STARS -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.72f)
++        else -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.42f)
++    }
++
++@Composable
++private fun Int.starResultColor(): Color =
++    when (coerceIn(MIN_STAR, MAX_STAR)) {
++        MAX_STAR -> MaterialTheme.colorScheme.primary
++        TWO_STARS -> MaterialTheme.colorScheme.tertiary
++        else -> MaterialTheme.colorScheme.error
++    }
++
++private fun Int.toStarDisplay(): String {
++    val filledCount = coerceIn(MIN_STAR, MAX_STAR)
++    return buildString {
++        repeat(MAX_STAR) { index ->
++            append(if (index < filledCount) FILLED_STAR else EMPTY_STAR)
++            if (index < MAX_STAR - 1) append(STAR_SEPARATOR)
++        }
++    }
++}
++
++private const val MIN_STAR = 1
++private const val TWO_STARS = 2
++private const val MAX_STAR = 3
++private const val FILLED_STAR = '★'
++private const val EMPTY_STAR = '☆'
++private const val STAR_SEPARATOR = ' '
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/feature/quiz/domain/model/QuizStarScorerTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/feature/quiz/domain/model/QuizStarScorerTest.kt
+--- /dev/null
++++ b/mobile/app/src/test/java/com/ssafy/mobile/feature/quiz/domain/model/QuizStarScorerTest.kt
+@@ -0,0 +1,54 @@
++package com.ssafy.mobile.feature.quiz.domain.model
++
++import org.junit.Assert.assertEquals
++import org.junit.Test
++
++class QuizStarScorerTest {
++    @Test
++    fun scoreReturnsThreeStarsWhenTextMatchesTargetWord() {
++        val score = QuizStarScorer.score(targetWord = "밥", sttText = "밥")
++
++        assertEquals(THREE_STARS, score)
++    }
++
++    @Test
++    fun scoreReturnsThreeStarsWhenRecognizedSentenceContainsTargetWord() {
++        val score = QuizStarScorer.score(targetWord = "밥", sttText = "밥 먹고 싶어요")
++
++        assertEquals(THREE_STARS, score)
++    }
++
++    @Test
++    fun scoreDoesNotReturnThreeStarsWhenSingleCharacterTargetIsOnlyInsideAnotherWord() {
++        val score = QuizStarScorer.score(targetWord = "물", sttText = "선물")
++
++        assertEquals(ONE_STAR, score)
++    }
++
++    @Test
++    fun scoreReturnsTwoStarsWhenTextIsSimilarToTargetWord() {
++        val score = QuizStarScorer.score(targetWord = "배부르다", sttText = "배부르")
++
++        assertEquals(TWO_STARS, score)
++    }
++
++    @Test
++    fun scoreReturnsOneStarWhenTextIsDifferentFromTargetWord() {
++        val score = QuizStarScorer.score(targetWord = "밥", sttText = "물")
++
++        assertEquals(ONE_STAR, score)
++    }
++
++    @Test
++    fun scoreReturnsOneStarWhenTextIsBlank() {
++        val score = QuizStarScorer.score(targetWord = "밥", sttText = "")
++
++        assertEquals(ONE_STAR, score)
++    }
++
++    private companion object {
++        const val ONE_STAR = 1
++        const val TWO_STARS = 2
++        const val THREE_STARS = 3
++    }
++}
+
+

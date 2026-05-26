@@ -1,0 +1,858 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaSpeechStreamingClient.java b/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaSpeechStreamingClient.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaSpeechStreamingClient.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaSpeechStreamingClient.java
+@@ -20,6 +20,8 @@ import java.util.ArrayList;
+ import java.util.List;
+ import java.util.concurrent.CountDownLatch;
+ import java.util.concurrent.TimeUnit;
++import java.util.concurrent.atomic.AtomicBoolean;
++import java.util.concurrent.atomic.AtomicInteger;
+ import java.util.concurrent.atomic.AtomicReference;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+@@ -85,6 +87,48 @@ public class ClovaSpeechStreamingClient {
+     }
+   }
+ 
++  public StreamingCall openStream(ResponseHandler responseHandler) {
++    if (!properties.hasSecretKey()) {
++      throw new IllegalStateException("CLOVA Speech secret key is not configured.");
++    }
++
++    ManagedChannel channel =
++        NettyChannelBuilder.forTarget(properties.endpoint()).useTransportSecurity().build();
++
++    NestServiceGrpc.NestServiceStub client =
++        NestServiceGrpc.newStub(
++            ClientInterceptors.intercept(
++                channel, MetadataUtils.newAttachHeadersInterceptor(authorizationMetadata())));
++
++    StreamingCall call = new StreamingCall(channel);
++
++    StreamObserver<NestResponse> responseObserver =
++        new StreamObserver<>() {
++          @Override
++          public void onNext(NestResponse response) {
++            responseHandler.onResponse(response.getContents());
++          }
++
++          @Override
++          public void onError(Throwable throwable) {
++            call.markClosed();
++            responseHandler.onError(throwable);
++            channel.shutdownNow();
++          }
++
++          @Override
++          public void onCompleted() {
++            call.markClosed();
++            responseHandler.onCompleted();
++            channel.shutdownNow();
++          }
++        };
++
++    call.bind(client.recognize(responseObserver));
++    sendConfig(call.requestObserver());
++    return call;
++  }
++
+   private Metadata authorizationMetadata() {
+     Metadata metadata = new Metadata();
+     metadata.put(AUTHORIZATION_HEADER, "Bearer " + properties.secretKey());
+@@ -170,6 +214,70 @@ public class ClovaSpeechStreamingClient {
+         .build();
+   }
+ 
++  public interface ResponseHandler {
++
++    void onResponse(String contents);
++
++    void onError(Throwable throwable);
++
++    void onCompleted();
++  }
++
++  public class StreamingCall implements AutoCloseable {
++
++    private final ManagedChannel channel;
++    private final AtomicInteger seqId = new AtomicInteger(1);
++    private final AtomicBoolean closed = new AtomicBoolean(false);
++    private StreamObserver<NestRequest> requestObserver;
++
++    private StreamingCall(ManagedChannel channel) {
++      this.channel = channel;
++    }
++
++    private void bind(StreamObserver<NestRequest> requestObserver) {
++      this.requestObserver = requestObserver;
++    }
++
++    private StreamObserver<NestRequest> requestObserver() {
++      return requestObserver;
++    }
++
++    public void sendAudio(byte[] audioBytes, boolean epFlag) {
++      if (audioBytes == null || audioBytes.length == 0 || closed.get()) {
++        return;
++      }
++
++      synchronized (this) {
++        if (!closed.get()) {
++          requestObserver.onNext(
++              audioRequest(audioBytes, audioBytes.length, seqId.getAndIncrement(), epFlag));
++        }
++      }
++    }
++
++    public void complete() {
++      synchronized (this) {
++        if (closed.compareAndSet(false, true)) {
++          requestObserver.onCompleted();
++        }
++      }
++    }
++
++    private void markClosed() {
++      closed.set(true);
++    }
++
++    @Override
++    public void close() {
++      synchronized (this) {
++        if (closed.compareAndSet(false, true)) {
++          requestObserver.onCompleted();
++        }
++      }
++      channel.shutdownNow();
++    }
++  }
++
+   private void skipFully(InputStream inputStream, long byteCount) throws IOException {
+     long remaining = byteCount;
+     while (remaining > 0) {
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/service/StreamingSttResultService.java b/backend/src/main/java/com/ssafy/backend/domain/comms/service/StreamingSttResultService.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/service/StreamingSttResultService.java
+@@ -0,0 +1,75 @@
++package com.ssafy.backend.domain.comms.service;
++
++import com.ssafy.backend.domain.comms.entity.CommunicationMessage;
++import com.ssafy.backend.domain.comms.entity.CommunicationSession;
++import com.ssafy.backend.domain.comms.entity.CommunicationSessionStatus;
++import com.ssafy.backend.domain.comms.repository.CommunicationMessageRepository;
++import com.ssafy.backend.domain.comms.repository.CommunicationSessionRepository;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.stereotype.Service;
++import org.springframework.transaction.annotation.Transactional;
++
++@Service
++public class StreamingSttResultService {
++
++  private static final Logger log = LoggerFactory.getLogger(StreamingSttResultService.class);
++  private static final String STREAMING_AUDIO_MIME_TYPE = "audio/L16;rate=16000;channels=1";
++  private static final String DEFAULT_LOCALE = "ko-KR";
++
++  private final CommunicationSessionRepository communicationSessionRepository;
++  private final CommunicationMessageRepository communicationMessageRepository;
++
++  public StreamingSttResultService(
++      CommunicationSessionRepository communicationSessionRepository,
++      CommunicationMessageRepository communicationMessageRepository) {
++    this.communicationSessionRepository = communicationSessionRepository;
++    this.communicationMessageRepository = communicationMessageRepository;
++  }
++
++  @Transactional(readOnly = true)
++  public boolean canSaveFinalResult(Long userId, Long sessionId) {
++    if (userId == null || sessionId == null) {
++      return false;
++    }
++
++    return communicationSessionRepository
++        .findByIdAndUserIdAndStatus(sessionId, userId, CommunicationSessionStatus.ACTIVE)
++        .isPresent();
++  }
++
++  @Transactional
++  public void saveFinalResult(Long userId, Long sessionId, String recognizedText, String locale) {
++    if (userId == null || sessionId == null || recognizedText == null || recognizedText.isBlank()) {
++      return;
++    }
++
++    communicationSessionRepository
++        .findByIdAndUserIdAndStatusForUpdate(sessionId, userId, CommunicationSessionStatus.ACTIVE)
++        .ifPresentOrElse(
++            session -> saveMessage(session, recognizedText, resolveLocale(locale)),
++            () ->
++                log.warn(
++                    "[Streaming STT] Active communication session not found. userId={}, sessionId={}",
++                    userId,
++                    sessionId));
++  }
++
++  private void saveMessage(CommunicationSession session, String recognizedText, String locale) {
++    int messageOrder = session.allocateNextMessageOrder();
++    CommunicationMessage message =
++        CommunicationMessage.childSpeechToParentText(
++            session,
++            recognizedText.trim(),
++            recognizedText.trim(),
++            STREAMING_AUDIO_MIME_TYPE,
++            locale,
++            messageOrder);
++
++    communicationMessageRepository.save(message);
++  }
++
++  private String resolveLocale(String locale) {
++    return locale == null || locale.isBlank() ? DEFAULT_LOCALE : locale;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/config/TranslationStreamingWebSocketConfig.java b/backend/src/main/java/com/ssafy/backend/domain/translation/config/TranslationStreamingWebSocketConfig.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/config/TranslationStreamingWebSocketConfig.java
+@@ -0,0 +1,26 @@
++package com.ssafy.backend.domain.translation.config;
++
++import com.ssafy.backend.domain.translation.websocket.TranslationStreamingSttWebSocketHandler;
++import org.springframework.context.annotation.Configuration;
++import org.springframework.web.socket.config.annotation.EnableWebSocket;
++import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
++import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
++
++@Configuration
++@EnableWebSocket
++public class TranslationStreamingWebSocketConfig implements WebSocketConfigurer {
++
++  private final TranslationStreamingSttWebSocketHandler streamingSttWebSocketHandler;
++
++  public TranslationStreamingWebSocketConfig(
++      TranslationStreamingSttWebSocketHandler streamingSttWebSocketHandler) {
++    this.streamingSttWebSocketHandler = streamingSttWebSocketHandler;
++  }
++
++  @Override
++  public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
++    registry
++        .addHandler(streamingSttWebSocketHandler, "/ws/v1/translation/speech-to-text/stream")
++        .setAllowedOriginPatterns("*");
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/config/TranslationSttMode.java b/backend/src/main/java/com/ssafy/backend/domain/translation/config/TranslationSttMode.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/config/TranslationSttMode.java
+@@ -0,0 +1,7 @@
++package com.ssafy.backend.domain.translation.config;
++
++public enum TranslationSttMode {
++  REST,
++  STREAMING,
++  AUTO
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/config/TranslationSttProperties.java b/backend/src/main/java/com/ssafy/backend/domain/translation/config/TranslationSttProperties.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/config/TranslationSttProperties.java
+@@ -0,0 +1,12 @@
++package com.ssafy.backend.domain.translation.config;
++
++import org.springframework.boot.context.properties.ConfigurationProperties;
++
++@ConfigurationProperties(prefix = "translation.stt")
++public record TranslationSttProperties(TranslationSttMode mode) {
++
++  @Override
++  public TranslationSttMode mode() {
++    return mode != null ? mode : TranslationSttMode.REST;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/controller/TranslationController.java b/backend/src/main/java/com/ssafy/backend/domain/translation/controller/TranslationController.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/translation/controller/TranslationController.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/controller/TranslationController.java
+@@ -1,14 +1,17 @@
+ package com.ssafy.backend.domain.translation.controller;
+ 
++import com.ssafy.backend.domain.translation.config.TranslationSttProperties;
+ import com.ssafy.backend.domain.translation.docs.TranslationApiDocs;
+ import com.ssafy.backend.domain.translation.dto.SignToSpeechRequestDto;
+ import com.ssafy.backend.domain.translation.dto.SignToSpeechResponseDto;
+ import com.ssafy.backend.domain.translation.dto.SpeechToTextResponseDto;
++import com.ssafy.backend.domain.translation.dto.TranslationSttConfigResponseDto;
+ import com.ssafy.backend.domain.translation.service.TranslationService;
+ import jakarta.validation.Valid;
+ import org.springframework.http.MediaType;
+ import org.springframework.http.ResponseEntity;
+ import org.springframework.security.core.Authentication;
++import org.springframework.web.bind.annotation.GetMapping;
+ import org.springframework.web.bind.annotation.PostMapping;
+ import org.springframework.web.bind.annotation.RequestBody;
+ import org.springframework.web.bind.annotation.RequestMapping;
+@@ -22,9 +25,12 @@ import org.springframework.web.multipart.MultipartFile;
+ public class TranslationController implements TranslationApiDocs {
+ 
+   private final TranslationService translationService;
++  private final TranslationSttProperties translationSttProperties;
+ 
+-  public TranslationController(TranslationService translationService) {
++  public TranslationController(
++      TranslationService translationService, TranslationSttProperties translationSttProperties) {
+     this.translationService = translationService;
++    this.translationSttProperties = translationSttProperties;
+   }
+ 
+   @PostMapping("/sign-to-speech")
+@@ -37,6 +43,11 @@ public class TranslationController implements TranslationApiDocs {
+     return ResponseEntity.ok(translationService.translateSignToSpeech(userId, requestDto));
+   }
+ 
++  @GetMapping("/stt-config")
++  public ResponseEntity<TranslationSttConfigResponseDto> getSttConfig() {
++    return ResponseEntity.ok(new TranslationSttConfigResponseDto(translationSttProperties.mode()));
++  }
++
+   @PostMapping(value = "/speech-to-text", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+   @Override
+   public ResponseEntity<SpeechToTextResponseDto> translateSpeechToText(
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/dto/TranslationSttConfigResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/translation/dto/TranslationSttConfigResponseDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/dto/TranslationSttConfigResponseDto.java
+@@ -0,0 +1,7 @@
++package com.ssafy.backend.domain.translation.dto;
++
++import com.ssafy.backend.domain.translation.config.TranslationSttMode;
++import io.swagger.v3.oas.annotations.media.Schema;
++
++public record TranslationSttConfigResponseDto(
++    @Schema(description = "translation STT 처리 모드", example = "REST") TranslationSttMode mode) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/websocket/TranslationStreamingSttWebSocketHandler.java b/backend/src/main/java/com/ssafy/backend/domain/translation/websocket/TranslationStreamingSttWebSocketHandler.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/websocket/TranslationStreamingSttWebSocketHandler.java
+@@ -0,0 +1,423 @@
++package com.ssafy.backend.domain.translation.websocket;
++
++import com.fasterxml.jackson.databind.JsonNode;
++import com.fasterxml.jackson.databind.ObjectMapper;
++import com.ssafy.backend.domain.comms.service.ClovaSpeechStreamingClient;
++import com.ssafy.backend.domain.comms.service.ClovaSpeechStreamingClient.StreamingCall;
++import com.ssafy.backend.domain.comms.service.StreamingSttResultService;
++import jakarta.annotation.PreDestroy;
++import java.io.IOException;
++import java.nio.ByteBuffer;
++import java.security.Principal;
++import java.util.LinkedHashMap;
++import java.util.Map;
++import java.util.concurrent.Executors;
++import java.util.concurrent.ScheduledExecutorService;
++import java.util.concurrent.ScheduledFuture;
++import java.util.concurrent.TimeUnit;
++import java.util.concurrent.atomic.AtomicBoolean;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.security.core.Authentication;
++import org.springframework.stereotype.Component;
++import org.springframework.web.socket.BinaryMessage;
++import org.springframework.web.socket.CloseStatus;
++import org.springframework.web.socket.TextMessage;
++import org.springframework.web.socket.WebSocketSession;
++import org.springframework.web.socket.handler.AbstractWebSocketHandler;
++
++@Component
++public class TranslationStreamingSttWebSocketHandler extends AbstractWebSocketHandler {
++
++  private static final Logger log =
++      LoggerFactory.getLogger(TranslationStreamingSttWebSocketHandler.class);
++
++  private static final String SESSION_STATE_ATTRIBUTE = "translationStreamingSttState";
++  private static final String DEFAULT_LOCALE = "ko-KR";
++  private static final long END_RESPONSE_TIMEOUT_SECONDS = 30;
++
++  private final ObjectMapper objectMapper;
++  private final ClovaSpeechStreamingClient clovaSpeechStreamingClient;
++  private final StreamingSttResultService streamingSttResultService;
++  private final ScheduledExecutorService endTimeoutExecutor =
++      Executors.newSingleThreadScheduledExecutor(
++          runnable -> {
++            Thread thread = new Thread(runnable, "translation-stt-end-timeout");
++            thread.setDaemon(true);
++            return thread;
++          });
++
++  public TranslationStreamingSttWebSocketHandler(
++      ObjectMapper objectMapper,
++      ClovaSpeechStreamingClient clovaSpeechStreamingClient,
++      StreamingSttResultService streamingSttResultService) {
++    this.objectMapper = objectMapper;
++    this.clovaSpeechStreamingClient = clovaSpeechStreamingClient;
++    this.streamingSttResultService = streamingSttResultService;
++  }
++
++  @Override
++  protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
++    JsonNode payload = objectMapper.readTree(message.getPayload());
++    String type = payload.path("type").asText("");
++
++    switch (type) {
++      case "start" -> startStreaming(session, payload);
++      case "end" -> endStreaming(session);
++      default -> sendError(session, "Unsupported streaming STT message type: " + type);
++    }
++  }
++
++  @Override
++  protected void handleBinaryMessage(WebSocketSession session, BinaryMessage message)
++      throws Exception {
++    StreamingSessionState state = getState(session);
++    if (state == null || state.streamingCall() == null) {
++      sendError(session, "Streaming STT session is not started.");
++      return;
++    }
++
++    ByteBuffer payload = message.getPayload();
++    byte[] audioBytes = new byte[payload.remaining()];
++    payload.get(audioBytes);
++    state.acceptAudio(audioBytes);
++  }
++
++  @Override
++  public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
++    StreamingSessionState state = removeState(session);
++    if (state != null) {
++      state.cancelEndTimeout();
++      state.close();
++    }
++  }
++
++  @PreDestroy
++  void shutdownEndTimeoutExecutor() {
++    endTimeoutExecutor.shutdownNow();
++  }
++
++  private void startStreaming(WebSocketSession session, JsonNode payload) throws IOException {
++    if (getState(session) != null) {
++      sendError(session, "Streaming STT session is already started.");
++      return;
++    }
++
++    Long sessionId = readLongOrNull(payload, "sessionId");
++    String locale = payload.path("locale").asText(DEFAULT_LOCALE);
++    Long userId = resolveUserId(session);
++
++    if (userId == null) {
++      sendError(session, "Authentication is required for streaming STT.");
++      return;
++    }
++
++    if (sessionId == null) {
++      sendError(session, "sessionId is required for streaming STT.");
++      return;
++    }
++
++    if (!streamingSttResultService.canSaveFinalResult(userId, sessionId)) {
++      sendError(session, "Active communication session is not found.");
++      return;
++    }
++
++    StreamingSessionState state = new StreamingSessionState(userId, sessionId, locale);
++    StreamingCall streamingCall =
++        clovaSpeechStreamingClient.openStream(
++            new ClovaSpeechStreamingClient.ResponseHandler() {
++              @Override
++              public void onResponse(String contents) {
++                handleClovaResponse(session, state, contents);
++              }
++
++              @Override
++              public void onError(Throwable throwable) {
++                handleClovaError(session, state, throwable);
++              }
++
++              @Override
++              public void onCompleted() {
++                handleClovaCompleted(session, state);
++              }
++            });
++
++    state.bind(streamingCall);
++    session.getAttributes().put(SESSION_STATE_ATTRIBUTE, state);
++    sendJson(session, Map.of("type", "started", "locale", locale));
++  }
++
++  private void endStreaming(WebSocketSession session) throws IOException {
++    StreamingSessionState state = getState(session);
++    if (state == null) {
++      sendError(session, "Streaming STT session is not started.");
++      return;
++    }
++
++    state.complete();
++    state.scheduleEndTimeout(
++        endTimeoutExecutor.schedule(
++            () -> handleEndTimeout(session, state),
++            END_RESPONSE_TIMEOUT_SECONDS,
++            TimeUnit.SECONDS));
++  }
++
++  private void handleClovaResponse(
++      WebSocketSession session, StreamingSessionState state, String contents) {
++    try {
++      JsonNode root = objectMapper.readTree(contents);
++      if (isConfigResponse(root)) {
++        sendJson(session, Map.of("type", "config", "status", "success"));
++        return;
++      }
++
++      JsonNode transcription = root.path("transcription");
++      String text = transcription.path("text").asText("");
++      if (text.isBlank()) {
++        return;
++      }
++
++      double confidence =
++          transcription.path("confidence").isNumber()
++              ? transcription.path("confidence").asDouble()
++              : Double.NaN;
++      boolean isFinal = isTranscriptionResponse(root);
++
++      if (isFinal) {
++        state.appendRecognizedText(text);
++      }
++
++      Map<String, Object> response = new LinkedHashMap<>();
++      response.put("type", isFinal ? "final" : "partial");
++      response.put("recognizedText", text);
++      response.put("correctedText", text);
++      response.put("corrected", false);
++      if (!Double.isNaN(confidence)) {
++        response.put("confidence", confidence);
++      }
++      response.put("locale", state.locale());
++
++      sendJson(session, response);
++
++    } catch (Exception e) {
++      log.warn("[Streaming STT] Failed to handle CLOVA Speech response. contents={}", contents, e);
++      handleClovaError(session, state, e);
++    }
++  }
++
++  private void handleClovaError(
++      WebSocketSession session, StreamingSessionState state, Throwable throwable) {
++    log.warn("[Streaming STT] CLOVA Speech stream failed.", throwable);
++    state.cancelEndTimeout();
++
++    if (!removeStateIfSame(session, state)) {
++      state.close();
++      return;
++    }
++
++    try {
++      sendError(session, "CLOVA Speech streaming failed.");
++    } catch (IOException e) {
++      log.warn("[Streaming STT] Failed to send error message to websocket client.", e);
++    } finally {
++      state.close();
++    }
++  }
++
++  private void handleClovaCompleted(WebSocketSession session, StreamingSessionState state) {
++    state.cancelEndTimeout();
++    if (!removeStateIfSame(session, state)) {
++      return;
++    }
++
++    if (state.markSaved()) {
++      streamingSttResultService.saveFinalResult(
++          state.userId(), state.sessionId(), state.recognizedText(), state.locale());
++    }
++
++    try {
++      sendJson(session, Map.of("type", "closed"));
++    } catch (IOException e) {
++      log.warn("[Streaming STT] Failed to send close message to websocket client.", e);
++    }
++  }
++
++  private void handleEndTimeout(WebSocketSession session, StreamingSessionState state) {
++    if (!removeStateIfSame(session, state)) {
++      return;
++    }
++
++    state.close();
++
++    try {
++      sendError(session, "CLOVA Speech streaming response timed out.");
++    } catch (IOException e) {
++      log.warn("[Streaming STT] Failed to send timeout message to websocket client.", e);
++    }
++  }
++
++  private boolean isConfigResponse(JsonNode root) {
++    return hasResponseType(root, "config");
++  }
++
++  private boolean isTranscriptionResponse(JsonNode root) {
++    return hasResponseType(root, "transcription") || root.has("transcription");
++  }
++
++  private boolean hasResponseType(JsonNode root, String expectedType) {
++    JsonNode responseTypes = root.path("responseType");
++    if (!responseTypes.isArray()) {
++      return false;
++    }
++
++    for (JsonNode responseType : responseTypes) {
++      if (expectedType.equals(responseType.asText())) {
++        return true;
++      }
++    }
++    return false;
++  }
++
++  private Long readLongOrNull(JsonNode payload, String fieldName) {
++    JsonNode value = payload.path(fieldName);
++    return value.isIntegralNumber() ? value.asLong() : null;
++  }
++
++  private Long resolveUserId(WebSocketSession session) {
++    Principal principal = session.getPrincipal();
++    if (principal instanceof Authentication authentication
++        && authentication.getPrincipal() instanceof Long userId) {
++      return userId;
++    }
++    return null;
++  }
++
++  private StreamingSessionState getState(WebSocketSession session) {
++    Object value = session.getAttributes().get(SESSION_STATE_ATTRIBUTE);
++    return value instanceof StreamingSessionState state ? state : null;
++  }
++
++  private StreamingSessionState removeState(WebSocketSession session) {
++    Object value = session.getAttributes().remove(SESSION_STATE_ATTRIBUTE);
++    return value instanceof StreamingSessionState state ? state : null;
++  }
++
++  private boolean removeStateIfSame(WebSocketSession session, StreamingSessionState expectedState) {
++    synchronized (session) {
++      if (getState(session) != expectedState) {
++        return false;
++      }
++      session.getAttributes().remove(SESSION_STATE_ATTRIBUTE);
++      return true;
++    }
++  }
++
++  private void sendError(WebSocketSession session, String message) throws IOException {
++    sendJson(session, Map.of("type", "error", "message", message));
++  }
++
++  private void sendJson(WebSocketSession session, Map<String, ?> payload) throws IOException {
++    synchronized (session) {
++      if (session.isOpen()) {
++        session.sendMessage(new TextMessage(objectMapper.writeValueAsString(payload)));
++      }
++    }
++  }
++
++  private static final class StreamingSessionState {
++    private final Long userId;
++    private final Long sessionId;
++    private final String locale;
++    private final StringBuilder recognizedText = new StringBuilder();
++    private final AtomicBoolean saved = new AtomicBoolean(false);
++    private final AtomicBoolean completed = new AtomicBoolean(false);
++    private StreamingCall streamingCall;
++    private byte[] pendingAudio;
++    private ScheduledFuture<?> endTimeout;
++
++    private StreamingSessionState(Long userId, Long sessionId, String locale) {
++      this.userId = userId;
++      this.sessionId = sessionId;
++      this.locale = locale == null || locale.isBlank() ? DEFAULT_LOCALE : locale;
++    }
++
++    private void bind(StreamingCall streamingCall) {
++      this.streamingCall = streamingCall;
++    }
++
++    private StreamingCall streamingCall() {
++      return streamingCall;
++    }
++
++    private void acceptAudio(byte[] audioBytes) {
++      if (audioBytes == null || audioBytes.length == 0 || streamingCall == null) {
++        return;
++      }
++
++      if (pendingAudio != null) {
++        streamingCall.sendAudio(pendingAudio, false);
++      }
++      pendingAudio = audioBytes;
++    }
++
++    private Long userId() {
++      return userId;
++    }
++
++    private Long sessionId() {
++      return sessionId;
++    }
++
++    private String locale() {
++      return locale;
++    }
++
++    private void appendRecognizedText(String text) {
++      if (text == null || text.isBlank()) {
++        return;
++      }
++
++      String normalizedText = text.trim();
++      if (!recognizedText.isEmpty()
++          && !Character.isWhitespace(recognizedText.charAt(recognizedText.length() - 1))
++          && !Character.isWhitespace(normalizedText.charAt(0))) {
++        recognizedText.append(' ');
++      }
++      recognizedText.append(normalizedText);
++    }
++
++    private String recognizedText() {
++      return recognizedText.toString().trim();
++    }
++
++    private boolean markSaved() {
++      return saved.compareAndSet(false, true);
++    }
++
++    private void complete() {
++      if (streamingCall != null && completed.compareAndSet(false, true)) {
++        if (pendingAudio != null) {
++          streamingCall.sendAudio(pendingAudio, true);
++          pendingAudio = null;
++        }
++        streamingCall.complete();
++      }
++    }
++
++    private void scheduleEndTimeout(ScheduledFuture<?> endTimeout) {
++      this.endTimeout = endTimeout;
++    }
++
++    private void cancelEndTimeout() {
++      if (endTimeout != null) {
++        endTimeout.cancel(false);
++      }
++    }
++
++    private void close() {
++      if (streamingCall != null) {
++        streamingCall.close();
++      }
++    }
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/config/SecurityConfig.java b/backend/src/main/java/com/ssafy/backend/global/config/SecurityConfig.java
+--- a/backend/src/main/java/com/ssafy/backend/global/config/SecurityConfig.java
++++ b/backend/src/main/java/com/ssafy/backend/global/config/SecurityConfig.java
+@@ -76,6 +76,8 @@ public class SecurityConfig {
+                     .permitAll()
+                     .requestMatchers("/api/v1/translation/**")
+                     .permitAll()
++                    .requestMatchers("/ws/v1/translation/**")
++                    .permitAll()
+                     .requestMatchers("/api/v1/sign/**")
+                     .permitAll()
+                     .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**")
+
+
+diff --git a/backend/src/main/resources/application.yml b/backend/src/main/resources/application.yml
+--- a/backend/src/main/resources/application.yml
++++ b/backend/src/main/resources/application.yml
+@@ -61,3 +61,7 @@ app:
+   asset:
+     cloud-front-domain: ${ASSET_CLOUDFRONT_DOMAIN:https://d14zyw67949hvk.cloudfront.net}
+ 
++translation:
++  stt:
++    mode: ${TRANSLATION_STT_MODE:REST}
++
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/global/config/SecurityAccessPolicyTest.java b/backend/src/test/java/com/ssafy/backend/global/config/SecurityAccessPolicyTest.java
+--- a/backend/src/test/java/com/ssafy/backend/global/config/SecurityAccessPolicyTest.java
++++ b/backend/src/test/java/com/ssafy/backend/global/config/SecurityAccessPolicyTest.java
+@@ -79,6 +79,7 @@ class SecurityAccessPolicyTest {
+   void translationApisArePublic() throws Exception {
+     mockMvc.perform(post("/api/v1/translation/sign-to-speech")).andExpect(status().isOk());
+     mockMvc.perform(post("/api/v1/translation/speech-to-text")).andExpect(status().isOk());
++    mockMvc.perform(get("/api/v1/translation/stt-config")).andExpect(status().isOk());
+   }
+ 
+   @Test
+@@ -202,6 +203,7 @@ class SecurityAccessPolicyTest {
+       "/api/v1/auth/status",
+       "/api/v1/users/me",
+       "/api/v1/children",
++      "/api/v1/translation/stt-config",
+       "/api/v1/health",
+       "/v3/api-docs",
+       "/swagger-ui/index.html",
+
+
+diff --git a/backend/build.gradle b/backend/build.gradle
+--- a/backend/build.gradle
++++ b/backend/build.gradle
+@@ -23,6 +23,7 @@ repositories {
+ dependencies {
+     implementation 'org.springframework.boot:spring-boot-starter-validation'
+     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
++    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+     implementation 'org.springframework.boot:spring-boot-starter-flyway'
+
+
+diff --git a/.env.example b/.env.example
+--- a/.env.example
++++ b/.env.example
+@@ -81,6 +81,9 @@ CLOVA_SPEECH_POC_ENABLED=false
+ CLOVA_SPEECH_POC_AUDIO_PATH=/absolute/path/to/16khz-mono-16bit-raw.pcm
+ CLOVA_SPEECH_POC_SKIP_WAV_HEADER=false
+ 
++# Translation STT mode: REST, STREAMING, AUTO
++TRANSLATION_STT_MODE=REST
++
+ # Naver OAuth
+ NAVER_CLIENT_ID=your-naver-client-id
+ NAVER_CLIENT_SECRET=your-naver-client-secret
+
+
+diff --git a/docker-compose.yml b/docker-compose.yml
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -116,6 +116,7 @@ services:
+       CLOVA_SPEECH_POC_ENABLED: ${CLOVA_SPEECH_POC_ENABLED:-false}
+       CLOVA_SPEECH_POC_AUDIO_PATH: ${CLOVA_SPEECH_POC_AUDIO_PATH:-}
+       CLOVA_SPEECH_POC_SKIP_WAV_HEADER: ${CLOVA_SPEECH_POC_SKIP_WAV_HEADER:-false}
++      TRANSLATION_STT_MODE: ${TRANSLATION_STT_MODE:-REST}
+       SIGN_AI_BASE_URL: ${BACKEND_SIGN_AI_BASE_URL:-http://ai-server:8000}
+       SIGN_AI_CONNECT_TIMEOUT: ${SIGN_AI_CONNECT_TIMEOUT:-1s}
+       SIGN_AI_READ_TIMEOUT: ${SIGN_AI_READ_TIMEOUT:-1s}
+
+

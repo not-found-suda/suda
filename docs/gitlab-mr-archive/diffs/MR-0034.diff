@@ -1,0 +1,78 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+@@ -1,5 +1,10 @@
+ package com.ssafy.mobile.feature.conversation.presentation
+ 
++import android.app.Activity
++import android.content.Context
++import android.content.ContextWrapper
++import android.util.Log
++import android.view.WindowManager
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+@@ -16,11 +21,13 @@ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Scaffold
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.DisposableEffect
+ import androidx.compose.runtime.collectAsState
+ import androidx.compose.runtime.getValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
+@@ -28,6 +35,8 @@ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
+ 
++private const val TAG = "ConversationWakelock"
++
+ @Composable
+ fun ConversationRoute(
+     modifier: Modifier = Modifier,
+@@ -35,6 +44,25 @@ fun ConversationRoute(
+ ) {
+     val sessionState by viewModel.sessionState.collectAsState()
+     val lastGlosses by viewModel.lastGlosses.collectAsState()
++    val context = LocalContext.current
++
++    // 세션 활성화 중에는 화면이 꺼지지 않도록 설정
++    DisposableEffect(sessionState) {
++        val activity = context.findActivity()
++        val window = activity?.window
++
++        if (window == null) {
++            Log.e(TAG, "Window not found. Context is ${context.javaClass.simpleName}")
++        } else if (sessionState == SessionState.Active) {
++            Log.d(TAG, "Adding FLAG_KEEP_SCREEN_ON")
++            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
++        }
++
++        onDispose {
++            Log.d(TAG, "Clearing FLAG_KEEP_SCREEN_ON")
++            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
++        }
++    }
+ 
+     ConversationScreen(
+         sessionState = sessionState,
+@@ -219,3 +247,12 @@ private fun GlossChip(gloss: String) {
+         )
+     }
+ }
++
++private fun Context.findActivity(): Activity? {
++    var currentContext = this
++    while (currentContext is ContextWrapper) {
++        if (currentContext is Activity) return currentContext
++        currentContext = (currentContext as ContextWrapper).baseContext
++    }
++    return null
++}
+
+

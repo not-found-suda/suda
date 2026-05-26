@@ -1,0 +1,408 @@
+﻿diff --git a/ai/ai-server/app/main.py b/ai/ai-server/app/main.py
+--- a/ai/ai-server/app/main.py
++++ b/ai/ai-server/app/main.py
+@@ -1,6 +1,8 @@
++import logging
++import sys
+ from contextlib import asynccontextmanager
+ 
+-from fastapi import FastAPI, HTTPException, status
++from fastapi import FastAPI, Header, HTTPException, status
+ from fastapi.responses import JSONResponse
+ 
+ from app.model_service import ModelNotLoadedError, SignModelService
+@@ -9,9 +11,26 @@ from app.schemas import (
+     SignInferenceResponse,
+ )
+ 
++logger = logging.getLogger("sign_ai")
+ sign_model_service = SignModelService()
+ 
+ 
++def configure_sign_ai_logger() -> None:
++    logger.setLevel(logging.INFO)
++    logger.propagate = False
++    if logger.handlers:
++        return
++
++    handler = logging.StreamHandler(sys.stdout)
++    handler.setFormatter(
++        logging.Formatter("%(levelname)s:%(name)s:%(message)s")
++    )
++    logger.addHandler(handler)
++
++
++configure_sign_ai_logger()
++
++
+ @asynccontextmanager
+ async def lifespan(app: FastAPI):
+     sign_model_service.load()
+@@ -24,16 +43,56 @@ app = FastAPI(title="Sign AI Server", version="0.2.0", lifespan=lifespan)
+ @app.get("/health")
+ def health() -> JSONResponse:
+     health_status = sign_model_service.health()
+-    http_status = status.HTTP_200_OK if sign_model_service.is_loaded else status.HTTP_503_SERVICE_UNAVAILABLE
++    http_status = (
++        status.HTTP_200_OK
++        if sign_model_service.is_loaded
++        else status.HTTP_503_SERVICE_UNAVAILABLE
++    )
+     return JSONResponse(status_code=http_status, content=health_status)
+ 
+ 
+ @app.post("/internal/sign/predict", response_model=SignInferenceResponse)
+-def predict(request: SignInferenceRequest) -> SignInferenceResponse:
++def predict(
++    request: SignInferenceRequest,
++    x_trace_id: str | None = Header(default=None, alias="X-Trace-Id"),
++) -> SignInferenceResponse:
++    trace_id = normalize_trace_id(x_trace_id)
+     try:
+-        return sign_model_service.predict(request)
++        logger.info(
++            "[SignInference] request start. traceId=%s, sequenceLength=%s, "
++            "featureDimension=%s, topK=%s, requestedModelVersion=%s",
++            trace_id,
++            request.sequence_length,
++            request.feature_dimension,
++            request.top_k,
++            request.model_version,
++        )
++        response = sign_model_service.predict(request, trace_id=trace_id)
++        logger.info(
++            "[SignInference] request success. traceId=%s, modelVersion=%s, "
++            "inferenceMs=%s, accepted=%s, gloss=%s, confidence=%s, rejectionReason=%s",
++            trace_id,
++            response.model_version,
++            response.inference_ms,
++            response.accepted,
++            response.gloss,
++            response.confidence,
++            response.rejection_reason,
++        )
++        return response
+     except ModelNotLoadedError as exc:
++        logger.warning(
++            "[SignInference] model not loaded. traceId=%s, message=%s",
++            trace_id,
++            str(exc),
++        )
+         raise HTTPException(
+             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+             detail=str(exc),
+         ) from exc
++
++
++def normalize_trace_id(trace_id: str | None) -> str:
++    if trace_id is None or not trace_id.strip():
++        return "-"
++    return trace_id
+
+
+diff --git a/ai/ai-server/app/model_service.py b/ai/ai-server/app/model_service.py
+--- a/ai/ai-server/app/model_service.py
++++ b/ai/ai-server/app/model_service.py
+@@ -70,7 +70,11 @@ class SignModelService:
+             "error": self.load_error,
+         }
+ 
+-    def predict(self, request: SignInferenceRequest) -> SignInferenceResponse:
++    def predict(
++        self,
++        request: SignInferenceRequest,
++        trace_id: str | None = None,
++    ) -> SignInferenceResponse:
+         if not self.is_loaded or self.torch is None or self.device is None:
+             raise ModelNotLoadedError(self.load_error or "sign model is not loaded")
+ 
+@@ -123,6 +127,7 @@ class SignModelService:
+             top_candidates=top_candidates,
+             model_version=self.model_version,
+             inference_ms=inference_ms,
++            trace_id=trace_id,
+         )
+ 
+     def _load(self) -> None:
+
+
+diff --git a/ai/ai-server/app/schemas.py b/ai/ai-server/app/schemas.py
+--- a/ai/ai-server/app/schemas.py
++++ b/ai/ai-server/app/schemas.py
+@@ -89,3 +89,4 @@ class SignInferenceResponse(CamelModel):
+     top_candidates: list[SignInferenceCandidate] = Field(default_factory=list)
+     model_version: str | None = None
+     inference_ms: int | None = None
++    trace_id: str | None = None
+
+
+diff --git a/ai/ai-server/README.md b/ai/ai-server/README.md
+--- a/ai/ai-server/README.md
++++ b/ai/ai-server/README.md
+@@ -95,3 +95,7 @@ BACKEND_SIGN_AI_BASE_URL=http://<gpu-private-ip>:8000
+ 
+ 추론 endpoint는 flatten된 `30 * 332` feature sequence를 입력으로 받고, top candidates,
+ confidence, margin, accepted/rejectionReason 정보를 반환합니다.
++
++Spring에서 전달한 `X-Trace-Id`는 FastAPI 로그와 추론 응답의 `traceId`에 함께 남깁니다.
++운영 로그에는 feature 원문을 남기지 않고 sequenceLength, featureDimension, topK,
++modelVersion, inferenceMs, accepted, gloss, confidence 같은 요약 정보만 기록합니다.
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/sign/dto/SignInferenceResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/sign/dto/SignInferenceResponseDto.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/sign/dto/SignInferenceResponseDto.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/sign/dto/SignInferenceResponseDto.java
+@@ -13,4 +13,5 @@ public record SignInferenceResponseDto(
+     @Schema(description = "거절 사유", example = "low_confidence") String rejectionReason,
+     @Schema(description = "상위 후보 목록") List<SignInferenceCandidateDto> topCandidates,
+     @Schema(description = "서버 모델 버전", example = "v6-tcn") String modelVersion,
+-    @Schema(description = "AI 서버 추론 시간(ms)", example = "18") Long inferenceMs) {}
++    @Schema(description = "AI 서버 추론 시간(ms)", example = "18") Long inferenceMs,
++    @Schema(description = "요청 추적 ID", example = "9f8d7c6b5a4e3210") String traceId) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/sign/service/SignAiClient.java b/backend/src/main/java/com/ssafy/backend/domain/sign/service/SignAiClient.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/sign/service/SignAiClient.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/sign/service/SignAiClient.java
+@@ -5,11 +5,14 @@ import com.ssafy.backend.domain.sign.dto.SignInferenceRequestDto;
+ import com.ssafy.backend.domain.sign.dto.SignInferenceResponseDto;
+ import com.ssafy.backend.domain.sign.exception.SignInferenceErrorCode;
+ import com.ssafy.backend.global.exception.BusinessException;
++import com.ssafy.backend.global.logging.TraceIdFilter;
+ import java.net.SocketTimeoutException;
+ import java.net.URI;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
++import org.slf4j.MDC;
+ import org.springframework.beans.factory.annotation.Qualifier;
++import org.springframework.http.HttpHeaders;
+ import org.springframework.http.HttpStatusCode;
+ import org.springframework.stereotype.Component;
+ import org.springframework.web.client.ResourceAccessException;
+@@ -36,27 +39,55 @@ public class SignAiClient {
+ 
+   public SignInferenceResponseDto predict(SignInferenceRequestDto requestDto) {
+     URI uri = UriComponentsBuilder.fromUri(properties.baseUrl()).path(PREDICT_PATH).build().toUri();
++    String traceId = getTraceId();
++    long startedAtNanos = System.nanoTime();
+ 
+     try {
++      log.info(
++          "[SignInference] AI request start. traceId={}, uri={}, sequenceLength={}, featureDimension={}, topK={}, modelVersion={}",
++          traceId,
++          uri,
++          requestDto.sequenceLength(),
++          requestDto.featureDimension(),
++          requestDto.topK(),
++          requestDto.modelVersion());
+       SignInferenceResponseDto response =
+           restClient
+               .post()
+               .uri(uri)
++              .headers(headers -> addTraceIdHeader(headers, traceId))
+               .body(requestDto)
+               .retrieve()
+               .body(SignInferenceResponseDto.class);
+       if (response == null) {
+-        log.warn("Sign AI server returned empty response. uri={}", uri);
++        log.warn(
++            "[SignInference] AI empty response. traceId={}, uri={}, elapsedMs={}",
++            traceId,
++            uri,
++            elapsedMs(startedAtNanos));
+         throw new BusinessException(SignInferenceErrorCode.AI_SERVER_INVALID_RESPONSE);
+       }
++      log.info(
++          "[SignInference] AI request success. traceId={}, uri={}, elapsedMs={}, modelVersion={}, inferenceMs={}, accepted={}, gloss={}, confidence={}, rejectionReason={}",
++          traceId,
++          uri,
++          elapsedMs(startedAtNanos),
++          response.modelVersion(),
++          response.inferenceMs(),
++          response.accepted(),
++          response.gloss(),
++          response.confidence(),
++          response.rejectionReason());
+       return response;
+     } catch (BusinessException exception) {
+       throw exception;
+     } catch (RestClientResponseException exception) {
+       SignInferenceErrorCode errorCode = resolveResponseErrorCode(exception.getStatusCode());
+       log.warn(
+-          "Sign AI server returned error. uri={}, status={}, code={}, responseBody={}",
++          "[SignInference] AI error response. traceId={}, uri={}, elapsedMs={}, status={}, code={}, responseBody={}",
++          traceId,
+           uri,
++          elapsedMs(startedAtNanos),
+           exception.getStatusCode(),
+           errorCode.getCode(),
+           abbreviate(exception.getResponseBodyAsString(), MAX_ERROR_BODY_LOG_LENGTH));
+@@ -67,22 +98,41 @@ public class SignAiClient {
+               ? SignInferenceErrorCode.AI_SERVER_TIMEOUT
+               : SignInferenceErrorCode.AI_SERVER_UNAVAILABLE;
+       log.warn(
+-          "Sign AI server access failed. uri={}, code={}, exceptionClass={}, message={}",
++          "[SignInference] AI access failed. traceId={}, uri={}, elapsedMs={}, code={}, exceptionClass={}, message={}",
++          traceId,
+           uri,
++          elapsedMs(startedAtNanos),
+           errorCode.getCode(),
+           exception.getClass().getName(),
+           exception.getMessage());
+       throw new BusinessException(errorCode);
+     } catch (RestClientException exception) {
+       log.warn(
+-          "Sign AI server response handling failed. uri={}, exceptionClass={}, message={}",
++          "[SignInference] AI response handling failed. traceId={}, uri={}, elapsedMs={}, exceptionClass={}, message={}",
++          traceId,
+           uri,
++          elapsedMs(startedAtNanos),
+           exception.getClass().getName(),
+           exception.getMessage());
+       throw new BusinessException(SignInferenceErrorCode.AI_SERVER_INVALID_RESPONSE);
+     }
+   }
+ 
++  private void addTraceIdHeader(HttpHeaders headers, String traceId) {
++    if (traceId != null && !traceId.isBlank() && !"-".equals(traceId)) {
++      headers.set(TraceIdFilter.TRACE_ID_HEADER, traceId);
++    }
++  }
++
++  private String getTraceId() {
++    String traceId = MDC.get(TraceIdFilter.TRACE_ID_KEY);
++    return traceId != null && !traceId.isBlank() ? traceId : "-";
++  }
++
++  private long elapsedMs(long startedAtNanos) {
++    return (System.nanoTime() - startedAtNanos) / 1_000_000;
++  }
++
+   private SignInferenceErrorCode resolveResponseErrorCode(HttpStatusCode statusCode) {
+     if (statusCode.value() == 504) {
+       return SignInferenceErrorCode.AI_SERVER_TIMEOUT;
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/sign/controller/SignInferenceControllerTest.java b/backend/src/test/java/com/ssafy/backend/domain/sign/controller/SignInferenceControllerTest.java
+--- a/backend/src/test/java/com/ssafy/backend/domain/sign/controller/SignInferenceControllerTest.java
++++ b/backend/src/test/java/com/ssafy/backend/domain/sign/controller/SignInferenceControllerTest.java
+@@ -56,7 +56,8 @@ class SignInferenceControllerTest {
+         .andExpect(status().isOk())
+         .andExpect(jsonPath("$.gloss").value("병원"))
+         .andExpect(jsonPath("$.accepted").value(true))
+-        .andExpect(jsonPath("$.modelVersion").value("v6_24words_tcn"));
++        .andExpect(jsonPath("$.modelVersion").value("v6_24words_tcn"))
++        .andExpect(jsonPath("$.traceId").value("trace-1"));
+   }
+ 
+   @Test
+@@ -97,6 +98,6 @@ class SignInferenceControllerTest {
+ 
+   private SignInferenceResponseDto response() {
+     return new SignInferenceResponseDto(
+-        "병원", 0.92f, 0.2f, 19, "병원", true, null, List.of(), "v6_24words_tcn", 18L);
++        "병원", 0.92f, 0.2f, 19, "병원", true, null, List.of(), "v6_24words_tcn", 18L, "trace-1");
+   }
+ }
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/sign/service/SignAiClientTest.java b/backend/src/test/java/com/ssafy/backend/domain/sign/service/SignAiClientTest.java
+--- a/backend/src/test/java/com/ssafy/backend/domain/sign/service/SignAiClientTest.java
++++ b/backend/src/test/java/com/ssafy/backend/domain/sign/service/SignAiClientTest.java
+@@ -3,6 +3,7 @@ package com.ssafy.backend.domain.sign.service;
+ import static org.assertj.core.api.Assertions.assertThat;
+ import static org.assertj.core.api.Assertions.assertThatThrownBy;
+ import static org.springframework.test.web.client.ExpectedCount.once;
++import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+ import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+ import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+ import static org.springframework.test.web.client.response.MockRestResponseCreators.withNoContent;
+@@ -15,6 +16,7 @@ import com.ssafy.backend.domain.sign.dto.SignInferenceRequestDto;
+ import com.ssafy.backend.domain.sign.dto.SignInferenceResponseDto;
+ import com.ssafy.backend.domain.sign.exception.SignInferenceErrorCode;
+ import com.ssafy.backend.global.exception.BusinessException;
++import com.ssafy.backend.global.logging.TraceIdFilter;
+ import java.net.SocketTimeoutException;
+ import java.net.URI;
+ import java.time.Duration;
+@@ -22,6 +24,7 @@ import java.util.Collections;
+ import org.junit.jupiter.api.BeforeEach;
+ import org.junit.jupiter.api.DisplayName;
+ import org.junit.jupiter.api.Test;
++import org.slf4j.MDC;
+ import org.springframework.http.HttpMethod;
+ import org.springframework.http.HttpStatus;
+ import org.springframework.http.MediaType;
+@@ -66,7 +69,8 @@ class SignAiClientTest {
+                   "rejectionReason": null,
+                   "topCandidates": [],
+                   "modelVersion": "v6_24words_tcn",
+-                  "inferenceMs": 18
++                  "inferenceMs": 18,
++                  "traceId": "trace-1"
+                 }
+                 """,
+                 MediaType.APPLICATION_JSON));
+@@ -76,9 +80,47 @@ class SignAiClientTest {
+     assertThat(response.gloss()).isEqualTo("병원");
+     assertThat(response.accepted()).isTrue();
+     assertThat(response.modelVersion()).isEqualTo("v6_24words_tcn");
++    assertThat(response.traceId()).isEqualTo("trace-1");
+     server.verify();
+   }
+ 
++  @Test
++  @DisplayName("traceId가 있으면 AI 서버 요청 헤더로 전달한다")
++  void predictForwardsTraceIdHeader() {
++    String traceId = "trace-123";
++    MDC.put(TraceIdFilter.TRACE_ID_KEY, traceId);
++    try {
++      server
++          .expect(once(), requestTo(PREDICT_URL))
++          .andExpect(header(TraceIdFilter.TRACE_ID_HEADER, traceId))
++          .andRespond(
++              withSuccess(
++                  """
++                  {
++                    "gloss": "병원",
++                    "confidence": 0.92,
++                    "margin": 0.2,
++                    "classIndex": 19,
++                    "rawGloss": "병원",
++                    "accepted": true,
++                    "rejectionReason": null,
++                    "topCandidates": [],
++                    "modelVersion": "v6_24words_tcn",
++                    "inferenceMs": 18,
++                    "traceId": "trace-123"
++                  }
++                  """,
++                  MediaType.APPLICATION_JSON));
++
++      SignInferenceResponseDto response = signAiClient.predict(request());
++
++      assertThat(response.traceId()).isEqualTo(traceId);
++      server.verify();
++    } finally {
++      MDC.remove(TraceIdFilter.TRACE_ID_KEY);
++    }
++  }
++
+   @Test
+   @DisplayName("AI 서버 503 응답은 AI 서버 사용 불가 오류로 변환한다")
+   void predictMapsAiServerUnavailable() {
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/sign/service/SignInferenceServiceTest.java b/backend/src/test/java/com/ssafy/backend/domain/sign/service/SignInferenceServiceTest.java
+--- a/backend/src/test/java/com/ssafy/backend/domain/sign/service/SignInferenceServiceTest.java
++++ b/backend/src/test/java/com/ssafy/backend/domain/sign/service/SignInferenceServiceTest.java
+@@ -102,6 +102,6 @@ class SignInferenceServiceTest {
+ 
+   private SignInferenceResponseDto response() {
+     return new SignInferenceResponseDto(
+-        "병원", 0.92f, 0.2f, 19, "병원", true, null, List.of(), "v6_24words_tcn", 18L);
++        "병원", 0.92f, 0.2f, 19, "병원", true, null, List.of(), "v6_24words_tcn", 18L, "trace-1");
+   }
+ }
+
+

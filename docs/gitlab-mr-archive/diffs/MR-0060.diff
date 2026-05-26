@@ -1,0 +1,390 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
+ import androidx.navigation.NavHostController
+ import androidx.navigation.compose.NavHost
+ import androidx.navigation.compose.composable
++import com.ssafy.mobile.BuildConfig
+ import com.ssafy.mobile.feature.conversation.presentation.conversationRoute
+ import com.ssafy.mobile.feature.sign.presentation.SignDebugRoute
+ 
+@@ -21,21 +22,28 @@ fun MobileNavHost(
+         modifier = modifier,
+     ) {
+         composable(Screen.Conversation.route) {
++            val onOpenSignDebug: (() -> Unit)? =
++                if (BuildConfig.DEBUG) {
++                    { navController.navigate(Screen.Sign.route) }
++                } else {
++                    null
++                }
++
+             conversationRoute(
+-                onOpenSignDebug = {
+-                    navController.navigate(Screen.Sign.route)
+-                },
++                onOpenSignDebug = onOpenSignDebug,
+                 modifier = Modifier.fillMaxSize(),
+             )
+         }
+ 
+-        composable(Screen.Sign.route) {
+-            SignDebugRoute(
+-                onBackToMain = {
+-                    navController.popBackStack()
+-                },
+-                modifier = Modifier.fillMaxSize(),
+-            )
++        if (BuildConfig.DEBUG) {
++            composable(Screen.Sign.route) {
++                SignDebugRoute(
++                    onBackToMain = {
++                        navController.popBackStack()
++                    },
++                    modifier = Modifier.fillMaxSize(),
++                )
++            }
+         }
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionGuide.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionGuide.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionGuide.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionGuide.kt
+@@ -14,13 +14,14 @@ import androidx.compose.ui.unit.dp
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ 
+ /**
+- * 권한 거부 시 사용자에게 설정창 이동을 유도하는 안내 UI. (COMM_002)
++ * 필수 권한이 없을 때 앱 진입을 막고 사용자가 다음 행동을 선택하도록 안내합니다.
+  */
+ @Composable
+ fun PermissionGuide(
+     title: String,
+     description: String,
+-    onOpenSettings: () -> Unit,
++    buttonText: String,
++    onButtonClick: () -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+     Column(
+@@ -41,8 +42,8 @@ fun PermissionGuide(
+         )
+         Spacer(modifier = Modifier.height(16.dp))
+         AppPrimaryButton(
+-            text = "설정에서 권한 허용하기",
+-            onClick = onOpenSettings,
++            text = buttonText,
++            onClick = onButtonClick,
+         )
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionHandler.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionHandler.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionHandler.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionHandler.kt
+@@ -1,7 +1,10 @@
+ package com.ssafy.mobile.core.permission
+ 
+ import android.Manifest
++import android.content.Intent
+ import android.content.pm.PackageManager
++import android.net.Uri
++import android.provider.Settings
+ import androidx.activity.ComponentActivity
+ import androidx.activity.result.ActivityResultLauncher
+ import androidx.activity.result.contract.ActivityResultContracts
+@@ -11,8 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
+ import kotlinx.coroutines.flow.asStateFlow
+ 
+ /**
+- * 카메라 및 마이크 권한 요청을 통합 관리하는 핸들러.
+- * Activity에서 초기화하여 사용합니다.
++ * 앱 실행에 필요한 카메라/마이크 권한을 한 곳에서 관리합니다.
+  */
+ class PermissionHandler(
+     private val activity: ComponentActivity,
+@@ -27,37 +29,48 @@ class PermissionHandler(
+         MutableStateFlow<PermissionRequestState>(PermissionRequestState.Idle)
+     val permissionState: StateFlow<PermissionRequestState> = _permissionState.asStateFlow()
+ 
+-    /** 권한 요청 런처 등록 */
+     private val requestPermissionLauncher: ActivityResultLauncher<Array<String>> =
+         activity.registerForActivityResult(
+             ActivityResultContracts.RequestMultiplePermissions(),
+         ) { permissions ->
+-            val allGranted = permissions.entries.all { it.value }
++            val allGranted = requiredPermissions.all { permissions[it] == true }
+             if (allGranted) {
+                 _permissionState.value = PermissionRequestState.Granted
+-            } else {
+-                // 권한 거부 시, '다시 묻지 않음' 상태인지 확인
+-                val shouldShowRationale =
+-                    requiredPermissions.any {
+-                        activity.shouldShowRequestPermissionRationale(it)
+-                    }
+-                _permissionState.value =
+-                    if (shouldShowRationale) {
+-                        PermissionRequestState.Denied
+-                    } else {
+-                        PermissionRequestState.PermanentlyDenied
+-                    }
++                return@registerForActivityResult
+             }
++
++            val deniedPermissions =
++                requiredPermissions.filter { permission ->
++                    permissions[permission] != true
++                }
++            val hasPermanentlyDeniedPermission =
++                deniedPermissions.any { permission ->
++                    !activity.shouldShowRequestPermissionRationale(permission)
++                }
++            _permissionState.value =
++                if (hasPermanentlyDeniedPermission) {
++                    PermissionRequestState.PermanentlyDenied
++                } else {
++                    PermissionRequestState.Denied
++                }
++        }
++
++    fun refreshPermissionState() {
++        if (hasRequiredPermissions()) {
++            _permissionState.value = PermissionRequestState.Granted
++            return
+         }
+ 
+-    /** 현재 권한 상태 체크 및 요청 */
+-    fun checkAndRequestPermissions() {
+-        val allGranted =
+-            requiredPermissions.all {
+-                ContextCompat.checkSelfPermission(activity, it) == PackageManager.PERMISSION_GRANTED
++        _permissionState.value =
++            when (_permissionState.value) {
++                PermissionRequestState.Denied -> PermissionRequestState.Denied
++                PermissionRequestState.PermanentlyDenied -> PermissionRequestState.PermanentlyDenied
++                else -> PermissionRequestState.ShouldRequest
+             }
++    }
+ 
+-        if (allGranted) {
++    fun requestRequiredPermissions() {
++        if (hasRequiredPermissions()) {
+             _permissionState.value = PermissionRequestState.Granted
+         } else {
+             _permissionState.value = PermissionRequestState.ShouldRequest
+@@ -65,13 +78,18 @@ class PermissionHandler(
+         }
+     }
+ 
+-    /** 설정창으로 이동 (영구 거부 시 사용) */
+     fun openAppSettings() {
+         val intent =
+-            android.content.Intent(
+-                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+-                android.net.Uri.fromParts("package", activity.packageName, null),
++            Intent(
++                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
++                Uri.fromParts("package", activity.packageName, null),
+             )
+         activity.startActivity(intent)
+     }
++
++    private fun hasRequiredPermissions(): Boolean =
++        requiredPermissions.all { permission ->
++            ContextCompat.checkSelfPermission(activity, permission) ==
++                PackageManager.PERMISSION_GRANTED
++        }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionRequestState.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionRequestState.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionRequestState.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/permission/PermissionRequestState.kt
+@@ -1,22 +1,21 @@
+ package com.ssafy.mobile.core.permission
+ 
+ /**
+- * 권한 요청 흐름의 상태를 나타내는 클래스.
+- * B 파트가 권한 요청 분기 처리 시 ViewModel State로 사용합니다. (COMM_002)
++ * 앱 실행에 필요한 카메라/마이크 권한 요청 상태입니다.
+  */
+ sealed interface PermissionRequestState {
+-    /** 권한 상태를 아직 확인하지 않은 초기 상태 */
++    /** 권한 상태를 아직 확인하지 않은 초기 상태입니다. */
+     data object Idle : PermissionRequestState
+ 
+-    /** 권한 요청 다이얼로그를 표시해야 하는 상태 */
++    /** 시스템 권한 요청 다이얼로그가 표시될 수 있는 상태입니다. */
+     data object ShouldRequest : PermissionRequestState
+ 
+-    /** 모든 필요 권한이 허용된 상태 */
++    /** 모든 필수 권한이 허용된 상태입니다. */
+     data object Granted : PermissionRequestState
+ 
+-    /** 권한이 거부되어 설정창 이동 안내를 표시해야 하는 상태 */
++    /** 권한이 거부되었지만 다시 요청할 수 있는 상태입니다. */
+     data object Denied : PermissionRequestState
+ 
+-    /** 권한이 영구 거부(다시 묻지 않음)되어 설정창으로만 해결 가능한 상태 */
++    /** 권한이 영구 거부되어 설정 화면에서 직접 허용해야 하는 상태입니다. */
+     data object PermanentlyDenied : PermissionRequestState
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt b/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
+@@ -4,12 +4,24 @@ import android.os.Bundle
+ import androidx.activity.ComponentActivity
+ import androidx.activity.compose.setContent
+ import androidx.activity.enableEdgeToEdge
++import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.material3.CircularProgressIndicator
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.DisposableEffect
++import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.unit.dp
+ import androidx.lifecycle.Lifecycle
+ import androidx.lifecycle.LifecycleEventObserver
+ import androidx.lifecycle.compose.LocalLifecycleOwner
+@@ -30,19 +42,20 @@ class MainActivity : ComponentActivity() {
+         super.onCreate(savedInstanceState)
+ 
+         permissionHandler = PermissionHandler(this)
+-        // 앱 시작 시 권한 체크 및 요청
+-        permissionHandler.checkAndRequestPermissions()
+ 
+         enableEdgeToEdge()
+         setContent {
+             val lifecycleOwner = LocalLifecycleOwner.current
+ 
+-            // 사용자가 설정 화면에서 돌아왔을 때를 대비하여 ON_RESUME 시점에 권한 재확인
++            LaunchedEffect(Unit) {
++                permissionHandler.requestRequiredPermissions()
++            }
++
+             DisposableEffect(lifecycleOwner) {
+                 val observer =
+                     LifecycleEventObserver { _, event ->
+                         if (event == Lifecycle.Event.ON_RESUME) {
+-                            permissionHandler.checkAndRequestPermissions()
++                            permissionHandler.refreshPermissionState()
+                         }
+                     }
+                 lifecycleOwner.lifecycle.addObserver(observer)
+@@ -55,32 +68,73 @@ class MainActivity : ComponentActivity() {
+                 val permissionState by permissionHandler.permissionState
+                     .collectAsStateWithLifecycle()
+ 
+-                Box(modifier = Modifier.fillMaxSize()) {
+-                    val navController = rememberNavController()
+-                    MobileNavHost(navController = navController)
++                PermissionGate(
++                    permissionState = permissionState,
++                    onRequestPermissions = permissionHandler::requestRequiredPermissions,
++                    onOpenSettings = permissionHandler::openAppSettings,
++                )
++            }
++        }
++    }
++}
+ 
+-                    // 권한이 거부되었거나 영구 거부된 경우 안내 화면 표시
+-                    when (permissionState) {
+-                        is PermissionRequestState.Denied -> {
+-                            PermissionGuide(
+-                                title = "필수 권한 안내",
+-                                description = "원활한 서비스 이용을 위해 카메라와 마이크 권한이 필요합니다.",
+-                                onOpenSettings = { permissionHandler.checkAndRequestPermissions() },
+-                                modifier = Modifier.align(Alignment.Center),
+-                            )
+-                        }
+-                        is PermissionRequestState.PermanentlyDenied -> {
+-                            PermissionGuide(
+-                                title = "권한 설정 필요",
+-                                description = "카메라 및 마이크 권한이 영구적으로 거부되었습니다. 설정에서 직접 권한을 허용해주세요.",
+-                                onOpenSettings = { permissionHandler.openAppSettings() },
+-                                modifier = Modifier.align(Alignment.Center),
+-                            )
+-                        }
+-                        else -> { /* Idle, ShouldRequest, Granted 상태에서는 아무것도 표시하지 않음 */ }
+-                    }
+-                }
++@Composable
++private fun PermissionGate(
++    permissionState: PermissionRequestState,
++    onRequestPermissions: () -> Unit,
++    onOpenSettings: () -> Unit,
++) {
++    Box(modifier = Modifier.fillMaxSize()) {
++        when (permissionState) {
++            PermissionRequestState.Granted -> {
++                val navController = rememberNavController()
++                MobileNavHost(navController = navController)
++            }
++            PermissionRequestState.Denied -> {
++                PermissionGuide(
++                    title = "필수 권한이 필요해요",
++                    description =
++                        "SUDA는 카메라로 수어를 인식하고 마이크로 음성을 듣습니다. " +
++                            "앱을 사용하려면 카메라와 마이크 권한을 모두 허용해 주세요.",
++                    buttonText = "권한 다시 요청하기",
++                    onButtonClick = onRequestPermissions,
++                    modifier = Modifier.align(Alignment.Center),
++                )
++            }
++            PermissionRequestState.PermanentlyDenied -> {
++                PermissionGuide(
++                    title = "설정에서 권한을 허용해 주세요",
++                    description =
++                        "카메라 또는 마이크 권한이 영구 거부되어 앱에서 다시 요청할 수 없습니다. " +
++                            "설정 화면에서 카메라와 마이크 권한을 허용해 주세요.",
++                    buttonText = "설정으로 이동하기",
++                    onButtonClick = onOpenSettings,
++                    modifier = Modifier.align(Alignment.Center),
++                )
++            }
++            PermissionRequestState.Idle,
++            PermissionRequestState.ShouldRequest,
++            -> {
++                PermissionCheckingContent(modifier = Modifier.align(Alignment.Center))
+             }
+         }
+     }
+ }
++
++@Composable
++private fun PermissionCheckingContent(modifier: Modifier = Modifier) {
++    Column(
++        modifier = modifier.padding(24.dp),
++        horizontalAlignment = Alignment.CenterHorizontally,
++        verticalArrangement = Arrangement.Center,
++    ) {
++        CircularProgressIndicator()
++        Spacer(modifier = Modifier.height(16.dp))
++        Text(
++            text = "카메라와 마이크 권한을 확인하고 있어요.",
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            textAlign = TextAlign.Center,
++        )
++    }
++}
+
+

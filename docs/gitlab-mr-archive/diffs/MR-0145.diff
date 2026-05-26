@@ -1,0 +1,3255 @@
+﻿diff --git a/ai/docs/20260512_온디바이스_24단어_학습_및_모바일_검증_기록.md b/ai/docs/20260512_온디바이스_24단어_학습_및_모바일_검증_기록.md
+--- /dev/null
++++ b/ai/docs/20260512_온디바이스_24단어_학습_및_모바일_검증_기록.md
+
+diff --git a/ai/models/tcn_mobile/best_sign_model_v6_float16.tflite b/ai/models/tcn_mobile/best_sign_model_v6_float16.tflite
+--- /dev/null
++++ b/ai/models/tcn_mobile/best_sign_model_v6_float16.tflite
+Binary files /dev/null and b/ai/models/tcn_mobile/best_sign_model_v6_float16.tflite differ
+
+
+diff --git a/ai/models/tcn_mobile/best_sign_model_v6_float32.tflite b/ai/models/tcn_mobile/best_sign_model_v6_float32.tflite
+--- /dev/null
++++ b/ai/models/tcn_mobile/best_sign_model_v6_float32.tflite
+Binary files /dev/null and b/ai/models/tcn_mobile/best_sign_model_v6_float32.tflite differ
+
+
+diff --git a/ai/models/tcn_mobile/label_map_v6.json b/ai/models/tcn_mobile/label_map_v6.json
+--- /dev/null
++++ b/ai/models/tcn_mobile/label_map_v6.json
+@@ -0,0 +1,25 @@
++{
++    "0": "걷다",
++    "1": "가다",
++    "2": "주다",
++    "3": "돕다",
++    "4": "배고프다",
++    "5": "아기",
++    "6": "좋다",
++    "7": "싫다",
++    "8": "감기",
++    "9": "기차",
++    "10": "놀다",
++    "11": "목마르다",
++    "12": "무섭다",
++    "13": "밥",
++    "14": "손",
++    "15": "아프다",
++    "16": "웃다",
++    "17": "장난감",
++    "18": "조심",
++    "19": "병원",
++    "20": "엄마",
++    "21": "감사",
++    "22": "none"
++}
+\ No newline at end of file
+
+
+diff --git a/ai/models/tcn_mobile/train_config_v6.json b/ai/models/tcn_mobile/train_config_v6.json
+--- /dev/null
++++ b/ai/models/tcn_mobile/train_config_v6.json
+@@ -0,0 +1,240 @@
++{
++    "run_idx": 2,
++    "data_dir": "/home/j-k14a404/Kim/Ondevice_training_v6/processed_npy_v6",
++    "model_dir_name": "v6_24words_tcn",
++    "model_type": "tcn",
++    "epochs": 120,
++    "batch_size": 16,
++    "learning_rate": 0.001,
++    "weight_decay": 0.0,
++    "input_dim": 332,
++    "max_len": 30,
++    "d_model": 128,
++    "num_heads": 8,
++    "num_layers": 3,
++    "num_workers": 2,
++    "pin_memory": true,
++    "persistent_workers": true,
++    "use_class_weights": false,
++    "use_scheduler": false,
++    "scheduler_factor": 0.5,
++    "scheduler_patience": 12,
++    "use_balanced_sampler": false,
++    "single_batch_check_steps": 200,
++    "use_early_stopping": true,
++    "early_stopping_patience": 25,
++    "early_stopping_min_delta": 0.001,
++    "classes": [
++        "걷다",
++        "가다",
++        "주다",
++        "돕다",
++        "배고프다",
++        "아기",
++        "좋다",
++        "싫다",
++        "감기",
++        "기차",
++        "놀다",
++        "목마르다",
++        "무섭다",
++        "밥",
++        "손",
++        "아프다",
++        "웃다",
++        "장난감",
++        "조심",
++        "병원",
++        "엄마",
++        "감사",
++        "none"
++    ],
++    "stats": {
++        "class_counts": {
++            "걷다": 80,
++            "가다": 80,
++            "주다": 80,
++            "돕다": 80,
++            "배고프다": 80,
++            "아기": 80,
++            "좋다": 80,
++            "싫다": 80,
++            "감기": 80,
++            "기차": 80,
++            "놀다": 80,
++            "목마르다": 80,
++            "무섭다": 80,
++            "밥": 80,
++            "손": 80,
++            "아프다": 80,
++            "웃다": 80,
++            "장난감": 80,
++            "조심": 80,
++            "병원": 75,
++            "엄마": 75,
++            "감사": 80,
++            "none": 60
++        },
++        "variant_counts": {
++            "걷다/걷다": 80,
++            "가다/가다": 80,
++            "주다/주다": 80,
++            "돕다/돕다": 80,
++            "배고프다/배고프다": 80,
++            "아기/아기": 80,
++            "좋다/좋다": 80,
++            "싫다/싫다": 80,
++            "감기/감기": 80,
++            "기차/기차": 80,
++            "놀다/놀다": 80,
++            "목마르다/목마르다": 80,
++            "무섭다/무섭다": 80,
++            "밥/밥": 80,
++            "손/손": 80,
++            "아프다/아프다": 80,
++            "웃다/웃다": 80,
++            "장난감/장난감": 80,
++            "조심/조심": 80,
++            "병원/병원": 75,
++            "엄마/엄마": 75,
++            "감사/감사": 80,
++            "none/none": 60
++        },
++        "priority_file_keywords": [
++            "_FRONT",
++            "_LEFT",
++            "_RIGHT"
++        ],
++        "priority_file_counts": {
++            "걷다": 0,
++            "가다": 0,
++            "주다": 0,
++            "돕다": 0,
++            "배고프다": 0,
++            "아기": 0,
++            "좋다": 0,
++            "싫다": 0,
++            "감기": 0,
++            "기차": 0,
++            "놀다": 0,
++            "목마르다": 0,
++            "무섭다": 0,
++            "밥": 0,
++            "손": 0,
++            "아프다": 0,
++            "웃다": 0,
++            "장난감": 0,
++            "조심": 0,
++            "병원": 0,
++            "엄마": 0,
++            "감사": 0,
++            "none": 60
++        },
++        "train_class_counts": {
++            "걷다": 120,
++            "가다": 120,
++            "주다": 120,
++            "돕다": 120,
++            "배고프다": 120,
++            "아기": 120,
++            "좋다": 120,
++            "싫다": 120,
++            "감기": 120,
++            "기차": 120,
++            "놀다": 120,
++            "목마르다": 120,
++            "무섭다": 120,
++            "밥": 120,
++            "손": 120,
++            "아프다": 120,
++            "웃다": 120,
++            "장난감": 120,
++            "조심": 120,
++            "병원": 120,
++            "엄마": 120,
++            "감사": 120,
++            "none": 120
++        },
++        "val_class_counts": {
++            "걷다": 16,
++            "가다": 16,
++            "주다": 16,
++            "돕다": 16,
++            "배고프다": 16,
++            "아기": 16,
++            "좋다": 16,
++            "싫다": 16,
++            "감기": 16,
++            "기차": 16,
++            "놀다": 16,
++            "목마르다": 16,
++            "무섭다": 16,
++            "밥": 16,
++            "손": 16,
++            "아프다": 16,
++            "웃다": 16,
++            "장난감": 16,
++            "조심": 16,
++            "병원": 15,
++            "엄마": 15,
++            "감사": 16,
++            "none": 12
++        },
++        "target_variants": {},
++        "max_files_per_class": {},
++        "file_sample_seed": 42,
++        "total_size": 3122,
++        "original_total_size": 1810,
++        "train_size": 2760,
++        "original_train_size": 1448,
++        "val_size": 362,
++        "stratified_split": true,
++        "balanced_sampling": false,
++        "use_augmentation": true,
++        "normalize_mode": "none",
++        "target_samples_per_class": 120,
++        "augmentation_counts": {
++            "걷다": 56,
++            "가다": 56,
++            "주다": 56,
++            "돕다": 56,
++            "배고프다": 56,
++            "아기": 56,
++            "좋다": 56,
++            "싫다": 56,
++            "감기": 56,
++            "기차": 56,
++            "놀다": 56,
++            "목마르다": 56,
++            "무섭다": 56,
++            "밥": 56,
++            "손": 56,
++            "아프다": 56,
++            "웃다": 56,
++            "장난감": 56,
++            "조심": 56,
++            "병원": 60,
++            "엄마": 60,
++            "감사": 56,
++            "none": 72
++        },
++        "augmentation": {
++            "seed": 2026,
++            "noise_std": 0.005,
++            "time_scale_range": [
++                0.95,
++                1.05
++            ],
++            "time_shift_range": [
++                -2,
++                2
++            ]
++        },
++        "dataloader": {
++            "num_workers": 2,
++            "pin_memory": true,
++            "persistent_workers": true
++        },
++        "skipped_file_count": 0
++    }
++}
+\ No newline at end of file
+
+
+diff --git a/ai/src/sign2text_tcn/aihub_to_local_npy_pipeline.py b/ai/src/sign2text_tcn/aihub_to_local_npy_pipeline.py
+--- /dev/null
++++ b/ai/src/sign2text_tcn/aihub_to_local_npy_pipeline.py
+@@ -0,0 +1,375 @@
++import argparse
++import gc
++import json
++import multiprocessing as mp_context
++import os
++import shutil
++import subprocess
++import tempfile
++import time
++import zipfile
++from pathlib import Path
++
++import cv2
++import mediapipe as mp
++import numpy as np
++
++
++DEFAULT_MAPPING = "AI_Hub_Video_Mapping_v6.json"
++DEFAULT_OUTPUT_DIR = "processed_npy_v6"
++DEFAULT_MAX_WORKERS = 2
++DEFAULT_BATCH_SIZE = 4
++DEFAULT_TASKS_PER_CHILD = 1
++
++EXPECTED_INPUT_DIM = 332
++
++BASE_FACE_IDXS = [
++    70, 63, 105, 66,
++    336, 296, 334, 293,
++    33, 160, 158, 133, 153, 144,
++    362, 385, 387, 263, 373, 380,
++    61, 146, 91, 181, 84, 17, 314, 405, 321, 375,
++]
++FACEPLUS_IDXS = [
++    1, 4,
++    152,
++    234, 454,
++    172, 397,
++    148, 377,
++    13, 14,
++    78, 308,
++    82, 312,
++]
++FACE_IDXS = BASE_FACE_IDXS + FACEPLUS_IDXS
++POSE_IDXS = [0, 7, 8, 11, 12, 13, 14]
++HAND_TIP_IDXS = [4, 8, 12, 16, 20]
++FACE_ANCHOR_IDXS = [1, 13, 152, 234, 454]
++
++
++def parse_filekeys(filekeys, filekey_range):
++    parsed = []
++    if filekeys:
++        for item in filekeys.split(","):
++            item = item.strip()
++            if item:
++                parsed.append(int(item))
++
++    if filekey_range:
++        start_raw, end_raw = filekey_range.split(":", maxsplit=1)
++        parsed.extend(range(int(start_raw), int(end_raw) + 1))
++
++    return sorted(set(parsed))
++
++
++def get_int_env(name, default, minimum=1):
++    raw_value = os.environ.get(name)
++    if raw_value is None:
++        return default
++
++    try:
++        value = int(raw_value)
++    except ValueError:
++        print(f"Invalid {name}={raw_value!r}; use default={default}")
++        return default
++
++    return max(value, minimum)
++
++
++def load_mapping(mapping_path):
++    with Path(mapping_path).open("r", encoding="utf-8") as f:
++        mapping_data = json.load(f)
++
++    filename_to_word = {}
++    for word, videos in mapping_data.items():
++        for video in videos:
++            filename_to_word[video["filename"]] = word
++    return filename_to_word
++
++
++def find_zip_files(root):
++    return sorted(root.rglob("*.zip"), key=lambda path: path.stat().st_mtime)
++
++
++def run_aihub_download(aihub_shell, dataset_key, file_key, api_key):
++    command = [
++        str(aihub_shell),
++        "-mode",
++        "d",
++        "-datasetkey",
++        str(dataset_key),
++        "-filekey",
++        str(file_key),
++    ]
++    if api_key:
++        command.extend(["-aihubapikey", api_key])
++
++    print("RUN", " ".join(command))
++    subprocess.run(command, check=True)
++
++
++def _flatten_landmarks(landmarks, idxs):
++    return np.array([[landmarks[idx].x, landmarks[idx].y, landmarks[idx].z] for idx in idxs], dtype=np.float32).flatten()
++
++
++def _hand_array(hand_landmarks):
++    if not hand_landmarks:
++        return np.zeros((21, 3), dtype=np.float32), False
++
++    points = np.array([[lm.x, lm.y, lm.z] for lm in hand_landmarks.landmark], dtype=np.float32)
++    return points, True
++
++
++def _hand_face_distances(left_hand, left_present, right_hand, right_present, face_landmarks):
++    if not face_landmarks:
++        return np.zeros(len(HAND_TIP_IDXS) * 2 * len(FACE_ANCHOR_IDXS), dtype=np.float32)
++
++    anchors = np.array(
++        [
++            [
++                face_landmarks.landmark[idx].x,
++                face_landmarks.landmark[idx].y,
++                face_landmarks.landmark[idx].z,
++            ]
++            for idx in FACE_ANCHOR_IDXS
++        ],
++        dtype=np.float32,
++    )
++
++    features = []
++    for hand_points, is_present in ((left_hand, left_present), (right_hand, right_present)):
++        if not is_present:
++            features.extend([0.0] * (len(HAND_TIP_IDXS) * len(FACE_ANCHOR_IDXS)))
++            continue
++
++        for tip_idx in HAND_TIP_IDXS:
++            tip = hand_points[tip_idx]
++            features.extend(np.linalg.norm(anchors - tip, axis=1).tolist())
++
++    return np.array(features, dtype=np.float32)
++
++
++def extract_keypoints(results, last_pose, last_face):
++    left_hand, left_present = _hand_array(results.left_hand_landmarks)
++    right_hand, right_present = _hand_array(results.right_hand_landmarks)
++    lh = left_hand.flatten()
++    rh = right_hand.flatten()
++
++    if results.face_landmarks:
++        face = _flatten_landmarks(results.face_landmarks.landmark, FACE_IDXS)
++        last_face = face
++    else:
++        face = last_face if last_face is not None else np.zeros(len(FACE_IDXS) * 3, dtype=np.float32)
++
++    if results.pose_landmarks:
++        pose = _flatten_landmarks(results.pose_landmarks.landmark, POSE_IDXS)
++        last_pose = pose
++    else:
++        pose = last_pose if last_pose is not None else np.zeros(len(POSE_IDXS) * 3, dtype=np.float32)
++
++    distances = _hand_face_distances(
++        left_hand,
++        left_present,
++        right_hand,
++        right_present,
++        results.face_landmarks,
++    )
++
++    feature = np.concatenate([lh, rh, face, pose, distances]).astype(np.float32)
++    if feature.shape[0] != EXPECTED_INPUT_DIM:
++        raise ValueError(f"Unexpected feature dim: {feature.shape[0]} != {EXPECTED_INPUT_DIM}")
++
++    return feature, last_pose, last_face
++
++
++def process_local_video(job):
++    video_path, output_path = job
++    cap = None
++
++    try:
++        video_data = []
++        last_pose = None
++        last_face = None
++        cap = cv2.VideoCapture(str(video_path))
++
++        mp_holistic = mp.solutions.holistic
++        with mp_holistic.Holistic(static_image_mode=False, min_detection_confidence=0.5) as holistic:
++            while cap.isOpened():
++                success, frame = cap.read()
++                if not success:
++                    break
++
++                image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
++                results = holistic.process(image_rgb)
++                keypoints, last_pose, last_face = extract_keypoints(results, last_pose, last_face)
++                video_data.append(keypoints)
++
++        if len(video_data) > 0 and last_pose is not None:
++            npy_data = np.array(video_data, dtype=np.float32)
++            if npy_data.ndim != 2 or npy_data.shape[1] != EXPECTED_INPUT_DIM:
++                return f"FAIL shape mismatch {npy_data.shape}: {video_path.name}"
++
++            output_path.parent.mkdir(parents=True, exist_ok=True)
++            np.save(output_path, npy_data)
++            return f"DONE {output_path}"
++
++        return f"FAIL no usable pose data: {video_path.name}"
++
++    except Exception as e:
++        return f"ERROR {video_path.name}: {e}"
++
++    finally:
++        if cap is not None:
++            cap.release()
++        if video_path.exists():
++            video_path.unlink()
++        gc.collect()
++
++
++def chunked(items, chunk_size):
++    for start in range(0, len(items), chunk_size):
++        yield items[start:start + chunk_size]
++
++
++def process_jobs_in_batches(jobs, max_workers, batch_size, tasks_per_child):
++    completed = 0
++    total = len(jobs)
++
++    for batch_idx, batch in enumerate(chunked(jobs, batch_size), start=1):
++        print(
++            f"\nBatch {batch_idx}: {len(batch)} jobs "
++            f"(progress {completed}/{total}, workers={max_workers}, "
++            f"tasks_per_child={tasks_per_child})"
++        )
++        with mp_context.Pool(
++            processes=max_workers,
++            maxtasksperchild=tasks_per_child,
++        ) as pool:
++            for result in pool.imap_unordered(process_local_video, batch):
++                completed += 1
++                print(f"[{completed}/{total}] {result}")
++                time.sleep(0.05)
++
++
++def extract_zip_targets_to_temp(zip_path, filename_to_word, output_dir, temp_dir, overwrite):
++    jobs = []
++    matched = 0
++    skipped = 0
++
++    with zipfile.ZipFile(zip_path, "r") as archive:
++        for file_info in archive.infolist():
++            filename = os.path.basename(file_info.filename)
++            word = filename_to_word.get(filename)
++            if word is None:
++                continue
++
++            matched += 1
++            output_path = output_dir / word / (Path(filename).stem + ".npy")
++            if output_path.exists() and not overwrite:
++                skipped += 1
++                continue
++
++            temp_word_dir = temp_dir / word
++            temp_word_dir.mkdir(parents=True, exist_ok=True)
++            temp_video_path = temp_word_dir / filename
++
++            with archive.open(file_info) as source, temp_video_path.open("wb") as target:
++                shutil.copyfileobj(source, target)
++            jobs.append((temp_video_path, output_path))
++
++    print(f"ZIP scan: {zip_path.name} matched={matched}, pending={len(jobs)}, skipped={skipped}")
++    return jobs
++
++
++def parse_args():
++    parser = argparse.ArgumentParser(
++        description="Download AI Hub ZIP files and convert selected mp4 files directly to local npy files."
++    )
++    parser.add_argument("--dataset-key", required=True, help="AI Hub dataset key.")
++    parser.add_argument("--filekeys", help="Comma-separated AI Hub file keys, e.g. 39547,39548.")
++    parser.add_argument("--filekey-range", help="Inclusive range, e.g. 39547:39577.")
++    parser.add_argument("--aihubshell", default="./aihubshell", help="Path to aihubshell.")
++    parser.add_argument("--aihub-api-key", default=os.environ.get("AIHUB_API_KEY"))
++    parser.add_argument("--download-dir", default="./aihub_downloads_v6")
++    parser.add_argument("--mapping", default=DEFAULT_MAPPING)
++    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
++    parser.add_argument("--overwrite", action="store_true")
++    parser.add_argument("--delete-zip", action="store_true")
++    parser.add_argument("--keep-temp-mp4", action="store_true")
++    parser.add_argument("--max-workers", type=int, default=get_int_env("ONDEVICE_MAX_WORKERS", DEFAULT_MAX_WORKERS))
++    parser.add_argument("--batch-size", type=int, default=get_int_env("ONDEVICE_BATCH_SIZE", DEFAULT_BATCH_SIZE))
++    parser.add_argument(
++        "--tasks-per-child",
++        type=int,
++        default=get_int_env("ONDEVICE_TASKS_PER_CHILD", DEFAULT_TASKS_PER_CHILD),
++    )
++    return parser.parse_args()
++
++
++def main():
++    args = parse_args()
++    filekeys = parse_filekeys(args.filekeys, args.filekey_range)
++    if not filekeys:
++        raise ValueError("Provide --filekeys or --filekey-range.")
++
++    download_dir = Path(args.download_dir).resolve()
++    output_dir = Path(args.output_dir).resolve()
++    aihub_shell = Path(args.aihubshell).resolve()
++    mapping_path = Path(args.mapping).resolve()
++
++    download_dir.mkdir(parents=True, exist_ok=True)
++    output_dir.mkdir(parents=True, exist_ok=True)
++
++    if not aihub_shell.exists():
++        raise FileNotFoundError(f"aihubshell not found: {aihub_shell}")
++    if not mapping_path.exists():
++        raise FileNotFoundError(f"mapping not found: {mapping_path}")
++
++    filename_to_word = load_mapping(mapping_path)
++    processed_zips = set()
++
++    os.chdir(download_dir)
++    for file_key in filekeys:
++        before = set(find_zip_files(download_dir))
++        run_aihub_download(aihub_shell, args.dataset_key, file_key, args.aihub_api_key)
++        after = set(find_zip_files(download_dir))
++        new_zips = sorted(after - before, key=lambda path: path.stat().st_mtime)
++
++        if not new_zips:
++            print(f"No new ZIP found for filekey={file_key}. Check aihubshell output.")
++            continue
++
++        for zip_path in new_zips:
++            if zip_path in processed_zips:
++                continue
++
++            with tempfile.TemporaryDirectory(prefix="aihub_mp4_") as temp_root:
++                temp_dir = Path(temp_root)
++                jobs = extract_zip_targets_to_temp(
++                    zip_path=zip_path,
++                    filename_to_word=filename_to_word,
++                    output_dir=output_dir,
++                    temp_dir=temp_dir,
++                    overwrite=args.overwrite,
++                )
++                if jobs:
++                    process_jobs_in_batches(
++                        jobs,
++                        max_workers=max(args.max_workers, 1),
++                        batch_size=max(args.batch_size, args.max_workers, 1),
++                        tasks_per_child=max(args.tasks_per_child, 1),
++                    )
++                if args.keep_temp_mp4:
++                    keep_dir = download_dir / f"{zip_path.stem}_matched_mp4"
++                    if keep_dir.exists():
++                        shutil.rmtree(keep_dir)
++                    shutil.copytree(temp_dir, keep_dir)
++                    print(f"Kept temp mp4 files: {keep_dir}")
++
++            processed_zips.add(zip_path)
++            if args.delete_zip:
++                zip_path.unlink()
++                print(f"Deleted ZIP: {zip_path}")
++
++
++if __name__ == "__main__":
++    main()
+
+
+diff --git a/ai/src/sign2text_tcn/collect_data.py b/ai/src/sign2text_tcn/collect_data.py
+--- /dev/null
++++ b/ai/src/sign2text_tcn/collect_data.py
+@@ -0,0 +1,450 @@
++import re
++import time
++from pathlib import Path
++
++import cv2
++import mediapipe as mp
++import numpy as np
++from PIL import Image, ImageDraw, ImageFont
++
++
++SCRIPT_DIR = Path(__file__).resolve().parent
++OUTPUT_ROOT = SCRIPT_DIR / "get_data" / "processed_npy_v6"
++SEQ_LEN = 60
++COUNTDOWN_SECONDS = (4, 3, 2, 1)
++WINDOW_NAME = "Collect V6 Sign Data"
++ORIENTATION_PLAN = ["FRONT", "FRONT", "FRONT", "LEFT", "RIGHT"]
++DISPLAY_MIRROR_MODE = True
++
++# Representative class -> variants to collect.
++# Saved path: processed_npy_v6/{class_name}/{variant_name}/{file}.npy
++COLLECTION_TARGETS = {
++    "none": ["none1", "none2", "none3"],
++}
++
++# Feature layout:
++# left hand 63 + right hand 63 + expanded face 135 + pose 21 + hand-face distances 50 = 332
++INPUT_DIM = 332
++BASE_FACE_IDXS = [
++    70, 63, 105, 66,
++    336, 296, 334, 293,
++    33, 160, 158, 133, 153, 144,
++    362, 385, 387, 263, 373, 380,
++    61, 146, 91, 181, 84, 17, 314, 405, 321, 375,
++]
++FACEPLUS_IDXS = [
++    1, 4,          # nose
++    152,           # chin
++    234, 454,      # cheeks / face sides
++    172, 397,      # jaw line
++    148, 377,      # lower jaw line
++    13, 14,        # upper/lower lip center
++    78, 308,       # mouth corners
++    82, 312,       # upper lip detail
++]
++FACE_IDXS = BASE_FACE_IDXS + FACEPLUS_IDXS
++POSE_IDXS = [0, 7, 8, 11, 12, 13, 14]
++HAND_TIP_IDXS = [4, 8, 12, 16, 20]
++FACE_ANCHOR_IDXS = [1, 13, 152, 234, 454]  # nose, mouth, chin, left cheek, right cheek
++
++mp_holistic = mp.solutions.holistic
++mp_drawing = mp.solutions.drawing_utils
++
++
++def slugify(value):
++    value = value.strip().lower()
++    value = re.sub(r"[^a-z0-9_-]+", "_", value)
++    return value.strip("_") or "person"
++
++
++def flatten_landmarks(landmarks, idxs):
++    return np.array(
++        [[landmarks[idx].x, landmarks[idx].y, landmarks[idx].z] for idx in idxs],
++        dtype=np.float32,
++    ).flatten()
++
++
++def hand_array(hand_landmarks):
++    if not hand_landmarks:
++        return np.zeros((21, 3), dtype=np.float32), False
++
++    points = np.array([[lm.x, lm.y, lm.z] for lm in hand_landmarks.landmark], dtype=np.float32)
++    return points, True
++
++
++def hand_face_distances(left_hand, left_present, right_hand, right_present, face_landmarks):
++    if not face_landmarks:
++        return np.zeros(len(HAND_TIP_IDXS) * 2 * len(FACE_ANCHOR_IDXS), dtype=np.float32)
++
++    anchors = np.array(
++        [
++            [
++                face_landmarks.landmark[idx].x,
++                face_landmarks.landmark[idx].y,
++                face_landmarks.landmark[idx].z,
++            ]
++            for idx in FACE_ANCHOR_IDXS
++        ],
++        dtype=np.float32,
++    )
++
++    features = []
++    for hand_points, is_present in ((left_hand, left_present), (right_hand, right_present)):
++        if not is_present:
++            features.extend([0.0] * (len(HAND_TIP_IDXS) * len(FACE_ANCHOR_IDXS)))
++            continue
++
++        for tip_idx in HAND_TIP_IDXS:
++            tip = hand_points[tip_idx]
++            features.extend(np.linalg.norm(anchors - tip, axis=1).tolist())
++
++    return np.array(features, dtype=np.float32)
++
++
++def extract_keypoints(results, last_pose, last_face):
++    left_hand, left_present = hand_array(results.left_hand_landmarks)
++    right_hand, right_present = hand_array(results.right_hand_landmarks)
++    lh = left_hand.flatten()
++    rh = right_hand.flatten()
++
++    if results.face_landmarks:
++        face = flatten_landmarks(results.face_landmarks.landmark, FACE_IDXS)
++        last_face = face
++    else:
++        face = last_face if last_face is not None else np.zeros(len(FACE_IDXS) * 3, dtype=np.float32)
++
++    if results.pose_landmarks:
++        pose = flatten_landmarks(results.pose_landmarks.landmark, POSE_IDXS)
++        last_pose = pose
++    else:
++        pose = last_pose if last_pose is not None else np.zeros(len(POSE_IDXS) * 3, dtype=np.float32)
++
++    distances = hand_face_distances(
++        left_hand,
++        left_present,
++        right_hand,
++        right_present,
++        results.face_landmarks,
++    )
++
++    feature = np.concatenate([lh, rh, face, pose, distances]).astype(np.float32)
++    if feature.shape[0] != INPUT_DIM:
++        raise ValueError(f"Unexpected feature dim: {feature.shape[0]} != {INPUT_DIM}")
++
++    return feature, last_pose, last_face
++
++
++def read_key(delay=20):
++    return cv2.waitKey(delay) & 0xFF
++
++
++def is_start_key(key):
++    return key in (ord("s"), ord("S"), 13, 32)
++
++
++def is_quit_key(key):
++    return key in (ord("q"), ord("Q"), 27)
++
++
++def draw_landmark_list(frame, landmark_list, connections):
++    if landmark_list:
++        mp_drawing.draw_landmarks(frame, landmark_list, connections)
++
++
++def draw_mirrored_landmarks(frame, landmark_list, connections):
++    if not landmark_list:
++        return
++
++    mirrored = type(landmark_list)()
++    mirrored.landmark.extend(landmark_list.landmark)
++    for lm in mirrored.landmark:
++        lm.x = 1.0 - lm.x
++
++    mp_drawing.draw_landmarks(frame, mirrored, connections)
++
++
++def draw_landmarks(frame, results, mirror=False):
++    draw_fn = draw_mirrored_landmarks if mirror else draw_landmark_list
++    draw_fn(frame, results.pose_landmarks, mp_holistic.POSE_CONNECTIONS)
++    draw_fn(frame, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
++    draw_fn(frame, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
++
++
++def make_display_frame(frame, results):
++    if not DISPLAY_MIRROR_MODE:
++        display = frame.copy()
++        draw_landmarks(display, results, mirror=False)
++        return display
++
++    display = cv2.flip(frame, 1)
++    draw_landmarks(display, results, mirror=True)
++    return display
++
++
++def get_korean_font(size=28):
++    for font_name in ("malgun.ttf", "malgunbd.ttf", "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"):
++        try:
++            return ImageFont.truetype(font_name, size)
++        except Exception:
++            continue
++    return ImageFont.load_default()
++
++
++def draw_text(frame, lines):
++    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
++    draw = ImageDraw.Draw(image)
++    font = get_korean_font(28)
++
++    y = 24
++    for line in lines:
++        draw.text((20, y), line, font=font, fill=(0, 255, 0))
++        y += 34
++
++    frame[:] = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
++
++
++def countdown(cap, holistic, title_lines, seconds=COUNTDOWN_SECONDS):
++    for sec in seconds:
++        end_time = time.time() + 1.0
++        while time.time() < end_time:
++            ok, frame = cap.read()
++            if not ok:
++                continue
++
++            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
++            results = holistic.process(rgb)
++            display = make_display_frame(frame, results)
++            draw_text(display, title_lines)
++            cv2.putText(
++                display,
++                str(sec),
++                (display.shape[1] // 2 - 30, display.shape[0] // 2),
++                cv2.FONT_HERSHEY_SIMPLEX,
++                3.0,
++                (0, 255, 255),
++                5,
++            )
++            cv2.imshow(WINDOW_NAME, display)
++            if is_quit_key(read_key(20)):
++                raise SystemExit
++
++
++def wait_for_initial_start(cap, holistic, participant_id, selected_targets):
++    title_lines = [
++        "V5 수어 데이터 수집",
++        f"참가자: {participant_id}",
++        f"수집 variant 수: {len(selected_targets)} | variant당 촬영: {len(ORIENTATION_PLAN)}",
++        "상반신 전체, 얼굴, 양손이 화면에 들어오게 맞춰주세요.",
++        "S / Enter / Space: 자동 진행, Q: 종료",
++    ]
++    while True:
++        ok, frame = cap.read()
++        if not ok:
++            continue
++
++        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
++        results = holistic.process(rgb)
++        display = make_display_frame(frame, results)
++        draw_text(display, title_lines)
++        cv2.imshow(WINDOW_NAME, display)
++
++        key = read_key(20)
++        if is_start_key(key):
++            return
++        if is_quit_key(key):
++            raise SystemExit
++
++
++def wait_for_target_start(cap, holistic, participant_id, class_name, variant_name, target_idx, total_targets):
++    title_lines = [
++        "다음 수집 대상 준비",
++        f"참가자: {participant_id}",
++        f"대상: {target_idx}/{total_targets} - {class_name} / {variant_name}",
++        f"촬영 방향: {ORIENTATION_PLAN}",
++        "자세를 맞춘 뒤 S / Enter / Space를 누르면 이 대상 촬영을 시작합니다.",
++        "Q: 종료",
++    ]
++    while True:
++        ok, frame = cap.read()
++        if not ok:
++            continue
++
++        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
++        results = holistic.process(rgb)
++        display = make_display_frame(frame, results)
++        draw_text(display, title_lines)
++        cv2.imshow(WINDOW_NAME, display)
++
++        key = read_key(20)
++        if is_start_key(key):
++            return
++        if is_quit_key(key):
++            raise SystemExit
++
++
++def capture_sequence(cap, holistic, participant_id, class_name, variant_name, orient, sample_no, take_idx, total_takes):
++    title_lines = [
++        f"다음 동작: {variant_name}",
++        f"저장 라벨: {class_name} / {variant_name}",
++        f"참가자: {participant_id} | 촬영: {take_idx}/{total_takes} | 방향: {orient}",
++        "4초 카운트다운 후 자동 시작. Q 종료.",
++    ]
++
++    countdown(cap, holistic, title_lines)
++
++    sequence = []
++    last_pose = None
++    last_face = None
++
++    while len(sequence) < SEQ_LEN:
++        ok, frame = cap.read()
++        if not ok:
++            continue
++
++        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
++        results = holistic.process(rgb)
++        keypoints, last_pose, last_face = extract_keypoints(results, last_pose, last_face)
++        sequence.append(keypoints)
++
++        display = make_display_frame(frame, results)
++        draw_text(
++            display,
++            [
++                f"촬영 중: {len(sequence)}/{SEQ_LEN}",
++                f"{class_name} / {variant_name} / {orient}",
++                "상반신 전체와 손 이동 방향이 잘 보이게 유지해주세요.",
++            ],
++        )
++        cv2.imshow(WINDOW_NAME, display)
++
++        if is_quit_key(read_key(1)):
++            raise SystemExit
++
++    data = np.array(sequence, dtype=np.float32)
++    if data.ndim != 2 or data.shape[1] != INPUT_DIM:
++        raise ValueError(f"Unexpected sequence shape: {data.shape}")
++    return data
++
++
++def next_index(output_dir, participant_id, class_name, variant_name):
++    output_dir.mkdir(parents=True, exist_ok=True)
++    prefix = f"{class_name}_{variant_name}_{participant_id}_"
++    indices = []
++
++    for path in output_dir.glob(f"{prefix}*.npy"):
++        stem = path.stem
++        parts = stem.split("_")
++        if len(parts) >= 5 and parts[-2].isdigit():
++            indices.append(int(parts[-2]))
++
++    return max(indices) + 1 if indices else 1
++
++
++def all_collection_targets():
++    targets = []
++    for class_name, variants in COLLECTION_TARGETS.items():
++        for variant_name in variants:
++            targets.append((class_name, variant_name))
++    return targets
++
++
++def choose_targets():
++    targets = all_collection_targets()
++    print("\nV5 collection targets")
++    for idx, (class_name, variant_name) in enumerate(targets, start=1):
++        print(f"{idx}. {class_name} / {variant_name}")
++    print("a. All targets")
++
++    while True:
++        raw = input("Select target numbers separated by comma, or 'a' for all: ").strip().lower()
++        if raw == "a":
++            return targets
++
++        selected = []
++        try:
++            for token in raw.split(","):
++                idx = int(token.strip())
++                if not 1 <= idx <= len(targets):
++                    raise ValueError
++                selected.append(targets[idx - 1])
++        except ValueError:
++            print("Invalid input. Example: 1,2 or a")
++            continue
++
++        if selected:
++            return selected
++
++
++def main():
++    participant_id = slugify(input("Participant ID (example: p01): "))
++    selected_targets = choose_targets()
++
++    print("\nCollection plan")
++    print(f"- output root: {OUTPUT_ROOT}")
++    print(f"- participant: {participant_id}")
++    print(f"- sequence length: {SEQ_LEN}")
++    print(f"- feature dim: {INPUT_DIM}")
++    print(f"- views per target: {ORIENTATION_PLAN}")
++    print(f"- selected targets: {selected_targets}")
++    print("\nTip: each participant can run all targets once or twice for stronger coverage.")
++
++    cap = cv2.VideoCapture(0)
++    if not cap.isOpened():
++        raise RuntimeError("Cannot open webcam.")
++
++    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
++    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
++
++    try:
++        with mp_holistic.Holistic(
++            static_image_mode=False,
++            min_detection_confidence=0.5,
++            min_tracking_confidence=0.5,
++        ) as holistic:
++            wait_for_initial_start(cap, holistic, participant_id, selected_targets)
++
++            total_takes = len(selected_targets) * len(ORIENTATION_PLAN)
++            current_take = 0
++
++            for target_idx, (class_name, variant_name) in enumerate(selected_targets, start=1):
++                wait_for_target_start(
++                    cap,
++                    holistic,
++                    participant_id,
++                    class_name,
++                    variant_name,
++                    target_idx,
++                    len(selected_targets),
++                )
++
++                output_dir = OUTPUT_ROOT / class_name / variant_name
++                start_idx = next_index(output_dir, participant_id, class_name, variant_name)
++
++                for offset, orient in enumerate(ORIENTATION_PLAN):
++                    current_take += 1
++                    sample_no = start_idx + offset
++                    data = capture_sequence(
++                        cap,
++                        holistic,
++                        participant_id,
++                        class_name,
++                        variant_name,
++                        orient,
++                        sample_no,
++                        current_take,
++                        total_takes,
++                    )
++                    save_path = (
++                        output_dir
++                        / f"{class_name}_{variant_name}_{participant_id}_{sample_no:03d}_{orient}.npy"
++                    )
++                    np.save(save_path, data)
++                    print(f"saved: {save_path} shape={data.shape}")
++
++    finally:
++        cap.release()
++        cv2.destroyAllWindows()
++
++
++if __name__ == "__main__":
++    main()
+
+
+diff --git a/ai/src/sign2text_tcn/convert_to_tflite.py b/ai/src/sign2text_tcn/convert_to_tflite.py
+--- /dev/null
++++ b/ai/src/sign2text_tcn/convert_to_tflite.py
+@@ -0,0 +1,375 @@
++import argparse
++import json
++import os
++import shutil
++import subprocess
++import sys
++from pathlib import Path
++
++import numpy as np
++import torch
++import torch.onnx
++
++try:
++    import onnx
++    try:
++        import onnx.mapping
++    except ImportError:
++        from onnx import _mapping as mapping
++        onnx.mapping = mapping
++except ImportError:
++    onnx = None
++
++from model import build_ksl_model_v6
++
++
++SCRIPT_DIR = Path(__file__).resolve().parent
++MODELS_ROOT = SCRIPT_DIR / "models"
++DEFAULT_MODEL_DIR_NAMES = [
++    "v6_24words_mlp_1",
++    "v6_24words_mlp",
++    "v6_24words_transformer_1",
++    "v6_24words_transformer",
++    "v6_24words_transformer_baseline",
++    "attempt1_v6_24words_baseline",
++]
++DEFAULT_MODEL_DIR = MODELS_ROOT / DEFAULT_MODEL_DIR_NAMES[0]
++
++INPUT_DIM = 332
++SEQ_LEN = 30
++D_MODEL = 128
++NUM_HEADS = 8
++NUM_LAYERS = 3
++
++
++class SoftmaxWrapper(torch.nn.Module):
++    def __init__(self, core_model):
++        super().__init__()
++        self.core_model = core_model
++
++    def forward(self, x):
++        # Mobile inference consumes probabilities directly.
++        return self.core_model(x, lengths=None, return_probs=True)
++
++
++def load_num_classes(label_map_path):
++    with open(label_map_path, "r", encoding="utf-8") as f:
++        label_map = json.load(f)
++    if isinstance(label_map, dict) and "classes" in label_map:
++        return len(label_map["classes"])
++    return len(label_map)
++
++
++def resolve_model_dir(model_dir=None):
++    if model_dir:
++        path = Path(model_dir)
++        if path.is_absolute():
++            return path
++        if path.exists():
++            return path.resolve()
++        return MODELS_ROOT / path
++
++    for dirname in DEFAULT_MODEL_DIR_NAMES:
++        candidate = MODELS_ROOT / dirname
++        if candidate.exists():
++            return candidate
++
++    numbered_dirs = [
++        path for path in MODELS_ROOT.glob("v6_24words_*_*")
++        if path.is_dir() and path.name.rsplit("_", 1)[-1].isdigit()
++    ]
++    if numbered_dirs:
++        return sorted(numbered_dirs, key=lambda path: int(path.name.rsplit("_", 1)[-1]))[-1]
++
++    return DEFAULT_MODEL_DIR
++
++
++def find_latest_numbered_pair(model_dir):
++    pairs = []
++
++    for model_prefix, label_prefix, config_prefix in (
++        ("best_sign_model_v6_", "label_map_v6_", "train_config_v6_"),
++        ("best_sign_model_v5_", "label_map_v5_", "train_config_v5_"),
++    ):
++        for model_path in model_dir.glob(f"{model_prefix}*.pt"):
++            suffix = model_path.stem.replace(model_prefix, "")
++            if not suffix.isdigit():
++                continue
++
++            label_map_path = model_dir / f"{label_prefix}{suffix}.json"
++            if label_map_path.exists():
++                pairs.append((int(suffix), model_path, label_map_path))
++                continue
++
++            config_path = model_dir / f"{config_prefix}{suffix}.json"
++            if config_path.exists():
++                pairs.append((int(suffix), model_path, config_path))
++
++    for legacy_model_name, legacy_label_name in (
++        ("best_sign_model_v6.pt", "label_map_v6.json"),
++        ("best_sign_model_v5.pt", "label_map_v5.json"),
++    ):
++        legacy_model_path = model_dir / legacy_model_name
++        legacy_label_map_path = model_dir / legacy_label_name
++        if legacy_model_path.exists() and legacy_label_map_path.exists():
++            pairs.append((0, legacy_model_path, legacy_label_map_path))
++
++    if not pairs:
++        return None, None, None
++
++    suffix, model_path, label_map_path = sorted(pairs, key=lambda item: item[0])[-1]
++    return suffix, model_path, label_map_path
++
++
++def load_train_config(model_path):
++    config_path = model_path.parent / "train_config_v6.json"
++    if not config_path.exists():
++        return {}
++    with config_path.open("r", encoding="utf-8") as f:
++        return json.load(f)
++
++
++def load_model(model_path, num_classes):
++    config = load_train_config(model_path)
++    model = build_ksl_model_v6(
++        model_type=config.get("model_type", "transformer"),
++        input_dim=INPUT_DIM,
++        num_classes=num_classes,
++        seq_len=SEQ_LEN,
++        d_model=D_MODEL,
++        num_heads=NUM_HEADS,
++        num_layers=NUM_LAYERS,
++    )
++    try:
++        state_dict = torch.load(model_path, map_location="cpu", weights_only=True)
++    except TypeError:
++        state_dict = torch.load(model_path, map_location="cpu")
++    model.load_state_dict(state_dict)
++    model.eval()
++    return model
++
++
++def export_onnx(export_model, onnx_path):
++    dummy_input = torch.randn(1, SEQ_LEN, INPUT_DIM, dtype=torch.float32)
++
++    print(f"[1/4] Export PyTorch -> ONNX: {onnx_path}")
++    torch.onnx.export(
++        export_model,
++        dummy_input,
++        onnx_path,
++        input_names=["input"],
++        output_names=["output"],
++        # Keep batch/sequence fixed for mobile. This avoids extra transpose/reshape surprises.
++        dynamic_axes=None,
++        opset_version=17,
++    )
++    return dummy_input
++
++
++def write_patched_onnx2tf_runner(runner_path):
++    patch_code = """
++import sys
++import numpy as np
++import onnx
++
++if not hasattr(onnx, "mapping"):
++    class MockMapping:
++        pass
++    onnx.mapping = MockMapping()
++
++if not hasattr(onnx.mapping, "TENSOR_TYPE_TO_NP_TYPE"):
++    onnx.mapping.TENSOR_TYPE_TO_NP_TYPE = {
++        1: np.dtype("float32"), 2: np.dtype("uint8"), 3: np.dtype("int8"),
++        4: np.dtype("uint16"), 5: np.dtype("int16"), 6: np.dtype("int32"),
++        7: np.dtype("int64"), 8: np.dtype("object"), 9: np.dtype("bool"),
++        10: np.dtype("float16"), 11: np.dtype("double"), 12: np.dtype("uint32"),
++        13: np.dtype("uint64"), 14: np.dtype("complex64"), 15: np.dtype("complex128"),
++        16: np.dtype("float32"),
++    }
++
++from onnx2tf import main
++
++sys.argv = ["onnx2tf"] + sys.argv[1:]
++main()
++"""
++    runner_path.write_text(patch_code, encoding="utf-8")
++
++
++def convert_onnx_to_saved_model(onnx_path, saved_model_dir):
++    runner_path = SCRIPT_DIR / "patched_onnx2tf_v5.py"
++    write_patched_onnx2tf_runner(runner_path)
++
++    if saved_model_dir.exists():
++        shutil.rmtree(saved_model_dir)
++
++    print(f"[2/4] Convert ONNX -> TensorFlow SavedModel: {saved_model_dir}")
++    command = [
++        sys.executable,
++        str(runner_path),
++        "-i",
++        str(onnx_path),
++        "-o",
++        str(saved_model_dir),
++        "-ois",
++        f"input:1,{SEQ_LEN},{INPUT_DIM}",
++        "-kt",
++        "input",
++    ]
++
++    try:
++        subprocess.run(command, check=True)
++    finally:
++        if runner_path.exists():
++            runner_path.unlink()
++
++
++def convert_saved_model_to_tflite(saved_model_dir, tflite_path, quantization="float32"):
++    import tensorflow as tf
++
++    print(f"[3/4] Convert SavedModel -> TFLite {quantization}: {tflite_path}")
++    converter = tf.lite.TFLiteConverter.from_saved_model(str(saved_model_dir))
++    if quantization == "float32":
++        converter.optimizations = []
++    elif quantization == "float16":
++        converter.optimizations = [tf.lite.Optimize.DEFAULT]
++        converter.target_spec.supported_types = [tf.float16]
++    else:
++        raise ValueError(f"Unsupported quantization mode: {quantization}")
++    tflite_model = converter.convert()
++    tflite_path.write_bytes(tflite_model)
++
++
++def compare_outputs(export_model, dummy_input, onnx_path, tflite_paths):
++    print("[4/4] Compare PyTorch / ONNX / TFLite outputs")
++    with torch.no_grad():
++        torch_output = export_model(dummy_input).cpu().numpy()
++
++    try:
++        import onnxruntime as ort
++
++        ort_session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
++        onnx_output = ort_session.run(None, {"input": dummy_input.numpy()})[0]
++        print(f"- PyTorch vs ONNX max_abs_diff: {np.max(np.abs(torch_output - onnx_output)):.8f}")
++    except ImportError:
++        print("- Skip ONNXRuntime check: onnxruntime is not installed.")
++
++    try:
++        import tensorflow as tf
++
++        for label, tflite_path in tflite_paths:
++            interpreter = tf.lite.Interpreter(model_path=str(tflite_path))
++            interpreter.allocate_tensors()
++            input_details = interpreter.get_input_details()
++            output_details = interpreter.get_output_details()
++            interpreter.set_tensor(input_details[0]["index"], dummy_input.numpy().astype(np.float32))
++            interpreter.invoke()
++            tflite_output = interpreter.get_tensor(output_details[0]["index"])
++            print(
++                f"- PyTorch vs TFLite {label} max_abs_diff: "
++                f"{np.max(np.abs(torch_output - tflite_output)):.8f}"
++            )
++            print(f"  input shape: {input_details[0]['shape']}, dtype={input_details[0]['dtype']}")
++            print(f"  output shape: {output_details[0]['shape']}, dtype={output_details[0]['dtype']}")
++    except ImportError:
++        print("- Skip TFLite check: tensorflow is not installed.")
++
++
++def convert_pt_to_tflite(
++    model_path,
++    label_map_path,
++    onnx_path,
++    tflite_path,
++    quantization="both",
++    keep_saved_model=False,
++):
++    if onnx is None:
++        raise RuntimeError("onnx is not installed. Install onnx before conversion.")
++
++    model_path = Path(model_path)
++    label_map_path = Path(label_map_path)
++    onnx_path = Path(onnx_path)
++    tflite_path = Path(tflite_path)
++    saved_model_dir = tflite_path.parent / "tflite_saved_model"
++
++    if not model_path.exists():
++        raise FileNotFoundError(f"Model file not found: {model_path}")
++    if not label_map_path.exists():
++        raise FileNotFoundError(f"Label map file not found: {label_map_path}")
++
++    num_classes = load_num_classes(label_map_path)
++    print(f"Detected classes from label map: {num_classes}")
++    print(f"Input shape: [1, {SEQ_LEN}, {INPUT_DIM}]")
++
++    model = load_model(model_path, num_classes)
++    export_model = SoftmaxWrapper(model).eval()
++
++    onnx_path.parent.mkdir(parents=True, exist_ok=True)
++    tflite_path.parent.mkdir(parents=True, exist_ok=True)
++
++    dummy_input = export_onnx(export_model, onnx_path)
++    convert_onnx_to_saved_model(onnx_path, saved_model_dir)
++
++    generated_tflites = []
++    if quantization in ("float32", "both"):
++        float32_path = tflite_path if quantization == "float32" else tflite_path.with_name(f"{tflite_path.stem}_float32.tflite")
++        convert_saved_model_to_tflite(saved_model_dir, float32_path, quantization="float32")
++        generated_tflites.append(("float32", float32_path))
++
++    if quantization in ("float16", "both"):
++        float16_path = tflite_path if quantization == "float16" else tflite_path.with_name(f"{tflite_path.stem}_float16.tflite")
++        convert_saved_model_to_tflite(saved_model_dir, float16_path, quantization="float16")
++        generated_tflites.append(("float16", float16_path))
++
++    compare_outputs(export_model, dummy_input, onnx_path, generated_tflites)
++
++    if not keep_saved_model and saved_model_dir.exists():
++        shutil.rmtree(saved_model_dir)
++
++    print("\nConversion complete.")
++    print(f"- ONNX: {onnx_path}")
++    for label, generated_path in generated_tflites:
++        print(f"- TFLite {label}: {generated_path} ({generated_path.stat().st_size / 1024 / 1024:.2f} MB)")
++    print(f"- Label map: {label_map_path}")
++
++
++def parse_args():
++    parser = argparse.ArgumentParser(description="Convert V6 PyTorch model to TFLite.")
++    parser.add_argument("--model-dir", default=None, help="Model directory name/path. Defaults to the V6 24-word model.")
++    parser.add_argument("--model", default=None, help="Path to .pt model. Defaults to latest numbered V6 model.")
++    parser.add_argument("--label-map", default=None, help="Path to label_map_v6_*.json. Defaults to matching latest model.")
++    parser.add_argument("--onnx", default=None, help="Output .onnx path")
++    parser.add_argument("--tflite", default=None, help="Output .tflite base path")
++    parser.add_argument(
++        "--quantization",
++        choices=("float32", "float16", "both"),
++        default="both",
++        help="TFLite output type. Use 'both' to create float32 and float16 files.",
++    )
++    parser.add_argument("--keep-saved-model", action="store_true", help="Keep intermediate TensorFlow SavedModel")
++    return parser.parse_args()
++
++
++if __name__ == "__main__":
++    args = parse_args()
++    model_dir = resolve_model_dir(args.model_dir)
++    latest_suffix, latest_model_path, latest_label_map_path = find_latest_numbered_pair(model_dir)
++
++    model_path = Path(args.model) if args.model else latest_model_path
++    label_map_path = Path(args.label_map) if args.label_map else latest_label_map_path
++
++    if model_path is None or label_map_path is None:
++        model_path = model_dir / "best_sign_model_v6.pt"
++        label_map_path = model_dir / "label_map_v6.json"
++
++    output_stem = model_path.stem if model_path is not None else "best_sign_model_v6"
++    onnx_path = Path(args.onnx) if args.onnx else model_dir / f"{output_stem}.onnx"
++    tflite_path = Path(args.tflite) if args.tflite else model_dir / f"{output_stem}.tflite"
++
++    convert_pt_to_tflite(
++        model_path=model_path,
++        label_map_path=label_map_path,
++        onnx_path=onnx_path,
++        tflite_path=tflite_path,
++        quantization=args.quantization,
++        keep_saved_model=args.keep_saved_model,
++    )
+
+
+diff --git a/ai/src/sign2text_tcn/dataset.py b/ai/src/sign2text_tcn/dataset.py
+--- /dev/null
++++ b/ai/src/sign2text_tcn/dataset.py
+@@ -0,0 +1,488 @@
++import os
++import random
++from glob import glob
++
++import numpy as np
++import torch
++from sklearn.model_selection import train_test_split
++from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
++
++from target_words_v6 import TARGET_WORDS
++
++TARGET_CLASSES = TARGET_WORDS
++TARGET_VARIANTS = {}
++MAX_FILES_PER_CLASS_VALUE = int(os.environ.get("V6_MAX_FILES_PER_CLASS", "0"))
++MAX_FILES_PER_CLASS = (
++    {class_name: MAX_FILES_PER_CLASS_VALUE for class_name in TARGET_CLASSES}
++    if MAX_FILES_PER_CLASS_VALUE > 0
++    else {}
++)
++TARGET_SAMPLES_PER_CLASS = int(os.environ.get("V6_TARGET_SAMPLES_PER_CLASS", "120"))
++USE_AUGMENTATION = os.environ.get("V6_USE_AUGMENTATION", "1") == "1"
++NORMALIZE_MODE = os.environ.get("V6_NORMALIZE_MODE", "none").strip().lower()
++AUGMENT_SEED = 2026
++NOISE_STD = float(os.environ.get("V6_AUG_NOISE_STD", "0.005"))
++TIME_SCALE_RANGE = (
++    float(os.environ.get("V6_AUG_TIME_SCALE_MIN", "0.95")),
++    float(os.environ.get("V6_AUG_TIME_SCALE_MAX", "1.05")),
++)
++TIME_SHIFT_RANGE = (-2, 2)
++FILE_SAMPLE_SEED = 42
++PRIORITY_FILE_KEYWORDS = tuple(
++    keyword.strip()
++    for keyword in os.environ.get(
++        "V6_PRIORITY_FILE_KEYWORDS",
++        os.environ.get("V5_PRIORITY_FILE_KEYWORDS", "_FRONT,_LEFT,_RIGHT"),
++    ).split(",")
++    if keyword.strip()
++)
++INPUT_DIM = 332
++LANDMARK_DIM = 282
++DISTANCE_DIM = 50
++LEFT_SHOULDER_IDX = 90
++RIGHT_SHOULDER_IDX = 91
++MIN_NONZERO_RATIO = 0.01
++
++
++class KSLDatasetV6(Dataset):
++    def __init__(self, data_list, labels, max_len=30, input_dim=INPUT_DIM):
++        self.data_list = data_list
++        self.labels = labels
++        self.max_len = max_len
++        self.input_dim = input_dim
++
++    def __len__(self):
++        return len(self.data_list)
++
++    def __getitem__(self, idx):
++        item = self.data_list[idx]
++        label = self.labels[idx]
++        if isinstance(item, dict):
++            file_path = item["path"]
++            augment = item.get("augment", False)
++            augment_seed = item.get("seed", idx)
++        else:
++            file_path = item
++            augment = False
++            augment_seed = idx
++
++        data = np.load(file_path)
++        if augment:
++            data = self.augment_sequence(data, augment_seed)
++        data = self.normalize_features(data)
++        padded_data, valid_length = self.adjust_sequence_length(data)
++
++        padded_data = np.array(padded_data, dtype=np.float32).copy()
++        return (
++            torch.from_numpy(padded_data).float(),
++            torch.tensor(label, dtype=torch.long),
++            torch.tensor(valid_length, dtype=torch.long),
++        )
++
++    def augment_sequence(self, data, seed):
++        if data.ndim != 2 or data.shape[0] < 2 or data.shape[1] != self.input_dim:
++            return data
++
++        rng = np.random.default_rng(seed)
++        augmented = np.array(data, dtype=np.float32).copy()
++        augmented = self.temporal_resample(augmented, float(rng.uniform(*TIME_SCALE_RANGE)))
++
++        shift = int(rng.integers(TIME_SHIFT_RANGE[0], TIME_SHIFT_RANGE[1] + 1))
++        if shift > 0:
++            augmented = np.vstack([np.repeat(augmented[:1], shift, axis=0), augmented[:-shift]])
++        elif shift < 0:
++            shift_abs = abs(shift)
++            augmented = np.vstack([augmented[shift_abs:], np.repeat(augmented[-1:], shift_abs, axis=0)])
++
++        noise = rng.normal(0.0, NOISE_STD, size=augmented.shape).astype(np.float32)
++        return (augmented + noise).astype(np.float32)
++
++    def temporal_resample(self, data, scale):
++        frames = data.shape[0]
++        scaled_frames = max(2, int(round(frames * scale)))
++        src_positions = np.linspace(0, frames - 1, scaled_frames)
++        scaled = np.zeros((scaled_frames, self.input_dim), dtype=np.float32)
++
++        for i, pos in enumerate(src_positions):
++            low = int(np.floor(pos))
++            high = int(np.ceil(pos))
++            weight = pos - low
++            if low == high:
++                scaled[i] = data[low]
++            else:
++                scaled[i] = data[low] * (1 - weight) + data[high] * weight
++
++        target_positions = np.linspace(0, scaled_frames - 1, frames)
++        restored = np.zeros((frames, self.input_dim), dtype=np.float32)
++        for i, pos in enumerate(target_positions):
++            low = int(np.floor(pos))
++            high = int(np.ceil(pos))
++            weight = pos - low
++            if low == high:
++                restored[i] = scaled[low]
++            else:
++                restored[i] = scaled[low] * (1 - weight) + scaled[high] * weight
++
++        return restored
++
++    def normalize_features(self, data):
++        """
++        Feature layout:
++        - first 282 dims: 94 landmark points x (x, y, z)
++        - last 50 dims: hand-tip to face-anchor distances
++        """
++        if len(data) == 0:
++            return data
++
++        if data.ndim != 2 or data.shape[1] != self.input_dim:
++            return np.zeros((0, self.input_dim), dtype=np.float32)
++
++        data = np.array(data, dtype=np.float32)
++        if NORMALIZE_MODE in ("none", "raw", "off"):
++            return data
++        if NORMALIZE_MODE in ("sequence", "sequence_zscore", "zscore"):
++            mean = data.mean(axis=0, keepdims=True)
++            std = data.std(axis=0, keepdims=True)
++            return ((data - mean) / np.maximum(std, 1e-6)).astype(np.float32)
++        if NORMALIZE_MODE != "shoulder":
++            raise ValueError(
++                f"Unsupported V6_NORMALIZE_MODE={NORMALIZE_MODE}. "
++                "Use one of: none, sequence_zscore, shoulder."
++            )
++
++        normalized_data = np.zeros_like(data, dtype=np.float32)
++
++        for i in range(data.shape[0]):
++            frame = data[i]
++            landmarks = frame[:LANDMARK_DIM].reshape(-1, 3)
++            distances = frame[LANDMARK_DIM:]
++
++            l_shoulder = landmarks[LEFT_SHOULDER_IDX]
++            r_shoulder = landmarks[RIGHT_SHOULDER_IDX]
++
++            shoulder_center = (l_shoulder + r_shoulder) / 2.0
++            shoulder_width = np.linalg.norm(l_shoulder - r_shoulder)
++            if shoulder_width < 1e-6:
++                shoulder_width = 1.0
++
++            normalized_landmarks = (landmarks - shoulder_center) / shoulder_width
++            normalized_distances = distances / shoulder_width
++            normalized_data[i] = np.concatenate(
++                [normalized_landmarks.flatten(), normalized_distances],
++            )
++
++        return normalized_data
++
++    def adjust_sequence_length(self, data):
++        if len(data.shape) < 2 or data.shape[1] != self.input_dim:
++            return np.zeros((self.max_len, self.input_dim), dtype=np.float32), 0
++
++        frames = data.shape[0]
++        if frames == 0:
++            return np.zeros((self.max_len, self.input_dim), dtype=np.float32), 0
++
++        if frames == self.max_len:
++            return np.array(data, dtype=np.float32), self.max_len
++
++        if frames > self.max_len:
++            indices = np.linspace(0, frames - 1, self.max_len, dtype=int)
++            sampled = data[indices]
++            return np.array(sampled, dtype=np.float32), self.max_len
++
++        if frames < 15:
++            indices = np.linspace(0, frames - 1, self.max_len)
++            upsampled = np.zeros((self.max_len, self.input_dim), dtype=np.float32)
++
++            for i, float_idx in enumerate(indices):
++                low = int(np.floor(float_idx))
++                high = int(np.ceil(float_idx))
++                weight = float_idx - low
++
++                if low == high:
++                    upsampled[i] = data[low]
++                else:
++                    upsampled[i] = data[low] * (1 - weight) + data[high] * weight
++
++            return upsampled, self.max_len
++
++        pad_len = self.max_len - frames
++        last_frame = data[-1:]
++        padding = np.repeat(last_frame, pad_len, axis=0)
++        padded = np.vstack((data, padding))
++        return np.array(padded, dtype=np.float32), self.max_len
++
++
++# Backward-compatible alias for older helper scripts. New V6 training uses KSLDatasetV6.
++KSLDatasetV5 = KSLDatasetV6
++
++
++def _find_class_files(class_dir, allowed_variants=None):
++    # Variants are stored under the representative class.
++    if allowed_variants:
++        files = []
++        for variant_name in allowed_variants:
++            variant_dir = os.path.join(class_dir, variant_name)
++            files.extend(glob(os.path.join(variant_dir, "**", "*.npy"), recursive=True))
++        return sorted(files)
++
++    return sorted(glob(os.path.join(class_dir, "**", "*.npy"), recursive=True))
++
++
++def _is_usable_npy(file_path, input_dim=INPUT_DIM):
++    try:
++        data = np.load(file_path, mmap_mode="r")
++        if data.ndim != 2 or data.shape[1] != input_dim or data.shape[0] == 0:
++            return False, f"bad shape={tuple(data.shape)}"
++
++        sample = np.asarray(data[: min(len(data), 30)])
++        nonzero_ratio = float(np.count_nonzero(sample) / max(sample.size, 1))
++        if nonzero_ratio < MIN_NONZERO_RATIO:
++            return False, f"near-zero nonzero_ratio={nonzero_ratio:.4f}, shape={tuple(data.shape)}"
++
++        return True, None
++    except Exception as e:
++        return False, f"load error={e}"
++
++
++def _is_priority_file(file_path):
++    return any(keyword in os.path.basename(file_path) for keyword in PRIORITY_FILE_KEYWORDS)
++
++
++def _limit_files_for_class(class_name, files):
++    max_files = MAX_FILES_PER_CLASS.get(class_name)
++    if max_files is None or len(files) <= max_files:
++        return files
++
++    priority_files = [file_path for file_path in files if _is_priority_file(file_path)]
++    priority_file_set = set(priority_files)
++    remaining_files = [file_path for file_path in files if file_path not in priority_file_set]
++
++    rng = random.Random(FILE_SAMPLE_SEED)
++    rng.shuffle(priority_files)
++    rng.shuffle(remaining_files)
++
++    selected_files = priority_files[:max_files]
++    if len(selected_files) < max_files:
++        selected_files.extend(remaining_files[: max_files - len(selected_files)])
++
++    return sorted(selected_files)
++
++
++def _build_class_lists(
++    data_dir,
++    target_classes,
++    input_dim=INPUT_DIM,
++    validate_files=True,
++    target_variants=None,
++):
++    classes = []
++    all_files = []
++    all_labels = []
++    class_counts = {}
++    variant_counts = {}
++    skipped_files = []
++
++    for class_name in target_classes:
++        class_dir = os.path.join(data_dir, class_name)
++        if not os.path.isdir(class_dir):
++            continue
++
++        allowed_variants = target_variants.get(class_name) if target_variants else None
++        candidate_files = _find_class_files(class_dir, allowed_variants=allowed_variants)
++        files = []
++        for file_path in candidate_files:
++            if not validate_files:
++                files.append(file_path)
++                continue
++
++            is_usable, reason = _is_usable_npy(file_path, input_dim=input_dim)
++            if is_usable:
++                files.append(file_path)
++            else:
++                skipped_files.append((file_path, reason))
++
++        if not files:
++            continue
++
++        files = _limit_files_for_class(class_name, files)
++
++        label_idx = len(classes)
++        classes.append(class_name)
++        class_counts[class_name] = len(files)
++        all_files.extend(files)
++        all_labels.extend([label_idx] * len(files))
++
++        for file_path in files:
++            rel_path = os.path.relpath(file_path, class_dir)
++            variant_name = rel_path.split(os.sep)[0] if os.sep in rel_path else class_name
++            variant_counts[f"{class_name}/{variant_name}"] = variant_counts.get(f"{class_name}/{variant_name}", 0) + 1
++
++    return classes, all_files, all_labels, class_counts, variant_counts, skipped_files
++
++
++def _can_stratify(labels, num_classes):
++    if len(labels) < num_classes * 2:
++        return False
++    label_counts = np.bincount(labels, minlength=num_classes)
++    return bool(np.all(label_counts >= 2))
++
++
++def _make_augmented_train_items(x_train, y_train, classes):
++    if not USE_AUGMENTATION:
++        return x_train, y_train, {}
++
++    rng = random.Random(AUGMENT_SEED)
++    train_items = list(x_train)
++    train_labels = list(y_train)
++    augmentation_counts = {}
++
++    for class_idx, class_name in enumerate(classes):
++        class_files = [path for path, label in zip(x_train, y_train) if label == class_idx]
++        if not class_files:
++            continue
++
++        current_count = len(class_files)
++        needed = max(0, TARGET_SAMPLES_PER_CLASS - current_count)
++        augmentation_counts[class_name] = needed
++
++        for aug_idx in range(needed):
++            source_path = class_files[aug_idx % len(class_files)]
++            train_items.append(
++                {
++                    "path": source_path,
++                    "augment": True,
++                    "seed": rng.randint(0, 2**31 - 1),
++                }
++            )
++            train_labels.append(class_idx)
++
++    return train_items, train_labels, augmentation_counts
++
++
++def create_dataloaders_v6(
++    data_dir,
++    batch_size=16,
++    max_len=30,
++    input_dim=INPUT_DIM,
++    target_classes=None,
++    val_ratio=0.2,
++    validate_files=True,
++    balanced_sampling=True,
++    target_variants=None,
++    num_workers=0,
++    pin_memory=False,
++    persistent_workers=False,
++):
++    target_classes = target_classes or TARGET_CLASSES
++    target_variants = TARGET_VARIANTS if target_variants is None else target_variants
++    classes, all_files, all_labels, class_counts, variant_counts, skipped_files = _build_class_lists(
++        data_dir,
++        target_classes,
++        input_dim=input_dim,
++        validate_files=validate_files,
++        target_variants=target_variants,
++    )
++
++    if not classes:
++        raise ValueError(f"No valid class directories found under: {data_dir}")
++
++    if len(classes) < 2:
++        raise ValueError("At least two classes are required for training.")
++
++    if len(all_files) != len(all_labels):
++        raise ValueError("File list and label list are misaligned.")
++
++    label_counts = np.bincount(all_labels, minlength=len(classes))
++    class_weights = len(all_labels) / (len(classes) * (label_counts + 1e-6))
++    class_weights_tensor = torch.tensor(class_weights, dtype=torch.float32)
++
++    stratify = all_labels if _can_stratify(all_labels, len(classes)) else None
++    X_train, X_val, y_train, y_val = train_test_split(
++        all_files,
++        all_labels,
++        test_size=val_ratio,
++        random_state=42,
++        stratify=stratify,
++    )
++
++    X_train_items, y_train_items, augmentation_counts = _make_augmented_train_items(X_train, y_train, classes)
++
++    train_dataset = KSLDatasetV6(X_train_items, y_train_items, max_len=max_len, input_dim=input_dim)
++    val_dataset = KSLDatasetV6(X_val, y_val, max_len=max_len, input_dim=input_dim)
++
++    train_sampler = None
++    train_shuffle = True
++    if balanced_sampling:
++        train_label_counts = np.bincount(y_train_items, minlength=len(classes))
++        sample_weights = [1.0 / max(train_label_counts[label], 1) for label in y_train_items]
++        train_sampler = WeightedRandomSampler(
++            weights=torch.tensor(sample_weights, dtype=torch.double),
++            num_samples=len(y_train_items),
++            replacement=True,
++        )
++        train_shuffle = False
++
++    use_persistent_workers = persistent_workers and num_workers > 0
++    loader_kwargs = {
++        "num_workers": num_workers,
++        "pin_memory": pin_memory,
++    }
++    if num_workers > 0:
++        loader_kwargs["persistent_workers"] = use_persistent_workers
++
++    train_loader = DataLoader(
++        train_dataset,
++        batch_size=batch_size,
++        shuffle=train_shuffle,
++        sampler=train_sampler,
++        **loader_kwargs,
++    )
++    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, **loader_kwargs)
++
++    train_label_counts = np.bincount(y_train_items, minlength=len(classes))
++    val_label_counts = np.bincount(y_val, minlength=len(classes))
++    priority_file_counts = {
++        class_name: sum(1 for file_path, label in zip(all_files, all_labels) if label == idx and _is_priority_file(file_path))
++        for idx, class_name in enumerate(classes)
++    }
++
++    stats = {
++        "class_counts": class_counts,
++        "variant_counts": variant_counts,
++        "priority_file_keywords": PRIORITY_FILE_KEYWORDS,
++        "priority_file_counts": priority_file_counts,
++        "train_class_counts": {classes[idx]: int(train_label_counts[idx]) for idx in range(len(classes))},
++        "val_class_counts": {classes[idx]: int(val_label_counts[idx]) for idx in range(len(classes))},
++        "train_size": len(X_train_items),
++        "original_train_size": len(X_train),
++        "val_size": len(X_val),
++        "total_size": len(X_train_items) + len(X_val),
++        "original_total_size": len(all_files),
++        "stratified_split": stratify is not None,
++        "skipped_files": skipped_files,
++        "balanced_sampling": balanced_sampling,
++        "target_variants": target_variants,
++        "max_files_per_class": MAX_FILES_PER_CLASS,
++        "file_sample_seed": FILE_SAMPLE_SEED,
++        "use_augmentation": USE_AUGMENTATION,
++        "normalize_mode": NORMALIZE_MODE,
++        "target_samples_per_class": TARGET_SAMPLES_PER_CLASS,
++        "augmentation_counts": augmentation_counts,
++        "augmentation": {
++            "seed": AUGMENT_SEED,
++            "noise_std": NOISE_STD,
++            "time_scale_range": TIME_SCALE_RANGE,
++            "time_shift_range": TIME_SHIFT_RANGE,
++        },
++        "dataloader": {
++            "num_workers": num_workers,
++            "pin_memory": pin_memory,
++            "persistent_workers": use_persistent_workers,
++        },
++    }
++
++    return train_loader, val_loader, classes, class_weights_tensor, stats
++
++
++# Backward-compatible alias for older scripts. Prefer create_dataloaders_v6 in new code.
++create_dataloaders_v5 = create_dataloaders_v6
+
+
+diff --git a/ai/src/sign2text_tcn/inference_realtime_tflite_v6.py b/ai/src/sign2text_tcn/inference_realtime_tflite_v6.py
+--- /dev/null
++++ b/ai/src/sign2text_tcn/inference_realtime_tflite_v6.py
+@@ -0,0 +1,410 @@
++import argparse
++import json
++import os
++import time
++from collections import Counter, deque
++from pathlib import Path
++
++import cv2
++import mediapipe as mp
++import numpy as np
++
++# TensorFlow Lite 사용 (모바일 환경 모사)
++try:
++    import tensorflow as tf
++except ImportError:
++    print("TensorFlow가 설치되어 있지 않습니다. pip install tensorflow 를 실행해주세요.")
++    exit(1)
++
++from PIL import Image, ImageDraw, ImageFont
++
++INPUT_DIM = 332
++LANDMARK_DIM = 282
++MAX_LEN = 30
++CONFIDENCE_THRESHOLD = 0.80
++PREDICTION_SMOOTHING = 5
++STABLE_MIN_COUNT = 4
++
++BASE_DIR = Path(__file__).resolve().parent / "models"
++DEFAULT_MODEL_DIR = "v6_24words_tcn_2"
++
++NEUTRAL_FACE_WINDOW = 45
++MIN_NEUTRAL_FACE_SAMPLES = 15
++QUESTION_EYEBROW_DELTA_THRESHOLD = 0.055
++
++LEFT_EYEBROW_IDXS = [70, 63, 105, 66]
++RIGHT_EYEBROW_IDXS = [336, 296, 334, 293]
++LEFT_EYE_CENTER_IDXS = [33, 133]
++RIGHT_EYE_CENTER_IDXS = [362, 263]
++
++BASE_FACE_IDXS = [
++    70, 63, 105, 66,
++    336, 296, 334, 293,
++    33, 160, 158, 133, 153, 144,
++    362, 385, 387, 263, 373, 380,
++    61, 146, 91, 181, 84, 17, 314, 405, 321, 375,
++]
++FACEPLUS_IDXS = [
++    1, 4,
++    152,
++    234, 454,
++    172, 397,
++    148, 377,
++    13, 14,
++    78, 308,
++    82, 312,
++]
++FACE_IDXS = BASE_FACE_IDXS + FACEPLUS_IDXS
++POSE_IDXS = [0, 7, 8, 11, 12, 13, 14]
++HAND_TIP_IDXS = [4, 8, 12, 16, 20]
++FACE_ANCHOR_IDXS = [1, 13, 152, 234, 454]
++
++LEFT_SHOULDER_IDX = 90
++RIGHT_SHOULDER_IDX = 91
++
++def resolve_from_base(path):
++    path = Path(path)
++    if path.is_absolute():
++        return path
++    return (BASE_DIR / path).resolve()
++
++def _flatten_landmarks(landmarks, idxs):
++    return np.array(
++        [[landmarks[idx].x, landmarks[idx].y, landmarks[idx].z] for idx in idxs],
++        dtype=np.float32,
++    ).flatten()
++
++def _hand_array(hand_landmarks):
++    if not hand_landmarks:
++        return np.zeros((21, 3), dtype=np.float32), False
++    points = np.array([[lm.x, lm.y, lm.z] for lm in hand_landmarks.landmark], dtype=np.float32)
++    return points, True
++
++def _hand_face_distances(left_hand, left_present, right_hand, right_present, face_landmarks):
++    if not face_landmarks:
++        return np.zeros(len(HAND_TIP_IDXS) * 2 * len(FACE_ANCHOR_IDXS), dtype=np.float32)
++
++    anchors = np.array(
++        [
++            [face_landmarks.landmark[idx].x, face_landmarks.landmark[idx].y, face_landmarks.landmark[idx].z]
++            for idx in FACE_ANCHOR_IDXS
++        ],
++        dtype=np.float32,
++    )
++
++    features = []
++    for hand_points, is_present in ((left_hand, left_present), (right_hand, right_present)):
++        if not is_present:
++            features.extend([0.0] * (len(HAND_TIP_IDXS) * len(FACE_ANCHOR_IDXS)))
++            continue
++
++        for tip_idx in HAND_TIP_IDXS:
++            tip = hand_points[tip_idx]
++            features.extend(np.linalg.norm(anchors - tip, axis=1).tolist())
++
++    return np.array(features, dtype=np.float32)
++
++def extract_keypoints(results, last_pose, last_face, normalize_mode):
++    left_hand, left_present = _hand_array(results.left_hand_landmarks)
++    right_hand, right_present = _hand_array(results.right_hand_landmarks)
++    lh = left_hand.flatten()
++    rh = right_hand.flatten()
++
++    if results.face_landmarks:
++        face = _flatten_landmarks(results.face_landmarks.landmark, FACE_IDXS)
++        last_face = face
++    else:
++        face = last_face if last_face is not None else np.zeros(len(FACE_IDXS) * 3, dtype=np.float32)
++
++    if results.pose_landmarks:
++        pose = _flatten_landmarks(results.pose_landmarks.landmark, POSE_IDXS)
++        last_pose = pose
++    else:
++        pose = last_pose if last_pose is not None else np.zeros(len(POSE_IDXS) * 3, dtype=np.float32)
++
++    distances = _hand_face_distances(
++        left_hand, left_present, right_hand, right_present, results.face_landmarks
++    )
++
++    feature = np.concatenate([lh, rh, face, pose, distances]).astype(np.float32)
++    if feature.shape[0] != INPUT_DIM:
++        raise ValueError(f"Unexpected feature dim: {feature.shape[0]} != {INPUT_DIM}")
++
++    return normalize_features(feature, normalize_mode), last_pose, last_face
++
++def normalize_features(feature, normalize_mode):
++    if normalize_mode in ("none", "raw", "off"):
++        return np.array(feature, dtype=np.float32)
++
++    landmarks = feature[:LANDMARK_DIM].reshape(-1, 3)
++    distances = feature[LANDMARK_DIM:]
++
++    l_shoulder = landmarks[LEFT_SHOULDER_IDX]
++    r_shoulder = landmarks[RIGHT_SHOULDER_IDX]
++    shoulder_center = (l_shoulder + r_shoulder) / 2.0
++
++    shoulder_width = np.linalg.norm(l_shoulder - r_shoulder)
++    if shoulder_width < 1e-6:
++        shoulder_width = 1.0
++
++    normalized_landmarks = (landmarks - shoulder_center) / shoulder_width
++    normalized_distances = distances / shoulder_width
++    return np.concatenate([normalized_landmarks.flatten(), normalized_distances]).astype(np.float32)
++
++def get_normalized_eyebrow_gap(results):
++    if not results.face_landmarks:
++        return None
++
++    landmarks = results.face_landmarks.landmark
++    left_eye = np.mean([[landmarks[idx].x, landmarks[idx].y] for idx in LEFT_EYE_CENTER_IDXS], axis=0)
++    right_eye = np.mean([[landmarks[idx].x, landmarks[idx].y] for idx in RIGHT_EYE_CENTER_IDXS], axis=0)
++    eye_distance = np.linalg.norm(left_eye - right_eye)
++    if eye_distance < 1e-6:
++        return None
++
++    eyebrow_y = np.mean([landmarks[idx].y for idx in LEFT_EYEBROW_IDXS + RIGHT_EYEBROW_IDXS])
++    eye_y = np.mean([landmarks[idx].y for idx in LEFT_EYE_CENTER_IDXS + RIGHT_EYE_CENTER_IDXS])
++    return float((eye_y - eyebrow_y) / eye_distance)
++
++def classify_sentence_type(current_gap, neutral_gaps):
++    if current_gap is None or len(neutral_gaps) < MIN_NEUTRAL_FACE_SAMPLES:
++        return "평서문", 0.0, None
++
++    neutral_gap = float(np.median(neutral_gaps))
++    eyebrow_delta = current_gap - neutral_gap
++
++    if eyebrow_delta >= QUESTION_EYEBROW_DELTA_THRESHOLD:
++        return "의문문", eyebrow_delta, neutral_gap
++
++    return "평서문", eyebrow_delta, neutral_gap
++
++def has_visible_hand(results):
++    return results.left_hand_landmarks is not None or results.right_hand_landmarks is not None
++
++def pad_sequence(sequence, max_len=MAX_LEN):
++    frames = np.array(sequence, dtype=np.float32)
++    if len(frames) == 0:
++        return np.zeros((max_len, INPUT_DIM), dtype=np.float32)
++
++    if len(frames) > max_len:
++        indices = np.linspace(0, len(frames) - 1, max_len, dtype=int)
++        return frames[indices]
++
++    if len(frames) < 15:
++        indices = np.linspace(0, len(frames) - 1, max_len)
++        upsampled = np.zeros((max_len, INPUT_DIM), dtype=np.float32)
++        for i, float_idx in enumerate(indices):
++            low = int(np.floor(float_idx))
++            high = int(np.ceil(float_idx))
++            weight = float_idx - low
++            if low == high:
++                upsampled[i] = frames[low]
++            else:
++                upsampled[i] = frames[low] * (1 - weight) + frames[high] * weight
++        return upsampled
++
++    pad_len = max_len - len(frames)
++    padding = np.repeat(frames[-1:], pad_len, axis=0)
++    return np.vstack((frames, padding)).astype(np.float32)
++
++def draw_text(frame, lines):
++    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
++    draw = ImageDraw.Draw(image)
++
++    try:
++        font = ImageFont.truetype("malgun.ttf", 30)
++    except Exception:
++        font = ImageFont.load_default()
++
++    y = 25
++    for line in lines:
++        draw.text((25, y), line, font=font, fill=(0, 255, 0))
++        y += 38
++
++    return cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
++
++def parse_args():
++    parser = argparse.ArgumentParser(description="Realtime webcam inference for V6 TFLite models.")
++    parser.add_argument("--model-dir", default=DEFAULT_MODEL_DIR, help="Model directory")
++    parser.add_argument("--precision", choices=["float32", "float16"], default="float16", help="Precision of the tflite model to load")
++    return parser.parse_args()
++
++def main():
++    args = parse_args()
++    model_dir = resolve_from_base(args.model_dir)
++
++    tflite_path = model_dir / f"best_sign_model_v6_{args.precision}.tflite"
++    config_path = model_dir / "train_config_v6.json"
++    label_map_path = model_dir / "label_map_v6.json"
++
++    if not tflite_path.exists() or not config_path.exists() or not label_map_path.exists():
++        print(f"Model files not found in {model_dir}. Please make sure you copied the .tflite files here!")
++        print(f"Missing: {tflite_path}")
++        return
++
++    with open(config_path, "r", encoding="utf-8") as f:
++        config = json.load(f)
++    
++    with open(label_map_path, "r", encoding="utf-8") as f:
++        label_map_raw = json.load(f)
++        label_map = {int(k): v for k, v in label_map_raw.items()}
++
++    model_type = config.get("model_type", "tcn")
++    normalize_mode = config["stats"].get("normalize_mode", "shoulder")
++    num_classes = len(label_map)
++
++    # Load TFLite Model
++    print(f"Loading TFLite model from {tflite_path} ...")
++    interpreter = tf.lite.Interpreter(model_path=str(tflite_path))
++    interpreter.allocate_tensors()
++    input_details = interpreter.get_input_details()
++    output_details = interpreter.get_output_details()
++
++    print(f"Loaded {args.precision} TFLite model!")
++    print(f"Normalize Mode: {normalize_mode}")
++    print(f"Classes: {num_classes}")
++
++    mp_holistic = mp.solutions.holistic
++    mp_drawing = mp.solutions.drawing_utils
++    cap = cv2.VideoCapture(0)
++
++    frame_window = deque(maxlen=MAX_LEN)
++    prediction_window = deque(maxlen=PREDICTION_SMOOTHING)
++    
++    current_action = "none"
++    current_confidence = 0.0
++    last_pose = None
++    last_face = None
++
++    # 최종 확정된 단어와 타임스탬프 (2초 유지용)
++    locked_action = "none"
++    locked_time = 0.0
++    last_logged_action = None
++    
++    missing_hand_frames = 0
++    sentence_buffer = [] # 문장 누적용 버퍼
++    
++    neutral_gaps = deque(maxlen=NEUTRAL_FACE_WINDOW)
++    sentence_is_question = False
++
++    with mp_holistic.Holistic(
++        static_image_mode=False, min_detection_confidence=0.5, min_tracking_confidence=0.5,
++    ) as holistic:
++        while cap.isOpened():
++            success, frame = cap.read()
++            if not success:
++                break
++
++            image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
++            results = holistic.process(image_rgb)
++
++            hand_visible = has_visible_hand(results)
++            eyebrow_gap = get_normalized_eyebrow_gap(results)
++
++            if not hand_visible:
++                missing_hand_frames += 1
++                if eyebrow_gap is not None:
++                    neutral_gaps.append(eyebrow_gap)
++            else:
++                missing_hand_frames = 0
++                current_sentence_type, current_eyebrow_delta, current_neutral_gap = classify_sentence_type(
++                    eyebrow_gap, neutral_gaps
++                )
++                if current_sentence_type == "의문문":
++                    sentence_is_question = True
++
++            # 손이 15프레임(약 0.5초) 이상 연속으로 안 보일 때만 초기화
++            if missing_hand_frames > 15:
++                # 손이 사라지면 지금까지 모은 단어들을 문장으로 출력
++                if sentence_buffer:
++                    final_type = "의문문" if sentence_is_question else "평서문"
++                    print(f"\\n✨ === 최종 문장: {' '.join(sentence_buffer)} ({final_type}) === ✨\\n")
++                    sentence_buffer.clear()
++                    sentence_is_question = False
++
++                frame_window.clear()
++                prediction_window.clear()
++                current_action = "none"
++                current_confidence = 0.0
++                last_pose = None
++                last_face = None
++                last_logged_action = None
++            else:
++                # 손이 잠깐 안 보여도 빈 좌표(0)로 채워서 큐의 흐름을 유지함
++                keypoints, last_pose, last_face = extract_keypoints(results, last_pose, last_face, normalize_mode)
++                frame_window.append(keypoints)
++
++            # 30프레임을 다 기다리지 않고 15프레임(0.5초)만 모여도 바로 보간(upsample)하여 추론 시작
++            if len(frame_window) >= 15:
++                input_array = pad_sequence(frame_window)
++                input_tensor = np.expand_dims(input_array, axis=0).astype(np.float32)
++                
++                # TFLite Inference
++                interpreter.set_tensor(input_details[0]['index'], input_tensor)
++                interpreter.invoke()
++                probs = interpreter.get_tensor(output_details[0]['index'])[0]
++                
++                max_idx = np.argmax(probs)
++                predicted_label = label_map[max_idx]
++                current_confidence = probs[max_idx]
++
++                if current_confidence >= CONFIDENCE_THRESHOLD:
++                    prediction_window.append(predicted_label)
++                else:
++                    prediction_window.clear()
++                    prediction_window.append("none")
++
++                if prediction_window:
++                    candidate, count = Counter(prediction_window).most_common(1)[0]
++                    if candidate == "none" or count >= STABLE_MIN_COUNT:
++                        current_action = candidate
++
++                        # none이 아닌 새로운 단어가 확정되었을 때
++                        if current_action != "none":
++                            if current_action != last_logged_action:
++                                print(f"👉 Detected: {current_action} (Confidence: {current_confidence:.3f})")
++                                locked_action = current_action
++                                locked_time = time.time()
++                                last_logged_action = current_action
++                                
++                                # 문장 버퍼에 단어 추가 (중복 방지)
++                                if not sentence_buffer or sentence_buffer[-1] != current_action:
++                                    sentence_buffer.append(current_action)
++                        else:
++                            last_logged_action = None
++
++            # 2초가 지나면 띄워주던 단어를 지움
++            if time.time() - locked_time > 2.0:
++                locked_action = "none"
++
++            mp_drawing.draw_landmarks(frame, results.pose_landmarks, mp_holistic.POSE_CONNECTIONS)
++            mp_drawing.draw_landmarks(frame, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
++            mp_drawing.draw_landmarks(frame, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
++
++            # 화면에 띄울 텍스트 준비
++            sentence_str = ' '.join(sentence_buffer) if sentence_buffer else ""
++            type_str = "의문문" if sentence_is_question else "평서문"
++
++            display_frame = cv2.flip(frame, 1)
++            display_frame = draw_text(
++                display_frame,
++                [
++                    f"Model: TFLite V6 ({args.precision})",
++                    f"Live Pred: {current_action} ({current_confidence:.2f})",
++                    f"Result: {locked_action if locked_action != 'none' else ''}",
++                    f"Buffer: {sentence_str} ({type_str})",
++                    f"Frames: {len(frame_window)}/{MAX_LEN}",
++                    "Quit: q",
++                ],
++            )
++
++            cv2.imshow("V6 TFLite Real-time Inference", display_frame)
++
++            if cv2.waitKey(1) & 0xFF == ord("q"):
++                break
++
++    cap.release()
++    cv2.destroyAllWindows()
++
++if __name__ == "__main__":
++    main()
+
+
+diff --git a/ai/src/sign2text_tcn/inference_realtime_v6.py b/ai/src/sign2text_tcn/inference_realtime_v6.py
+--- /dev/null
++++ b/ai/src/sign2text_tcn/inference_realtime_v6.py
+@@ -0,0 +1,396 @@
++import argparse
++import json
++import os
++import time
++from collections import Counter, deque
++from pathlib import Path
++
++import cv2
++import mediapipe as mp
++import numpy as np
++import torch
++from PIL import Image, ImageDraw, ImageFont
++
++from model import build_ksl_model_v6
++
++INPUT_DIM = 332
++LANDMARK_DIM = 282
++MAX_LEN = 30
++CONFIDENCE_THRESHOLD = 0.80
++PREDICTION_SMOOTHING = 5
++STABLE_MIN_COUNT = 4
++
++BASE_DIR = Path(__file__).resolve().parent / "models"
++DEFAULT_MODEL_DIR = "v6_24words_tcn_2"
++
++NEUTRAL_FACE_WINDOW = 45
++MIN_NEUTRAL_FACE_SAMPLES = 15
++QUESTION_EYEBROW_DELTA_THRESHOLD = 0.055
++
++LEFT_EYEBROW_IDXS = [70, 63, 105, 66]
++RIGHT_EYEBROW_IDXS = [336, 296, 334, 293]
++LEFT_EYE_CENTER_IDXS = [33, 133]
++RIGHT_EYE_CENTER_IDXS = [362, 263]
++
++BASE_FACE_IDXS = [
++    70, 63, 105, 66,
++    336, 296, 334, 293,
++    33, 160, 158, 133, 153, 144,
++    362, 385, 387, 263, 373, 380,
++    61, 146, 91, 181, 84, 17, 314, 405, 321, 375,
++]
++FACEPLUS_IDXS = [
++    1, 4,
++    152,
++    234, 454,
++    172, 397,
++    148, 377,
++    13, 14,
++    78, 308,
++    82, 312,
++]
++FACE_IDXS = BASE_FACE_IDXS + FACEPLUS_IDXS
++POSE_IDXS = [0, 7, 8, 11, 12, 13, 14]
++HAND_TIP_IDXS = [4, 8, 12, 16, 20]
++FACE_ANCHOR_IDXS = [1, 13, 152, 234, 454]
++
++LEFT_SHOULDER_IDX = 90
++RIGHT_SHOULDER_IDX = 91
++
++def resolve_from_base(path):
++    path = Path(path)
++    if path.is_absolute():
++        return path
++    return (BASE_DIR / path).resolve()
++
++def _flatten_landmarks(landmarks, idxs):
++    return np.array(
++        [[landmarks[idx].x, landmarks[idx].y, landmarks[idx].z] for idx in idxs],
++        dtype=np.float32,
++    ).flatten()
++
++def _hand_array(hand_landmarks):
++    if not hand_landmarks:
++        return np.zeros((21, 3), dtype=np.float32), False
++    points = np.array([[lm.x, lm.y, lm.z] for lm in hand_landmarks.landmark], dtype=np.float32)
++    return points, True
++
++def _hand_face_distances(left_hand, left_present, right_hand, right_present, face_landmarks):
++    if not face_landmarks:
++        return np.zeros(len(HAND_TIP_IDXS) * 2 * len(FACE_ANCHOR_IDXS), dtype=np.float32)
++
++    anchors = np.array(
++        [
++            [face_landmarks.landmark[idx].x, face_landmarks.landmark[idx].y, face_landmarks.landmark[idx].z]
++            for idx in FACE_ANCHOR_IDXS
++        ],
++        dtype=np.float32,
++    )
++
++    features = []
++    for hand_points, is_present in ((left_hand, left_present), (right_hand, right_present)):
++        if not is_present:
++            features.extend([0.0] * (len(HAND_TIP_IDXS) * len(FACE_ANCHOR_IDXS)))
++            continue
++
++        for tip_idx in HAND_TIP_IDXS:
++            tip = hand_points[tip_idx]
++            features.extend(np.linalg.norm(anchors - tip, axis=1).tolist())
++
++    return np.array(features, dtype=np.float32)
++
++def extract_keypoints(results, last_pose, last_face, normalize_mode):
++    left_hand, left_present = _hand_array(results.left_hand_landmarks)
++    right_hand, right_present = _hand_array(results.right_hand_landmarks)
++    lh = left_hand.flatten()
++    rh = right_hand.flatten()
++
++    if results.face_landmarks:
++        face = _flatten_landmarks(results.face_landmarks.landmark, FACE_IDXS)
++        last_face = face
++    else:
++        face = last_face if last_face is not None else np.zeros(len(FACE_IDXS) * 3, dtype=np.float32)
++
++    if results.pose_landmarks:
++        pose = _flatten_landmarks(results.pose_landmarks.landmark, POSE_IDXS)
++        last_pose = pose
++    else:
++        pose = last_pose if last_pose is not None else np.zeros(len(POSE_IDXS) * 3, dtype=np.float32)
++
++    distances = _hand_face_distances(
++        left_hand, left_present, right_hand, right_present, results.face_landmarks
++    )
++
++    feature = np.concatenate([lh, rh, face, pose, distances]).astype(np.float32)
++    if feature.shape[0] != INPUT_DIM:
++        raise ValueError(f"Unexpected feature dim: {feature.shape[0]} != {INPUT_DIM}")
++
++    return normalize_features(feature, normalize_mode), last_pose, last_face
++
++def normalize_features(feature, normalize_mode):
++    if normalize_mode in ("none", "raw", "off"):
++        return np.array(feature, dtype=np.float32)
++
++    landmarks = feature[:LANDMARK_DIM].reshape(-1, 3)
++    distances = feature[LANDMARK_DIM:]
++
++    l_shoulder = landmarks[LEFT_SHOULDER_IDX]
++    r_shoulder = landmarks[RIGHT_SHOULDER_IDX]
++    shoulder_center = (l_shoulder + r_shoulder) / 2.0
++
++    shoulder_width = np.linalg.norm(l_shoulder - r_shoulder)
++    if shoulder_width < 1e-6:
++        shoulder_width = 1.0
++
++    normalized_landmarks = (landmarks - shoulder_center) / shoulder_width
++    normalized_distances = distances / shoulder_width
++    return np.concatenate([normalized_landmarks.flatten(), normalized_distances]).astype(np.float32)
++
++def get_normalized_eyebrow_gap(results):
++    if not results.face_landmarks:
++        return None
++
++    landmarks = results.face_landmarks.landmark
++    left_eye = np.mean([[landmarks[idx].x, landmarks[idx].y] for idx in LEFT_EYE_CENTER_IDXS], axis=0)
++    right_eye = np.mean([[landmarks[idx].x, landmarks[idx].y] for idx in RIGHT_EYE_CENTER_IDXS], axis=0)
++    eye_distance = np.linalg.norm(left_eye - right_eye)
++    if eye_distance < 1e-6:
++        return None
++
++    eyebrow_y = np.mean([landmarks[idx].y for idx in LEFT_EYEBROW_IDXS + RIGHT_EYEBROW_IDXS])
++    eye_y = np.mean([landmarks[idx].y for idx in LEFT_EYE_CENTER_IDXS + RIGHT_EYE_CENTER_IDXS])
++    return float((eye_y - eyebrow_y) / eye_distance)
++
++def classify_sentence_type(current_gap, neutral_gaps):
++    if current_gap is None or len(neutral_gaps) < MIN_NEUTRAL_FACE_SAMPLES:
++        return "평서문", 0.0, None
++
++    neutral_gap = float(np.median(neutral_gaps))
++    eyebrow_delta = current_gap - neutral_gap
++
++    if eyebrow_delta >= QUESTION_EYEBROW_DELTA_THRESHOLD:
++        return "의문문", eyebrow_delta, neutral_gap
++
++    return "평서문", eyebrow_delta, neutral_gap
++
++def has_visible_hand(results):
++    return results.left_hand_landmarks is not None or results.right_hand_landmarks is not None
++
++def pad_sequence(sequence, max_len=MAX_LEN):
++    frames = np.array(sequence, dtype=np.float32)
++    if len(frames) == 0:
++        return np.zeros((max_len, INPUT_DIM), dtype=np.float32)
++
++    if len(frames) > max_len:
++        indices = np.linspace(0, len(frames) - 1, max_len, dtype=int)
++        return frames[indices]
++
++    if len(frames) < 15:
++        indices = np.linspace(0, len(frames) - 1, max_len)
++        upsampled = np.zeros((max_len, INPUT_DIM), dtype=np.float32)
++        for i, float_idx in enumerate(indices):
++            low = int(np.floor(float_idx))
++            high = int(np.ceil(float_idx))
++            weight = float_idx - low
++            if low == high:
++                upsampled[i] = frames[low]
++            else:
++                upsampled[i] = frames[low] * (1 - weight) + frames[high] * weight
++        return upsampled
++
++    pad_len = max_len - len(frames)
++    padding = np.repeat(frames[-1:], pad_len, axis=0)
++    return np.vstack((frames, padding)).astype(np.float32)
++
++def draw_text(frame, lines):
++    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
++    draw = ImageDraw.Draw(image)
++
++    try:
++        font = ImageFont.truetype("malgun.ttf", 30)
++    except Exception:
++        font = ImageFont.load_default()
++
++    y = 25
++    for line in lines:
++        draw.text((25, y), line, font=font, fill=(0, 255, 0))
++        y += 38
++
++    return cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
++
++def parse_args():
++    parser = argparse.ArgumentParser(description="Realtime webcam inference for V6 PyTorch models.")
++    parser.add_argument("--model-dir", default=DEFAULT_MODEL_DIR, help="Model directory under Transformer_v5_Impl/models")
++    return parser.parse_args()
++
++def main():
++    args = parse_args()
++    model_dir = resolve_from_base(args.model_dir)
++
++    model_path = model_dir / "best_sign_model_v6.pt"
++    config_path = model_dir / "train_config_v6.json"
++    label_map_path = model_dir / "label_map_v6.json"
++
++    if not model_path.exists() or not config_path.exists() or not label_map_path.exists():
++        print(f"Model files not found in {model_dir}.")
++        return
++
++    with open(config_path, "r", encoding="utf-8") as f:
++        config = json.load(f)
++    
++    with open(label_map_path, "r", encoding="utf-8") as f:
++        label_map_raw = json.load(f)
++        label_map = {int(k): v for k, v in label_map_raw.items()}
++
++    model_type = config.get("model_type", "tcn")
++    normalize_mode = config["stats"].get("normalize_mode", "shoulder")
++    num_classes = len(label_map)
++
++    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
++    model = build_ksl_model_v6(model_type=model_type, num_classes=num_classes)
++    model.load_state_dict(torch.load(model_path, map_location=device))
++    model.to(device)
++    model.eval()
++
++    print(f"Loaded {model_type} model from {model_dir}")
++    print(f"Normalize Mode: {normalize_mode}")
++    print(f"Classes: {num_classes}")
++
++    mp_holistic = mp.solutions.holistic
++    mp_drawing = mp.solutions.drawing_utils
++    cap = cv2.VideoCapture(0)
++
++    frame_window = deque(maxlen=MAX_LEN)
++    prediction_window = deque(maxlen=PREDICTION_SMOOTHING)
++    
++    current_action = "none"
++    current_confidence = 0.0
++    last_pose = None
++    last_face = None
++
++    # 최종 확정된 단어와 타임스탬프 (2초 유지용)
++    locked_action = "none"
++    locked_time = 0.0
++    last_logged_action = None
++    
++    missing_hand_frames = 0
++    sentence_buffer = [] # 문장 누적용 버퍼
++    
++    neutral_gaps = deque(maxlen=NEUTRAL_FACE_WINDOW)
++    sentence_is_question = False
++
++    with mp_holistic.Holistic(
++        static_image_mode=False, min_detection_confidence=0.5, min_tracking_confidence=0.5,
++    ) as holistic:
++        while cap.isOpened():
++            success, frame = cap.read()
++            if not success:
++                break
++
++            image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
++            results = holistic.process(image_rgb)
++
++            hand_visible = has_visible_hand(results)
++            eyebrow_gap = get_normalized_eyebrow_gap(results)
++
++            if not hand_visible:
++                missing_hand_frames += 1
++                if eyebrow_gap is not None:
++                    neutral_gaps.append(eyebrow_gap)
++            else:
++                missing_hand_frames = 0
++                current_sentence_type, current_eyebrow_delta, current_neutral_gap = classify_sentence_type(
++                    eyebrow_gap, neutral_gaps
++                )
++                if current_sentence_type == "의문문":
++                    sentence_is_question = True
++
++            # 손이 15프레임(약 0.5초) 이상 연속으로 안 보일 때만 초기화
++            if missing_hand_frames > 15:
++                # 손이 사라지면 지금까지 모은 단어들을 문장으로 출력
++                if sentence_buffer:
++                    final_type = "의문문" if sentence_is_question else "평서문"
++                    print(f"\n✨ === 최종 문장: {' '.join(sentence_buffer)} ({final_type}) === ✨\n")
++                    sentence_buffer.clear()
++                    sentence_is_question = False
++
++                frame_window.clear()
++                prediction_window.clear()
++                current_action = "none"
++                current_confidence = 0.0
++                last_pose = None
++                last_face = None
++                last_logged_action = None
++            else:
++                # 손이 잠깐 안 보여도 빈 좌표(0)로 채워서 큐의 흐름을 유지함
++                keypoints, last_pose, last_face = extract_keypoints(results, last_pose, last_face, normalize_mode)
++                frame_window.append(keypoints)
++
++            # 30프레임을 다 기다리지 않고 15프레임(0.5초)만 모여도 바로 보간(upsample)하여 추론 시작
++            if len(frame_window) >= 15:
++                input_array = pad_sequence(frame_window)
++                input_tensor = torch.tensor(input_array, dtype=torch.float32).unsqueeze(0).to(device)
++                
++                with torch.no_grad():
++                    outputs = model(input_tensor, return_probs=True)
++                    probs = outputs[0].cpu().numpy()
++                
++                max_idx = np.argmax(probs)
++                predicted_label = label_map[max_idx]
++                current_confidence = probs[max_idx]
++
++                if current_confidence >= CONFIDENCE_THRESHOLD:
++                    prediction_window.append(predicted_label)
++                else:
++                    prediction_window.clear()
++                    prediction_window.append("none")
++
++                if prediction_window:
++                    candidate, count = Counter(prediction_window).most_common(1)[0]
++                    if candidate == "none" or count >= STABLE_MIN_COUNT:
++                        current_action = candidate
++
++                        # none이 아닌 새로운 단어가 확정되었을 때
++                        if current_action != "none":
++                            if current_action != last_logged_action:
++                                print(f"👉 Detected: {current_action} (Confidence: {current_confidence:.3f})")
++                                locked_action = current_action
++                                locked_time = time.time()
++                                last_logged_action = current_action
++                                
++                                # 문장 버퍼에 단어 추가 (중복 방지)
++                                if not sentence_buffer or sentence_buffer[-1] != current_action:
++                                    sentence_buffer.append(current_action)
++                        else:
++                            last_logged_action = None
++
++            # 2초가 지나면 띄워주던 단어를 지움
++            if time.time() - locked_time > 2.0:
++                locked_action = "none"
++
++            mp_drawing.draw_landmarks(frame, results.pose_landmarks, mp_holistic.POSE_CONNECTIONS)
++            mp_drawing.draw_landmarks(frame, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
++            mp_drawing.draw_landmarks(frame, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
++
++            display_frame = cv2.flip(frame, 1)
++            display_frame = draw_text(
++                display_frame,
++                [
++                    f"Model: {model_type.upper()} ({normalize_mode})",
++                    f"Live Pred: {current_action} ({current_confidence:.2f})",
++                    f"Result: {locked_action if locked_action != 'none' else ''}",
++                    f"Frames: {len(frame_window)}/{MAX_LEN}",
++                    "Quit: q",
++                ],
++            )
++
++            cv2.imshow("V6 Real-time Inference", display_frame)
++
++            if cv2.waitKey(1) & 0xFF == ord("q"):
++                break
++
++    cap.release()
++    cv2.destroyAllWindows()
++
++if __name__ == "__main__":
++    main()
+
+
+diff --git a/ai/src/sign2text_tcn/local_zip_to_npy_pipeline.py b/ai/src/sign2text_tcn/local_zip_to_npy_pipeline.py
+--- /dev/null
++++ b/ai/src/sign2text_tcn/local_zip_to_npy_pipeline.py
+@@ -0,0 +1,193 @@
++import argparse
++import json
++import os
++import shutil
++import tempfile
++import zipfile
++from collections import Counter, defaultdict
++from pathlib import Path
++
++from aihub_to_local_npy_pipeline import (
++    DEFAULT_BATCH_SIZE,
++    DEFAULT_MAX_WORKERS,
++    DEFAULT_OUTPUT_DIR,
++    DEFAULT_TASKS_PER_CHILD,
++    get_int_env,
++    process_jobs_in_batches,
++)
++from target_words_v6 import TARGET_WORDS
++
++
++DEFAULT_ZIP_PATTERN = "*real_word_video.zip"
++DEFAULT_MAPPING = "AI_Hub_Video_Mapping_v6.json"
++
++
++def load_filename_to_label(mapping_path):
++    with Path(mapping_path).open("r", encoding="utf-8") as f:
++        mapping = json.load(f)
++
++    filename_to_label = {}
++    label_counts = {}
++    for label in TARGET_WORDS:
++        videos = mapping.get(label, [])
++        label_counts[label] = len(videos)
++        for video in videos:
++            filename_to_label[video["filename"]] = label
++
++    return filename_to_label, label_counts
++
++
++def find_zip_files(zip_roots, zip_pattern):
++    zip_files = []
++    zip_counts = {}
++
++    for zip_root in zip_roots:
++        matches = sorted(zip_root.rglob(zip_pattern))
++        zip_counts[str(zip_root)] = len(matches)
++        zip_files.extend(matches)
++
++    return sorted(dict.fromkeys(zip_files)), zip_counts
++
++
++def scan_zip_members(zip_files):
++    filename_files = defaultdict(list)
++    zip_member_count = Counter()
++
++    for zip_path in zip_files:
++        with zipfile.ZipFile(zip_path, "r") as archive:
++            for member in archive.namelist():
++                filename = os.path.basename(member)
++                if not filename.lower().endswith(".mp4"):
++                    continue
++
++                filename_files[filename].append((zip_path, member, filename))
++                zip_member_count[zip_path.name] += 1
++
++    return filename_files, zip_member_count
++
++
++def output_path_for(output_dir, base_label, filename):
++    return output_dir / base_label / (Path(filename).stem + ".npy")
++
++
++def extract_members_to_temp(filename_to_label, filename_files, output_dir, temp_dir, overwrite):
++    jobs = []
++    counters = Counter()
++
++    for filename, base_label in filename_to_label.items():
++        matches = filename_files.get(filename, [])
++        if not matches:
++            counters[f"missing_in_zip/{base_label}"] += 1
++            continue
++
++        for zip_path, member, matched_filename in matches[:1]:
++            output_path = output_path_for(output_dir, base_label, matched_filename)
++            if output_path.exists() and not overwrite:
++                counters[f"skipped_existing/{base_label}"] += 1
++                continue
++
++            temp_label_dir = temp_dir / base_label
++            temp_label_dir.mkdir(parents=True, exist_ok=True)
++            temp_video_path = temp_label_dir / matched_filename
++
++            with zipfile.ZipFile(zip_path, "r") as archive:
++                with archive.open(member) as source, temp_video_path.open("wb") as target:
++                    shutil.copyfileobj(source, target)
++
++            jobs.append((temp_video_path, output_path))
++            counters[f"pending/{base_label}"] += 1
++
++    return jobs, counters
++
++
++def parse_args():
++    parser = argparse.ArgumentParser(
++        description="Create local npy files from pre-downloaded AIHub word ZIP files."
++    )
++    parser.add_argument(
++        "--zip-root",
++        action="append",
++        required=True,
++        help=(
++            "Root directory containing *_real_word_video.zip files. "
++            "Pass this option multiple times to scan split AIHub folders."
++        ),
++    )
++    parser.add_argument(
++        "--mapping",
++        default=DEFAULT_MAPPING,
++        help=f"Mapping JSON path. Default: {DEFAULT_MAPPING}",
++    )
++    parser.add_argument("--zip-pattern", default=DEFAULT_ZIP_PATTERN)
++    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
++    parser.add_argument("--overwrite", action="store_true")
++    parser.add_argument("--max-workers", type=int, default=get_int_env("ONDEVICE_MAX_WORKERS", DEFAULT_MAX_WORKERS))
++    parser.add_argument("--batch-size", type=int, default=get_int_env("ONDEVICE_BATCH_SIZE", DEFAULT_BATCH_SIZE))
++    parser.add_argument(
++        "--tasks-per-child",
++        type=int,
++        default=get_int_env("ONDEVICE_TASKS_PER_CHILD", DEFAULT_TASKS_PER_CHILD),
++    )
++    return parser.parse_args()
++
++
++def main():
++    args = parse_args()
++    zip_roots = [Path(root).expanduser().resolve() for root in args.zip_root]
++    mapping_path = Path(args.mapping).resolve()
++    output_dir = Path(args.output_dir).resolve()
++    output_dir.mkdir(parents=True, exist_ok=True)
++
++    missing_roots = [zip_root for zip_root in zip_roots if not zip_root.exists()]
++    if missing_roots:
++        missing = "\n".join(str(zip_root) for zip_root in missing_roots)
++        raise FileNotFoundError(f"zip root not found:\n{missing}")
++    if not mapping_path.exists():
++        raise FileNotFoundError(f"mapping not found: {mapping_path}")
++
++    zip_files, zip_counts = find_zip_files(zip_roots, args.zip_pattern)
++    if not zip_files:
++        roots = "\n".join(str(zip_root) for zip_root in zip_roots)
++        raise FileNotFoundError(f"No ZIP files found: roots=\n{roots}\npattern={args.zip_pattern}")
++
++    print("ZIP roots:")
++    for zip_root in zip_roots:
++        print(f"- {zip_root}: {zip_counts.get(str(zip_root), 0)}")
++    print(f"ZIP files: {len(zip_files)}")
++    print(f"Mapping: {mapping_path}")
++    print(f"Output dir: {output_dir}")
++
++    filename_to_label, label_counts = load_filename_to_label(mapping_path)
++    filename_files, _ = scan_zip_members(zip_files)
++
++    print("Mapping target counts:")
++    for label in TARGET_WORDS:
++        print(f"- {label}: {label_counts.get(label, 0)}")
++
++    with tempfile.TemporaryDirectory(prefix="local_zip_mp4_") as temp_root:
++        jobs, counters = extract_members_to_temp(
++            filename_to_label=filename_to_label,
++            filename_files=filename_files,
++            output_dir=output_dir,
++            temp_dir=Path(temp_root),
++            overwrite=args.overwrite,
++        )
++
++        print(f"Pending local ZIP mp4 files: {len(jobs)}")
++        print("Counters:")
++        for key, value in sorted(counters.items()):
++            print(f"- {key}: {value}")
++
++        if jobs:
++            process_jobs_in_batches(
++                jobs,
++                max_workers=max(args.max_workers, 1),
++                batch_size=max(args.batch_size, args.max_workers, 1),
++                tasks_per_child=max(args.tasks_per_child, 1),
++            )
++
++    print("Local ZIP to npy generation complete.")
++
++
++if __name__ == "__main__":
++    main()
+
+
+diff --git a/ai/src/sign2text_tcn/model.py b/ai/src/sign2text_tcn/model.py
+--- /dev/null
++++ b/ai/src/sign2text_tcn/model.py
+@@ -0,0 +1,176 @@
++import math
++
++import torch
++import torch.nn as nn
++
++
++class PositionalEncoding(nn.Module):
++    def __init__(self, d_model, max_len=5000):
++        super().__init__()
++        pe = torch.zeros(max_len, d_model)
++        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
++        div_term = torch.exp(
++            torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)
++        )
++        pe[:, 0::2] = torch.sin(position * div_term)
++        pe[:, 1::2] = torch.cos(position * div_term)
++        pe = pe.unsqueeze(0)
++        self.register_buffer("pe", pe)
++
++    def forward(self, x):
++        seq_len = x.size(1)
++        return x + self.pe[:, :seq_len, :]
++
++
++class KSLTransformerV6(nn.Module):
++    def __init__(
++        self,
++        input_dim=332,
++        num_classes=4,
++        d_model=128,
++        num_heads=8,
++        num_layers=3,
++        dim_feedforward=512,
++        dropout=0.1,
++    ):
++        super().__init__()
++        self.input_projection = nn.Linear(input_dim, d_model)
++        self.pos_encoder = PositionalEncoding(d_model)
++
++        encoder_layer = nn.TransformerEncoderLayer(
++            d_model=d_model,
++            nhead=num_heads,
++            dim_feedforward=dim_feedforward,
++            dropout=dropout,
++            batch_first=True,
++        )
++        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
++
++        self.classifier = nn.Sequential(
++            nn.Linear(d_model, d_model // 2),
++            nn.ReLU(),
++            nn.Dropout(dropout),
++            nn.Linear(d_model // 2, num_classes),
++        )
++
++    def forward(self, x, lengths=None, return_probs=False):
++        x = self.input_projection(x)
++        x = self.pos_encoder(x)
++
++        padding_mask = None
++        if lengths is not None:
++            max_len = x.size(1)
++            positions = torch.arange(max_len, device=x.device).unsqueeze(0)
++            padding_mask = positions >= lengths.unsqueeze(1)
++
++        encoded = self.transformer_encoder(x, src_key_padding_mask=padding_mask)
++
++        if lengths is not None:
++            valid_mask = (~padding_mask).unsqueeze(-1).float()
++            pooled = (encoded * valid_mask).sum(dim=1) / valid_mask.sum(dim=1).clamp(min=1.0)
++        else:
++            pooled = encoded.mean(dim=1)
++
++        output = self.classifier(pooled)
++        if return_probs:
++            return torch.softmax(output, dim=1)
++        return output
++
++
++class KSLMLPV6(nn.Module):
++    def __init__(
++        self,
++        input_dim=332,
++        num_classes=4,
++        seq_len=30,
++        hidden_dim=512,
++        dropout=0.2,
++    ):
++        super().__init__()
++        self.seq_len = seq_len
++        self.input_dim = input_dim
++        self.classifier = nn.Sequential(
++            nn.Flatten(),
++            nn.LayerNorm(seq_len * input_dim),
++            nn.Linear(seq_len * input_dim, hidden_dim),
++            nn.ReLU(),
++            nn.Dropout(dropout),
++            nn.Linear(hidden_dim, hidden_dim // 2),
++            nn.ReLU(),
++            nn.Dropout(dropout),
++            nn.Linear(hidden_dim // 2, num_classes),
++        )
++
++    def forward(self, x, lengths=None, return_probs=False):
++        output = self.classifier(x)
++        if return_probs:
++            return torch.softmax(output, dim=1)
++        return output
++
++
++class KSLTemporalConvV6(nn.Module):
++    def __init__(
++        self,
++        input_dim=332,
++        num_classes=4,
++        channels=128,
++        dropout=0.2,
++    ):
++        super().__init__()
++        self.feature_extractor = nn.Sequential(
++            nn.Conv1d(input_dim, channels, kernel_size=3, padding=1),
++            nn.BatchNorm1d(channels),
++            nn.ReLU(),
++            nn.Dropout(dropout),
++            nn.Conv1d(channels, channels, kernel_size=3, padding=1),
++            nn.BatchNorm1d(channels),
++            nn.ReLU(),
++            nn.Dropout(dropout),
++            nn.Conv1d(channels, channels, kernel_size=3, padding=1),
++            nn.BatchNorm1d(channels),
++            nn.ReLU(),
++        )
++        self.classifier = nn.Sequential(
++            nn.Linear(channels, channels // 2),
++            nn.ReLU(),
++            nn.Dropout(dropout),
++            nn.Linear(channels // 2, num_classes),
++        )
++
++    def forward(self, x, lengths=None, return_probs=False):
++        x = x.transpose(1, 2)
++        features = self.feature_extractor(x)
++        pooled = features.mean(dim=2)
++        output = self.classifier(pooled)
++        if return_probs:
++            return torch.softmax(output, dim=1)
++        return output
++
++
++def build_ksl_model_v6(
++    model_type,
++    input_dim=332,
++    num_classes=4,
++    seq_len=30,
++    d_model=128,
++    num_heads=8,
++    num_layers=3,
++):
++    model_type = (model_type or "transformer").strip().lower()
++    if model_type == "transformer":
++        return KSLTransformerV6(
++            input_dim=input_dim,
++            num_classes=num_classes,
++            d_model=d_model,
++            num_heads=num_heads,
++            num_layers=num_layers,
++        )
++    if model_type == "mlp":
++        return KSLMLPV6(input_dim=input_dim, num_classes=num_classes, seq_len=seq_len)
++    if model_type in ("tcn", "conv1d", "temporal_conv"):
++        return KSLTemporalConvV6(input_dim=input_dim, num_classes=num_classes, channels=d_model)
++    raise ValueError(f"Unsupported model_type={model_type}. Use transformer, mlp, or tcn.")
++
++
++# Backward-compatible alias for conversion/inference scripts that still import the old name.
++KSLTransformerV5 = KSLTransformerV6
+
+
+diff --git a/ai/src/sign2text_tcn/target_words_v6.py b/ai/src/sign2text_tcn/target_words_v6.py
+--- /dev/null
++++ b/ai/src/sign2text_tcn/target_words_v6.py
+@@ -0,0 +1,25 @@
++TARGET_WORDS = [
++    "걷다",
++    "가다",
++    "주다",
++    "돕다",
++    "배고프다",
++    "아기",
++    "좋다",
++    "싫다",
++    "감기",
++    "기차",
++    "놀다",
++    "목마르다",
++    "무섭다",
++    "밥",
++    "손",
++    "아프다",
++    "웃다",
++    "장난감",
++    "조심",
++    "병원",
++    "엄마",
++    "감사",
++    "none",
++]
+
+
+diff --git a/ai/src/sign2text_tcn/train.py b/ai/src/sign2text_tcn/train.py
+--- /dev/null
++++ b/ai/src/sign2text_tcn/train.py
+
+diff --git a/ai/.gitignore b/ai/.gitignore
+--- a/ai/.gitignore
++++ b/ai/.gitignore
+@@ -5,6 +5,8 @@ data/
+ models/*
+ !models/transformer_mobile/
+ !models/transformer_mobile/**
++!models/tcn_mobile
++!models/tcn_mobile/**
+ models/BiLSTM/
+ 
+ ### Python Cache ###
+
+

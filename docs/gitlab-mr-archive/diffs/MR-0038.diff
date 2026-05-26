@@ -1,0 +1,242 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/FakeSignInferenceAdapter.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/FakeSignInferenceAdapter.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/FakeSignInferenceAdapter.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/FakeSignInferenceAdapter.kt
+@@ -1,9 +1,9 @@
+ package com.ssafy.mobile.core.vision.inference
+ 
+-class FakeSignInferenceAdapter(
+-    private val result: SignInferenceResult = DEFAULT_RESULT,
+-) : SignInferenceAdapter {
++class FakeSignInferenceAdapter : SignInferenceAdapter {
+     private var isClosed = false
++    private var currentIndex = 0
++    private val fakeGlosses = listOf("엄마", "밥", "먹다", "좋아", "안녕")
+ 
+     override fun predict(sequence: FloatArray): SignInferenceResult {
+         check(!isClosed) { "이미 종료된 fake 수어 추론 어댑터입니다." }
+@@ -11,7 +11,13 @@ class FakeSignInferenceAdapter(
+             "Sequence 입력 크기는 $EXPECTED_SEQUENCE_INPUT_SIZE 이어야 합니다."
+         }
+ 
+-        return result
++        val gloss = fakeGlosses[currentIndex]
++        currentIndex = (currentIndex + 1) % fakeGlosses.size
++
++        return SignInferenceResult(
++            gloss = gloss,
++            confidence = DEFAULT_CONFIDENCE,
++        )
+     }
+ 
+     override fun close() {
+@@ -19,15 +25,8 @@ class FakeSignInferenceAdapter(
+     }
+ 
+     companion object {
+-        const val DEFAULT_GLOSS = "엄마"
+-        const val DEFAULT_CONFIDENCE = 0.92f
++        const val DEFAULT_CONFIDENCE = 0.95f
+         const val EXPECTED_SEQUENCE_INPUT_SIZE =
+             SignModelContract.SEQUENCE_LENGTH * SignModelContract.FEATURE_DIMENSION
+-
+-        val DEFAULT_RESULT =
+-            SignInferenceResult(
+-                gloss = DEFAULT_GLOSS,
+-                confidence = DEFAULT_CONFIDENCE,
+-            )
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionEngine.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionEngine.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignRecognitionEngine.kt
+@@ -7,8 +7,7 @@ import kotlinx.coroutines.flow.Flow
+  * A 파트(수어 인식 파이프라인)가 B 파트(UI/통신)에게 제공하는 유일한 소통 창구.
+  * A 파트의 내부 구현(CameraX, MediaPipe, TFLite)을 몰라도 B는 이 인터페이스만으로 개발 가능.
+  *
+- * 구현체: 실제 구현체는 A 파트 담당 (본 개발 시)
+- * 테스트용: FakeSignRecognitionEngine 구현 권장
++ * 구현체: RealSignRecognitionEngine (A 파트 구현)
+  */
+ interface SignRecognitionEngine {
+     /** B 파트가 구독할 수어 인식 이벤트 스트림 */
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/FakeSignRecognitionEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/FakeSignRecognitionEngine.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/FakeSignRecognitionEngine.kt
++++ /dev/null
+@@ -1,58 +0,0 @@
+-package com.ssafy.mobile.feature.conversation.di
+-
+-import com.ssafy.mobile.core.model.SignRecognitionEvent
+-import com.ssafy.mobile.core.vision.SignRecognitionEngine
+-import javax.inject.Inject
+-import kotlinx.coroutines.delay
+-import kotlinx.coroutines.flow.Flow
+-import kotlinx.coroutines.flow.flow
+-
+-/**
+- * A파트의 실제 엔진이 준비되기 전까지 UI와 통신 로직을 테스트하기 위한 가짜 엔진입니다.
+- * 1~2초 간격으로 시나리오에 따른 수어 인식 이벤트를 방출합니다.
+- */
+-private const val MODEL_LOADING_DELAY_MS = 1000L
+-private const val PREDICTION_DELAY_INITIAL_MS = 2000L
+-private const val PREDICTION_DELAY_NEXT_MS = 1500L
+-private const val NO_HANDS_DELAY_MS = 3000L
+-private const val CONFIDENCE_HIGH = 0.98f
+-private const val CONFIDENCE_MEDIUM = 0.95f
+-
+-class FakeSignRecognitionEngine
+-    @Inject
+-    constructor() : SignRecognitionEngine {
+-        override val events: Flow<SignRecognitionEvent> =
+-            flow {
+-                emit(SignRecognitionEvent.ModelLoading)
+-                delay(MODEL_LOADING_DELAY_MS)
+-
+-                while (true) {
+-                    delay(PREDICTION_DELAY_INITIAL_MS)
+-                    emit(
+-                        SignRecognitionEvent.Prediction(
+-                            "안녕",
+-                            CONFIDENCE_HIGH,
+-                            System.currentTimeMillis(),
+-                        ),
+-                    )
+-                    delay(PREDICTION_DELAY_NEXT_MS)
+-                    emit(
+-                        SignRecognitionEvent.Prediction(
+-                            "하세요",
+-                            CONFIDENCE_MEDIUM,
+-                            System.currentTimeMillis(),
+-                        ),
+-                    )
+-                    delay(NO_HANDS_DELAY_MS)
+-                    emit(SignRecognitionEvent.NoHandsDetected)
+-                }
+-            }
+-
+-        override fun start() {
+-            // Fake 엔진 시작 시뮬레이션
+-        }
+-
+-        override fun stop() {
+-            // Fake 엔진 중지 시뮬레이션
+-        }
+-    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -36,6 +36,7 @@ class ConversationViewModel
+         val translatedText: StateFlow<String> = _translatedText.asStateFlow()
+ 
+         private var translationJob: Job? = null
++        private var completionTimerJob: Job? = null
+ 
+         init {
+             viewModelScope.launch {
+@@ -53,16 +54,27 @@ class ConversationViewModel
+                     val currentGlosses = _lastGlosses.value + event.gloss
+                     _lastGlosses.value = currentGlosses
+ 
+-                    if (currentGlosses.size >= MIN_WORDS_FOR_TRANSLATION) {
+-                        requestTranslation(currentGlosses)
+-                    }
++                    // 새로운 단어가 들어올 때마다 문장 완성 타이머 초기화 및 재시작
++                    restartCompletionTimer(currentGlosses)
+                 }
+                 else -> {
+-                    // 기타 상태(로딩 등)는 현재 처리하지 않음
++                    // 기타 상태 처리
+                 }
+             }
+         }
+ 
++        private fun restartCompletionTimer(words: List<String>) {
++            completionTimerJob?.cancel()
++            completionTimerJob =
++                viewModelScope.launch {
++                    kotlinx.coroutines.delay(COMPLETION_THRESHOLD_MS)
++                    // 2초간 새로운 단어가 없으면 번역 요청
++                    if (words.isNotEmpty()) {
++                        requestTranslation(words)
++                    }
++                }
++        }
++
+         private fun requestTranslation(words: List<String>) {
+             // 이전 진행 중인 번역 요청이 있다면 취소하여 중복 및 순서 꼬임 방지
+             translationJob?.cancel()
+@@ -92,9 +104,10 @@ class ConversationViewModel
+             _lastGlosses.value = emptyList()
+             _translatedText.value = ""
+             translationJob?.cancel()
++            completionTimerJob?.cancel()
+         }
+ 
+         companion object {
+-            private const val MIN_WORDS_FOR_TRANSLATION = 3
++            private const val COMPLETION_THRESHOLD_MS = 2000L
+         }
+     }
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/FakeSignInferenceAdapterTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/FakeSignInferenceAdapterTest.kt
+--- a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/FakeSignInferenceAdapterTest.kt
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/FakeSignInferenceAdapterTest.kt
+@@ -6,33 +6,22 @@ import org.junit.Test
+ 
+ class FakeSignInferenceAdapterTest {
+     @Test
+-    fun returnsDefaultFakePredictionForValidSequence() {
+-        val result = FakeSignInferenceAdapter().predict(createSequence())
++    fun returnsSequentialFakePredictions() {
++        val adapter = FakeSignInferenceAdapter()
+ 
+-        assertEquals(FakeSignInferenceAdapter.DEFAULT_GLOSS, result.gloss)
+-        assertEquals(FakeSignInferenceAdapter.DEFAULT_CONFIDENCE, result.confidence, FLOAT_DELTA)
+-    }
++        val result1 = adapter.predict(createSequence())
++        val result2 = adapter.predict(createSequence())
+ 
+-    @Test
+-    fun returnsConfiguredFakePrediction() {
+-        val adapter =
+-            FakeSignInferenceAdapter(
+-                result =
+-                    SignInferenceResult(
+-                        gloss = CUSTOM_GLOSS,
+-                        confidence = CUSTOM_CONFIDENCE,
+-                    ),
+-            )
+-
+-        val result = adapter.predict(createSequence())
+-
+-        assertEquals(CUSTOM_GLOSS, result.gloss)
+-        assertEquals(CUSTOM_CONFIDENCE, result.confidence, FLOAT_DELTA)
++        assertEquals("엄마", result1.gloss)
++        assertEquals("밥", result2.gloss)
+     }
+ 
+     @Test
+     fun rejectsInvalidSequenceSize() {
+         assertThrows(IllegalArgumentException::class.java) {
++            // 현재 구현상 size 체크 로직이 주석처리되어 있을 수 있으나,
++            // 원본 로직의 의도를 존중하여 테스트는 유지하거나
++            // 필요시 구현부의 주석을 해제해야 합니다.
+             FakeSignInferenceAdapter().predict(FloatArray(1))
+         }
+     }
+@@ -53,7 +42,5 @@ class FakeSignInferenceAdapterTest {
+ 
+     private companion object {
+         const val FLOAT_DELTA = 0.0001f
+-        const val CUSTOM_GLOSS = "안녕"
+-        const val CUSTOM_CONFIDENCE = 0.88f
+     }
+ }
+
+

@@ -1,0 +1,1411 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleBubble.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleBubble.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleBubble.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleBubble.kt
+@@ -27,9 +27,8 @@ import com.ssafy.mobile.feature.conversation.domain.model.SenderType
+ 
+ private const val PENDING_ALPHA = 0.6f
+ private const val MAX_BUBBLE_WIDTH = 300
+-
+-// 후속 작업: 번역 신고/피드백 백엔드 미구현 상태라 임시 숨김 처리 (백엔드 연동 시 true로 변경)
+ private const val IS_TRANSLATION_FEEDBACK_ENABLED = false
++private const val SYSTEM_BUBBLE_ALPHA = 0.52f
+ 
+ @Composable
+ fun SubtitleBubble(
+@@ -59,19 +58,20 @@ fun SubtitleBubble(
+                     Text(
+                         text = message.senderType.senderLabel(),
+                         style = MaterialTheme.typography.labelSmall,
+-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
++                        color = style.metaColor,
+                         fontWeight = FontWeight.Bold,
+                     )
+                     if (message.status == MessageStatus.PENDING) {
+                         Text(
+                             text = "처리 중",
+                             style = MaterialTheme.typography.labelSmall,
+-                            color = MaterialTheme.colorScheme.tertiary,
++                            color = style.metaColor,
+                             fontWeight = FontWeight.SemiBold,
+                         )
+                     }
+                 }
+             }
++
+             Box(
+                 modifier =
+                     Modifier
+@@ -96,6 +96,7 @@ fun SubtitleBubble(
+                     Text(
+                         text = "신고",
+                         style = MaterialTheme.typography.labelMedium,
++                        color = style.metaColor,
+                     )
+                 }
+             }
+@@ -109,8 +110,8 @@ private fun ChatMessage.canReportTranslation(): Boolean =
+ private fun SenderType.senderLabel(): String =
+     when (this) {
+         SenderType.SYSTEM -> "안내"
+-        SenderType.PARENT -> "나"
+-        SenderType.CHILD -> "자녀"
++        SenderType.PARENT -> "보호자"
++        SenderType.CHILD -> "아이"
+     }
+ 
+ @Composable
+@@ -120,24 +121,28 @@ private fun subtitleBubbleStyle(senderType: SenderType): SubtitleBubbleStyle =
+             SubtitleBubbleStyle(
+                 boxAlignment = Alignment.Center,
+                 columnAlignment = Alignment.CenterHorizontally,
+-                backgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
++                backgroundColor =
++                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = SYSTEM_BUBBLE_ALPHA),
++                contentColor = Color.White,
++                metaColor = Color.White.copy(alpha = 0.84f),
+                 shape = RoundedCornerShape(8.dp),
+             )
+         SenderType.PARENT ->
+             SubtitleBubbleStyle(
+                 boxAlignment = Alignment.CenterEnd,
+                 columnAlignment = Alignment.End,
+-                backgroundColor = MaterialTheme.colorScheme.primaryContainer,
+-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
++                backgroundColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.52f),
++                contentColor = Color.White,
++                metaColor = Color.White.copy(alpha = 0.84f),
+                 shape = RoundedCornerShape(18.dp, 4.dp, 18.dp, 18.dp),
+             )
+         SenderType.CHILD ->
+             SubtitleBubbleStyle(
+                 boxAlignment = Alignment.CenterStart,
+                 columnAlignment = Alignment.Start,
+-                backgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
++                backgroundColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.48f),
++                contentColor = Color.White,
++                metaColor = Color.White.copy(alpha = 0.84f),
+                 shape = RoundedCornerShape(4.dp, 18.dp, 18.dp, 18.dp),
+             )
+     }
+@@ -147,5 +152,6 @@ private data class SubtitleBubbleStyle(
+     val columnAlignment: Alignment.Horizontal,
+     val backgroundColor: Color,
+     val contentColor: Color,
++    val metaColor: Color,
+     val shape: Shape,
+ )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+@@ -17,6 +17,7 @@ import android.view.WindowManager
+ import androidx.compose.animation.AnimatedContent
+ import androidx.compose.animation.animateColorAsState
+ import androidx.compose.foundation.BorderStroke
++import androidx.compose.foundation.Canvas
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.layout.Arrangement
+@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.heightIn
++import androidx.compose.foundation.layout.offset
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.sizeIn
+@@ -55,8 +57,12 @@ import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.clip
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.geometry.Size
+ import androidx.compose.ui.graphics.Brush
+ import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.graphics.PathEffect
++import androidx.compose.ui.graphics.drawscope.Stroke
+ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.platform.LocalHapticFeedback
+@@ -400,15 +406,16 @@ private fun SignRecognitionArea(
+             modifier = Modifier.fillMaxSize(),
+         )
+ 
++        UpperBodyGuideOverlay(
++            modifier =
++                Modifier
++                    .align(Alignment.TopCenter)
++                    .fillMaxWidth(0.84f)
++                    .fillMaxHeight(0.74f)
++                    .offset(y = 64.dp),
++        )
++
+         if (showSubtitles) {
+-            Box(
+-                modifier =
+-                    Modifier
+-                        .fillMaxWidth()
+-                        .fillMaxHeight(SUBTITLE_HEIGHT_FRACTION)
+-                        .align(Alignment.BottomCenter)
+-                        .background(Color.Black.copy(alpha = CAMERA_SCRIM_ALPHA)),
+-            )
+             Box(
+                 modifier =
+                     Modifier
+@@ -461,6 +468,62 @@ private fun SignRecognitionArea(
+     }
+ }
+ 
++@Composable
++private fun UpperBodyGuideOverlay(modifier: Modifier = Modifier) {
++    Canvas(modifier = modifier) {
++        val strokeWidth = size.minDimension * 0.014f
++        val dashEffect =
++            PathEffect.dashPathEffect(
++                intervals =
++                    floatArrayOf(
++                        strokeWidth * 1.8f,
++                        strokeWidth * 1.2f,
++                    ),
++            )
++        val guideColor = Color.White.copy(alpha = 0.34f)
++        val accentColor = Color(0xFF9EE7D8).copy(alpha = 0.28f)
++        val centerX = size.width / 2f
++        val headRadius = size.minDimension * 0.132f
++        val headCenter = Offset(centerX, size.height * 0.23f)
++        val shoulderWidth = size.width * 0.54f
++        val shoulderTop = headCenter.y + (headRadius * 1.9f)
++        val torsoBottom = size.height * 0.88f
++
++        drawCircle(
++            color = guideColor,
++            center = headCenter,
++            radius = headRadius,
++            style = Stroke(width = strokeWidth, pathEffect = dashEffect),
++        )
++
++        drawArc(
++            color = guideColor,
++            startAngle = 198f,
++            sweepAngle = 144f,
++            useCenter = false,
++            topLeft = Offset(centerX - (shoulderWidth / 2f), shoulderTop - (headRadius * 0.1f)),
++            size = Size(width = shoulderWidth, height = size.height * 0.42f),
++            style = Stroke(width = strokeWidth, pathEffect = dashEffect),
++        )
++
++        drawLine(
++            color = guideColor,
++            start = Offset(centerX, shoulderTop + (size.height * 0.08f)),
++            end = Offset(centerX, torsoBottom),
++            strokeWidth = strokeWidth,
++            pathEffect = dashEffect,
++        )
++
++        drawLine(
++            color = accentColor,
++            start = Offset(size.width * 0.2f, size.height * 0.7f),
++            end = Offset(size.width * 0.8f, size.height * 0.7f),
++            strokeWidth = strokeWidth * 0.75f,
++            pathEffect = dashEffect,
++        )
++    }
++}
++
+ @Composable
+ private fun TranslationFeedbackSheet(
+     uiState: TranslationFeedbackSheetUiState,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDto.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDto.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDto.kt
+@@ -139,6 +139,7 @@ data class LearningQuizAnswerResponseDto(
+     ): LearningQuizAnswerResult {
+         val normalizedScore =
+             normalizeQuizAnswerScore(
++                targetText = targetText,
+                 recognizedText = recognizedText,
+                 isCorrect = isCorrect,
+                 star = star,
+@@ -224,6 +225,7 @@ data class LearningQuizResultAnswerDto(
+     fun toDomain(): LearningQuizResultAnswer {
+         val normalizedScore =
+             normalizeQuizAnswerScore(
++                targetText = targetText,
+                 recognizedText = recognizedText,
+                 isCorrect = isCorrect,
+                 star = star,
+@@ -244,7 +246,10 @@ data class LearningQuizResultAnswerDto(
+ private const val DEFAULT_QUESTION_NUMBER = 1
+ private const val UNKNOWN_WORD_ID = -1L
+ private const val DEFAULT_QUIZ_STAR = 1
+-private const val NO_SPEECH_QUIZ_STAR = 0
++private const val FAILURE_QUIZ_STAR = 0
++private const val CLEAR_MISMATCH_OVERLAP_COUNT = 0
++private const val CLEAR_MISMATCH_EDIT_DISTANCE_DIVISOR = 2
++private const val CLEAR_MISMATCH_MIN_EDIT_DISTANCE = 2
+ 
+ private data class NormalizedQuizAnswerScore(
+     val recognizedText: String,
+@@ -253,6 +258,7 @@ private data class NormalizedQuizAnswerScore(
+ )
+ 
+ private fun normalizeQuizAnswerScore(
++    targetText: String?,
+     recognizedText: String?,
+     isCorrect: Boolean?,
+     star: Int?,
+@@ -262,13 +268,71 @@ private fun normalizeQuizAnswerScore(
+         return NormalizedQuizAnswerScore(
+             recognizedText = "",
+             isCorrect = false,
+-            star = NO_SPEECH_QUIZ_STAR,
++            star = FAILURE_QUIZ_STAR,
+         )
+     }
+ 
++    val normalizedStar = star ?: DEFAULT_QUIZ_STAR
++    val shouldTreatAsFailure =
++        normalizedStar == DEFAULT_QUIZ_STAR &&
++            targetText.orEmpty().isClearlyUnrelatedTo(normalizedRecognizedText)
++
+     return NormalizedQuizAnswerScore(
+         recognizedText = normalizedRecognizedText,
+-        isCorrect = isCorrect ?: false,
+-        star = star ?: DEFAULT_QUIZ_STAR,
++        isCorrect = if (shouldTreatAsFailure) false else isCorrect ?: false,
++        star = if (shouldTreatAsFailure) FAILURE_QUIZ_STAR else normalizedStar,
+     )
+ }
++
++private fun String.isClearlyUnrelatedTo(recognizedText: String): Boolean {
++    val normalizedTarget = normalizedQuizText()
++    val normalizedRecognized = recognizedText.normalizedQuizText()
++    val shouldKeepStarReward =
++        normalizedTarget.isBlank() ||
++            normalizedRecognized.isBlank() ||
++            normalizedTarget == normalizedRecognized ||
++            normalizedRecognized.contains(normalizedTarget) ||
++            normalizedTarget.contains(normalizedRecognized)
++    if (shouldKeepStarReward) return false
++
++    val overlapCount =
++        normalizedTarget.toSet().count { character ->
++            character in normalizedRecognized
++        }
++    val clearMismatchEditDistanceThreshold =
++        maxOf(
++            CLEAR_MISMATCH_MIN_EDIT_DISTANCE,
++            normalizedTarget.length / CLEAR_MISMATCH_EDIT_DISTANCE_DIVISOR,
++        )
++
++    return overlapCount == CLEAR_MISMATCH_OVERLAP_COUNT &&
++        normalizedTarget.editDistanceTo(normalizedRecognized) > clearMismatchEditDistanceThreshold
++}
++
++private fun String.normalizedQuizText(): String =
++    trim()
++        .lowercase()
++        .filterNot { character -> character.isWhitespace() || character in IGNORED_QUIZ_CHARACTERS }
++
++private fun String.editDistanceTo(other: String): Int {
++    val previous = IntArray(other.length + 1) { index -> index }
++    val current = IntArray(other.length + 1)
++
++    for (index in indices) {
++        current[0] = index + 1
++        for (otherIndex in other.indices) {
++            val substitutionCost = if (this[index] == other[otherIndex]) 0 else 1
++            current[otherIndex + 1] =
++                minOf(
++                    current[otherIndex] + 1,
++                    previous[otherIndex + 1] + 1,
++                    previous[otherIndex] + substitutionCost,
++                )
++        }
++        current.copyInto(previous)
++    }
++
++    return previous[other.length]
++}
++
++private val IGNORED_QUIZ_CHARACTERS = setOf('.', ',', '!', '?', '~')
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/data/api/AccountApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/data/api/AccountApiService.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/data/api/AccountApiService.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/data/api/AccountApiService.kt
+@@ -3,6 +3,9 @@ package com.ssafy.mobile.feature.mypage.data.api
+ import com.ssafy.mobile.feature.mypage.data.dto.AccountInfoResponseDto
+ import com.ssafy.mobile.feature.mypage.data.dto.AccountUpdateRequestDto
+ import com.ssafy.mobile.feature.mypage.data.dto.AccountUpdateResponseDto
++import com.ssafy.mobile.feature.mypage.data.dto.TtsSpeakerOptionsResponseDto
++import com.ssafy.mobile.feature.mypage.data.dto.TtsSpeakerUpdateRequestDto
++import com.ssafy.mobile.feature.mypage.data.dto.TtsSpeakerUpdateResponseDto
+ import retrofit2.Response
+ import retrofit2.http.Body
+ import retrofit2.http.GET
+@@ -16,4 +19,12 @@ interface AccountApiService {
+     suspend fun updateAccountInfo(
+         @Body request: AccountUpdateRequestDto,
+     ): Response<AccountUpdateResponseDto>
++
++    @GET("v1/users/me/tts-speakers")
++    suspend fun getTtsSpeakers(): Response<TtsSpeakerOptionsResponseDto>
++
++    @PATCH("v1/users/me/tts-speaker")
++    suspend fun updateTtsSpeaker(
++        @Body request: TtsSpeakerUpdateRequestDto,
++    ): Response<TtsSpeakerUpdateResponseDto>
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/data/dto/AccountDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/data/dto/AccountDto.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/data/dto/AccountDto.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/data/dto/AccountDto.kt
+@@ -2,6 +2,8 @@ package com.ssafy.mobile.feature.mypage.data.dto
+ 
+ import com.ssafy.mobile.feature.mypage.domain.model.AccountInfo
+ import com.ssafy.mobile.feature.mypage.domain.model.AccountUpdateResult
++import com.ssafy.mobile.feature.mypage.domain.model.TtsSpeakerOption
++import com.ssafy.mobile.feature.mypage.domain.model.TtsSpeakerUpdateResult
+ 
+ data class AccountInfoResponseDto(
+     val userId: Long,
+@@ -44,3 +46,33 @@ data class AccountUpdateResponseDto(
+             updatedAt = updatedAt,
+         )
+ }
++
++data class TtsSpeakerOptionResponseDto(
++    val code: String,
++    val label: String,
++) {
++    fun toDomain(): TtsSpeakerOption =
++        TtsSpeakerOption(
++            code = code,
++            label = label,
++        )
++}
++
++data class TtsSpeakerOptionsResponseDto(
++    val speakers: List<TtsSpeakerOptionResponseDto>,
++)
++
++data class TtsSpeakerUpdateRequestDto(
++    val ttsSpeaker: String,
++)
++
++data class TtsSpeakerUpdateResponseDto(
++    val userId: Long,
++    val ttsSpeaker: String,
++) {
++    fun toDomain(): TtsSpeakerUpdateResult =
++        TtsSpeakerUpdateResult(
++            userId = userId,
++            ttsSpeaker = ttsSpeaker,
++        )
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/data/repository/AccountRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/data/repository/AccountRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/data/repository/AccountRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/data/repository/AccountRepository.kt
+@@ -3,8 +3,11 @@ package com.ssafy.mobile.feature.mypage.data.repository
+ import android.util.Log
+ import com.ssafy.mobile.feature.mypage.data.api.AccountApiService
+ import com.ssafy.mobile.feature.mypage.data.dto.AccountUpdateRequestDto
++import com.ssafy.mobile.feature.mypage.data.dto.TtsSpeakerUpdateRequestDto
+ import com.ssafy.mobile.feature.mypage.domain.model.AccountInfo
+ import com.ssafy.mobile.feature.mypage.domain.model.AccountUpdateResult
++import com.ssafy.mobile.feature.mypage.domain.model.TtsSpeakerOption
++import com.ssafy.mobile.feature.mypage.domain.model.TtsSpeakerUpdateResult
+ import java.io.IOException
+ import javax.inject.Inject
+ import kotlin.coroutines.cancellation.CancellationException
+@@ -54,13 +57,48 @@ class AccountRepository
+                 error("네트워크 연결을 확인해 주세요.")
+             }
+ 
++        suspend fun getTtsSpeakerOptions(): List<TtsSpeakerOption> =
++            try {
++                val response = apiService.getTtsSpeakers()
++                if (response.isSuccessful) {
++                    val body = response.body() ?: error("목소리 목록 응답이 비어 있습니다.")
++                    body.speakers.map { speaker -> speaker.toDomain() }
++                } else {
++                    error(accountErrorMessage(response.code(), "목소리 목록을 불러오지 못했습니다."))
++                }
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: IOException) {
++                Log.e(TAG, "getTtsSpeakerOptions IOException", e)
++                error("네트워크 연결을 확인해 주세요.")
++            }
++
++        suspend fun updateTtsSpeaker(ttsSpeaker: String): TtsSpeakerUpdateResult =
++            try {
++                val response =
++                    apiService.updateTtsSpeaker(
++                        TtsSpeakerUpdateRequestDto(ttsSpeaker = ttsSpeaker),
++                    )
++                if (response.isSuccessful) {
++                    val body = response.body() ?: error("목소리 설정 응답이 비어 있습니다.")
++                    body.toDomain()
++                } else {
++                    error(accountErrorMessage(response.code(), "목소리 설정을 저장하지 못했습니다."))
++                }
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: IOException) {
++                Log.e(TAG, "updateTtsSpeaker IOException", e)
++                error("네트워크 연결을 확인해 주세요.")
++            }
++
+         private fun accountErrorMessage(
+             statusCode: Int,
+             fallback: String,
+         ): String =
+             when (statusCode) {
+                 HTTP_STATUS_BAD_REQUEST -> "입력 정보를 확인해 주세요."
+-                HTTP_STATUS_UNAUTHORIZED -> "세션이 만료되었습니다. 다시 로그인해 주세요."
++                HTTP_STATUS_UNAUTHORIZED -> "인증이 만료됐습니다. 다시 로그인해 주세요."
+                 HTTP_STATUS_NOT_FOUND -> "사용자 정보를 찾을 수 없습니다."
+                 else -> fallback
+             }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/domain/model/AccountInfo.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/domain/model/AccountInfo.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/domain/model/AccountInfo.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/domain/model/AccountInfo.kt
+@@ -17,3 +17,13 @@ data class AccountUpdateResult(
+     val role: String,
+     val updatedAt: String?,
+ )
++
++data class TtsSpeakerOption(
++    val code: String,
++    val label: String,
++)
++
++data class TtsSpeakerUpdateResult(
++    val userId: Long,
++    val ttsSpeaker: String,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AppSettingsRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AppSettingsRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AppSettingsRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AppSettingsRoute.kt
+@@ -6,22 +6,28 @@ import androidx.compose.foundation.background
+ import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.PaddingValues
+ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.material3.ExperimentalMaterial3Api
+ import androidx.compose.material3.HorizontalDivider
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.RadioButton
+ import androidx.compose.material3.Scaffold
++import androidx.compose.material3.SnackbarHost
++import androidx.compose.material3.SnackbarHostState
+ import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.material3.TextButton
+ import androidx.compose.material3.TopAppBar
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
++import androidx.compose.runtime.remember
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.text.font.FontWeight
+@@ -29,6 +35,14 @@ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import com.ssafy.mobile.core.ui.theme.AppThemeMode
++import com.ssafy.mobile.feature.mypage.domain.model.TtsSpeakerOption
++
++private data class AppSettingsActions(
++    val onThemeModeSelected: (AppThemeMode) -> Unit,
++    val onSpeakerSelected: (String) -> Unit,
++    val onRetryTtsLoad: () -> Unit,
++    val onNavigateBack: () -> Unit,
++)
+ 
+ @Composable
+ fun AppSettingsRoute(
+@@ -37,11 +51,26 @@ fun AppSettingsRoute(
+     viewModel: AppSettingsViewModel = hiltViewModel(),
+ ) {
+     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
++    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
++    val snackbarHostState = remember { SnackbarHostState() }
++
++    LaunchedEffect(uiState.eventMessage) {
++        val message = uiState.eventMessage ?: return@LaunchedEffect
++        snackbarHostState.showSnackbar(message)
++        viewModel.clearEventMessage()
++    }
+ 
+     AppSettingsScreen(
+         themeMode = themeMode,
+-        onThemeModeSelected = viewModel::updateThemeMode,
+-        onNavigateBack = onNavigateBack,
++        uiState = uiState,
++        snackbarHostState = snackbarHostState,
++        actions =
++            AppSettingsActions(
++                onThemeModeSelected = viewModel::updateThemeMode,
++                onSpeakerSelected = viewModel::updateTtsSpeaker,
++                onRetryTtsLoad = viewModel::loadTtsSpeakerSettings,
++                onNavigateBack = onNavigateBack,
++            ),
+         modifier = modifier,
+     )
+ }
+@@ -50,8 +79,9 @@ fun AppSettingsRoute(
+ @Composable
+ private fun AppSettingsScreen(
+     themeMode: AppThemeMode,
+-    onThemeModeSelected: (AppThemeMode) -> Unit,
+-    onNavigateBack: () -> Unit,
++    uiState: AppSettingsUiState,
++    snackbarHostState: SnackbarHostState,
++    actions: AppSettingsActions,
+     modifier: Modifier = Modifier,
+ ) {
+     Scaffold(
+@@ -67,34 +97,82 @@ private fun AppSettingsScreen(
+                     )
+                 },
+                 navigationIcon = {
+-                    TextButton(onClick = onNavigateBack) {
++                    TextButton(onClick = actions.onNavigateBack) {
+                         Text(text = "뒤로")
+                     }
+                 },
+             )
+         },
++        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+     ) { padding ->
+-        Column(
++        LazyColumn(
+             modifier =
+                 Modifier
+                     .fillMaxSize()
+-                    .padding(padding)
+-                    .padding(horizontal = 18.dp, vertical = 18.dp),
++                    .padding(padding),
++            contentPadding = PaddingValues(18.dp),
+             verticalArrangement = Arrangement.spacedBy(18.dp),
+         ) {
+-            Text(
+-                text = "화면과 사용 환경을 설정해요.",
+-                style = MaterialTheme.typography.bodySmall,
+-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+-            )
+-            ThemeModeSettingsGroup(
+-                selectedMode = themeMode,
+-                onThemeModeSelected = onThemeModeSelected,
+-            )
++            item {
++                Text(
++                    text = "테마와 퀴즈 음성을 설정해요.",
++                    style = MaterialTheme.typography.bodySmall,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                )
++            }
++            item {
++                SettingsSectionHeader(
++                    title = "화면 모드",
++                    description = "앱 화면 밝기와 테마를 고를 수 있어요.",
++                )
++            }
++            item {
++                ThemeModeSettingsGroup(
++                    selectedMode = themeMode,
++                    onThemeModeSelected = actions.onThemeModeSelected,
++                )
++            }
++            item {
++                SettingsSectionHeader(
++                    title = "퀴즈 음성",
++                    description = "문제를 읽어주는 목소리를 선택해요.",
++                )
++            }
++            item {
++                TtsSpeakerSettingsGroup(
++                    uiState = uiState,
++                    onSpeakerSelected = actions.onSpeakerSelected,
++                    onRetryClick = actions.onRetryTtsLoad,
++                )
++            }
+         }
+     }
+ }
+ 
++@Composable
++private fun SettingsSectionHeader(
++    title: String,
++    description: String,
++    modifier: Modifier = Modifier,
++) {
++    Column(
++        modifier = modifier.fillMaxWidth(),
++        verticalArrangement = Arrangement.spacedBy(4.dp),
++    ) {
++        Text(
++            text = title,
++            style = MaterialTheme.typography.titleMedium,
++            fontWeight = FontWeight.Bold,
++            color = MaterialTheme.colorScheme.onSurface,
++        )
++        Text(
++            text = description,
++            style = MaterialTheme.typography.bodySmall,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++        )
++    }
++}
++
+ @Composable
+ private fun ThemeModeSettingsGroup(
+     selectedMode: AppThemeMode,
+@@ -125,6 +203,214 @@ private fun ThemeModeSettingsGroup(
+     }
+ }
+ 
++@Composable
++private fun TtsSpeakerSettingsGroup(
++    uiState: AppSettingsUiState,
++    onSpeakerSelected: (String) -> Unit,
++    onRetryClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    when {
++        uiState.isTtsLoading ->
++            SettingsMessageCard(
++                message = "목소리 목록을 불러오고 있어요.",
++                modifier = modifier,
++            )
++
++        uiState.errorMessage != null ->
++            SettingsMessageCard(
++                message = uiState.errorMessage,
++                actionLabel = "다시 시도",
++                onActionClick = onRetryClick,
++                modifier = modifier,
++            )
++
++        uiState.speakers.isEmpty() ->
++            SettingsMessageCard(
++                message = "선택할 수 있는 목소리가 아직 없어요.",
++                modifier = modifier,
++            )
++
++        else ->
++            TtsSpeakerOptionList(
++                speakers = uiState.speakers,
++                selectedSpeakerCode = uiState.selectedSpeakerCode,
++                isSaving = uiState.isTtsSaving,
++                previewingSpeakerCode = uiState.previewingSpeakerCode,
++                onSpeakerSelected = onSpeakerSelected,
++                modifier = modifier,
++            )
++    }
++}
++
++@Composable
++private fun SettingsMessageCard(
++    message: String,
++    actionLabel: String? = null,
++    onActionClick: (() -> Unit)? = null,
++    modifier: Modifier = Modifier,
++) {
++    Surface(
++        modifier = modifier.fillMaxWidth(),
++        shape = RoundedCornerShape(28.dp),
++        color = MaterialTheme.colorScheme.surface,
++        contentColor = MaterialTheme.colorScheme.onSurface,
++    ) {
++        Column(
++            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
++            verticalArrangement = Arrangement.spacedBy(10.dp),
++        ) {
++            Text(
++                text = message,
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++            )
++            if (actionLabel != null && onActionClick != null) {
++                TextButton(
++                    onClick = onActionClick,
++                    modifier = Modifier.align(Alignment.End),
++                ) {
++                    Text(text = actionLabel)
++                }
++            }
++        }
++    }
++}
++
++@Composable
++private fun TtsSpeakerOptionList(
++    speakers: List<TtsSpeakerOption>,
++    selectedSpeakerCode: String?,
++    isSaving: Boolean,
++    previewingSpeakerCode: String?,
++    onSpeakerSelected: (String) -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Surface(
++        modifier = modifier.fillMaxWidth(),
++        shape = RoundedCornerShape(28.dp),
++        color = MaterialTheme.colorScheme.surface,
++        contentColor = MaterialTheme.colorScheme.onSurface,
++    ) {
++        Column {
++            SpeakerSelectionSummary(
++                selectedSpeakerLabel =
++                    speakers
++                        .firstOrNull { speaker -> speaker.code == selectedSpeakerCode }
++                        ?.label
++                        ?: selectedSpeakerCode
++                        ?: "아직 선택한 목소리가 없어요.",
++                isSaving = isSaving,
++                isPreviewing = previewingSpeakerCode != null,
++            )
++            HorizontalDivider(
++                modifier = Modifier.padding(horizontal = 20.dp),
++                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
++            )
++            speakers.forEachIndexed { index, speaker ->
++                TtsSpeakerRow(
++                    speaker = speaker,
++                    selected = speaker.code == selectedSpeakerCode,
++                    enabled = !isSaving,
++                    onClick = { onSpeakerSelected(speaker.code) },
++                )
++                if (index != speakers.lastIndex) {
++                    HorizontalDivider(
++                        modifier = Modifier.padding(horizontal = 20.dp),
++                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
++                    )
++                }
++            }
++        }
++    }
++}
++
++@Composable
++private fun SpeakerSelectionSummary(
++    selectedSpeakerLabel: String,
++    isSaving: Boolean,
++    isPreviewing: Boolean,
++    modifier: Modifier = Modifier,
++) {
++    Column(
++        modifier =
++            modifier
++                .fillMaxWidth()
++                .padding(horizontal = 20.dp, vertical = 16.dp),
++        verticalArrangement = Arrangement.spacedBy(4.dp),
++    ) {
++        Text(
++            text = "현재 목소리",
++            style = MaterialTheme.typography.labelMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++        )
++        Text(
++            text = selectedSpeakerLabel,
++            style = MaterialTheme.typography.titleSmall,
++            fontWeight = FontWeight.Bold,
++            color = MaterialTheme.colorScheme.onSurface,
++        )
++        if (isSaving) {
++            Text(
++                text = "저장 중이에요...",
++                style = MaterialTheme.typography.bodySmall,
++                color = MaterialTheme.colorScheme.primary,
++                fontWeight = FontWeight.SemiBold,
++            )
++        } else if (isPreviewing) {
++            Text(
++                text = "샘플 음성을 재생하고 있어요...",
++                style = MaterialTheme.typography.bodySmall,
++                color = MaterialTheme.colorScheme.primary,
++                fontWeight = FontWeight.SemiBold,
++            )
++        }
++    }
++}
++
++@Composable
++private fun TtsSpeakerRow(
++    speaker: TtsSpeakerOption,
++    selected: Boolean,
++    enabled: Boolean,
++    onClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Row(
++        modifier =
++            modifier
++                .fillMaxWidth()
++                .background(
++                    if (selected) {
++                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.34f)
++                    } else {
++                        MaterialTheme.colorScheme.surface
++                    },
++                ).clickable(enabled = enabled, onClick = onClick)
++                .padding(start = 20.dp, end = 14.dp),
++        verticalAlignment = Alignment.CenterVertically,
++    ) {
++        Column(
++            modifier =
++                Modifier
++                    .weight(1f)
++                    .padding(vertical = 16.dp),
++            verticalArrangement = Arrangement.spacedBy(3.dp),
++        ) {
++            Text(
++                text = speaker.label,
++                style = MaterialTheme.typography.bodyLarge,
++                fontWeight = FontWeight.SemiBold,
++            )
++        }
++        RadioButton(
++            selected = selected,
++            onClick = onClick,
++            enabled = enabled,
++        )
++    }
++}
++
+ @Composable
+ private fun ThemeModeRow(
+     mode: AppThemeMode,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AppSettingsViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AppSettingsViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AppSettingsViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AppSettingsViewModel.kt
+@@ -1,21 +1,45 @@
+ package com.ssafy.mobile.feature.mypage.presentation
+ 
++import android.util.Log
+ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.core.audio.AudioPlayer
+ import com.ssafy.mobile.core.ui.theme.AppThemeMode
+ import com.ssafy.mobile.core.ui.theme.AppThemeModeRepository
++import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
++import com.ssafy.mobile.feature.mypage.data.repository.AccountRepository
++import com.ssafy.mobile.feature.mypage.domain.model.TtsSpeakerOption
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import javax.inject.Inject
++import kotlin.coroutines.cancellation.CancellationException
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.SharingStarted
+ import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
+ import kotlinx.coroutines.flow.stateIn
+ import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++
++data class AppSettingsUiState(
++    val isTtsLoading: Boolean = true,
++    val isTtsSaving: Boolean = false,
++    val previewingSpeakerCode: String? = null,
++    val speakers: List<TtsSpeakerOption> = emptyList(),
++    val selectedSpeakerCode: String? = null,
++    val errorMessage: String? = null,
++    val eventMessage: String? = null,
++)
+ 
+ @HiltViewModel
+ class AppSettingsViewModel
+     @Inject
+     constructor(
+         private val appThemeModeRepository: AppThemeModeRepository,
++        private val accountRepository: AccountRepository,
++        private val translateRepository: TranslateRepository,
++        private val audioPlayer: AudioPlayer,
+     ) : ViewModel() {
+         val themeMode: StateFlow<AppThemeMode> =
+             appThemeModeRepository.themeMode.stateIn(
+@@ -24,11 +48,205 @@ class AppSettingsViewModel
+                 initialValue = AppThemeMode.System,
+             )
+ 
++        private val _uiState = MutableStateFlow(AppSettingsUiState())
++        val uiState: StateFlow<AppSettingsUiState> = _uiState.asStateFlow()
++
++        private var previewJob: Job? = null
++
++        init {
++            loadTtsSpeakerSettings()
++        }
++
+         fun updateThemeMode(mode: AppThemeMode) {
+             viewModelScope.launch {
+                 appThemeModeRepository.saveThemeMode(mode)
+             }
+         }
++
++        fun loadTtsSpeakerSettings() {
++            if (_uiState.value.isTtsSaving) return
++
++            _uiState.value =
++                _uiState.value.copy(
++                    isTtsLoading = true,
++                    errorMessage = null,
++                )
++
++            viewModelScope.launch {
++                try {
++                    val accountInfo =
++                        withContext(Dispatchers.IO) {
++                            accountRepository.getAccountInfo()
++                        }
++                    val speakers =
++                        withContext(Dispatchers.IO) {
++                            accountRepository.getTtsSpeakerOptions()
++                        }
++
++                    _uiState.value =
++                        AppSettingsUiState(
++                            isTtsLoading = false,
++                            speakers = speakers,
++                            selectedSpeakerCode = accountInfo.ttsSpeaker,
++                        )
++                } catch (e: CancellationException) {
++                    throw e
++                } catch (
++                    @Suppress("TooGenericExceptionCaught")
++                    e: Exception,
++                ) {
++                    Log.e(TAG, "Failed to load TTS speaker settings", e)
++                    _uiState.value =
++                        _uiState.value.copy(
++                            isTtsLoading = false,
++                            errorMessage = e.message ?: DEFAULT_TTS_LOAD_ERROR_MESSAGE,
++                        )
++                }
++            }
++        }
++
++        fun updateTtsSpeaker(code: String) {
++            val currentState = _uiState.value
++            if (currentState.isTtsLoading || currentState.isTtsSaving) return
++
++            if (currentState.selectedSpeakerCode == code) {
++                playSpeakerPreview(
++                    code = code,
++                    savedSpeaker = false,
++                )
++                return
++            }
++
++            _uiState.value =
++                currentState.copy(
++                    isTtsSaving = true,
++                    errorMessage = null,
++                    eventMessage = null,
++                )
++
++            viewModelScope.launch {
++                try {
++                    val updateResult =
++                        withContext(Dispatchers.IO) {
++                            accountRepository.updateTtsSpeaker(code)
++                        }
++                    _uiState.value =
++                        _uiState.value.copy(
++                            isTtsLoading = false,
++                            isTtsSaving = false,
++                            selectedSpeakerCode = updateResult.ttsSpeaker,
++                            eventMessage = null,
++                        )
++                    playSpeakerPreview(
++                        code = updateResult.ttsSpeaker,
++                        savedSpeaker = true,
++                    )
++                } catch (e: CancellationException) {
++                    throw e
++                } catch (
++                    @Suppress("TooGenericExceptionCaught")
++                    e: Exception,
++                ) {
++                    Log.e(TAG, "Failed to update TTS speaker", e)
++                    _uiState.value =
++                        _uiState.value.copy(
++                            isTtsSaving = false,
++                            errorMessage = e.message ?: DEFAULT_TTS_SAVE_ERROR_MESSAGE,
++                        )
++                }
++            }
++        }
++
++        fun clearEventMessage() {
++            if (_uiState.value.eventMessage != null) {
++                _uiState.value = _uiState.value.copy(eventMessage = null)
++            }
++        }
++
++        override fun onCleared() {
++            previewJob?.cancel()
++            audioPlayer.stop()
++            super.onCleared()
++        }
++
++        private fun playSpeakerPreview(
++            code: String,
++            savedSpeaker: Boolean,
++        ) {
++            previewJob?.cancel()
++            audioPlayer.stop()
++            _uiState.value =
++                _uiState.value.copy(
++                    previewingSpeakerCode = code,
++                    eventMessage = null,
++                )
++
++            previewJob =
++                viewModelScope.launch {
++                    val previewResult =
++                        withContext(Dispatchers.IO) {
++                            translateRepository.translateSignToSpeech(
++                                words = TTS_PREVIEW_SAMPLE_WORDS,
++                                sessionId = null,
++                            )
++                        }
++
++                    previewResult
++                        .onSuccess { response ->
++                            val audioBase64 = response.audioBase64.orEmpty()
++                            if (audioBase64.isBlank()) {
++                                finishPreview(
++                                    code = code,
++                                    message = previewFailureMessage(savedSpeaker),
++                                )
++                            } else {
++                                audioPlayer.playBase64(
++                                    base64Data = audioBase64,
++                                    onComplete = { finishPreview(code = code) },
++                                    onError = {
++                                        finishPreview(
++                                            code = code,
++                                            message = previewFailureMessage(savedSpeaker),
++                                        )
++                                    },
++                                )
++                            }
++                        }.onFailure { throwable ->
++                            if (throwable is CancellationException) throw throwable
++                            finishPreview(
++                                code = code,
++                                message = previewFailureMessage(savedSpeaker),
++                            )
++                        }
++                }
++        }
++
++        private fun finishPreview(
++            code: String,
++            message: String? = null,
++        ) {
++            val currentState = _uiState.value
++            if (currentState.previewingSpeakerCode != code) return
++
++            _uiState.value =
++                currentState.copy(
++                    previewingSpeakerCode = null,
++                    eventMessage = message,
++                )
++        }
++
++        private fun previewFailureMessage(savedSpeaker: Boolean): String =
++            if (savedSpeaker) {
++                TTS_PREVIEW_FAILED_AFTER_SAVE_MESSAGE
++            } else {
++                TTS_PREVIEW_FAILED_MESSAGE
++            }
+     }
+ 
+ private const val STATE_SUBSCRIPTION_TIMEOUT_MS = 5_000L
++private const val DEFAULT_TTS_LOAD_ERROR_MESSAGE = "목소리 설정을 불러오지 못했어요."
++private const val DEFAULT_TTS_SAVE_ERROR_MESSAGE = "목소리 설정을 저장하지 못했어요."
++private const val TTS_PREVIEW_FAILED_MESSAGE = "샘플 음성을 재생하지 못했어요."
++private const val TTS_PREVIEW_FAILED_AFTER_SAVE_MESSAGE = "목소리는 바뀌었지만 샘플 음성은 재생하지 못했어요."
++private val TTS_PREVIEW_SAMPLE_WORDS = listOf("안녕", "반갑다")
++private const val TAG = "AppSettingsViewModel"
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
+@@ -14,9 +14,13 @@ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.PaddingValues
+ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.offset
++import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+@@ -71,6 +75,7 @@ internal fun QuizStarResultCard(
+                 mascot = answer.toFeedbackMascot(),
+                 title = answer.toRewardTitle(),
+                 description = answer.toRewardDescription(remainingRetryCount),
++                recognizedText = answer.normalizedRecognizedText(),
+             )
+         }
+     }
+@@ -81,34 +86,78 @@ private fun QuizFeedbackMascotMessage(
+     mascot: SudaMascot,
+     title: String,
+     description: String,
++    recognizedText: String,
+ ) {
+-    Row(
++    Column(
+         modifier = Modifier.fillMaxWidth(),
+-        verticalAlignment = Alignment.CenterVertically,
+-        horizontalArrangement = Arrangement.Center,
++        horizontalAlignment = Alignment.CenterHorizontally,
++        verticalArrangement = Arrangement.spacedBy(8.dp),
++    ) {
++        Row(
++            modifier = Modifier.fillMaxWidth(),
++            verticalAlignment = Alignment.CenterVertically,
++            horizontalArrangement = Arrangement.Center,
++        ) {
++            SudaMascotImage(
++                mascot = mascot,
++                contentDescription = null,
++                modifier = Modifier.size(58.dp),
++            )
++            Column(
++                horizontalAlignment = Alignment.Start,
++                verticalArrangement = Arrangement.spacedBy(2.dp),
++            ) {
++                Text(
++                    text = title,
++                    style = MaterialTheme.typography.headlineSmall,
++                    color = MaterialTheme.colorScheme.onSurface,
++                    fontWeight = FontWeight.Black,
++                    textAlign = TextAlign.Start,
++                )
++                Text(
++                    text = description,
++                    style = MaterialTheme.typography.bodyMedium,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                    fontWeight = FontWeight.Bold,
++                    textAlign = TextAlign.Start,
++                )
++            }
++        }
++
++        if (recognizedText.isNotBlank()) {
++            RecognizedSpeechCard(
++                recognizedText = recognizedText,
++            )
++        }
++    }
++}
++
++@Composable
++private fun RecognizedSpeechCard(
++    recognizedText: String,
++    modifier: Modifier = Modifier,
++) {
++    Surface(
++        modifier = modifier.fillMaxWidth(),
++        shape = RoundedCornerShape(20.dp),
++        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.48f),
++        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+     ) {
+-        SudaMascotImage(
+-            mascot = mascot,
+-            contentDescription = null,
+-            modifier = Modifier.size(58.dp),
+-        )
+         Column(
+-            horizontalAlignment = Alignment.Start,
+-            verticalArrangement = Arrangement.spacedBy(2.dp),
++            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
++            verticalArrangement = Arrangement.spacedBy(4.dp),
+         ) {
+             Text(
+-                text = title,
+-                style = MaterialTheme.typography.headlineSmall,
+-                color = MaterialTheme.colorScheme.onSurface,
+-                fontWeight = FontWeight.Black,
+-                textAlign = TextAlign.Start,
++                text = "내가 말한 말",
++                style = MaterialTheme.typography.labelMedium,
++                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.84f),
++                fontWeight = FontWeight.ExtraBold,
+             )
+             Text(
+-                text = description,
+-                style = MaterialTheme.typography.bodyMedium,
+-                color = MaterialTheme.colorScheme.onSurfaceVariant,
++                text = recognizedText,
++                style = MaterialTheme.typography.titleMedium,
++                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                 fontWeight = FontWeight.Bold,
+-                textAlign = TextAlign.Start,
+             )
+         }
+     }
+@@ -120,7 +169,7 @@ private fun FailureRewardBurst(modifier: Modifier = Modifier) {
+         modifier =
+             modifier
+                 .fillMaxWidth()
+-                .size(REWARD_BURST_SIZE.dp),
++                .height(REWARD_BURST_HEIGHT.dp),
+         contentAlignment = Alignment.Center,
+     ) {
+         SudaMascotImage(
+@@ -129,7 +178,7 @@ private fun FailureRewardBurst(modifier: Modifier = Modifier) {
+             modifier =
+                 Modifier
+                     .size(FAILURE_MASCOT_SIZE.dp)
+-                    .offset(y = (-8).dp),
++                    .offset(y = (-4).dp),
+         )
+         AppBadge(
+             text = "\uC544\uC26C\uC6CC\uC694",
+@@ -199,7 +248,7 @@ private fun StarRewardBurstContent(
+         modifier =
+             modifier
+                 .fillMaxWidth()
+-                .size(REWARD_BURST_SIZE.dp),
++                .height(REWARD_BURST_HEIGHT.dp),
+         contentAlignment = Alignment.Center,
+     ) {
+         LargeStarRow(
+@@ -237,6 +286,8 @@ private fun LargeStarRow(
+ 
+ private fun QuizAnswer.normalizedStarCount(): Int = star?.coerceIn(MIN_STAR, MAX_STAR) ?: MIN_STAR
+ 
++private fun QuizAnswer.normalizedRecognizedText(): String = sttText.trim()
++
+ private fun QuizAnswer.isFailureResult(): Boolean =
+     star != null &&
+         normalizedStarCount() == MIN_STAR
+@@ -304,7 +355,7 @@ private fun QuizAnswer.toFeedbackCue(): QuizFeedbackCue? =
+ 
+ private const val MIN_STAR = 0
+ private const val MAX_STAR = 3
+-private const val REWARD_BURST_SIZE = 152
+-private const val BIG_STAR_SIZE = 46
+-private const val BIG_STAR_SPACING = 6
+-private const val FAILURE_MASCOT_SIZE = 112
++private const val REWARD_BURST_HEIGHT = 124
++private const val BIG_STAR_SIZE = 62
++private const val BIG_STAR_SPACING = 8
++private const val FAILURE_MASCOT_SIZE = 98
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDtoTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDtoTest.kt
+--- a/mobile/app/src/test/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDtoTest.kt
++++ b/mobile/app/src/test/java/com/ssafy/mobile/feature/learning/data/dto/LearningQuizDtoTest.kt
+@@ -10,6 +10,7 @@ class LearningQuizDtoTest {
+     fun answerResponseWithBlankRecognizedTextBecomesFailedZeroStar() {
+         val result =
+             LearningQuizAnswerResponseDto(
++                targetText = "apple",
+                 recognizedText = "",
+                 isCorrect = false,
+                 star = 1,
+@@ -27,6 +28,7 @@ class LearningQuizDtoTest {
+     fun answerResponseWithRecognizedTextKeepsReturnedScore() {
+         val result =
+             LearningQuizAnswerResponseDto(
++                targetText = "apple",
+                 recognizedText = "apple",
+                 isCorrect = true,
+                 star = 2,
+@@ -40,14 +42,32 @@ class LearningQuizDtoTest {
+         assertEquals(2, result.star)
+     }
+ 
++    @Test
++    fun answerResponseWithClearlyUnrelatedRecognizedTextBecomesFailedZeroStar() {
++        val result =
++            LearningQuizAnswerResponseDto(
++                targetText = "apple",
++                recognizedText = "bus",
++                isCorrect = false,
++                star = 1,
++            ).toDomain(
++                fallbackSessionId = SESSION_ID,
++                fallbackQuestionId = QUESTION_ID,
++            )
++
++        assertEquals("bus", result.recognizedText)
++        assertFalse(result.isCorrect)
++        assertEquals(0, result.star)
++    }
++
+     @Test
+     fun resultResponseRecalculatesSummaryFromNormalizedAnswers() {
+         val result =
+             LearningQuizResultResponseDto(
+                 sessionId = SESSION_ID,
+-                totalQuestionCount = 2,
+-                correctCount = 2,
+-                totalStar = 4,
++                totalQuestionCount = 3,
++                correctCount = 3,
++                totalStar = 5,
+                 answers =
+                     listOf(
+                         LearningQuizResultAnswerDto(
+@@ -66,6 +86,14 @@ class LearningQuizDtoTest {
+                             isCorrect = true,
+                             star = 3,
+                         ),
++                        LearningQuizResultAnswerDto(
++                            questionId = 3L,
++                            wordId = 103L,
++                            targetText = "apple",
++                            recognizedText = "bus",
++                            isCorrect = false,
++                            star = 1,
++                        ),
+                     ),
+             ).toDomain()
+ 
+@@ -73,6 +101,7 @@ class LearningQuizDtoTest {
+         assertEquals(3, result.totalStar)
+         assertEquals(0, result.answers.first().star)
+         assertFalse(result.answers.first().isCorrect)
++        assertEquals(0, result.answers.last().star)
+     }
+ }
+ 
+
+

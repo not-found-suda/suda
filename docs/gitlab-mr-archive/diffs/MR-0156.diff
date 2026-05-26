@@ -1,0 +1,1002 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppBadge.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppBadge.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppBadge.kt
+@@ -0,0 +1,95 @@
++@file:Suppress("MagicNumber")
++
++package com.ssafy.mobile.core.ui.components
++
++import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.core.ui.theme.SudaInfo
++import com.ssafy.mobile.core.ui.theme.SudaSuccess
++import com.ssafy.mobile.core.ui.theme.SudaWarning
++
++@Composable
++fun AppBadge(
++    text: String,
++    modifier: Modifier = Modifier,
++    tone: AppBadgeTone = AppBadgeTone.Neutral,
++    contentPadding: PaddingValues = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
++) {
++    val colors = tone.colors()
++
++    Surface(
++        modifier = modifier,
++        shape = RoundedCornerShape(999.dp),
++        color = colors.container,
++        contentColor = colors.content,
++    ) {
++        Text(
++            text = text,
++            style = MaterialTheme.typography.labelMedium,
++            modifier = Modifier.padding(contentPadding),
++        )
++    }
++}
++
++enum class AppBadgeTone {
++    Primary,
++    Secondary,
++    Tertiary,
++    Success,
++    Warning,
++    Error,
++    Neutral,
++}
++
++@Composable
++private fun AppBadgeTone.colors(): AppBadgeColors =
++    when (this) {
++        AppBadgeTone.Primary ->
++            AppBadgeColors(
++                container = MaterialTheme.colorScheme.primaryContainer,
++                content = MaterialTheme.colorScheme.onPrimaryContainer,
++            )
++        AppBadgeTone.Secondary ->
++            AppBadgeColors(
++                container = MaterialTheme.colorScheme.secondaryContainer,
++                content = MaterialTheme.colorScheme.onSecondaryContainer,
++            )
++        AppBadgeTone.Tertiary ->
++            AppBadgeColors(
++                container = MaterialTheme.colorScheme.tertiaryContainer,
++                content = MaterialTheme.colorScheme.onTertiaryContainer,
++            )
++        AppBadgeTone.Success ->
++            AppBadgeColors(
++                container = SudaSuccess.copy(alpha = 0.14f),
++                content = SudaSuccess,
++            )
++        AppBadgeTone.Warning ->
++            AppBadgeColors(
++                container = SudaWarning.copy(alpha = 0.16f),
++                content = Color(0xFF6B4200),
++            )
++        AppBadgeTone.Error ->
++            AppBadgeColors(
++                container = MaterialTheme.colorScheme.errorContainer,
++                content = MaterialTheme.colorScheme.onErrorContainer,
++            )
++        AppBadgeTone.Neutral ->
++            AppBadgeColors(
++                container = SudaInfo.copy(alpha = 0.12f),
++                content = SudaInfo,
++            )
++    }
++
++private data class AppBadgeColors(
++    val container: Color,
++    val content: Color,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppCard.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppCard.kt
+@@ -0,0 +1,51 @@
++package com.ssafy.mobile.core.ui.components
++
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.ColumnScope
++import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.unit.dp
++
++@Composable
++fun AppCard(
++    modifier: Modifier = Modifier,
++    onClick: (() -> Unit)? = null,
++    contentPadding: PaddingValues = PaddingValues(16.dp),
++    content: @Composable ColumnScope.() -> Unit,
++) {
++    if (onClick == null) {
++        Surface(
++            modifier = modifier,
++            shape = RoundedCornerShape(8.dp),
++            color = MaterialTheme.colorScheme.surface,
++            contentColor = MaterialTheme.colorScheme.onSurface,
++            tonalElevation = 1.dp,
++            shadowElevation = 0.dp,
++        ) {
++            Column(
++                modifier = Modifier.padding(contentPadding),
++                content = content,
++            )
++        }
++    } else {
++        Surface(
++            onClick = onClick,
++            modifier = modifier,
++            shape = RoundedCornerShape(8.dp),
++            color = MaterialTheme.colorScheme.surface,
++            contentColor = MaterialTheme.colorScheme.onSurface,
++            tonalElevation = 1.dp,
++            shadowElevation = 0.dp,
++        ) {
++            Column(
++                modifier = Modifier.padding(contentPadding),
++                content = content,
++            )
++        }
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppErrorText.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppErrorText.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppErrorText.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppErrorText.kt
+@@ -1,7 +1,9 @@
+ package com.ssafy.mobile.core.ui.components
+ 
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Modifier
+@@ -16,11 +18,17 @@ fun AppErrorText(
+     modifier: Modifier = Modifier,
+ ) {
+     if (text.isNotEmpty()) {
+-        Text(
+-            text = text,
+-            color = MaterialTheme.colorScheme.error,
+-            style = MaterialTheme.typography.bodySmall,
++        Surface(
+             modifier = modifier.padding(vertical = 4.dp),
+-        )
++            shape = RoundedCornerShape(8.dp),
++            color = MaterialTheme.colorScheme.errorContainer,
++            contentColor = MaterialTheme.colorScheme.onErrorContainer,
++        ) {
++            Text(
++                text = text,
++                style = MaterialTheme.typography.bodySmall,
++                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
++            )
++        }
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppLoadingIndicator.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppLoadingIndicator.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppLoadingIndicator.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppLoadingIndicator.kt
+@@ -1,18 +1,43 @@
+ package com.ssafy.mobile.core.ui.components
+ 
++import androidx.compose.animation.animateContentSize
+ import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.height
+ import androidx.compose.material3.CircularProgressIndicator
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.unit.dp
+ 
+ @Composable
+-fun AppLoadingIndicator(modifier: Modifier = Modifier) {
++fun AppLoadingIndicator(
++    modifier: Modifier = Modifier,
++    message: String? = null,
++) {
+     Box(
+-        modifier = modifier.fillMaxSize(),
++        modifier =
++            modifier
++                .fillMaxSize()
++                .animateContentSize(),
+         contentAlignment = Alignment.Center,
+     ) {
+-        CircularProgressIndicator()
++        Column(horizontalAlignment = Alignment.CenterHorizontally) {
++            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
++            if (!message.isNullOrBlank()) {
++                Spacer(modifier = Modifier.height(12.dp))
++                Text(
++                    text = message,
++                    style = MaterialTheme.typography.bodyMedium,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                    textAlign = TextAlign.Center,
++                )
++            }
++        }
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppPrimaryButton.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppPrimaryButton.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppPrimaryButton.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppPrimaryButton.kt
+@@ -1,11 +1,19 @@
+ package com.ssafy.mobile.core.ui.components
+ 
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.fillMaxWidth
+-import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.heightIn
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.material3.Button
++import androidx.compose.material3.ButtonDefaults
++import androidx.compose.material3.CircularProgressIndicator
++import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
+ 
+ @Composable
+@@ -14,15 +22,42 @@ fun AppPrimaryButton(
+     onClick: () -> Unit,
+     modifier: Modifier = Modifier,
+     enabled: Boolean = true,
++    loading: Boolean = false,
+ ) {
+     Button(
+         onClick = onClick,
+         modifier =
+             modifier
+                 .fillMaxWidth()
+-                .height(52.dp),
+-        enabled = enabled,
++                .heightIn(min = 52.dp),
++        enabled = enabled && !loading,
++        shape = RoundedCornerShape(8.dp),
++        colors =
++            ButtonDefaults.buttonColors(
++                containerColor = MaterialTheme.colorScheme.primary,
++                contentColor = MaterialTheme.colorScheme.onPrimary,
++                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
++                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
++            ),
++        contentPadding = ButtonDefaults.ContentPadding,
+     ) {
+-        Text(text = text)
++        Row(
++            horizontalArrangement = Arrangement.Center,
++        ) {
++            if (loading) {
++                CircularProgressIndicator(
++                    modifier = Modifier.size(18.dp),
++                    strokeWidth = 2.dp,
++                    color = MaterialTheme.colorScheme.primary,
++                )
++            } else {
++                Text(
++                    text = text,
++                    style = MaterialTheme.typography.labelLarge,
++                    maxLines = 1,
++                    overflow = TextOverflow.Ellipsis,
++                )
++            }
++        }
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppSecondaryButton.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppSecondaryButton.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppSecondaryButton.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppSecondaryButton.kt
+@@ -1,11 +1,16 @@
+ package com.ssafy.mobile.core.ui.components
+ 
++import androidx.compose.foundation.BorderStroke
+ import androidx.compose.foundation.layout.fillMaxWidth
+-import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.heightIn
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.ButtonDefaults
++import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.OutlinedButton
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
+ 
+ @Composable
+@@ -20,9 +25,30 @@ fun AppSecondaryButton(
+         modifier =
+             modifier
+                 .fillMaxWidth()
+-                .height(52.dp),
++                .heightIn(min = 52.dp),
+         enabled = enabled,
++        shape = RoundedCornerShape(8.dp),
++        colors =
++            ButtonDefaults.outlinedButtonColors(
++                contentColor = MaterialTheme.colorScheme.primary,
++                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
++            ),
++        border =
++            BorderStroke(
++                width = 1.dp,
++                color =
++                    if (enabled) {
++                        MaterialTheme.colorScheme.outline
++                    } else {
++                        MaterialTheme.colorScheme.outlineVariant
++                    },
++            ),
+     ) {
+-        Text(text = text)
++        Text(
++            text = text,
++            style = MaterialTheme.typography.labelLarge,
++            maxLines = 1,
++            overflow = TextOverflow.Ellipsis,
++        )
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppTextField.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppTextField.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppTextField.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppTextField.kt
+@@ -2,7 +2,10 @@ package com.ssafy.mobile.core.ui.components
+ 
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.OutlinedTextField
++import androidx.compose.material3.OutlinedTextFieldDefaults
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Modifier
+@@ -30,5 +33,16 @@ fun AppTextField(
+         isError = isError,
+         supportingText = supportingText?.let { { Text(text = it) } },
+         singleLine = true,
++        shape = RoundedCornerShape(8.dp),
++        textStyle = MaterialTheme.typography.bodyLarge,
++        colors =
++            OutlinedTextFieldDefaults.colors(
++                focusedBorderColor = MaterialTheme.colorScheme.primary,
++                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
++                focusedLabelColor = MaterialTheme.colorScheme.primary,
++                cursorColor = MaterialTheme.colorScheme.primary,
++                errorBorderColor = MaterialTheme.colorScheme.error,
++                errorLabelColor = MaterialTheme.colorScheme.error,
++            ),
+     )
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/feedback/AppEmptyState.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/feedback/AppEmptyState.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/feedback/AppEmptyState.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/feedback/AppEmptyState.kt
+@@ -1,13 +1,24 @@
+ package com.ssafy.mobile.core.ui.feedback
+ 
++import androidx.compose.animation.AnimatedVisibility
++import androidx.compose.animation.animateContentSize
++import androidx.compose.animation.fadeIn
++import androidx.compose.animation.slideInVertically
+ import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.unit.dp
++
++private const val ENTER_SLIDE_DIVISOR = 4
+ 
+ /**
+  * 데이터가 비어있을 때 보여주는 빈 화면 피드백 컴포넌트.
+@@ -18,14 +29,32 @@ fun AppEmptyState(
+     modifier: Modifier = Modifier,
+ ) {
+     Box(
+-        modifier = modifier.fillMaxSize(),
++        modifier =
++            modifier
++                .fillMaxSize()
++                .animateContentSize(),
+         contentAlignment = Alignment.Center,
+     ) {
+-        Text(
+-            text = message,
+-            style = MaterialTheme.typography.bodyLarge,
+-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+-            textAlign = TextAlign.Center,
+-        )
++        AnimatedVisibility(
++            visible = message.isNotBlank(),
++            enter = fadeIn() + slideInVertically { it / ENTER_SLIDE_DIVISOR },
++        ) {
++            Surface(
++                shape = RoundedCornerShape(8.dp),
++                color = MaterialTheme.colorScheme.surfaceVariant,
++                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
++            ) {
++                Column(
++                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
++                    horizontalAlignment = Alignment.CenterHorizontally,
++                ) {
++                    Text(
++                        text = message,
++                        style = MaterialTheme.typography.bodyLarge,
++                        textAlign = TextAlign.Center,
++                    )
++                }
++            }
++        }
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/feedback/AppErrorText.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/feedback/AppErrorText.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/feedback/AppErrorText.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/feedback/AppErrorText.kt
+@@ -1,10 +1,19 @@
+ package com.ssafy.mobile.core.ui.feedback
+ 
++import androidx.compose.animation.AnimatedVisibility
++import androidx.compose.animation.fadeIn
++import androidx.compose.animation.slideInVertically
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.unit.dp
++
++private const val ENTER_SLIDE_DIVISOR = 4
+ 
+ /**
+  * 에러 상태를 텍스트로만 표시하는 순수 피드백 컴포넌트.
+@@ -15,11 +24,22 @@ fun AppErrorText(
+     message: String,
+     modifier: Modifier = Modifier,
+ ) {
+-    Text(
+-        text = message,
+-        style = MaterialTheme.typography.bodyMedium,
+-        color = MaterialTheme.colorScheme.error,
+-        textAlign = TextAlign.Center,
++    AnimatedVisibility(
++        visible = message.isNotBlank(),
++        enter = fadeIn() + slideInVertically { it / ENTER_SLIDE_DIVISOR },
+         modifier = modifier,
+-    )
++    ) {
++        Surface(
++            shape = RoundedCornerShape(8.dp),
++            color = MaterialTheme.colorScheme.errorContainer,
++            contentColor = MaterialTheme.colorScheme.onErrorContainer,
++        ) {
++            Text(
++                text = message,
++                style = MaterialTheme.typography.bodyMedium,
++                textAlign = TextAlign.Center,
++                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
++            )
++        }
++    }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Color.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Color.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Color.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Color.kt
+@@ -4,25 +4,70 @@ package com.ssafy.mobile.core.ui.theme
+ 
+ import androidx.compose.ui.graphics.Color
+ 
+-// Light Theme Colors
+-val SudaPrimaryLight = Color(0xFF6750A4)
+-val SudaSecondaryLight = Color(0xFF625B71)
+-val SudaTertiaryLight = Color(0xFF7D5260)
+-val SudaBackgroundLight = Color(0xFFFFFBFE)
+-val SudaSurfaceLight = Color(0xFFFFFBFE)
++// SUDA brand colors
++val SudaPrimaryLight = Color(0xFF00897B)
+ val SudaOnPrimaryLight = Color(0xFFFFFFFF)
++val SudaPrimaryContainerLight = Color(0xFFC7F3EC)
++val SudaOnPrimaryContainerLight = Color(0xFF003B35)
++
++val SudaSecondaryLight = Color(0xFFFF7A66)
+ val SudaOnSecondaryLight = Color(0xFFFFFFFF)
++val SudaSecondaryContainerLight = Color(0xFFFFDAD3)
++val SudaOnSecondaryContainerLight = Color(0xFF5B160D)
++
++val SudaTertiaryLight = Color(0xFF3D6FB6)
++val SudaOnTertiaryLight = Color(0xFFFFFFFF)
++val SudaTertiaryContainerLight = Color(0xFFD8E2FF)
++val SudaOnTertiaryContainerLight = Color(0xFF001B3F)
++
++val SudaBackgroundLight = Color(0xFFF6FAF9)
++val SudaOnBackgroundLight = Color(0xFF17211F)
++val SudaSurfaceLight = Color(0xFFFFFFFF)
++val SudaOnSurfaceLight = Color(0xFF17211F)
++val SudaSurfaceVariantLight = Color(0xFFE1ECE9)
++val SudaOnSurfaceVariantLight = Color(0xFF43504D)
++val SudaOutlineLight = Color(0xFF70807C)
++val SudaOutlineVariantLight = Color(0xFFC1D0CC)
++
++val SudaErrorLight = Color(0xFFBA1A1A)
++val SudaOnErrorLight = Color(0xFFFFFFFF)
++val SudaErrorContainerLight = Color(0xFFFFDAD6)
++val SudaOnErrorContainerLight = Color(0xFF410002)
+ 
+ // Feedback Colors
+-val SudaOfflineBanner = Color(0xFFFFA000)
+-val SudaOnlineRestoredBanner = Color(0xFF2E7D32)
++val SudaInfo = Color(0xFF2F80ED)
++val SudaSuccess = Color(0xFF2E7D32)
++val SudaWarning = Color(0xFFFFA000)
++val SudaOfflineBanner = SudaWarning
++val SudaOnlineRestoredBanner = SudaSuccess
+ val SudaOnStatusBanner = Color(0xFFFFFFFF)
+ 
+ // Dark Theme Colors
+-val SudaPrimaryDark = Color(0xFFD0BCFF)
+-val SudaSecondaryDark = Color(0xFFCCC2DC)
+-val SudaTertiaryDark = Color(0xFFEFB8C8)
+-val SudaBackgroundDark = Color(0xFF1C1B1F)
+-val SudaSurfaceDark = Color(0xFF1C1B1F)
+-val SudaOnPrimaryDark = Color(0xFF381E72)
+-val SudaOnSecondaryDark = Color(0xFF332D41)
++val SudaPrimaryDark = Color(0xFF7EDBD0)
++val SudaOnPrimaryDark = Color(0xFF003B35)
++val SudaPrimaryContainerDark = Color(0xFF00524A)
++val SudaOnPrimaryContainerDark = Color(0xFFC7F3EC)
++
++val SudaSecondaryDark = Color(0xFFFFB4A6)
++val SudaOnSecondaryDark = Color(0xFF690004)
++val SudaSecondaryContainerDark = Color(0xFF8F2D1E)
++val SudaOnSecondaryContainerDark = Color(0xFFFFDAD3)
++
++val SudaTertiaryDark = Color(0xFFAFC6FF)
++val SudaOnTertiaryDark = Color(0xFF002E66)
++val SudaTertiaryContainerDark = Color(0xFF1F559B)
++val SudaOnTertiaryContainerDark = Color(0xFFD8E2FF)
++
++val SudaBackgroundDark = Color(0xFF101817)
++val SudaOnBackgroundDark = Color(0xFFDDE4E1)
++val SudaSurfaceDark = Color(0xFF101817)
++val SudaOnSurfaceDark = Color(0xFFDDE4E1)
++val SudaSurfaceVariantDark = Color(0xFF3F4947)
++val SudaOnSurfaceVariantDark = Color(0xFFC0CAC7)
++val SudaOutlineDark = Color(0xFF8A9491)
++val SudaOutlineVariantDark = Color(0xFF3F4947)
++
++val SudaErrorDark = Color(0xFFFFB4AB)
++val SudaOnErrorDark = Color(0xFF690005)
++val SudaErrorContainerDark = Color(0xFF93000A)
++val SudaOnErrorContainerDark = Color(0xFFFFDAD6)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Theme.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Theme.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Theme.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Theme.kt
+@@ -18,30 +18,64 @@ import androidx.core.view.WindowCompat
+ private val DarkColorScheme =
+     darkColorScheme(
+         primary = SudaPrimaryDark,
++        onPrimary = SudaOnPrimaryDark,
++        primaryContainer = SudaPrimaryContainerDark,
++        onPrimaryContainer = SudaOnPrimaryContainerDark,
+         secondary = SudaSecondaryDark,
++        onSecondary = SudaOnSecondaryDark,
++        secondaryContainer = SudaSecondaryContainerDark,
++        onSecondaryContainer = SudaOnSecondaryContainerDark,
+         tertiary = SudaTertiaryDark,
++        onTertiary = SudaOnTertiaryDark,
++        tertiaryContainer = SudaTertiaryContainerDark,
++        onTertiaryContainer = SudaOnTertiaryContainerDark,
+         background = SudaBackgroundDark,
++        onBackground = SudaOnBackgroundDark,
+         surface = SudaSurfaceDark,
+-        onPrimary = SudaOnPrimaryDark,
+-        onSecondary = SudaOnSecondaryDark,
++        onSurface = SudaOnSurfaceDark,
++        surfaceVariant = SudaSurfaceVariantDark,
++        onSurfaceVariant = SudaOnSurfaceVariantDark,
++        outline = SudaOutlineDark,
++        outlineVariant = SudaOutlineVariantDark,
++        error = SudaErrorDark,
++        onError = SudaOnErrorDark,
++        errorContainer = SudaErrorContainerDark,
++        onErrorContainer = SudaOnErrorContainerDark,
+     )
+ 
+ private val LightColorScheme =
+     lightColorScheme(
+         primary = SudaPrimaryLight,
++        onPrimary = SudaOnPrimaryLight,
++        primaryContainer = SudaPrimaryContainerLight,
++        onPrimaryContainer = SudaOnPrimaryContainerLight,
+         secondary = SudaSecondaryLight,
++        onSecondary = SudaOnSecondaryLight,
++        secondaryContainer = SudaSecondaryContainerLight,
++        onSecondaryContainer = SudaOnSecondaryContainerLight,
+         tertiary = SudaTertiaryLight,
++        onTertiary = SudaOnTertiaryLight,
++        tertiaryContainer = SudaTertiaryContainerLight,
++        onTertiaryContainer = SudaOnTertiaryContainerLight,
+         background = SudaBackgroundLight,
++        onBackground = SudaOnBackgroundLight,
+         surface = SudaSurfaceLight,
+-        onPrimary = SudaOnPrimaryLight,
+-        onSecondary = SudaOnSecondaryLight,
++        onSurface = SudaOnSurfaceLight,
++        surfaceVariant = SudaSurfaceVariantLight,
++        onSurfaceVariant = SudaOnSurfaceVariantLight,
++        outline = SudaOutlineLight,
++        outlineVariant = SudaOutlineVariantLight,
++        error = SudaErrorLight,
++        onError = SudaOnErrorLight,
++        errorContainer = SudaErrorContainerLight,
++        onErrorContainer = SudaOnErrorContainerLight,
+     )
+ 
+ @Composable
+ fun MobileTheme(
+     darkTheme: Boolean = isSystemInDarkTheme(),
+     // Dynamic color is available on Android 12+
+-    dynamicColor: Boolean = true,
++    dynamicColor: Boolean = false,
+     content: @Composable () -> Unit,
+ ) {
+     val colorScheme =
+@@ -57,8 +91,8 @@ fun MobileTheme(
+     if (!view.isInEditMode) {
+         SideEffect {
+             val window = (view.context as Activity).window
+-            window.statusBarColor = colorScheme.primary.toArgb()
+-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = darkTheme
++            window.statusBarColor = colorScheme.background.toArgb()
++            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+         }
+     }
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Type.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Type.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Type.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Type.kt
+@@ -1,4 +1,6 @@
+-﻿package com.ssafy.mobile.core.ui.theme
++@file:Suppress("MagicNumber")
++
++package com.ssafy.mobile.core.ui.theme
+ 
+ import androidx.compose.material3.Typography
+ import androidx.compose.ui.text.TextStyle
+@@ -6,31 +8,111 @@ import androidx.compose.ui.text.font.FontFamily
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.unit.sp
+ 
+-// Set of Material typography styles to start with
++val SudaFontFamily: FontFamily = FontFamily.Default
++
+ val Typography =
+     Typography(
++        displayLarge =
++            sudaTextStyle(
++                weight = FontWeight.Bold,
++                fontSize = 44,
++                lineHeight = 52,
++            ),
++        displayMedium =
++            sudaTextStyle(
++                weight = FontWeight.Bold,
++                fontSize = 36,
++                lineHeight = 44,
++            ),
++        displaySmall =
++            sudaTextStyle(
++                weight = FontWeight.Bold,
++                fontSize = 30,
++                lineHeight = 38,
++            ),
++        headlineLarge =
++            sudaTextStyle(
++                weight = FontWeight.Bold,
++                fontSize = 28,
++                lineHeight = 36,
++            ),
++        headlineMedium =
++            sudaTextStyle(
++                weight = FontWeight.SemiBold,
++                fontSize = 24,
++                lineHeight = 32,
++            ),
++        headlineSmall =
++            sudaTextStyle(
++                weight = FontWeight.SemiBold,
++                fontSize = 22,
++                lineHeight = 30,
++            ),
++        titleLarge =
++            sudaTextStyle(
++                weight = FontWeight.SemiBold,
++                fontSize = 20,
++                lineHeight = 28,
++            ),
++        titleMedium =
++            sudaTextStyle(
++                weight = FontWeight.SemiBold,
++                fontSize = 18,
++                lineHeight = 26,
++            ),
++        titleSmall =
++            sudaTextStyle(
++                weight = FontWeight.Medium,
++                fontSize = 16,
++                lineHeight = 24,
++            ),
+         bodyLarge =
+-            TextStyle(
+-                fontFamily = FontFamily.Default,
+-                fontWeight = FontWeight.Normal,
+-                fontSize = 16.sp,
+-                lineHeight = 24.sp,
+-                letterSpacing = 0.5.sp,
+-            ),
+-    /* Other default text styles to override
+-    titleLarge = TextStyle(
+-        fontFamily = FontFamily.Default,
+-        fontWeight = FontWeight.Normal,
+-        fontSize = 22.sp,
+-        lineHeight = 28.sp,
+-        letterSpacing = 0.sp
+-    ),
+-    labelSmall = TextStyle(
+-        fontFamily = FontFamily.Default,
+-        fontWeight = FontWeight.Medium,
+-        fontSize = 11.sp,
+-        lineHeight = 16.sp,
+-        letterSpacing = 0.5.sp
++            sudaTextStyle(
++                weight = FontWeight.Normal,
++                fontSize = 16,
++                lineHeight = 24,
++            ),
++        bodyMedium =
++            sudaTextStyle(
++                weight = FontWeight.Normal,
++                fontSize = 14,
++                lineHeight = 21,
++            ),
++        bodySmall =
++            sudaTextStyle(
++                weight = FontWeight.Normal,
++                fontSize = 12,
++                lineHeight = 18,
++            ),
++        labelLarge =
++            sudaTextStyle(
++                weight = FontWeight.SemiBold,
++                fontSize = 14,
++                lineHeight = 20,
++            ),
++        labelMedium =
++            sudaTextStyle(
++                weight = FontWeight.Medium,
++                fontSize = 12,
++                lineHeight = 16,
++            ),
++        labelSmall =
++            sudaTextStyle(
++                weight = FontWeight.Medium,
++                fontSize = 11,
++                lineHeight = 14,
++            ),
+     )
+-     */
++
++private fun sudaTextStyle(
++    weight: FontWeight,
++    fontSize: Int,
++    lineHeight: Int,
++): TextStyle =
++    TextStyle(
++        fontFamily = SudaFontFamily,
++        fontWeight = weight,
++        fontSize = fontSize.sp,
++        lineHeight = lineHeight.sp,
++        letterSpacing = 0.sp,
+     )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt b/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
+@@ -12,10 +12,18 @@ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.systemBarsPadding
++import androidx.compose.material.icons.Icons
++import androidx.compose.material.icons.rounded.Assessment
++import androidx.compose.material.icons.rounded.Chat
++import androidx.compose.material.icons.rounded.Home
++import androidx.compose.material.icons.rounded.Person
++import androidx.compose.material.icons.rounded.School
+ import androidx.compose.material3.CircularProgressIndicator
++import androidx.compose.material3.Icon
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.NavigationBar
+ import androidx.compose.material3.NavigationBarItem
++import androidx.compose.material3.NavigationBarItemDefaults
+ import androidx.compose.material3.Scaffold
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+@@ -25,7 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+-import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.graphics.vector.ImageVector
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
+@@ -174,7 +182,11 @@ private fun AppBottomNavigationBar(
+     currentRoute: String?,
+     authState: AuthState,
+ ) {
+-    NavigationBar {
++    NavigationBar(
++        containerColor = MaterialTheme.colorScheme.surface,
++        contentColor = MaterialTheme.colorScheme.onSurface,
++        tonalElevation = 3.dp,
++    ) {
+         bottomNavigationItems.forEach { item ->
+             val selected = currentRoute == item.screen.route
+             NavigationBarItem(
+@@ -199,15 +211,25 @@ private fun AppBottomNavigationBar(
+                         }
+                     }
+                 },
++                colors =
++                    NavigationBarItemDefaults.colors(
++                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
++                        selectedTextColor = MaterialTheme.colorScheme.primary,
++                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
++                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
++                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
++                    ),
+                 icon = {
+-                    Text(
+-                        text = item.iconText,
+-                        style = MaterialTheme.typography.titleMedium,
+-                        fontWeight = FontWeight.Bold,
++                    Icon(
++                        imageVector = item.icon,
++                        contentDescription = item.label,
+                     )
+                 },
+                 label = {
+-                    Text(text = item.label)
++                    Text(
++                        text = item.label,
++                        style = MaterialTheme.typography.labelSmall,
++                    )
+                 },
+             )
+         }
+@@ -236,7 +258,7 @@ private fun PermissionCheckingContent(modifier: Modifier = Modifier) {
+ private data class BottomNavigationItem(
+     val screen: Screen,
+     val label: String,
+-    val iconText: String,
++    val icon: ImageVector,
+ )
+ 
+ private val bottomNavigationItems =
+@@ -244,26 +266,26 @@ private val bottomNavigationItems =
+         BottomNavigationItem(
+             screen = Screen.Home,
+             label = "홈",
+-            iconText = "홈",
++            icon = Icons.Rounded.Home,
+         ),
+         BottomNavigationItem(
+             screen = Screen.LearningCategory,
+             label = "학습",
+-            iconText = "학습",
++            icon = Icons.Rounded.School,
+         ),
+         BottomNavigationItem(
+             screen = Screen.ReportHome,
+             label = "리포트",
+-            iconText = "리포트",
++            icon = Icons.Rounded.Assessment,
+         ),
+         BottomNavigationItem(
+             screen = Screen.Conversation,
+             label = "소통",
+-            iconText = "소통",
++            icon = Icons.Rounded.Chat,
+         ),
+         BottomNavigationItem(
+             screen = Screen.MyPage,
+             label = "마이",
+-            iconText = "마이",
++            icon = Icons.Rounded.Person,
+         ),
+     )
+
+
+diff --git a/mobile/app/build.gradle.kts b/mobile/app/build.gradle.kts
+--- a/mobile/app/build.gradle.kts
++++ b/mobile/app/build.gradle.kts
+@@ -99,6 +99,7 @@ dependencies {
+     implementation(platform(libs.androidx.compose.bom))
+     implementation(libs.androidx.compose.ui)
+     implementation(libs.androidx.compose.ui.graphics)
++    implementation(libs.androidx.compose.material.icons.extended)
+     implementation(libs.androidx.camera.core)
+     implementation(libs.androidx.camera.camera2)
+     implementation(libs.androidx.camera.lifecycle)
+
+
+diff --git a/mobile/gradle/libs.versions.toml b/mobile/gradle/libs.versions.toml
+--- a/mobile/gradle/libs.versions.toml
++++ b/mobile/gradle/libs.versions.toml
+@@ -45,6 +45,7 @@ androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "u
+ androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+ androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+ androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
++androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
+ retrofit-core = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
+ retrofit-converter-gson = { group = "com.squareup.retrofit2", name = "converter-gson", version.ref = "retrofit" }
+ okhttp-core = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+
+

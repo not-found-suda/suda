@@ -1,0 +1,228 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/service/SttComparisonRunner.java b/backend/src/main/java/com/ssafy/backend/domain/comms/service/SttComparisonRunner.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/service/SttComparisonRunner.java
+@@ -0,0 +1,206 @@
++package com.ssafy.backend.domain.comms.service;
++
++import com.fasterxml.jackson.databind.JsonNode;
++import com.fasterxml.jackson.databind.ObjectMapper;
++import java.io.IOException;
++import java.io.InputStream;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.util.ArrayList;
++import java.util.Comparator;
++import java.util.List;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.beans.factory.annotation.Value;
++import org.springframework.boot.ApplicationArguments;
++import org.springframework.boot.ApplicationRunner;
++import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
++import org.springframework.stereotype.Component;
++
++@Component
++@ConditionalOnProperty(
++    prefix = "ai.clova-speech.comparison",
++    name = "enabled",
++    havingValue = "true")
++public class SttComparisonRunner implements ApplicationRunner {
++
++  private static final Logger log = LoggerFactory.getLogger(SttComparisonRunner.class);
++
++  private static final String DEFAULT_LOCALE = "ko-KR";
++  private static final String WAV_MIME_TYPE = "audio/wav";
++  private static final String CSV_HEADER =
++      "file,expected,rest_text,streaming_text,rest_ms,streaming_ms,rest_error,streaming_error";
++
++  private final ClovaSttClient restClient;
++  private final ClovaSpeechStreamingClient streamingClient;
++  private final ObjectMapper objectMapper = new ObjectMapper();
++  private final Path audioDir;
++  private final Path outputPath;
++
++  public SttComparisonRunner(
++      ClovaSttClient restClient,
++      ClovaSpeechStreamingClient streamingClient,
++      @Value("${ai.clova-speech.comparison.audio-dir:}") Path audioDir,
++      @Value("${ai.clova-speech.comparison.output-path:build/reports/stt-comparison.csv}")
++          Path outputPath) {
++    this.restClient = restClient;
++    this.streamingClient = streamingClient;
++    this.audioDir = audioDir;
++    this.outputPath = outputPath;
++  }
++
++  @Override
++  public void run(ApplicationArguments args) throws Exception {
++    if (audioDir == null || !Files.isDirectory(audioDir)) {
++      throw new IllegalStateException(
++          "STT comparison audio directory is not configured or missing.");
++    }
++
++    List<Path> audioPaths = listWavFiles(audioDir);
++    if (audioPaths.isEmpty()) {
++      throw new IllegalStateException("STT comparison audio directory has no wav files.");
++    }
++
++    log.info("[STT Comparison] start. audioDir={}, fileCount={}", audioDir, audioPaths.size());
++
++    List<String> rows = new ArrayList<>();
++    rows.add(CSV_HEADER);
++
++    for (Path audioPath : audioPaths) {
++      ComparisonResult restResult = runRest(audioPath);
++      ComparisonResult streamingResult = runStreaming(audioPath);
++      rows.add(toCsvRow(audioPath, restResult, streamingResult));
++
++      log.info(
++          "[STT Comparison] file={}, rest='{}' ({}ms), streaming='{}' ({}ms)",
++          audioPath.getFileName(),
++          restResult.text(),
++          restResult.elapsedMillis(),
++          streamingResult.text(),
++          streamingResult.elapsedMillis());
++    }
++
++    Path parent = outputPath.toAbsolutePath().getParent();
++    if (parent != null) {
++      Files.createDirectories(parent);
++    }
++    Files.write(outputPath, rows, StandardCharsets.UTF_8);
++
++    log.info("[STT Comparison] completed. outputPath={}", outputPath.toAbsolutePath());
++  }
++
++  private List<Path> listWavFiles(Path directory) throws IOException {
++    try (var stream = Files.list(directory)) {
++      return stream
++          .filter(Files::isRegularFile)
++          .filter(path -> path.getFileName().toString().toLowerCase().endsWith(".wav"))
++          .sorted(Comparator.comparing(path -> path.getFileName().toString()))
++          .toList();
++    }
++  }
++
++  private ComparisonResult runRest(Path audioPath) {
++    long startedAt = System.nanoTime();
++    try {
++      String text =
++          restClient.transcribe(Files.readAllBytes(audioPath), DEFAULT_LOCALE, WAV_MIME_TYPE);
++      return ComparisonResult.success(text, elapsedMillis(startedAt));
++    } catch (Exception e) {
++      return ComparisonResult.failure(e, elapsedMillis(startedAt));
++    }
++  }
++
++  private ComparisonResult runStreaming(Path audioPath) {
++    long startedAt = System.nanoTime();
++    try (InputStream audioStream = Files.newInputStream(audioPath)) {
++      List<String> responses = streamingClient.transcribe(audioStream, true);
++      return ComparisonResult.success(parseStreamingText(responses), elapsedMillis(startedAt));
++    } catch (Exception e) {
++      return ComparisonResult.failure(e, elapsedMillis(startedAt));
++    }
++  }
++
++  private long elapsedMillis(long startedAt) {
++    return (System.nanoTime() - startedAt) / 1_000_000;
++  }
++
++  private String parseStreamingText(List<String> responses) {
++    StringBuilder text = new StringBuilder();
++    for (String response : responses) {
++      String transcriptionText = readTranscriptionText(response);
++      if (transcriptionText.isBlank()) {
++        continue;
++      }
++
++      if (!text.isEmpty()
++          && !Character.isWhitespace(text.charAt(text.length() - 1))
++          && !Character.isWhitespace(transcriptionText.charAt(0))) {
++        text.append(' ');
++      }
++      text.append(transcriptionText);
++    }
++    return text.toString().trim();
++  }
++
++  private String readTranscriptionText(String response) {
++    try {
++      JsonNode root = objectMapper.readTree(response);
++      if (!isTranscriptionResponse(root)) {
++        return "";
++      }
++      return root.path("transcription").path("text").asText("").trim();
++    } catch (Exception e) {
++      log.warn("[STT Comparison] Failed to parse streaming response. response={}", response, e);
++      return "";
++    }
++  }
++
++  private boolean isTranscriptionResponse(JsonNode root) {
++    JsonNode responseTypes = root.path("responseType");
++    if (responseTypes.isArray()) {
++      for (JsonNode responseType : responseTypes) {
++        if ("transcription".equals(responseType.asText())) {
++          return true;
++        }
++      }
++    }
++    return root.has("transcription");
++  }
++
++  private String toCsvRow(Path audioPath, ComparisonResult rest, ComparisonResult streaming) {
++    return String.join(
++        ",",
++        csv(audioPath.getFileName().toString()),
++        csv(expectedText(audioPath)),
++        csv(rest.text()),
++        csv(streaming.text()),
++        Long.toString(rest.elapsedMillis()),
++        Long.toString(streaming.elapsedMillis()),
++        csv(rest.errorMessage()),
++        csv(streaming.errorMessage()));
++  }
++
++  private String expectedText(Path audioPath) {
++    String fileName = audioPath.getFileName().toString();
++    String withoutExtension = fileName.replaceFirst("\\.[^.]+$", "");
++    return withoutExtension.replaceFirst("^\\d+_", "").replace('_', ' ').trim();
++  }
++
++  private String csv(String value) {
++    String normalized = value == null ? "" : value.replaceAll("[\\r\\n\\t]+", " ").trim();
++    return "\"" + normalized.replace("\"", "\"\"") + "\"";
++  }
++
++  private record ComparisonResult(String text, long elapsedMillis, String errorMessage) {
++
++    private static ComparisonResult success(String text, long elapsedMillis) {
++      return new ComparisonResult(text, elapsedMillis, "");
++    }
++
++    private static ComparisonResult failure(Exception e, long elapsedMillis) {
++      return new ComparisonResult(
++          "", elapsedMillis, e.getClass().getSimpleName() + ": " + e.getMessage());
++    }
++  }
++}
+
+
+diff --git a/backend/src/main/resources/application.yml b/backend/src/main/resources/application.yml
+--- a/backend/src/main/resources/application.yml
++++ b/backend/src/main/resources/application.yml
+@@ -45,6 +45,10 @@ ai:
+       enabled: ${CLOVA_SPEECH_POC_ENABLED:false}
+       audio-path: ${CLOVA_SPEECH_POC_AUDIO_PATH:}
+       skip-wav-header: ${CLOVA_SPEECH_POC_SKIP_WAV_HEADER:false}
++    comparison:
++      enabled: ${STT_COMPARISON_ENABLED:false}
++      audio-dir: ${STT_COMPARISON_AUDIO_DIR:}
++      output-path: ${STT_COMPARISON_OUTPUT_PATH:build/reports/stt-comparison.csv}
+ 
+ external-api:
+   timeout:
+
+

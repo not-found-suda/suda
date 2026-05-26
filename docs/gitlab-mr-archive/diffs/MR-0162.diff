@@ -1,0 +1,837 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaTtsClient.java b/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaTtsClient.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaTtsClient.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaTtsClient.java
+@@ -29,16 +29,22 @@ public class ClovaTtsClient {
+   }
+ 
+   public byte[] synthesize(String text) {
++    return synthesize(text, aiProperties.clova().speaker());
++  }
++
++  public byte[] synthesize(String text, String speaker) {
+     String normalizedText = validateAndNormalizeText(text);
+ 
+     AiProperties.Clova clova = aiProperties.clova();
+     String format = normalizeFormat(clova.format());
++    String resolvedSpeaker = resolveSpeaker(speaker, clova.speaker());
+ 
+     MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+-    form.add("speaker", clova.speaker());
++    form.add("speaker", resolvedSpeaker);
+     form.add("format", format);
+     form.add("text", normalizedText);
+-    form.add("speed", "0");
++    form.add("speed", "-1");
++    form.add("pitch", "0");
+ 
+     byte[] audio =
+         restClient
+@@ -85,4 +91,12 @@ public class ClovaTtsClient {
+ 
+     return format.trim().toLowerCase(Locale.ROOT);
+   }
++
++  private String resolveSpeaker(String speaker, String defaultSpeaker) {
++    if (speaker == null || speaker.isBlank()) {
++      return defaultSpeaker;
++    }
++
++    return speaker.trim().toLowerCase(Locale.ROOT);
++  }
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/controller/TranslationController.java b/backend/src/main/java/com/ssafy/backend/domain/translation/controller/TranslationController.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/translation/controller/TranslationController.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/controller/TranslationController.java
+@@ -8,6 +8,7 @@ import com.ssafy.backend.domain.translation.service.TranslationService;
+ import jakarta.validation.Valid;
+ import org.springframework.http.MediaType;
+ import org.springframework.http.ResponseEntity;
++import org.springframework.security.core.Authentication;
+ import org.springframework.web.bind.annotation.PostMapping;
+ import org.springframework.web.bind.annotation.RequestBody;
+ import org.springframework.web.bind.annotation.RequestMapping;
+@@ -28,8 +29,11 @@ public class TranslationController implements TranslationApiDocs {
+   @PostMapping("/sign-to-speech")
+   @Override
+   public ResponseEntity<SignToSpeechResponseDto> translateSignToSpeech(
+-      @Valid @RequestBody SignToSpeechRequestDto requestDto) {
+-    return ResponseEntity.ok(translationService.translateSignToSpeech(requestDto));
++      Authentication authentication, @Valid @RequestBody SignToSpeechRequestDto requestDto) {
++
++    Long userId = extractNullableUserId(authentication);
++
++    return ResponseEntity.ok(translationService.translateSignToSpeech(userId, requestDto));
+   }
+ 
+   @PostMapping(value = "/speech-to-text", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+@@ -38,7 +42,22 @@ public class TranslationController implements TranslationApiDocs {
+       @RequestPart("audioFile") MultipartFile audioFile,
+       @RequestPart(value = "locale", required = false) String locale,
+       @RequestPart(value = "audioMimeType", required = false) String audioMimeType) {
++
+     return ResponseEntity.ok(
+         translationService.translateSpeechToText(audioFile, locale, audioMimeType));
+   }
++
++  private Long extractNullableUserId(Authentication authentication) {
++    if (authentication == null || !authentication.isAuthenticated()) {
++      return null;
++    }
++
++    Object principal = authentication.getPrincipal();
++
++    if (principal instanceof Long userId) {
++      return userId;
++    }
++
++    return null;
++  }
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/docs/TranslationApiDocs.java b/backend/src/main/java/com/ssafy/backend/domain/translation/docs/TranslationApiDocs.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/translation/docs/TranslationApiDocs.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/docs/TranslationApiDocs.java
+@@ -5,12 +5,15 @@ import com.ssafy.backend.domain.translation.dto.SignToSpeechResponseDto;
+ import com.ssafy.backend.domain.translation.dto.SpeechToTextResponseDto;
+ import com.ssafy.backend.global.docs.ApiErrorCodes;
+ import io.swagger.v3.oas.annotations.Operation;
++import io.swagger.v3.oas.annotations.Parameter;
+ import io.swagger.v3.oas.annotations.media.Content;
+ import io.swagger.v3.oas.annotations.media.Schema;
+ import io.swagger.v3.oas.annotations.responses.ApiResponse;
++import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+ import io.swagger.v3.oas.annotations.tags.Tag;
+ import jakarta.validation.Valid;
+ import org.springframework.http.ResponseEntity;
++import org.springframework.security.core.Authentication;
+ import org.springframework.web.bind.annotation.RequestBody;
+ import org.springframework.web.bind.annotation.RequestPart;
+ import org.springframework.web.multipart.MultipartFile;
+@@ -18,9 +21,14 @@ import org.springframework.web.multipart.MultipartFile;
+ @Tag(name = "Translation API", description = "수어/음성 번역 API")
+ public interface TranslationApiDocs {
+ 
+-  @Operation(summary = "수어 텍스트 및 음성 변환", description = "수어 단어 배열을 받아 문맥 보정 후 TTS 음성까지 생성하여 반환합니다.")
++  @Operation(
++      summary = "수어 텍스트 및 음성 변환",
++      description =
++          "수어 단어 배열을 받아 문맥 보정 후 TTS 음성을 생성하여 반환합니다. 비로그인 사용자는 기본 목소리(vara)를 사용하고, 로그인 사용자는 저장된 TTS 목소리를 사용합니다.",
++      security = {@SecurityRequirement(name = "bearerAuth")})
+   @ApiErrorCodes({
+     "VALIDATION_INVALID_INPUT",
++    "USER_NOT_FOUND",
+     "TRANSLATION_SIGN_CORRECTION_FAILED",
+     "TRANSLATION_TEXT_TO_SPEECH_FAILED"
+   })
+@@ -29,6 +37,7 @@ public interface TranslationApiDocs {
+       description = "성공",
+       content = @Content(schema = @Schema(implementation = SignToSpeechResponseDto.class)))
+   ResponseEntity<SignToSpeechResponseDto> translateSignToSpeech(
++      @Parameter(hidden = true) Authentication authentication,
+       @Valid @RequestBody SignToSpeechRequestDto requestDto);
+ 
+   @Operation(summary = "음성 텍스트 변환", description = "자녀 음성 파일을 받아 Clova STT로 인식한 텍스트를 그대로 반환합니다.")
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationService.java b/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationService.java
+@@ -6,7 +6,7 @@ import com.ssafy.backend.domain.translation.dto.SpeechToTextResponseDto;
+ import org.springframework.web.multipart.MultipartFile;
+ 
+ public interface TranslationService {
+-  SignToSpeechResponseDto translateSignToSpeech(SignToSpeechRequestDto requestDto);
++  SignToSpeechResponseDto translateSignToSpeech(Long userId, SignToSpeechRequestDto requestDto);
+ 
+   SpeechToTextResponseDto translateSpeechToText(
+       MultipartFile audioFile, String locale, String audioMimeType);
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java b/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java
+@@ -7,6 +7,10 @@ import com.ssafy.backend.domain.translation.dto.SignToSpeechRequestDto;
+ import com.ssafy.backend.domain.translation.dto.SignToSpeechResponseDto;
+ import com.ssafy.backend.domain.translation.dto.SpeechToTextResponseDto;
+ import com.ssafy.backend.domain.translation.exception.TranslationErrorCode;
++import com.ssafy.backend.domain.user.entity.TtsSpeaker;
++import com.ssafy.backend.domain.user.entity.User;
++import com.ssafy.backend.domain.user.exception.UserErrorCode;
++import com.ssafy.backend.domain.user.repository.UserRepository;
+ import com.ssafy.backend.global.exception.BusinessException;
+ import java.io.IOException;
+ import java.util.Base64;
+@@ -32,18 +36,22 @@ public class TranslationServiceImpl implements TranslationService {
+   private final SignLanguageCorrectionClient signLanguageCorrectionClient;
+   private final ClovaTtsClient clovaTtsClient;
+   private final ClovaSttClient clovaSttClient;
++  private final UserRepository userRepository;
+ 
+   public TranslationServiceImpl(
+       SignLanguageCorrectionClient signLanguageCorrectionClient,
+       ClovaTtsClient clovaTtsClient,
+-      ClovaSttClient clovaSttClient) {
++      ClovaSttClient clovaSttClient,
++      UserRepository userRepository) {
+     this.signLanguageCorrectionClient = signLanguageCorrectionClient;
+     this.clovaTtsClient = clovaTtsClient;
+     this.clovaSttClient = clovaSttClient;
++    this.userRepository = userRepository;
+   }
+ 
+   @Override
+-  public SignToSpeechResponseDto translateSignToSpeech(SignToSpeechRequestDto requestDto) {
++  public SignToSpeechResponseDto translateSignToSpeech(
++      Long userId, SignToSpeechRequestDto requestDto) {
+     List<String> words = requestDto.words();
+ 
+     String signText = words.toString();
+@@ -52,6 +60,14 @@ public class TranslationServiceImpl implements TranslationService {
+     try {
+       correctedText = signLanguageCorrectionClient.correct(signText);
+     } catch (Exception e) {
++      log.warn(
++          "[SignCorrection] Failed. traceId={}, userId={}, wordCount={}, exceptionClass={}, message={}",
++          getTraceId(),
++          userId,
++          words.size(),
++          e.getClass().getName(),
++          e.getMessage(),
++          e);
+       throw new BusinessException(TranslationErrorCode.SIGN_CORRECTION_FAILED);
+     }
+ 
+@@ -61,11 +77,38 @@ public class TranslationServiceImpl implements TranslationService {
+     String audioMimeType = null;
+ 
+     if (requestTts) {
++      String speaker = resolveTtsSpeaker(userId);
++
+       try {
+-        byte[] audioBytes = clovaTtsClient.synthesize(correctedText);
++        log.info(
++            "[TTS] Request. traceId={}, userId={}, speaker={}, textLength={}",
++            getTraceId(),
++            userId,
++            speaker,
++            getTextLength(correctedText));
++
++        byte[] audioBytes = clovaTtsClient.synthesize(correctedText, speaker);
+         audioBase64 = Base64.getEncoder().encodeToString(audioBytes);
+         audioMimeType = clovaTtsClient.getAudioMimeType();
++
++        log.info(
++            "[TTS] Success. traceId={}, userId={}, speaker={}, audioMimeType={}, audioBytes={}",
++            getTraceId(),
++            userId,
++            speaker,
++            audioMimeType,
++            audioBytes.length);
++
+       } catch (Exception e) {
++        log.warn(
++            "[TTS] Clova text to speech failed. traceId={}, userId={}, speaker={}, textLength={}, exceptionClass={}, message={}",
++            getTraceId(),
++            userId,
++            speaker,
++            getTextLength(correctedText),
++            e.getClass().getName(),
++            e.getMessage(),
++            e);
+         throw new BusinessException(TranslationErrorCode.TEXT_TO_SPEECH_FAILED);
+       }
+     }
+@@ -75,6 +118,19 @@ public class TranslationServiceImpl implements TranslationService {
+     return new SignToSpeechResponseDto(words, correctedText, audioBase64, audioMimeType, corrected);
+   }
+ 
++  private String resolveTtsSpeaker(Long userId) {
++    if (userId == null) {
++      return TtsSpeaker.MOM_WARM.getCode();
++    }
++
++    User user =
++        userRepository
++            .findById(userId)
++            .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
++
++    return user.getTtsSpeaker();
++  }
++
+   @Override
+   public SpeechToTextResponseDto translateSpeechToText(
+       MultipartFile audioFile, String locale, String audioMimeType) {
+@@ -222,6 +278,10 @@ public class TranslationServiceImpl implements TranslationService {
+         locale);
+   }
+ 
++  private int getTextLength(String text) {
++    return text == null ? 0 : text.length();
++  }
++
+   private String getTraceId() {
+     String traceId = MDC.get("traceId");
+     return traceId != null ? traceId : "-";
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/controller/UserController.java b/backend/src/main/java/com/ssafy/backend/domain/user/controller/UserController.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/user/controller/UserController.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/controller/UserController.java
+@@ -1,6 +1,9 @@
+ package com.ssafy.backend.domain.user.controller;
+ 
+ import com.ssafy.backend.domain.user.docs.UserApiDocs;
++import com.ssafy.backend.domain.user.dto.TtsSpeakerListResponseDto;
++import com.ssafy.backend.domain.user.dto.TtsSpeakerUpdateRequestDto;
++import com.ssafy.backend.domain.user.dto.TtsSpeakerUpdateResponseDto;
+ import com.ssafy.backend.domain.user.dto.UserResponseDto;
+ import com.ssafy.backend.domain.user.dto.UserUpdateRequestDto;
+ import com.ssafy.backend.domain.user.dto.UserUpdateResponseDto;
+@@ -29,9 +32,7 @@ public class UserController implements UserApiDocs {
+   @GetMapping("/me")
+   @Override
+   public ResponseEntity<UserResponseDto> me(Authentication authentication) {
+-    if (authentication == null || !(authentication.getPrincipal() instanceof Long userId)) {
+-      throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
+-    }
++    Long userId = extractUserId(authentication);
+ 
+     UserResponseDto responseDto = userService.getUserById(userId);
+     return ResponseEntity.ok(responseDto);
+@@ -41,11 +42,33 @@ public class UserController implements UserApiDocs {
+   @Override
+   public ResponseEntity<UserUpdateResponseDto> updateMe(
+       Authentication authentication, @Valid @RequestBody UserUpdateRequestDto requestDto) {
+-    if (authentication == null || !(authentication.getPrincipal() instanceof Long userId)) {
+-      throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
+-    }
++    Long userId = extractUserId(authentication);
+ 
+     UserUpdateResponseDto responseDto = userService.updateUser(userId, requestDto.name());
+     return ResponseEntity.ok(responseDto);
+   }
++
++  @GetMapping("/me/tts-speakers")
++  @Override
++  public ResponseEntity<TtsSpeakerListResponseDto> getTtsSpeakers(Authentication authentication) {
++    extractUserId(authentication);
++
++    return ResponseEntity.ok(userService.getTtsSpeakers());
++  }
++
++  @PatchMapping("/me/tts-speaker")
++  @Override
++  public ResponseEntity<TtsSpeakerUpdateResponseDto> updateTtsSpeaker(
++      Authentication authentication, @Valid @RequestBody TtsSpeakerUpdateRequestDto requestDto) {
++    Long userId = extractUserId(authentication);
++
++    return ResponseEntity.ok(userService.updateTtsSpeaker(userId, requestDto.ttsSpeaker()));
++  }
++
++  private Long extractUserId(Authentication authentication) {
++    if (authentication == null || !(authentication.getPrincipal() instanceof Long userId)) {
++      throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
++    }
++    return userId;
++  }
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/docs/UserApiDocs.java b/backend/src/main/java/com/ssafy/backend/domain/user/docs/UserApiDocs.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/user/docs/UserApiDocs.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/docs/UserApiDocs.java
+@@ -1,5 +1,8 @@
+ package com.ssafy.backend.domain.user.docs;
+ 
++import com.ssafy.backend.domain.user.dto.TtsSpeakerListResponseDto;
++import com.ssafy.backend.domain.user.dto.TtsSpeakerUpdateRequestDto;
++import com.ssafy.backend.domain.user.dto.TtsSpeakerUpdateResponseDto;
+ import com.ssafy.backend.domain.user.dto.UserResponseDto;
+ import com.ssafy.backend.domain.user.dto.UserUpdateRequestDto;
+ import com.ssafy.backend.domain.user.dto.UserUpdateResponseDto;
+@@ -11,8 +14,10 @@ import io.swagger.v3.oas.annotations.media.Schema;
+ import io.swagger.v3.oas.annotations.responses.ApiResponse;
+ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+ import io.swagger.v3.oas.annotations.tags.Tag;
++import jakarta.validation.Valid;
+ import org.springframework.http.ResponseEntity;
+ import org.springframework.security.core.Authentication;
++import org.springframework.web.bind.annotation.RequestBody;
+ 
+ @Tag(name = "사용자 API", description = "사용자 관련 API")
+ public interface UserApiDocs {
+@@ -38,5 +43,36 @@ public interface UserApiDocs {
+       description = "성공",
+       content = @Content(schema = @Schema(implementation = UserUpdateResponseDto.class)))
+   ResponseEntity<UserUpdateResponseDto> updateMe(
+-      @Parameter(hidden = true) Authentication authentication, UserUpdateRequestDto request);
++      @Parameter(hidden = true) Authentication authentication,
++      @Valid @RequestBody UserUpdateRequestDto request);
++
++  @Operation(
++      summary = "TTS 목소리 후보 목록 조회",
++      description = "부모가 선택할 수 있는 TTS 목소리 후보 목록을 조회합니다.",
++      security = {@SecurityRequirement(name = "bearerAuth")})
++  @ApiErrorCodes({"COMMON_UNAUTHORIZED"})
++  @ApiResponse(
++      responseCode = "200",
++      description = "성공",
++      content = @Content(schema = @Schema(implementation = TtsSpeakerListResponseDto.class)))
++  ResponseEntity<TtsSpeakerListResponseDto> getTtsSpeakers(
++      @Parameter(hidden = true) Authentication authentication);
++
++  @Operation(
++      summary = "내 TTS 목소리 설정 변경",
++      description = "인증된 사용자의 TTS 목소리 설정을 변경합니다.",
++      security = {@SecurityRequirement(name = "bearerAuth")})
++  @ApiErrorCodes({
++    "VALIDATION_INVALID_INPUT",
++    "COMMON_UNAUTHORIZED",
++    "USER_NOT_FOUND",
++    "USER_UNSUPPORTED_TTS_SPEAKER"
++  })
++  @ApiResponse(
++      responseCode = "200",
++      description = "성공",
++      content = @Content(schema = @Schema(implementation = TtsSpeakerUpdateResponseDto.class)))
++  ResponseEntity<TtsSpeakerUpdateResponseDto> updateTtsSpeaker(
++      @Parameter(hidden = true) Authentication authentication,
++      @Valid @RequestBody TtsSpeakerUpdateRequestDto request);
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/dto/TtsSpeakerListResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/user/dto/TtsSpeakerListResponseDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/dto/TtsSpeakerListResponseDto.java
+@@ -0,0 +1,7 @@
++package com.ssafy.backend.domain.user.dto;
++
++import io.swagger.v3.oas.annotations.media.Schema;
++import java.util.List;
++
++public record TtsSpeakerListResponseDto(
++    @Schema(description = "선택 가능한 TTS 목소리 목록") List<TtsSpeakerResponseDto> speakers) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/dto/TtsSpeakerResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/user/dto/TtsSpeakerResponseDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/dto/TtsSpeakerResponseDto.java
+@@ -0,0 +1,7 @@
++package com.ssafy.backend.domain.user.dto;
++
++import io.swagger.v3.oas.annotations.media.Schema;
++
++public record TtsSpeakerResponseDto(
++    @Schema(description = "CLOVA TTS speaker 코드", example = "vara") String code,
++    @Schema(description = "앱에 표시할 목소리 이름", example = "따뜻한 엄마 목소리") String label) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/dto/TtsSpeakerUpdateRequestDto.java b/backend/src/main/java/com/ssafy/backend/domain/user/dto/TtsSpeakerUpdateRequestDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/dto/TtsSpeakerUpdateRequestDto.java
+@@ -0,0 +1,9 @@
++package com.ssafy.backend.domain.user.dto;
++
++import io.swagger.v3.oas.annotations.media.Schema;
++import jakarta.validation.constraints.NotBlank;
++
++public record TtsSpeakerUpdateRequestDto(
++    @NotBlank(message = "TTS speaker는 필수입니다.")
++        @Schema(description = "선택할 CLOVA TTS speaker 코드", example = "vara")
++        String ttsSpeaker) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/dto/TtsSpeakerUpdateResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/user/dto/TtsSpeakerUpdateResponseDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/dto/TtsSpeakerUpdateResponseDto.java
+@@ -0,0 +1,7 @@
++package com.ssafy.backend.domain.user.dto;
++
++import io.swagger.v3.oas.annotations.media.Schema;
++
++public record TtsSpeakerUpdateResponseDto(
++    @Schema(description = "사용자 ID", example = "1") Long userId,
++    @Schema(description = "선택된 TTS speaker 코드", example = "vara") String ttsSpeaker) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserResponseDto.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserResponseDto.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserResponseDto.java
+@@ -8,4 +8,5 @@ public record UserResponseDto(
+     @Schema(description = "이메일", example = "user1@test.com") String email,
+     @Schema(description = "사용자 이름", example = "김보호") String name,
+     @Schema(description = "활성 여부", example = "true") boolean active,
+-    @Schema(description = "권한", example = "USER") Role role) {}
++    @Schema(description = "권한", example = "USER") Role role,
++    @Schema(description = "선택된 TTS speaker 코드", example = "vara") String ttsSpeaker) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/entity/TtsSpeaker.java b/backend/src/main/java/com/ssafy/backend/domain/user/entity/TtsSpeaker.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/entity/TtsSpeaker.java
+@@ -0,0 +1,37 @@
++package com.ssafy.backend.domain.user.entity;
++
++import java.util.Arrays;
++
++public enum TtsSpeaker {
++  MOM_WARM("vara", "따뜻한 엄마 목소리"),
++  MOM_BRIGHT("vgoeun", "밝은 엄마 목소리"),
++  DAD_WARM("vdonghyun", "다정한 아빠 목소리"),
++  DAD_CALM("neunwoo", "차분한 아빠 목소리");
++
++  private final String code;
++  private final String label;
++
++  TtsSpeaker(String code, String label) {
++    this.code = code;
++    this.label = label;
++  }
++
++  public String getCode() {
++    return code;
++  }
++
++  public String getLabel() {
++    return label;
++  }
++
++  public static boolean isSupported(String code) {
++    return Arrays.stream(values()).anyMatch(speaker -> speaker.code.equals(code));
++  }
++
++  public static TtsSpeaker fromCode(String code) {
++    return Arrays.stream(values())
++        .filter(speaker -> speaker.code.equals(code))
++        .findFirst()
++        .orElseThrow(() -> new IllegalArgumentException("지원하지 않는 TTS speaker입니다."));
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/entity/User.java b/backend/src/main/java/com/ssafy/backend/domain/user/entity/User.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/user/entity/User.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/entity/User.java
+@@ -35,6 +35,9 @@ public class User extends BaseEntity {
+   @Column(nullable = false, length = 20)
+   private Role role;
+ 
++  @Column(name = "tts_speaker", nullable = false, length = 50)
++  private String ttsSpeaker = TtsSpeaker.MOM_WARM.getCode();
++
+   protected User() {}
+ 
+   private User(String email, String password, String name) {
+@@ -43,6 +46,7 @@ public class User extends BaseEntity {
+     this.name = name;
+     this.active = true;
+     this.role = Role.USER;
++    this.ttsSpeaker = TtsSpeaker.MOM_WARM.getCode();
+   }
+ 
+   public static User create(String email, String password, String name) {
+@@ -73,7 +77,15 @@ public class User extends BaseEntity {
+     return role;
+   }
+ 
++  public String getTtsSpeaker() {
++    return ttsSpeaker;
++  }
++
+   public void updateName(String name) {
+     this.name = name;
+   }
++
++  public void updateTtsSpeaker(String ttsSpeaker) {
++    this.ttsSpeaker = ttsSpeaker;
++  }
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/exception/UserErrorCode.java b/backend/src/main/java/com/ssafy/backend/domain/user/exception/UserErrorCode.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/user/exception/UserErrorCode.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/exception/UserErrorCode.java
+@@ -4,7 +4,9 @@ import com.ssafy.backend.global.exception.ErrorCode;
+ import org.springframework.http.HttpStatus;
+ 
+ public enum UserErrorCode implements ErrorCode {
+-  USER_NOT_FOUND("USER_NOT_FOUND", HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다.");
++  USER_NOT_FOUND("USER_NOT_FOUND", HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."),
++  UNSUPPORTED_TTS_SPEAKER(
++      "USER_UNSUPPORTED_TTS_SPEAKER", HttpStatus.BAD_REQUEST, "지원하지 않는 TTS 목소리입니다.");
+ 
+   private final String code;
+   private final HttpStatus httpStatus;
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/service/UserService.java b/backend/src/main/java/com/ssafy/backend/domain/user/service/UserService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/user/service/UserService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/service/UserService.java
+@@ -1,12 +1,17 @@
+ package com.ssafy.backend.domain.user.service;
+ 
++import com.ssafy.backend.domain.user.dto.TtsSpeakerListResponseDto;
++import com.ssafy.backend.domain.user.dto.TtsSpeakerResponseDto;
++import com.ssafy.backend.domain.user.dto.TtsSpeakerUpdateResponseDto;
+ import com.ssafy.backend.domain.user.dto.UserAuthResponseDto;
+ import com.ssafy.backend.domain.user.dto.UserResponseDto;
+ import com.ssafy.backend.domain.user.dto.UserUpdateResponseDto;
++import com.ssafy.backend.domain.user.entity.TtsSpeaker;
+ import com.ssafy.backend.domain.user.entity.User;
+ import com.ssafy.backend.domain.user.exception.UserErrorCode;
+ import com.ssafy.backend.domain.user.repository.UserRepository;
+ import com.ssafy.backend.global.exception.BusinessException;
++import java.util.Arrays;
+ import java.util.Locale;
+ import org.springframework.security.crypto.password.PasswordEncoder;
+ import org.springframework.stereotype.Service;
+@@ -82,6 +87,32 @@ public class UserService {
+     return toUpdateResponse(user);
+   }
+ 
++  @Transactional(readOnly = true)
++  public TtsSpeakerListResponseDto getTtsSpeakers() {
++    return new TtsSpeakerListResponseDto(
++        Arrays.stream(TtsSpeaker.values())
++            .map(speaker -> new TtsSpeakerResponseDto(speaker.getCode(), speaker.getLabel()))
++            .toList());
++  }
++
++  public TtsSpeakerUpdateResponseDto updateTtsSpeaker(Long userId, String ttsSpeaker) {
++    String normalizedSpeaker = normalizeTtsSpeaker(ttsSpeaker);
++
++    if (!TtsSpeaker.isSupported(normalizedSpeaker)) {
++      throw new BusinessException(UserErrorCode.UNSUPPORTED_TTS_SPEAKER);
++    }
++
++    User user =
++        userRepository
++            .findById(userId)
++            .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
++
++    user.updateTtsSpeaker(normalizedSpeaker);
++    userRepository.flush();
++
++    return new TtsSpeakerUpdateResponseDto(user.getId(), user.getTtsSpeaker());
++  }
++
+   private String normalizeEmail(String email) {
+     if (email == null) {
+       return "";
+@@ -96,9 +127,21 @@ public class UserService {
+     return name.trim();
+   }
+ 
++  private String normalizeTtsSpeaker(String ttsSpeaker) {
++    if (ttsSpeaker == null) {
++      return "";
++    }
++    return ttsSpeaker.trim().toLowerCase(Locale.ROOT);
++  }
++
+   private UserResponseDto toResponse(User user) {
+     return new UserResponseDto(
+-        user.getId(), user.getEmail(), user.getName(), user.isActive(), user.getRole());
++        user.getId(),
++        user.getEmail(),
++        user.getName(),
++        user.isActive(),
++        user.getRole(),
++        user.getTtsSpeaker());
+   }
+ 
+   private UserUpdateResponseDto toUpdateResponse(User user) {
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260513150000__add_tts_speaker_to_users.sql b/backend/src/main/resources/db/migration/V20260513150000__add_tts_speaker_to_users.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260513150000__add_tts_speaker_to_users.sql
+@@ -0,0 +1,3 @@
++
++ALTER TABLE users
++  ADD COLUMN IF NOT EXISTS tts_speaker VARCHAR(50) NOT NULL DEFAULT 'nara';
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260513153000__update_default_tts_speaker_to_vara.sql b/backend/src/main/resources/db/migration/V20260513153000__update_default_tts_speaker_to_vara.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260513153000__update_default_tts_speaker_to_vara.sql
+@@ -0,0 +1,13 @@
++UPDATE users
++SET tts_speaker = 'vara'
++WHERE tts_speaker = 'nara';
++
++ALTER TABLE users
++  ALTER COLUMN tts_speaker SET DEFAULT 'vara';
++
++ALTER TABLE users
++  DROP CONSTRAINT IF EXISTS chk_users_tts_speaker;
++
++ALTER TABLE users
++  ADD CONSTRAINT chk_users_tts_speaker
++    CHECK (tts_speaker IN ('vara', 'vyuna', 'vmikyung', 'vdonghyun'));
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260513175000__update_tts_speaker_candidates.sql b/backend/src/main/resources/db/migration/V20260513175000__update_tts_speaker_candidates.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260513175000__update_tts_speaker_candidates.sql
+@@ -0,0 +1,15 @@
++-- V20260513161000__update_tts_speaker_candidates.sql
++
++UPDATE users
++SET tts_speaker = 'vara'
++WHERE tts_speaker NOT IN ('vara', 'vyuna', 'vminho', 'vseojun');
++
++ALTER TABLE users
++  ALTER COLUMN tts_speaker SET DEFAULT 'vara';
++
++ALTER TABLE users
++DROP CONSTRAINT IF EXISTS chk_users_tts_speaker;
++
++ALTER TABLE users
++  ADD CONSTRAINT chk_users_tts_speaker
++    CHECK (tts_speaker IN ('vara', 'vyuna', 'vminho', 'vseojun'));
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260513183000__update_tts_speaker_candidates_to_parent_voice.sql b/backend/src/main/resources/db/migration/V20260513183000__update_tts_speaker_candidates_to_parent_voice.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260513183000__update_tts_speaker_candidates_to_parent_voice.sql
+@@ -0,0 +1,15 @@
++-- V20260513183000__update_tts_speaker_candidates_to_parent_voice.sql
++
++UPDATE users
++SET tts_speaker = 'vara'
++WHERE tts_speaker NOT IN ('vara', 'vyuna', 'vmikyung', 'vdonghyun');
++
++ALTER TABLE users
++  ALTER COLUMN tts_speaker SET DEFAULT 'vara';
++
++ALTER TABLE users
++DROP CONSTRAINT IF EXISTS chk_users_tts_speaker;
++
++ALTER TABLE users
++  ADD CONSTRAINT chk_users_tts_speaker
++    CHECK (tts_speaker IN ('vara', 'vyuna', 'vmikyung', 'vdonghyun'));
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260513185000__replace_vmikyung_with_vhyun_tts_speaker.sql b/backend/src/main/resources/db/migration/V20260513185000__replace_vmikyung_with_vhyun_tts_speaker.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260513185000__replace_vmikyung_with_vhyun_tts_speaker.sql
+@@ -0,0 +1,17 @@
++UPDATE users
++SET tts_speaker = 'vhyun'
++WHERE tts_speaker = 'vmikyung';
++
++UPDATE users
++SET tts_speaker = 'vara'
++WHERE tts_speaker NOT IN ('vara', 'vyuna', 'vdonghyun', 'vhyun');
++
++ALTER TABLE users
++  ALTER COLUMN tts_speaker SET DEFAULT 'vara';
++
++ALTER TABLE users
++DROP CONSTRAINT IF EXISTS chk_users_tts_speaker;
++
++ALTER TABLE users
++  ADD CONSTRAINT chk_users_tts_speaker
++    CHECK (tts_speaker IN ('vara', 'vyuna', 'vdonghyun', 'vhyun'));
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260513185500__replace_vmikyung_with_vjinho_tts_speaker.sql b/backend/src/main/resources/db/migration/V20260513185500__replace_vmikyung_with_vjinho_tts_speaker.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260513185500__replace_vmikyung_with_vjinho_tts_speaker.sql
+@@ -0,0 +1,19 @@
++-- V20260513191000__replace_vhyun_with_vjinho_tts_speaker.sql
++
++ALTER TABLE users
++  DROP CONSTRAINT IF EXISTS chk_users_tts_speaker;
++
++UPDATE users
++SET tts_speaker = 'vjinho'
++WHERE tts_speaker = 'vhyun';
++
++UPDATE users
++SET tts_speaker = 'vara'
++WHERE tts_speaker NOT IN ('vara', 'vyuna', 'vdonghyun', 'vjinho');
++
++ALTER TABLE users
++  ALTER COLUMN tts_speaker SET DEFAULT 'vara';
++
++ALTER TABLE users
++  ADD CONSTRAINT chk_users_tts_speaker
++    CHECK (tts_speaker IN ('vara', 'vyuna', 'vdonghyun', 'vjinho'));
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260513190000__update_tts_speaker_to_nwoosik.sql b/backend/src/main/resources/db/migration/V20260513190000__update_tts_speaker_to_nwoosik.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260513190000__update_tts_speaker_to_nwoosik.sql
+@@ -0,0 +1,19 @@
++-- V20260513193000__update_tts_speaker_to_nwoosik.sql
++
++-- 1. 기존 체크 제약조건 제거
++ALTER TABLE users
++DROP CONSTRAINT IF EXISTS chk_users_tts_speaker;
++
++-- 2. 기존 잘못된 값들 정리 (미지원 speaker들)
++UPDATE users
++SET tts_speaker = 'vara'
++WHERE tts_speaker NOT IN ('vara', 'vyuna', 'vdonghyun', 'nwoosik');
++
++-- 3. 기본값 설정
++ALTER TABLE users
++  ALTER COLUMN tts_speaker SET DEFAULT 'vara';
++
++-- 4. 새로운 체크 제약조건 추가
++ALTER TABLE users
++  ADD CONSTRAINT chk_users_tts_speaker
++    CHECK (tts_speaker IN ('vara', 'vyuna', 'vdonghyun', 'nwoosik'));
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260513191000__update_tts_speaker_to_neunwoo.sql b/backend/src/main/resources/db/migration/V20260513191000__update_tts_speaker_to_neunwoo.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260513191000__update_tts_speaker_to_neunwoo.sql
+@@ -0,0 +1,15 @@
++-- V20260513194000__update_tts_speaker_to_neunwoo.sql
++
++ALTER TABLE users
++DROP CONSTRAINT IF EXISTS chk_users_tts_speaker;
++
++UPDATE users
++SET tts_speaker = 'vara'
++WHERE tts_speaker NOT IN ('vara', 'vyuna', 'vdonghyun', 'neunwoo');
++
++ALTER TABLE users
++  ALTER COLUMN tts_speaker SET DEFAULT 'vara';
++
++ALTER TABLE users
++  ADD CONSTRAINT chk_users_tts_speaker
++    CHECK (tts_speaker IN ('vara', 'vyuna', 'vdonghyun', 'neunwoo'));
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260513191500__replace_vyuna_with_vgoeun_tts_speaker.sql b/backend/src/main/resources/db/migration/V20260513191500__replace_vyuna_with_vgoeun_tts_speaker.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260513191500__replace_vyuna_with_vgoeun_tts_speaker.sql
+@@ -0,0 +1,19 @@
++-- V20260513195000__replace_vyuna_with_vgoeun_tts_speaker.sql
++
++ALTER TABLE users
++DROP CONSTRAINT IF EXISTS chk_users_tts_speaker;
++
++UPDATE users
++SET tts_speaker = 'vgoeun'
++WHERE tts_speaker = 'vyuna';
++
++UPDATE users
++SET tts_speaker = 'vara'
++WHERE tts_speaker NOT IN ('vara', 'vgoeun', 'vdonghyun', 'neunwoo');
++
++ALTER TABLE users
++  ALTER COLUMN tts_speaker SET DEFAULT 'vara';
++
++ALTER TABLE users
++  ADD CONSTRAINT chk_users_tts_speaker
++    CHECK (tts_speaker IN ('vara', 'vgoeun', 'vdonghyun', 'neunwoo'));
+
+

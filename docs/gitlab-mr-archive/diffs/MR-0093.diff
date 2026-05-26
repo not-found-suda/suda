@@ -1,0 +1,730 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -15,7 +15,7 @@ import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileSelectRout
+ import com.ssafy.mobile.feature.conversation.presentation.conversationRoute
+ import com.ssafy.mobile.feature.home.presentation.HomeRoute
+ import com.ssafy.mobile.feature.learning.presentation.category.LearningCategoryRoute
+-import com.ssafy.mobile.feature.learning.presentation.wordlist.WordListPlaceholderRoute
++import com.ssafy.mobile.feature.learning.presentation.wordlist.LearningWordListRoute
+ import com.ssafy.mobile.feature.login.presentation.LoginRoute
+ import com.ssafy.mobile.feature.mypage.presentation.MyPageRoute
+ import com.ssafy.mobile.feature.quiz.presentation.quizQuestionRoute
+@@ -184,8 +184,8 @@ fun MobileNavHost(
+ 
+         composable(Screen.LearningCategory.route) {
+             LearningCategoryRoute(
+-                onNavigateToWordList = { categoryId ->
+-                    navController.navigate(Screen.WordList.createRoute(categoryId))
++                onNavigateToWordList = { categoryId, categoryName ->
++                    navController.navigate(Screen.WordList.createRoute(categoryId, categoryName))
+                 },
+                 modifier = Modifier.fillMaxSize(),
+             )
+@@ -196,11 +196,16 @@ fun MobileNavHost(
+             arguments =
+                 listOf(
+                     navArgument("categoryId") { type = NavType.LongType },
++                    navArgument("categoryName") {
++                        type = NavType.StringType
++                        nullable = true
++                    },
+                 ),
+-        ) { backStackEntry ->
+-            val categoryId = backStackEntry.arguments?.getLong("categoryId") ?: 0L
+-            WordListPlaceholderRoute(
+-                categoryId = categoryId,
++        ) {
++            LearningWordListRoute(
++                onNavigateBack = {
++                    navController.popBackStack()
++                },
+                 modifier = Modifier.fillMaxSize(),
+             )
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+@@ -25,7 +25,10 @@ sealed class Screen(
+ 
+     data object LearningCategory : Screen("learning_category_route")
+ 
+-    data object WordList : Screen("learning_words/{categoryId}") {
+-        fun createRoute(categoryId: Long) = "learning_words/$categoryId"
++    data object WordList : Screen("learning_words/{categoryId}?categoryName={categoryName}") {
++        fun createRoute(
++            categoryId: Long,
++            categoryName: String,
++        ) = "learning_words/$categoryId?categoryName=${android.net.Uri.encode(categoryName)}"
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningWordApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningWordApiService.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningWordApiService.kt
+@@ -0,0 +1,14 @@
++package com.ssafy.mobile.feature.learning.data.api
++
++import com.ssafy.mobile.feature.learning.data.dto.LearningWordDto
++import retrofit2.Response
++import retrofit2.http.GET
++import retrofit2.http.Query
++
++interface LearningWordApiService {
++    @GET("v1/learn/words")
++    suspend fun getWords(
++        @Query("categoryId") categoryId: Long,
++        @Query("difficulty") difficulty: String,
++    ): Response<List<LearningWordDto>>
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningWordDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningWordDto.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/dto/LearningWordDto.kt
+@@ -0,0 +1,28 @@
++package com.ssafy.mobile.feature.learning.data.dto
++
++import com.ssafy.mobile.feature.learning.domain.model.LearningWord
++import kotlinx.serialization.SerialName
++import kotlinx.serialization.Serializable
++
++@Serializable
++data class LearningWordDto(
++    @SerialName("wordId")
++    val wordId: Long,
++    @SerialName("word")
++    val word: String,
++    @SerialName("displayText")
++    val displayText: String? = null,
++    @SerialName("imageUrl")
++    val imageUrl: String? = null,
++    @SerialName("audioUrl")
++    val audioUrl: String? = null,
++)
++
++fun LearningWordDto.toDomain(): LearningWord =
++    LearningWord(
++        id = wordId,
++        word = word,
++        displayText = displayText,
++        imageUrl = imageUrl,
++        audioUrl = audioUrl,
++    )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningWordRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningWordRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningWordRepository.kt
+@@ -0,0 +1,57 @@
++package com.ssafy.mobile.feature.learning.data.repository
++
++import android.util.Log
++import com.ssafy.mobile.feature.learning.data.api.LearningWordApiService
++import com.ssafy.mobile.feature.learning.data.dto.toDomain
++import com.ssafy.mobile.feature.learning.domain.model.LearningWord
++import com.ssafy.mobile.feature.learning.domain.repository.LearningWordRepository
++import java.io.IOException
++import javax.inject.Inject
++import kotlin.coroutines.cancellation.CancellationException
++
++private const val TAG = "RemoteLearningWordRepo"
++private const val HTTP_STATUS_UNAUTHORIZED = 401
++private const val HTTP_STATUS_FORBIDDEN = 403
++private const val DEFAULT_DIFFICULTY = "EASY"
++
++class RemoteLearningWordRepository
++    @Inject
++    constructor(
++        private val apiService: LearningWordApiService,
++    ) : LearningWordRepository {
++        override suspend fun getWords(categoryId: Long): Result<List<LearningWord>> =
++            try {
++                val response =
++                    apiService.getWords(
++                        categoryId = categoryId,
++                        difficulty = DEFAULT_DIFFICULTY,
++                    )
++
++                if (response.isSuccessful) {
++                    val body =
++                        response.body()
++                            ?: return Result.failure(IllegalStateException("단어 목록 응답이 비어 있습니다."))
++                    Result.success(body.map { it.toDomain() })
++                } else {
++                    val errorCode = response.code()
++                    val userMessage =
++                        when (errorCode) {
++                            HTTP_STATUS_UNAUTHORIZED, HTTP_STATUS_FORBIDDEN ->
++                                "로그인이 필요하거나 세션이 만료되었습니다."
++                            else -> "단어 목록을 불러오지 못했습니다."
++                        }
++                    Result.failure(IllegalStateException(userMessage))
++                }
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: IOException) {
++                Log.e(TAG, "Word list network error", e)
++                Result.failure(IOException("네트워크 연결을 확인해 주세요."))
++            } catch (
++                @Suppress("TooGenericExceptionCaught")
++                e: Exception,
++            ) {
++                Log.e(TAG, "Word list unknown error", e)
++                Result.failure(IllegalStateException("단어 목록을 불러오는 중 오류가 발생했습니다."))
++            }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/di/LearningModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/di/LearningModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/di/LearningModule.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/di/LearningModule.kt
+@@ -1,8 +1,11 @@
+ package com.ssafy.mobile.feature.learning.di
+ 
+ import com.ssafy.mobile.feature.learning.data.api.LearningCategoryApiService
++import com.ssafy.mobile.feature.learning.data.api.LearningWordApiService
+ import com.ssafy.mobile.feature.learning.data.repository.RemoteLearningCategoryRepository
++import com.ssafy.mobile.feature.learning.data.repository.RemoteLearningWordRepository
+ import com.ssafy.mobile.feature.learning.domain.repository.LearningCategoryRepository
++import com.ssafy.mobile.feature.learning.domain.repository.LearningWordRepository
+ import dagger.Binds
+ import dagger.Module
+ import dagger.Provides
+@@ -20,10 +23,21 @@ internal abstract class LearningModule {
+         repository: RemoteLearningCategoryRepository,
+     ): LearningCategoryRepository
+ 
++    @Binds
++    @Singleton
++    abstract fun bindLearningWordRepository(
++        repository: RemoteLearningWordRepository,
++    ): LearningWordRepository
++
+     companion object {
+         @Provides
+         @Singleton
+         fun provideLearningCategoryApiService(retrofit: Retrofit): LearningCategoryApiService =
+             retrofit.create(LearningCategoryApiService::class.java)
++
++        @Provides
++        @Singleton
++        fun provideLearningWordApiService(retrofit: Retrofit): LearningWordApiService =
++            retrofit.create(LearningWordApiService::class.java)
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/model/LearningWord.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/model/LearningWord.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/model/LearningWord.kt
+@@ -0,0 +1,9 @@
++package com.ssafy.mobile.feature.learning.domain.model
++
++data class LearningWord(
++    val id: Long,
++    val word: String,
++    val displayText: String? = null,
++    val imageUrl: String? = null,
++    val audioUrl: String? = null,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningWordRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningWordRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/domain/repository/LearningWordRepository.kt
+@@ -0,0 +1,7 @@
++package com.ssafy.mobile.feature.learning.domain.repository
++
++import com.ssafy.mobile.feature.learning.domain.model.LearningWord
++
++interface LearningWordRepository {
++    suspend fun getWords(categoryId: Long): Result<List<LearningWord>>
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt
+@@ -50,7 +50,7 @@ private const val ASPECT_RATIO_SQUARE = 1f
+ 
+ @Composable
+ fun LearningCategoryRoute(
+-    onNavigateToWordList: (Long) -> Unit,
++    onNavigateToWordList: (Long, String) -> Unit,
+     modifier: Modifier = Modifier,
+     viewModel: LearningCategoryViewModel = hiltViewModel(),
+ ) {
+@@ -67,7 +67,7 @@ fun LearningCategoryRoute(
+ @Composable
+ internal fun LearningCategoryScreen(
+     uiState: LearningCategoryUiState,
+-    onCategoryClick: (Long) -> Unit,
++    onCategoryClick: (Long, String) -> Unit,
+     onRetryClick: () -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+@@ -166,7 +166,7 @@ private fun HeaderSection() {
+ @Composable
+ private fun CategoryGrid(
+     categories: List<LearningCategory>,
+-    onCategoryClick: (Long) -> Unit,
++    onCategoryClick: (Long, String) -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+     LazyVerticalGrid(
+@@ -183,7 +183,7 @@ private fun CategoryGrid(
+         items(categories, key = { it.categoryId }) { category ->
+             CategoryCard(
+                 category = category,
+-                onClick = { onCategoryClick(category.categoryId) },
++                onClick = { onCategoryClick(category.categoryId, category.name) },
+             )
+         }
+     }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt
+@@ -0,0 +1,285 @@
++package com.ssafy.mobile.feature.learning.presentation.wordlist
++
++import android.widget.Toast
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.aspectRatio
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.lazy.grid.GridCells
++import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
++import androidx.compose.foundation.lazy.grid.items
++import androidx.compose.foundation.shape.CircleShape
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.Card
++import androidx.compose.material3.CardDefaults
++import androidx.compose.material3.IconButton
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.getValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.clip
++import androidx.compose.ui.graphics.Brush
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import androidx.hilt.navigation.compose.hiltViewModel
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppErrorText
++import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
++import com.ssafy.mobile.core.ui.components.AppPrimaryButton
++import com.ssafy.mobile.feature.learning.domain.model.LearningWord
++
++@Composable
++fun LearningWordListRoute(
++    onNavigateBack: () -> Unit,
++    modifier: Modifier = Modifier,
++    viewModel: LearningWordListViewModel = hiltViewModel(),
++) {
++    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
++    val context = LocalContext.current
++
++    LearningWordListScreen(
++        categoryName = viewModel.categoryName,
++        uiState = uiState,
++        onBackClick = onNavigateBack,
++        onWordClick = {
++            Toast.makeText(context, "학습 시작 기능은 준비 중입니다.", Toast.LENGTH_SHORT).show()
++        },
++        onRetryClick = viewModel::loadWords,
++        modifier = modifier,
++    )
++}
++
++@Composable
++internal fun LearningWordListScreen(
++    categoryName: String?,
++    uiState: LearningWordListUiState,
++    onBackClick: () -> Unit,
++    onWordClick: (LearningWord) -> Unit,
++    onRetryClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Surface(
++        modifier = modifier.fillMaxSize(),
++        color = MaterialTheme.colorScheme.background,
++    ) {
++        Column(modifier = Modifier.fillMaxSize()) {
++            WordListHeader(
++                categoryName = categoryName ?: "단어 목록",
++                onBackClick = onBackClick,
++            )
++
++            Box(modifier = Modifier.weight(1f)) {
++                when (uiState) {
++                    is LearningWordListUiState.Loading -> {
++                        Box(
++                            modifier = Modifier.fillMaxSize(),
++                            contentAlignment = Alignment.Center,
++                        ) {
++                            AppLoadingIndicator()
++                        }
++                    }
++
++                    is LearningWordListUiState.Success -> {
++                        WordGrid(
++                            words = uiState.words,
++                            onWordClick = onWordClick,
++                            modifier = Modifier.fillMaxSize(),
++                        )
++                    }
++
++                    is LearningWordListUiState.Empty -> {
++                        Box(
++                            modifier = Modifier.fillMaxSize(),
++                            contentAlignment = Alignment.Center,
++                        ) {
++                            Text(
++                                text = "준비된 단어가 없습니다.",
++                                style = MaterialTheme.typography.bodyLarge,
++                                color = MaterialTheme.colorScheme.onSurfaceVariant,
++                            )
++                        }
++                    }
++
++                    is LearningWordListUiState.Error -> {
++                        Column(
++                            modifier = Modifier.fillMaxSize().padding(24.dp),
++                            horizontalAlignment = Alignment.CenterHorizontally,
++                            verticalArrangement = Arrangement.Center,
++                        ) {
++                            AppErrorText(text = uiState.message)
++                            Spacer(modifier = Modifier.height(16.dp))
++                            AppPrimaryButton(
++                                text = "다시 시도",
++                                onClick = onRetryClick,
++                            )
++                        }
++                    }
++                }
++            }
++        }
++    }
++}
++
++@Composable
++private fun WordListHeader(
++    categoryName: String,
++    onBackClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Column(
++        modifier =
++            modifier
++                .fillMaxWidth()
++                .padding(top = 12.dp, bottom = 12.dp, start = 8.dp, end = 24.dp),
++    ) {
++        IconButton(onClick = onBackClick) {
++            Text(
++                text = "뒤로",
++                style = MaterialTheme.typography.titleMedium,
++                fontWeight = FontWeight.Bold,
++                color = MaterialTheme.colorScheme.primary,
++            )
++        }
++
++        Spacer(modifier = Modifier.height(8.dp))
++
++        Text(
++            text = categoryName,
++            style = MaterialTheme.typography.headlineMedium,
++            fontWeight = FontWeight.Bold,
++            color = MaterialTheme.colorScheme.onSurface,
++            modifier = Modifier.padding(start = 16.dp),
++            maxLines = 1,
++            overflow = TextOverflow.Ellipsis,
++        )
++
++        Text(
++            text = "함께 배울 단어들을 확인해 보세요.",
++            style = MaterialTheme.typography.bodyLarge,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            modifier = Modifier.padding(start = 16.dp, top = 4.dp),
++        )
++    }
++}
++
++@Composable
++private fun WordGrid(
++    words: List<LearningWord>,
++    onWordClick: (LearningWord) -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    LazyVerticalGrid(
++        columns = GridCells.Fixed(2),
++        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
++        horizontalArrangement = Arrangement.spacedBy(16.dp),
++        verticalArrangement = Arrangement.spacedBy(16.dp),
++        modifier = modifier,
++    ) {
++        items(words, key = { it.id }) { word ->
++            WordCard(
++                word = word,
++                onClick = { onWordClick(word) },
++            )
++        }
++    }
++}
++
++@Composable
++private fun WordCard(
++    word: LearningWord,
++    onClick: () -> Unit,
++) {
++    Card(
++        modifier =
++            Modifier
++                .fillMaxWidth()
++                .clip(RoundedCornerShape(24.dp)),
++        onClick = onClick,
++        shape = RoundedCornerShape(24.dp),
++        colors =
++            CardDefaults.cardColors(
++                containerColor = MaterialTheme.colorScheme.surface,
++            ),
++        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
++    ) {
++        Column(
++            modifier = Modifier.fillMaxWidth().padding(12.dp),
++            horizontalAlignment = Alignment.CenterHorizontally,
++        ) {
++            // Placeholder for image
++            Box(
++                modifier =
++                    Modifier
++                        .fillMaxWidth()
++                        .aspectRatio(1f)
++                        .clip(RoundedCornerShape(16.dp))
++                        .background(
++                            Brush.linearGradient(
++                                colors =
++                                    listOf(
++                                        MaterialTheme.colorScheme.primaryContainer,
++                                        MaterialTheme.colorScheme.secondaryContainer.copy(
++                                            alpha = 0.5f,
++                                        ),
++                                    ),
++                            ),
++                        ),
++                contentAlignment = Alignment.Center,
++            ) {
++                // Placeholder icon/text
++                Box(
++                    modifier =
++                        Modifier
++                            .size(48.dp)
++                            .clip(CircleShape)
++                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.3f)),
++                    contentAlignment = Alignment.Center,
++                ) {
++                    Text(
++                        text = word.word.firstOrNull()?.toString() ?: "",
++                        style = MaterialTheme.typography.titleLarge,
++                        color = MaterialTheme.colorScheme.onPrimaryContainer,
++                        fontWeight = FontWeight.Black,
++                    )
++                }
++            }
++
++            Spacer(modifier = Modifier.height(12.dp))
++
++            Text(
++                text = word.word,
++                style = MaterialTheme.typography.titleMedium,
++                fontWeight = FontWeight.Bold,
++                textAlign = TextAlign.Center,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++            )
++
++            if (!word.displayText.isNullOrBlank()) {
++                Spacer(modifier = Modifier.height(4.dp))
++                Text(
++                    text = word.displayText,
++                    style = MaterialTheme.typography.bodySmall,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                    textAlign = TextAlign.Center,
++                    maxLines = 1,
++                    overflow = TextOverflow.Ellipsis,
++                )
++            }
++        }
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListUiState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListUiState.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListUiState.kt
+@@ -0,0 +1,17 @@
++package com.ssafy.mobile.feature.learning.presentation.wordlist
++
++import com.ssafy.mobile.feature.learning.domain.model.LearningWord
++
++sealed interface LearningWordListUiState {
++    data object Loading : LearningWordListUiState
++
++    data class Success(
++        val words: List<LearningWord>,
++    ) : LearningWordListUiState
++
++    data object Empty : LearningWordListUiState
++
++    data class Error(
++        val message: String,
++    ) : LearningWordListUiState
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListViewModel.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListViewModel.kt
+@@ -0,0 +1,64 @@
++package com.ssafy.mobile.feature.learning.presentation.wordlist
++
++import androidx.lifecycle.SavedStateHandle
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.feature.learning.domain.repository.LearningWordRepository
++import dagger.hilt.android.lifecycle.HiltViewModel
++import javax.inject.Inject
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++
++@HiltViewModel
++class LearningWordListViewModel
++    @Inject
++    constructor(
++        savedStateHandle: SavedStateHandle,
++        private val wordRepository: LearningWordRepository,
++    ) : ViewModel() {
++        private val categoryId: Long = checkNotNull(savedStateHandle["categoryId"])
++        val categoryName: String? = savedStateHandle["categoryName"]
++
++        private val _uiState =
++            MutableStateFlow<LearningWordListUiState>(LearningWordListUiState.Loading)
++        val uiState: StateFlow<LearningWordListUiState> = _uiState.asStateFlow()
++
++        private var fetchJob: Job? = null
++
++        init {
++            loadWords()
++        }
++
++        fun loadWords() {
++            if (fetchJob?.isActive == true) return
++
++            fetchJob =
++                viewModelScope.launch {
++                    _uiState.value = LearningWordListUiState.Loading
++                    val result =
++                        withContext(Dispatchers.IO) {
++                            wordRepository.getWords(categoryId)
++                        }
++
++                    result
++                        .onSuccess { words ->
++                            _uiState.value =
++                                if (words.isEmpty()) {
++                                    LearningWordListUiState.Empty
++                                } else {
++                                    LearningWordListUiState.Success(words)
++                                }
++                        }.onFailure { throwable ->
++                            _uiState.value =
++                                LearningWordListUiState.Error(
++                                    throwable.message ?: "단어 목록을 불러오지 못했습니다.",
++                                )
++                        }
++                }
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/WordListPlaceholderRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/WordListPlaceholderRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/WordListPlaceholderRoute.kt
++++ /dev/null
+@@ -1,51 +0,0 @@
+-package com.ssafy.mobile.feature.learning.presentation.wordlist
+-
+-import androidx.compose.foundation.layout.Arrangement
+-import androidx.compose.foundation.layout.Column
+-import androidx.compose.foundation.layout.Spacer
+-import androidx.compose.foundation.layout.fillMaxSize
+-import androidx.compose.foundation.layout.height
+-import androidx.compose.foundation.layout.padding
+-import androidx.compose.material3.MaterialTheme
+-import androidx.compose.material3.Surface
+-import androidx.compose.material3.Text
+-import androidx.compose.runtime.Composable
+-import androidx.compose.ui.Alignment
+-import androidx.compose.ui.Modifier
+-import androidx.compose.ui.text.font.FontWeight
+-import androidx.compose.ui.unit.dp
+-
+-@Composable
+-fun WordListPlaceholderRoute(
+-    categoryId: Long,
+-    modifier: Modifier = Modifier,
+-) {
+-    Surface(
+-        modifier = modifier.fillMaxSize(),
+-        color = MaterialTheme.colorScheme.background,
+-    ) {
+-        Column(
+-            modifier = Modifier.fillMaxSize().padding(24.dp),
+-            horizontalAlignment = Alignment.CenterHorizontally,
+-            verticalArrangement = Arrangement.Center,
+-        ) {
+-            Text(
+-                text = "단어 목록 준비 중",
+-                style = MaterialTheme.typography.headlineSmall,
+-                fontWeight = FontWeight.Bold,
+-            )
+-            Spacer(modifier = Modifier.height(16.dp))
+-            Text(
+-                text = "선택한 카테고리 ID: $categoryId",
+-                style = MaterialTheme.typography.bodyLarge,
+-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+-            )
+-            Spacer(modifier = Modifier.height(32.dp))
+-            Text(
+-                text = "다음 티켓(S14P31A404-238)에서 실제 단어 목록을 구현할 예정입니다.",
+-                style = MaterialTheme.typography.bodyMedium,
+-                color = MaterialTheme.colorScheme.primary,
+-            )
+-        }
+-    }
+-}
+
+

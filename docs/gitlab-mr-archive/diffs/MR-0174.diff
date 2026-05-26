@@ -1,0 +1,3473 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -1,5 +1,7 @@
+ package com.ssafy.mobile.core.navigation
+ 
++import androidx.compose.animation.EnterTransition
++import androidx.compose.animation.ExitTransition
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Modifier
+@@ -19,6 +21,7 @@ import com.ssafy.mobile.feature.learning.presentation.category.LearningCategoryR
+ import com.ssafy.mobile.feature.learning.presentation.wordlist.LearningWordListRoute
+ import com.ssafy.mobile.feature.login.presentation.LoginRoute
+ import com.ssafy.mobile.feature.mypage.presentation.AccountEditRoute
++import com.ssafy.mobile.feature.mypage.presentation.AppSettingsRoute
+ import com.ssafy.mobile.feature.mypage.presentation.MyPageRoute
+ import com.ssafy.mobile.feature.quiz.presentation.QuizResultRoute
+ import com.ssafy.mobile.feature.quiz.presentation.quizQuestionRoute
+@@ -61,37 +64,31 @@ fun MobileNavHost(
+                     }
+                 },
+                 onNavigateToConversation = {
+-                    navController.navigate(Screen.Conversation.route) {
++                    navController.navigate(Screen.GuestConversation.route) {
+                         popUpTo(Screen.AppEntry.route) { inclusive = true }
+                     }
+                 },
+             )
+         }
+ 
+-        composable(Screen.Login.route) {
++        composable(
++            route = Screen.Login.route,
++            enterTransition = { EnterTransition.None },
++            exitTransition = { ExitTransition.None },
++            popEnterTransition = { EnterTransition.None },
++            popExitTransition = { ExitTransition.None },
++        ) {
+             LoginRoute(
+                 onNavigateToHome = {
+                     val popTarget =
+-                        if (navController.previousBackStackEntry?.destination?.route ==
+-                            Screen.Conversation.route
+-                        ) {
+-                            Screen.Conversation.route
+-                        } else {
+-                            Screen.Login.route
+-                        }
++                        navController.loginEntryPopTarget()
+                     navController.navigate(Screen.Home.route) {
+                         popUpTo(popTarget) { inclusive = true }
+                     }
+                 },
+                 onNavigateToChildSelect = {
+                     val popTarget =
+-                        if (navController.previousBackStackEntry?.destination?.route ==
+-                            Screen.Conversation.route
+-                        ) {
+-                            Screen.Conversation.route
+-                        } else {
+-                            Screen.Login.route
+-                        }
++                        navController.loginEntryPopTarget()
+                     navController.navigate(Screen.ChildSelect.route) {
+                         popUpTo(popTarget) { inclusive = true }
+                     }
+@@ -103,7 +100,13 @@ fun MobileNavHost(
+             )
+         }
+ 
+-        composable(Screen.Signup.route) {
++        composable(
++            route = Screen.Signup.route,
++            enterTransition = { EnterTransition.None },
++            exitTransition = { ExitTransition.None },
++            popEnterTransition = { EnterTransition.None },
++            popExitTransition = { ExitTransition.None },
++        ) {
+             SignupRoute(
+                 onNavigateToLogin = {
+                     navController.popBackStack(Screen.Login.route, inclusive = false)
+@@ -269,13 +272,27 @@ fun MobileNavHost(
+             )
+         }
+ 
++        composable(Screen.GuestConversation.route) {
++            conversationRoute(
++                onNavigateToLogin = {
++                    navController.navigate(Screen.Login.route) {
++                        launchSingleTop = true
++                    }
++                },
++                modifier = Modifier.fillMaxSize(),
++            )
++        }
++
+         composable(Screen.MyPage.route) {
+             MyPageRoute(
++                onNavigateToAppSettings = {
++                    navController.navigate(Screen.AppSettings.route)
++                },
+                 onNavigateToAccountEdit = {
+                     navController.navigate(Screen.AccountEdit.route)
+                 },
+                 onLogoutSuccess = {
+-                    navController.navigate(Screen.Conversation.route) {
++                    navController.navigate(Screen.GuestConversation.route) {
+                         popUpTo(Screen.Home.route) { inclusive = true }
+                         launchSingleTop = true
+                     }
+@@ -284,6 +301,15 @@ fun MobileNavHost(
+             )
+         }
+ 
++        composable(Screen.AppSettings.route) {
++            AppSettingsRoute(
++                onNavigateBack = {
++                    navController.popBackStack()
++                },
++                modifier = Modifier.fillMaxSize(),
++            )
++        }
++
+         composable(Screen.AccountEdit.route) {
+             AccountEditRoute(
+                 onNavigateBack = { navController.popBackStack() },
+@@ -420,3 +446,10 @@ fun MobileNavHost(
+         }
+     }
+ }
++
++private fun NavHostController.loginEntryPopTarget(): String =
++    when (previousBackStackEntry?.destination?.route) {
++        Screen.GuestConversation.route -> Screen.GuestConversation.route
++        Screen.Conversation.route -> Screen.Conversation.route
++        else -> Screen.Login.route
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+@@ -40,8 +40,12 @@ sealed class Screen(
+ 
+     data object Conversation : Screen("conversation_route")
+ 
++    data object GuestConversation : Screen("guest_conversation_route")
++
+     data object MyPage : Screen("my_page_route")
+ 
++    data object AppSettings : Screen("app_settings_route")
++
+     data object AccountEdit : Screen("account_edit_route")
+ 
+     data object Sign : Screen("sign_route")
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AuthMessageCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AuthMessageCard.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AuthMessageCard.kt
+@@ -0,0 +1,171 @@
++package com.ssafy.mobile.core.ui.components
++
++import androidx.compose.foundation.BorderStroke
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.shape.CircleShape
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.clip
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.unit.dp
++
++@Composable
++fun AuthMessageCard(
++    visible: Boolean,
++    type: AuthMessageType,
++    modifier: Modifier = Modifier,
++) {
++    if (!visible) return
++
++    Surface(
++        modifier = modifier,
++        shape = RoundedCornerShape(18.dp),
++        color = type.containerColor(),
++        contentColor = MaterialTheme.colorScheme.onSurface,
++        border =
++            BorderStroke(
++                width = 1.dp,
++                color = type.contentColor().copy(alpha = 0.24f),
++            ),
++    ) {
++        Row(
++            modifier =
++                Modifier
++                    .fillMaxWidth()
++                    .padding(horizontal = 16.dp, vertical = 14.dp),
++            horizontalArrangement = Arrangement.spacedBy(12.dp),
++            verticalAlignment = Alignment.Top,
++        ) {
++            AuthMessageBadge(type = type)
++            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
++                Text(
++                    text = type.title,
++                    style = MaterialTheme.typography.bodyMedium,
++                    fontWeight = FontWeight.SemiBold,
++                )
++                Text(
++                    text = type.description,
++                    style = MaterialTheme.typography.bodySmall,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                )
++            }
++        }
++    }
++}
++
++@Composable
++private fun AuthMessageBadge(type: AuthMessageType) {
++    Box(
++        modifier =
++            Modifier
++                .size(24.dp)
++                .clip(CircleShape)
++                .background(type.contentColor().copy(alpha = 0.16f)),
++        contentAlignment = Alignment.Center,
++    ) {
++        Text(
++            text = type.badgeText,
++            style = MaterialTheme.typography.labelMedium,
++            color = type.contentColor(),
++            fontWeight = FontWeight.Bold,
++        )
++    }
++}
++
++enum class AuthMessageType {
++    SignupComplete,
++    DuplicateEmail,
++    InvalidCredentials,
++    InactiveAccount,
++    InvalidProviderToken,
++    SocialEmailAlreadyExists,
++    ProviderError,
++    Network,
++    General,
++    ;
++
++    val title: String
++        get() =
++            when (this) {
++                SignupComplete -> "회원가입이 완료되었습니다."
++                DuplicateEmail -> "이미 사용 중인 이메일입니다."
++                InvalidCredentials -> "이메일 또는 비밀번호를 확인해 주세요."
++                InactiveAccount -> "로그인할 수 없는 계정입니다."
++                InvalidProviderToken -> "소셜 로그인 인증에 실패했습니다."
++                SocialEmailAlreadyExists -> "이미 가입된 이메일입니다."
++                ProviderError -> "소셜 로그인 처리 중 문제가 발생했습니다."
++                Network -> "네트워크 연결을 확인해 주세요."
++                General -> "요청을 처리하지 못했습니다."
++            }
++
++    val description: String
++        get() =
++            when (this) {
++                SignupComplete ->
++                    "이제 로그인 화면으로 이동해 로그인해 주세요."
++                DuplicateEmail ->
++                    "다른 이메일을 입력하거나 로그인 화면으로 이동해 주세요."
++                InvalidCredentials ->
++                    "입력한 정보를 다시 확인한 뒤 시도해 주세요."
++                InactiveAccount ->
++                    "도움이 필요하면 관리자에게 문의해 주세요."
++                InvalidProviderToken ->
++                    "인증 화면을 다시 열어 로그인해 주세요."
++                SocialEmailAlreadyExists ->
++                    "기존 계정으로 로그인한 뒤 소셜 계정을 연결해 주세요."
++                ProviderError ->
++                    "잠시 후 다시 시도해 주세요."
++                Network ->
++                    "서버 연결 상태를 확인한 뒤 다시 시도해 주세요."
++                General ->
++                    "잠시 후 다시 시도해 주세요."
++            }
++
++    val badgeText: String
++        get() =
++            when (this) {
++                SignupComplete -> "✓"
++                else -> "!"
++            }
++
++    companion object {
++        fun fromBackendCode(code: String?): AuthMessageType =
++            when (code) {
++                "AUTH_DUPLICATE_EMAIL" -> DuplicateEmail
++                "AUTH_INVALID_CREDENTIALS" -> InvalidCredentials
++                "AUTH_INACTIVE_ACCOUNT" -> InactiveAccount
++                "OAUTH_INVALID_PROVIDER_TOKEN" -> InvalidProviderToken
++                "OAUTH_EMAIL_ALREADY_EXISTS" -> SocialEmailAlreadyExists
++                "OAUTH_PROVIDER_ERROR" -> ProviderError
++                else -> General
++            }
++    }
++}
++
++@Composable
++private fun AuthMessageType.containerColor() =
++    when (this) {
++        AuthMessageType.SignupComplete ->
++            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.42f)
++        else ->
++            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.42f)
++    }
++
++@Composable
++private fun AuthMessageType.contentColor() =
++    when (this) {
++        AuthMessageType.SignupComplete -> MaterialTheme.colorScheme.primary
++        else -> MaterialTheme.colorScheme.secondary
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AuthTextField.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AuthTextField.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AuthTextField.kt
+@@ -0,0 +1,87 @@
++package com.ssafy.mobile.core.ui.components
++
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.foundation.text.KeyboardActions
++import androidx.compose.foundation.text.KeyboardOptions
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.OutlinedTextField
++import androidx.compose.material3.OutlinedTextFieldDefaults
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.input.VisualTransformation
++import androidx.compose.ui.unit.dp
++
++@Composable
++@Suppress("LongParameterList")
++fun AuthTextField(
++    value: String,
++    onValueChange: (String) -> Unit,
++    label: String,
++    modifier: Modifier = Modifier,
++    enabled: Boolean = true,
++    isError: Boolean = false,
++    placeholder: String? = null,
++    supportingText: String? = null,
++    singleLine: Boolean = true,
++    visualTransformation: VisualTransformation = VisualTransformation.None,
++    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
++    keyboardActions: KeyboardActions = KeyboardActions.Default,
++    trailingIcon: (@Composable () -> Unit)? = null,
++) {
++    val placeholderContent: (@Composable () -> Unit)? =
++        placeholder?.let { placeholderText ->
++            {
++                Text(
++                    text = placeholderText,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                )
++            }
++        }
++    val supportingTextContent: (@Composable () -> Unit)? =
++        supportingText?.let { supportingTextValue ->
++            { Text(text = supportingTextValue) }
++        }
++
++    Column(modifier = modifier.fillMaxWidth()) {
++        Text(
++            text = label,
++            style = MaterialTheme.typography.labelLarge,
++            color = MaterialTheme.colorScheme.onSurface,
++            fontWeight = FontWeight.SemiBold,
++        )
++        Spacer(modifier = Modifier.height(8.dp))
++        OutlinedTextField(
++            value = value,
++            onValueChange = onValueChange,
++            modifier = Modifier.fillMaxWidth(),
++            enabled = enabled,
++            isError = isError,
++            placeholder = placeholderContent,
++            supportingText = supportingTextContent,
++            singleLine = singleLine,
++            visualTransformation = visualTransformation,
++            keyboardOptions = keyboardOptions,
++            keyboardActions = keyboardActions,
++            trailingIcon = trailingIcon,
++            shape = RoundedCornerShape(14.dp),
++            textStyle = MaterialTheme.typography.bodyLarge,
++            colors =
++                OutlinedTextFieldDefaults.colors(
++                    focusedBorderColor = MaterialTheme.colorScheme.primary,
++                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
++                    focusedContainerColor = MaterialTheme.colorScheme.surface,
++                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
++                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
++                    cursorColor = MaterialTheme.colorScheme.primary,
++                    errorBorderColor = MaterialTheme.colorScheme.error,
++                ),
++        )
++        Spacer(modifier = Modifier.height(16.dp))
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/AppThemeMode.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/AppThemeMode.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/AppThemeMode.kt
+@@ -0,0 +1,36 @@
++package com.ssafy.mobile.core.ui.theme
++
++enum class AppThemeMode {
++    System,
++    Light,
++    Dark,
++    ;
++
++    val label: String
++        get() =
++            when (this) {
++                System -> "시스템 설정"
++                Light -> "라이트 모드"
++                Dark -> "다크 모드"
++            }
++
++    val description: String
++        get() =
++            when (this) {
++                System -> "기기 설정에 맞춰 자동으로 변경됩니다."
++                Light -> "밝은 화면으로 앱을 사용합니다."
++                Dark -> "어두운 화면으로 앱을 사용합니다."
++            }
++
++    fun shouldUseDarkTheme(systemInDarkTheme: Boolean): Boolean =
++        when (this) {
++            System -> systemInDarkTheme
++            Light -> false
++            Dark -> true
++        }
++
++    companion object {
++        fun fromStorageValue(value: String?): AppThemeMode =
++            entries.firstOrNull { mode -> mode.name == value } ?: System
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/AppThemeModeRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/AppThemeModeRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/AppThemeModeRepository.kt
+@@ -0,0 +1,41 @@
++package com.ssafy.mobile.core.ui.theme
++
++import android.content.Context
++import androidx.datastore.core.DataStore
++import androidx.datastore.preferences.core.Preferences
++import androidx.datastore.preferences.core.edit
++import androidx.datastore.preferences.core.stringPreferencesKey
++import androidx.datastore.preferences.preferencesDataStore
++import dagger.hilt.android.qualifiers.ApplicationContext
++import javax.inject.Inject
++import javax.inject.Singleton
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.distinctUntilChanged
++import kotlinx.coroutines.flow.map
++
++private val Context.appThemeDataStore: DataStore<Preferences> by preferencesDataStore(
++    name = "app_theme_prefs",
++)
++
++@Singleton
++class AppThemeModeRepository
++    @Inject
++    constructor(
++        @param:ApplicationContext private val context: Context,
++    ) {
++        val themeMode: Flow<AppThemeMode> =
++            context.appThemeDataStore.data
++                .map { preferences ->
++                    AppThemeMode.fromStorageValue(preferences[KEY_THEME_MODE])
++                }.distinctUntilChanged()
++
++        suspend fun saveThemeMode(mode: AppThemeMode) {
++            context.appThemeDataStore.edit { preferences ->
++                preferences[KEY_THEME_MODE] = mode.name
++            }
++        }
++
++        private companion object {
++            val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Type.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Type.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Type.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/theme/Type.kt
+@@ -4,11 +4,29 @@ package com.ssafy.mobile.core.ui.theme
+ 
+ import androidx.compose.material3.Typography
+ import androidx.compose.ui.text.TextStyle
++import androidx.compose.ui.text.font.Font
+ import androidx.compose.ui.text.font.FontFamily
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.unit.sp
++import com.ssafy.mobile.R
+ 
+-val SudaFontFamily: FontFamily = FontFamily.Default
++val SudaFontFamily: FontFamily =
++    FontFamily(
++        Font(R.font.pretendard_regular, FontWeight.Normal),
++        Font(R.font.pretendard_medium, FontWeight.Medium),
++        Font(R.font.pretendard_semibold, FontWeight.SemiBold),
++        Font(R.font.pretendard_bold, FontWeight.Bold),
++    )
++
++val SudaFriendlyFontFamily: FontFamily =
++    FontFamily(
++        Font(R.font.gowun_dodum_regular, FontWeight.Normal),
++    )
++
++val SudaPointFontFamily: FontFamily =
++    FontFamily(
++        Font(R.font.jua_regular, FontWeight.Normal),
++    )
+ 
+ val Typography =
+     Typography(
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/BirthDateSlotPicker.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/BirthDateSlotPicker.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/BirthDateSlotPicker.kt
+@@ -0,0 +1,452 @@
++@file:Suppress("FunctionNaming", "MagicNumber", "TooManyFunctions")
++
++package com.ssafy.mobile.feature.childprofile.presentation
++
++import androidx.compose.foundation.BorderStroke
++import androidx.compose.foundation.clickable
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.lazy.LazyColumn
++import androidx.compose.foundation.lazy.LazyListState
++import androidx.compose.foundation.lazy.itemsIndexed
++import androidx.compose.foundation.lazy.rememberLazyListState
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableIntStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.saveable.rememberSaveable
++import androidx.compose.runtime.setValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.unit.dp
++import java.time.LocalDate
++import java.time.YearMonth
++import java.time.format.DateTimeFormatter
++
++@Composable
++internal fun BirthDateSlotPicker(
++    birthDate: String,
++    enabled: Boolean,
++    isError: Boolean,
++    supportingText: String?,
++    onBirthDateChange: (String) -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    val state =
++        rememberBirthDateSlotPickerState(
++            birthDate = birthDate,
++            onBirthDateChange = onBirthDateChange,
++        )
++
++    Column(modifier = modifier.fillMaxWidth()) {
++        BirthDatePickerLabel(isError = isError)
++        Spacer(modifier = Modifier.height(8.dp))
++        BirthDateSlotRow(
++            state = state,
++            enabled = enabled,
++        )
++        Spacer(modifier = Modifier.height(10.dp))
++        SelectedDatePill(
++            selectedDate = state.selectedDate,
++            isError = isError,
++        )
++        BirthDateSupportingText(
++            text = supportingText,
++            isError = isError,
++        )
++    }
++}
++
++@Composable
++private fun rememberBirthDateSlotPickerState(
++    birthDate: String,
++    onBirthDateChange: (String) -> Unit,
++): BirthDateSlotPickerState {
++    val today = remember { LocalDate.now() }
++    val defaultDate = remember { today.minusYears(DEFAULT_CHILD_AGE_YEARS.toLong()) }
++    val initialDate = remember(birthDate) { birthDate.toLocalDateOrNull() ?: defaultDate }
++    var selectedYear by rememberSaveable { mutableIntStateOf(initialDate.year) }
++    var selectedMonth by rememberSaveable { mutableIntStateOf(initialDate.monthValue) }
++    var selectedDay by rememberSaveable { mutableIntStateOf(initialDate.dayOfMonth) }
++
++    fun updateDate(
++        year: Int = selectedYear,
++        month: Int = selectedMonth,
++        day: Int = selectedDay,
++    ) {
++        val date = coerceToValidDate(today, year, month, day)
++        selectedYear = date.year
++        selectedMonth = date.monthValue
++        selectedDay = date.dayOfMonth
++        onBirthDateChange(date.toStorageDate())
++    }
++
++    val slots =
++        remember(today, selectedYear, selectedMonth) {
++            BirthDateSlots(
++                years = ((today.year - MAX_CHILD_AGE_YEARS)..today.year).toList(),
++                months = availableMonths(today, selectedYear),
++                days = availableDays(today, selectedYear, selectedMonth),
++            )
++        }
++
++    LaunchedEffect(birthDate) {
++        val parsedDate = birthDate.toLocalDateOrNull()
++        if (parsedDate != null) {
++            selectedYear = parsedDate.year
++            selectedMonth = parsedDate.monthValue
++            selectedDay = parsedDate.dayOfMonth
++        } else if (birthDate.isBlank()) {
++            onBirthDateChange(defaultDate.toStorageDate())
++        }
++    }
++    LaunchedEffect(slots.months) {
++        if (selectedMonth !in slots.months) updateDate(month = slots.months.last())
++    }
++    LaunchedEffect(slots.days) {
++        if (selectedDay !in slots.days) updateDate(day = slots.days.last())
++    }
++
++    return BirthDateSlotPickerState(
++        slots = slots,
++        selectedYear = selectedYear,
++        selectedMonth = selectedMonth,
++        selectedDay = selectedDay,
++        selectedDate = formatBirthDate(selectedYear, selectedMonth, selectedDay),
++        onYearSelected = { updateDate(year = it) },
++        onMonthSelected = { updateDate(month = it) },
++        onDaySelected = { updateDate(day = it) },
++    )
++}
++
++@Composable
++private fun BirthDatePickerLabel(isError: Boolean) {
++    Text(
++        text = "생년월일",
++        style = MaterialTheme.typography.labelLarge,
++        color =
++            if (isError) {
++                MaterialTheme.colorScheme.error
++            } else {
++                MaterialTheme.colorScheme.onSurfaceVariant
++            },
++        fontWeight = FontWeight.SemiBold,
++    )
++}
++
++@Composable
++private fun BirthDateSlotRow(
++    state: BirthDateSlotPickerState,
++    enabled: Boolean,
++) {
++    Row(
++        modifier = Modifier.fillMaxWidth(),
++        horizontalArrangement = Arrangement.spacedBy(8.dp),
++    ) {
++        DateSlotColumn(
++            title = "연도",
++            values = state.slots.years,
++            selectedValue = state.selectedYear,
++            enabled = enabled,
++            label = { it.toString() },
++            onValueSelected = state.onYearSelected,
++            modifier = Modifier.weight(1f),
++        )
++        DateSlotColumn(
++            title = "월",
++            values = state.slots.months,
++            selectedValue = state.selectedMonth,
++            enabled = enabled,
++            label = { "%02d월".format(it) },
++            onValueSelected = state.onMonthSelected,
++            modifier = Modifier.weight(1f),
++        )
++        DateSlotColumn(
++            title = "일",
++            values = state.slots.days,
++            selectedValue = state.selectedDay,
++            enabled = enabled,
++            label = { "%02d일".format(it) },
++            onValueSelected = state.onDaySelected,
++            modifier = Modifier.weight(1f),
++        )
++    }
++}
++
++@Composable
++private fun DateSlotColumn(
++    title: String,
++    values: List<Int>,
++    selectedValue: Int,
++    enabled: Boolean,
++    label: (Int) -> String,
++    onValueSelected: (Int) -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    val selectedIndex = values.indexOf(selectedValue).coerceAtLeast(0)
++    val firstVisibleIndex = (selectedIndex - SLOT_VISIBLE_SIDE_COUNT).coerceAtLeast(0)
++    val listState =
++        rememberLazyListState(
++            initialFirstVisibleItemIndex = firstVisibleIndex,
++        )
++
++    LaunchedEffect(selectedIndex) {
++        listState.animateScrollToItem(firstVisibleIndex)
++    }
++
++    Column(
++        modifier = modifier,
++        horizontalAlignment = Alignment.CenterHorizontally,
++    ) {
++        Text(
++            text = title,
++            style = MaterialTheme.typography.labelMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            fontWeight = FontWeight.SemiBold,
++        )
++        Spacer(modifier = Modifier.height(8.dp))
++        DateSlotList(
++            values = values,
++            selectedValue = selectedValue,
++            enabled = enabled,
++            label = label,
++            listState = listState,
++            onValueSelected = onValueSelected,
++            modifier = Modifier.fillMaxWidth(),
++        )
++    }
++}
++
++@Composable
++private fun DateSlotList(
++    values: List<Int>,
++    selectedValue: Int,
++    enabled: Boolean,
++    label: (Int) -> String,
++    listState: LazyListState,
++    onValueSelected: (Int) -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Surface(
++        modifier = modifier.height(SLOT_LIST_HEIGHT_DP.dp),
++        shape = RoundedCornerShape(SLOT_LIST_RADIUS_DP.dp),
++        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = SLOT_LIST_CONTAINER_ALPHA),
++        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
++    ) {
++        LazyColumn(
++            state = listState,
++            contentPadding = PaddingValues(vertical = SLOT_LIST_VERTICAL_PADDING_DP.dp),
++            modifier = Modifier.fillMaxSize(),
++            horizontalAlignment = Alignment.CenterHorizontally,
++        ) {
++            itemsIndexed(values) { _, value ->
++                DateSlotItem(
++                    value = value,
++                    selected = value == selectedValue,
++                    enabled = enabled,
++                    label = label,
++                    onValueSelected = onValueSelected,
++                )
++            }
++        }
++    }
++}
++
++@Composable
++private fun DateSlotItem(
++    value: Int,
++    selected: Boolean,
++    enabled: Boolean,
++    label: (Int) -> String,
++    onValueSelected: (Int) -> Unit,
++) {
++    Text(
++        text = label(value),
++        style = MaterialTheme.typography.titleMedium,
++        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
++        color =
++            if (selected) {
++                MaterialTheme.colorScheme.onSurface
++            } else {
++                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = SLOT_ITEM_DISABLED_ALPHA)
++            },
++        textAlign = TextAlign.Center,
++        modifier =
++            Modifier
++                .fillMaxWidth()
++                .height(SLOT_ITEM_HEIGHT_DP.dp)
++                .padding(vertical = SLOT_ITEM_VERTICAL_PADDING_DP.dp)
++                .clickable(enabled = enabled) {
++                    onValueSelected(value)
++                },
++    )
++}
++
++@Composable
++private fun SelectedDatePill(
++    selectedDate: String,
++    isError: Boolean,
++    modifier: Modifier = Modifier,
++) {
++    Surface(
++        modifier = modifier.fillMaxWidth(),
++        shape = RoundedCornerShape(PILL_RADIUS_DP.dp),
++        color =
++            if (isError) {
++                MaterialTheme.colorScheme.errorContainer
++            } else {
++                MaterialTheme.colorScheme.primaryContainer
++            },
++        contentColor =
++            if (isError) {
++                MaterialTheme.colorScheme.onErrorContainer
++            } else {
++                MaterialTheme.colorScheme.onPrimaryContainer
++            },
++    ) {
++        Text(
++            text = "선택된 생년월일: $selectedDate",
++            style = MaterialTheme.typography.bodySmall,
++            fontWeight = FontWeight.SemiBold,
++            textAlign = TextAlign.Center,
++            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
++        )
++    }
++}
++
++@Composable
++private fun BirthDateSupportingText(
++    text: String?,
++    isError: Boolean,
++) {
++    if (text == null) return
++
++    Spacer(modifier = Modifier.height(6.dp))
++    Text(
++        text = text,
++        style = MaterialTheme.typography.bodySmall,
++        color =
++            if (isError) {
++                MaterialTheme.colorScheme.error
++            } else {
++                MaterialTheme.colorScheme.onSurfaceVariant
++            },
++    )
++}
++
++private fun availableMonths(
++    today: LocalDate,
++    selectedYear: Int,
++): List<Int> {
++    val maxMonth = if (selectedYear == today.year) today.monthValue else MONTHS_IN_YEAR
++    return (1..maxMonth).toList()
++}
++
++private fun availableDays(
++    today: LocalDate,
++    selectedYear: Int,
++    selectedMonth: Int,
++): List<Int> {
++    val maxDayOfMonth = YearMonth.of(selectedYear, selectedMonth).lengthOfMonth()
++    val maxDay =
++        if (selectedYear == today.year && selectedMonth == today.monthValue) {
++            today.dayOfMonth
++        } else {
++            maxDayOfMonth
++        }
++    return (1..maxDay).toList()
++}
++
++private fun coerceToValidDate(
++    today: LocalDate,
++    year: Int,
++    month: Int,
++    day: Int,
++): LocalDate {
++    val maxMonth = if (year == today.year) today.monthValue else MONTHS_IN_YEAR
++    val nextMonth = month.coerceIn(1, maxMonth)
++    val maxDayOfMonth = YearMonth.of(year, nextMonth).lengthOfMonth()
++    val maxDay =
++        if (year == today.year && nextMonth == today.monthValue) {
++            today.dayOfMonth
++        } else {
++            maxDayOfMonth
++        }
++    return LocalDate.of(year, nextMonth, day.coerceIn(1, maxDay))
++}
++
++private fun String.toLocalDateOrNull(): LocalDate? {
++    val normalizedDate =
++        when {
++            matches(Regex("""^\d{4}-\d{2}-\d{2}$""")) -> this
++            matches(Regex("""^\d{8}$""")) ->
++                "%s-%s-%s".format(
++                    substring(YEAR_START, YEAR_END),
++                    substring(MONTH_START, MONTH_END),
++                    substring(DAY_START, DAY_END),
++                )
++            else -> return null
++        }
++
++    return runCatching {
++        LocalDate.parse(normalizedDate, DateTimeFormatter.ISO_LOCAL_DATE)
++    }.getOrNull()
++}
++
++private fun LocalDate.toStorageDate(): String = format(DateTimeFormatter.ISO_LOCAL_DATE)
++
++private fun formatBirthDate(
++    year: Int,
++    month: Int,
++    day: Int,
++): String = "%04d-%02d-%02d".format(year, month, day)
++
++private data class BirthDateSlots(
++    val years: List<Int>,
++    val months: List<Int>,
++    val days: List<Int>,
++)
++
++private data class BirthDateSlotPickerState(
++    val slots: BirthDateSlots,
++    val selectedYear: Int,
++    val selectedMonth: Int,
++    val selectedDay: Int,
++    val selectedDate: String,
++    val onYearSelected: (Int) -> Unit,
++    val onMonthSelected: (Int) -> Unit,
++    val onDaySelected: (Int) -> Unit,
++)
++
++private const val DEFAULT_CHILD_AGE_YEARS = 3
++private const val MAX_CHILD_AGE_YEARS = 18
++private const val MONTHS_IN_YEAR = 12
++private const val YEAR_START = 0
++private const val YEAR_END = 4
++private const val MONTH_START = 4
++private const val MONTH_END = 6
++private const val DAY_START = 6
++private const val DAY_END = 8
++private const val SLOT_VISIBLE_SIDE_COUNT = 1
++private const val SLOT_LIST_HEIGHT_DP = 132
++private const val SLOT_LIST_RADIUS_DP = 14
++private const val SLOT_LIST_CONTAINER_ALPHA = 0.55f
++private const val SLOT_LIST_VERTICAL_PADDING_DP = 38
++private const val SLOT_ITEM_DISABLED_ALPHA = 0.46f
++private const val SLOT_ITEM_HEIGHT_DP = 40
++private const val SLOT_ITEM_VERTICAL_PADDING_DP = 6
++private const val PILL_RADIUS_DP = 999
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditRoute.kt
+@@ -1,18 +1,28 @@
+ package com.ssafy.mobile.feature.childprofile.presentation
+ 
++import androidx.compose.foundation.BorderStroke
+ import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.aspectRatio
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.imePadding
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.widthIn
++import androidx.compose.foundation.rememberScrollState
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.foundation.text.KeyboardActions
+ import androidx.compose.foundation.text.KeyboardOptions
++import androidx.compose.foundation.verticalScroll
+ import androidx.compose.material3.AlertDialog
+ import androidx.compose.material3.ButtonDefaults
+ import androidx.compose.material3.ExperimentalMaterial3Api
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Scaffold
++import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.material3.TextButton
+ import androidx.compose.material3.TopAppBar
+@@ -24,9 +34,14 @@ import androidx.compose.runtime.remember
+ import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.focus.FocusDirection
++import androidx.compose.ui.platform.LocalFocusManager
+ import androidx.compose.ui.text.font.FontWeight
+-import androidx.compose.ui.text.input.KeyboardType
++import androidx.compose.ui.text.input.ImeAction
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.sp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import com.ssafy.mobile.core.ui.components.AppCard
+@@ -111,6 +126,7 @@ private fun ChildProfileEditScreen(
+     }
+ 
+     Scaffold(
++        modifier = modifier.fillMaxSize(),
+         containerColor = MaterialTheme.colorScheme.background,
+         topBar = {
+             EditTopBar(
+@@ -122,10 +138,12 @@ private fun ChildProfileEditScreen(
+     ) { padding ->
+         Column(
+             modifier =
+-                modifier
++                Modifier
+                     .fillMaxSize()
+                     .padding(padding)
+-                    .padding(horizontal = 24.dp, vertical = 16.dp),
++                    .padding(horizontal = 24.dp, vertical = 18.dp)
++                    .imePadding(),
++            horizontalAlignment = Alignment.CenterHorizontally,
+         ) {
+             if (isLoading) {
+                 LoadingPlaceholder(modifier = Modifier.weight(1f))
+@@ -136,15 +154,32 @@ private fun ChildProfileEditScreen(
+                     modifier = Modifier.weight(1f),
+                 )
+             } else {
+-                EditForm(
+-                    name = name,
+-                    birthDate = birthDate,
+-                    isSaving = isSaving,
+-                    errorMessage = (uiState as? ChildProfileEditUiState.Error)?.message,
+-                    onNameChange = onNameChange,
+-                    onBirthDateChange = onBirthDateChange,
+-                    modifier = Modifier.weight(1f),
+-                )
++                Column(
++                    modifier =
++                        Modifier
++                            .weight(1f)
++                            .fillMaxWidth()
++                            .verticalScroll(rememberScrollState()),
++                    horizontalAlignment = Alignment.CenterHorizontally,
++                ) {
++                    ProfilePreviewCard(
++                        name = name,
++                        isEditMode = isEditMode,
++                    )
++
++                    Spacer(modifier = Modifier.height(22.dp))
++
++                    EditForm(
++                        name = name,
++                        birthDate = birthDate,
++                        isSaving = isSaving,
++                        errorMessage = (uiState as? ChildProfileEditUiState.Error)?.message,
++                        onNameChange = onNameChange,
++                        onBirthDateChange = onBirthDateChange,
++                    )
++                }
++
++                Spacer(modifier = Modifier.height(16.dp))
+ 
+                 EditActionButtons(
+                     isEditMode = isEditMode,
+@@ -180,6 +215,70 @@ private fun EditTopBar(
+     )
+ }
+ 
++@Composable
++private fun ProfilePreviewCard(
++    name: String,
++    isEditMode: Boolean,
++    modifier: Modifier = Modifier,
++) {
++    Column(
++        modifier = modifier.fillMaxWidth(),
++        horizontalAlignment = Alignment.CenterHorizontally,
++    ) {
++        Text(
++            text = if (isEditMode) "프로필을 다듬어 볼까요?" else "새 프로필을 만들어 볼까요?",
++            style = MaterialTheme.typography.headlineSmall,
++            fontWeight = FontWeight.Bold,
++            color = MaterialTheme.colorScheme.onBackground,
++            textAlign = TextAlign.Center,
++            modifier = Modifier.fillMaxWidth(),
++        )
++        Spacer(modifier = Modifier.height(8.dp))
++        Text(
++            text = "아이 선택 화면에 보여질 프로필 카드입니다.",
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            textAlign = TextAlign.Center,
++            modifier = Modifier.fillMaxWidth(),
++        )
++        Spacer(modifier = Modifier.height(20.dp))
++        Surface(
++            modifier =
++                Modifier
++                    .fillMaxWidth(PROFILE_PREVIEW_WIDTH_FRACTION)
++                    .widthIn(max = 188.dp)
++                    .aspectRatio(1f),
++            shape = RoundedCornerShape(28.dp),
++            color = MaterialTheme.colorScheme.primaryContainer,
++            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
++            tonalElevation = 2.dp,
++            border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)),
++        ) {
++            Box(
++                modifier = Modifier.fillMaxSize(),
++                contentAlignment = Alignment.Center,
++            ) {
++                Text(
++                    text = name.trim().firstOrNull()?.toString() ?: "+",
++                    fontSize = 54.sp,
++                    fontWeight = FontWeight.Black,
++                    color = MaterialTheme.colorScheme.onPrimaryContainer,
++                )
++            }
++        }
++        Spacer(modifier = Modifier.height(10.dp))
++        Text(
++            text = name.trim().ifEmpty { "아이 이름" },
++            style = MaterialTheme.typography.titleMedium,
++            fontWeight = FontWeight.SemiBold,
++            color = MaterialTheme.colorScheme.onBackground,
++            textAlign = TextAlign.Center,
++            maxLines = 1,
++            overflow = TextOverflow.Ellipsis,
++        )
++    }
++}
++
+ @Composable
+ private fun EditForm(
+     name: String,
+@@ -190,6 +289,7 @@ private fun EditForm(
+     onBirthDateChange: (String) -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
++    val focusManager = LocalFocusManager.current
+     val isNameError = errorMessage?.contains("이름") == true
+     val isBirthDateError =
+         errorMessage?.let { message ->
+@@ -201,12 +301,18 @@ private fun EditForm(
+ 
+     AppCard(modifier = modifier.fillMaxWidth()) {
+         Text(
+-            text = "아이 정보",
++            text = "기본 정보",
+             style = MaterialTheme.typography.titleMedium,
+             fontWeight = FontWeight.SemiBold,
+             color = MaterialTheme.colorScheme.onSurface,
+         )
+-        Spacer(modifier = Modifier.height(12.dp))
++        Spacer(modifier = Modifier.height(4.dp))
++        Text(
++            text = "아이의 이름과 생년월일을 입력해 주세요.",
++            style = MaterialTheme.typography.bodySmall,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++        )
++        Spacer(modifier = Modifier.height(16.dp))
+ 
+         AppTextField(
+             value = name,
+@@ -217,18 +323,21 @@ private fun EditForm(
+             enabled = !isSaving,
+             isError = isNameError,
+             supportingText = if (isNameError) errorMessage else null,
++            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
++            keyboardActions =
++                KeyboardActions(
++                    onNext = { focusManager.moveFocus(FocusDirection.Down) },
++                ),
+         )
+ 
+-        AppTextField(
+-            value = birthDate,
+-            onValueChange = onBirthDateChange,
+-            label = "생년월일",
+-            placeholder = "예: 20200501",
+-            modifier = Modifier.fillMaxWidth(),
++        Spacer(modifier = Modifier.height(14.dp))
++
++        BirthDateSlotPicker(
++            birthDate = birthDate,
+             enabled = !isSaving,
+             isError = isBirthDateError,
+             supportingText = if (isBirthDateError) errorMessage else null,
+-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
++            onBirthDateChange = onBirthDateChange,
+         )
+ 
+         if (errorMessage != null && !isNameError && !isBirthDateError) {
+@@ -248,9 +357,16 @@ private fun EditActionButtons(
+     onSave: () -> Unit,
+     onDeleteRequest: () -> Unit,
+ ) {
++    val saveButtonText =
++        when {
++            isSaving -> "저장 중..."
++            isEditMode -> "프로필 저장"
++            else -> "아이 추가하기"
++        }
++
+     Column(modifier = Modifier.fillMaxWidth()) {
+         AppPrimaryButton(
+-            text = if (isSaving) "저장 중..." else "저장하기",
++            text = saveButtonText,
+             onClick = onSave,
+             modifier = Modifier.fillMaxWidth(),
+             enabled = !isSaving,
+@@ -268,7 +384,7 @@ private fun EditActionButtons(
+                         contentColor = MaterialTheme.colorScheme.error,
+                     ),
+             ) {
+-                Text(text = "아이 프로필 삭제하기")
++                Text(text = "아이 프로필 삭제")
+             }
+         }
+     }
+@@ -276,10 +392,12 @@ private fun EditActionButtons(
+ 
+ @Composable
+ private fun LoadingPlaceholder(modifier: Modifier = Modifier) {
+-    AppLoadingIndicator(
++    Box(
+         modifier = modifier.fillMaxWidth(),
+-        message = "아이 정보를 불러오고 있어요.",
+-    )
++        contentAlignment = Alignment.Center,
++    ) {
++        AppLoadingIndicator(message = "아이 정보를 불러오고 있어요.")
++    }
+ }
+ 
+ @Composable
+@@ -313,7 +431,7 @@ private fun DeleteConfirmationDialog(
+     AlertDialog(
+         onDismissRequest = onDismiss,
+         title = { Text("아이 프로필 삭제") },
+-        text = { Text("정말 이 아이 프로필을 삭제하시겠습니까?\n삭제된 정보는 복구할 수 없습니다.") },
++        text = { Text("정말 이 아이 프로필을 삭제하시겠어요?\n삭제된 정보는 복구할 수 없습니다.") },
+         confirmButton = {
+             TextButton(
+                 onClick = onConfirm,
+@@ -332,3 +450,5 @@ private fun DeleteConfirmationDialog(
+         },
+     )
+ }
++
++private const val PROFILE_PREVIEW_WIDTH_FRACTION = 0.52f
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileEditViewModel.kt
+@@ -115,7 +115,6 @@ class ChildProfileEditViewModel
+                     withContext(Dispatchers.IO) {
+                         childProfileRepository.deleteChildProfile(childId)
+ 
+-                        // API 성공 후, 현재 선택된 아이라면 클리어
+                         if (activeChildStorage.getActiveChildId() == childId) {
+                             activeChildStorage.clearActiveChildId()
+                         }
+@@ -193,7 +192,7 @@ class ChildProfileEditViewModel
+                     }
+                     else ->
+                         return BirthDateValidationResult(
+-                            error = "생년월일 형식이 올바르지 않습니다. (예: 2020-05-01)",
++                            error = "생년월일 형식이 올바르지 않습니다.",
+                         )
+                 }
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt
+@@ -1,20 +1,21 @@
+ package com.ssafy.mobile.feature.childprofile.presentation
+ 
++import androidx.compose.foundation.BorderStroke
+ import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.PaddingValues
+-import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.aspectRatio
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+-import androidx.compose.foundation.layout.size
+-import androidx.compose.foundation.layout.width
+-import androidx.compose.foundation.lazy.LazyColumn
+-import androidx.compose.foundation.lazy.items
+-import androidx.compose.foundation.shape.CircleShape
++import androidx.compose.foundation.lazy.grid.GridCells
++import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
++import androidx.compose.foundation.lazy.grid.itemsIndexed
++import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.material3.ExperimentalMaterial3Api
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Scaffold
+@@ -30,19 +31,17 @@ import androidx.compose.runtime.remember
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.alpha
++import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.sp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import androidx.navigation.NavController
+-import com.ssafy.mobile.core.ui.components.AppBadge
+-import com.ssafy.mobile.core.ui.components.AppBadgeTone
+-import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
+-import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+-import com.ssafy.mobile.core.ui.feedback.AppEmptyState
+ import com.ssafy.mobile.core.ui.feedback.AppErrorText
+ import com.ssafy.mobile.feature.childprofile.domain.model.ChildProfile
+ 
+@@ -59,7 +58,6 @@ fun ChildProfileSelectRoute(
+     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+     val isSelecting by viewModel.isSelecting.collectAsStateWithLifecycle()
+ 
+-    // 이전 화면에서 전달된 변경 플래그 확인
+     val refreshNeeded by navController.currentBackStackEntry
+         ?.savedStateHandle
+         ?.getStateFlow("child_profile_changed", false)
+@@ -125,39 +123,53 @@ private fun ChildProfileSelectScreen(
+                 Modifier
+                     .fillMaxSize()
+                     .padding(padding)
+-                    .padding(horizontal = 24.dp, vertical = 16.dp),
++                    .padding(horizontal = 24.dp, vertical = 18.dp),
+             horizontalAlignment = Alignment.CenterHorizontally,
+         ) {
+             Text(
+-                text = "학습을 진행할 아이를 선택해 주세요.",
++                text = "누가 사용할까요?",
++                style = MaterialTheme.typography.headlineSmall,
++                fontWeight = FontWeight.Bold,
++                color = MaterialTheme.colorScheme.onBackground,
++                textAlign = TextAlign.Center,
++                modifier = Modifier.fillMaxWidth(),
++            )
++            Spacer(modifier = Modifier.height(8.dp))
++            Text(
++                text = "학습과 리포트에 사용할 아이 프로필을 선택해 주세요.",
+                 style = MaterialTheme.typography.bodyMedium,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant,
++                textAlign = TextAlign.Center,
+                 modifier = Modifier.fillMaxWidth(),
+             )
+-
+-            Spacer(modifier = Modifier.height(20.dp))
++            Spacer(modifier = Modifier.height(28.dp))
+ 
+             when (uiState) {
+                 is ChildProfileSelectUiState.Loading -> {
+-                    LoadingContent()
++                    LoadingContent(modifier = Modifier.weight(1f))
+                 }
+                 is ChildProfileSelectUiState.Success -> {
+-                    ProfileList(
++                    ProfileGrid(
+                         profiles = uiState.profiles,
+                         activeChildId = uiState.activeChildId,
+                         isSelecting = isSelecting,
+                         onProfileSelect = onProfileSelect,
+                         onNavigateToCreate = onNavigateToCreate,
+                         onNavigateToEdit = onNavigateToEdit,
++                        modifier = Modifier.weight(1f),
+                     )
+                 }
+                 is ChildProfileSelectUiState.Empty -> {
+-                    EmptyContent(onNavigateToCreate = onNavigateToCreate)
++                    EmptyContent(
++                        onNavigateToCreate = onNavigateToCreate,
++                        modifier = Modifier.weight(1f),
++                    )
+                 }
+                 is ChildProfileSelectUiState.Error -> {
+                     ErrorContent(
+                         message = uiState.message,
+                         onRetry = onRetry,
++                        modifier = Modifier.weight(1f),
+                     )
+                 }
+             }
+@@ -166,27 +178,39 @@ private fun ChildProfileSelectScreen(
+ }
+ 
+ @Composable
+-private fun LoadingContent() {
+-    AppLoadingIndicator(message = "아이 목록을 불러오는 중입니다.")
++private fun LoadingContent(modifier: Modifier = Modifier) {
++    Box(
++        modifier = modifier.fillMaxWidth(),
++        contentAlignment = Alignment.Center,
++    ) {
++        AppLoadingIndicator(message = "아이 목록을 불러오는 중입니다.")
++    }
+ }
+ 
+ @Composable
+-private fun ProfileList(
++private fun ProfileGrid(
+     profiles: List<ChildProfile>,
+     activeChildId: Long?,
+     isSelecting: Boolean,
+     onProfileSelect: (Long) -> Unit,
+     onNavigateToCreate: () -> Unit,
+     onNavigateToEdit: (Long) -> Unit,
++    modifier: Modifier = Modifier,
+ ) {
+-    LazyColumn(
+-        modifier = Modifier.fillMaxWidth(),
+-        contentPadding = PaddingValues(vertical = 8.dp),
+-        verticalArrangement = Arrangement.spacedBy(12.dp),
++    LazyVerticalGrid(
++        columns = GridCells.Fixed(PROFILE_GRID_COLUMNS),
++        modifier = modifier.fillMaxWidth(),
++        contentPadding = PaddingValues(bottom = 24.dp),
++        horizontalArrangement = Arrangement.spacedBy(18.dp),
++        verticalArrangement = Arrangement.spacedBy(24.dp),
+     ) {
+-        items(profiles) { profile ->
+-            ProfileItem(
++        itemsIndexed(
++            items = profiles,
++            key = { _, profile -> profile.childId },
++        ) { index, profile ->
++            ProfileTile(
+                 profile = profile,
++                paletteIndex = index,
+                 isSelected = profile.childId == activeChildId,
+                 enabled = !isSelecting,
+                 onClick = { onProfileSelect(profile.childId) },
+@@ -194,113 +218,192 @@ private fun ProfileList(
+             )
+         }
+ 
+-        item {
+-            Spacer(modifier = Modifier.height(8.dp))
+-            AppPrimaryButton(
+-                text = "아이 추가하기",
+-                onClick = onNavigateToCreate,
+-                modifier = Modifier.fillMaxWidth(),
++        item(key = "add_child_profile") {
++            AddProfileTile(
+                 enabled = !isSelecting,
++                onClick = onNavigateToCreate,
+             )
+         }
+     }
+ }
+ 
+ @Composable
+-private fun ProfileItem(
++private fun ProfileTile(
+     profile: ChildProfile,
++    paletteIndex: Int,
+     isSelected: Boolean,
+     enabled: Boolean,
+     onClick: () -> Unit,
+     onEditClick: () -> Unit,
++    modifier: Modifier = Modifier,
+ ) {
+-    AppCard(
+-        modifier =
+-            Modifier
+-                .fillMaxWidth()
+-                .alpha(if (enabled) 1f else DISABLED_ALPHA)
+-                .clickable(
+-                    enabled = enabled,
+-                    onClick = onClick,
+-                ),
++    val colors = profileAvatarColors(paletteIndex)
++
++    Column(
++        modifier = modifier.alpha(if (enabled) 1f else DISABLED_ALPHA),
++        horizontalAlignment = Alignment.CenterHorizontally,
+     ) {
+-        Row(
++        Surface(
+             modifier =
+-                Modifier.fillMaxWidth(),
+-            verticalAlignment = Alignment.CenterVertically,
++                Modifier
++                    .fillMaxWidth()
++                    .aspectRatio(1f)
++                    .clickable(
++                        enabled = enabled,
++                        onClick = onClick,
++                    ),
++            shape = RoundedCornerShape(PROFILE_TILE_RADIUS_DP.dp),
++            color = colors.container,
++            contentColor = colors.content,
++            tonalElevation = 2.dp,
++            border =
++                if (isSelected) {
++                    BorderStroke(3.dp, MaterialTheme.colorScheme.primary)
++                } else {
++                    null
++                },
+         ) {
+-            Surface(
+-                modifier = Modifier.size(48.dp),
+-                shape = CircleShape,
+-                color = MaterialTheme.colorScheme.primaryContainer,
++            Box(
++                modifier = Modifier.fillMaxSize(),
++                contentAlignment = Alignment.Center,
+             ) {
+-                Column(
+-                    modifier = Modifier.fillMaxSize(),
+-                    horizontalAlignment = Alignment.CenterHorizontally,
+-                    verticalArrangement = Arrangement.Center,
+-                ) {
+-                    Text(
+-                        text = profile.name.take(1),
+-                        style = MaterialTheme.typography.titleLarge,
+-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+-                    )
+-                }
+-            }
+-
+-            Spacer(modifier = Modifier.width(16.dp))
+-
+-            Column(modifier = Modifier.weight(1f)) {
+                 Text(
+-                    text = profile.name,
+-                    style = MaterialTheme.typography.titleMedium,
+-                    fontWeight = FontWeight.SemiBold,
+-                    maxLines = 1,
+-                    overflow = TextOverflow.Ellipsis,
++                    text = profile.name.firstOrNull()?.toString() ?: "?",
++                    fontSize = 46.sp,
++                    fontWeight = FontWeight.Black,
++                    color = colors.content,
+                 )
+-                if (profile.age != null) {
+-                    Text(
+-                        text = "${profile.age}세",
+-                        style = MaterialTheme.typography.bodySmall,
+-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                    )
+-                }
+-            }
+-
+-            if (isSelected) {
+-                AppBadge(
+-                    text = "현재 선택됨",
+-                    tone = AppBadgeTone.Primary,
+-                )
+-                Spacer(modifier = Modifier.width(12.dp))
+             }
++        }
+ 
++        Spacer(modifier = Modifier.height(10.dp))
++        Text(
++            text = profile.name,
++            style = MaterialTheme.typography.titleMedium,
++            fontWeight = FontWeight.SemiBold,
++            color = MaterialTheme.colorScheme.onBackground,
++            maxLines = 1,
++            overflow = TextOverflow.Ellipsis,
++            textAlign = TextAlign.Center,
++            modifier = Modifier.fillMaxWidth(),
++        )
++        if (profile.age != null) {
++            Text(
++                text = "${profile.age}세",
++                style = MaterialTheme.typography.bodySmall,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++                textAlign = TextAlign.Center,
++                modifier = Modifier.fillMaxWidth(),
++            )
++        }
++        if (isSelected) {
++            SelectedProfilePill()
++        } else {
+             TextButton(
+                 onClick = onEditClick,
+                 enabled = enabled,
++            ) {
++                Text(text = "수정")
++            }
++        }
++    }
++}
++
++@Composable
++private fun AddProfileTile(
++    enabled: Boolean,
++    onClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Column(
++        modifier = modifier.alpha(if (enabled) 1f else DISABLED_ALPHA),
++        horizontalAlignment = Alignment.CenterHorizontally,
++    ) {
++        Surface(
++            modifier =
++                Modifier
++                    .fillMaxWidth()
++                    .aspectRatio(1f)
++                    .clickable(
++                        enabled = enabled,
++                        onClick = onClick,
++                    ),
++            shape = RoundedCornerShape(PROFILE_TILE_RADIUS_DP.dp),
++            color = MaterialTheme.colorScheme.surfaceVariant,
++            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
++            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
++        ) {
++            Box(
++                modifier = Modifier.fillMaxSize(),
++                contentAlignment = Alignment.Center,
+             ) {
+                 Text(
+-                    text = "수정",
+-                    style = MaterialTheme.typography.labelMedium,
++                    text = "+",
++                    fontSize = 52.sp,
++                    fontWeight = FontWeight.Light,
++                    color = MaterialTheme.colorScheme.primary,
+                 )
+             }
+         }
++
++        Spacer(modifier = Modifier.height(10.dp))
++        Text(
++            text = "아이 추가",
++            style = MaterialTheme.typography.titleMedium,
++            fontWeight = FontWeight.SemiBold,
++            color = MaterialTheme.colorScheme.onBackground,
++            textAlign = TextAlign.Center,
++            modifier = Modifier.fillMaxWidth(),
++        )
++        Text(
++            text = "새 프로필 만들기",
++            style = MaterialTheme.typography.bodySmall,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            textAlign = TextAlign.Center,
++            modifier = Modifier.fillMaxWidth(),
++        )
++    }
++}
++
++@Composable
++private fun SelectedProfilePill(modifier: Modifier = Modifier) {
++    Surface(
++        modifier = modifier.padding(top = 8.dp),
++        shape = RoundedCornerShape(999.dp),
++        color = MaterialTheme.colorScheme.primaryContainer,
++        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
++    ) {
++        Text(
++            text = "현재 선택됨",
++            style = MaterialTheme.typography.labelSmall,
++            fontWeight = FontWeight.SemiBold,
++            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
++        )
+     }
+ }
+ 
+ @Composable
+-private fun EmptyContent(onNavigateToCreate: () -> Unit) {
++private fun EmptyContent(
++    onNavigateToCreate: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
+     Column(
+-        modifier = Modifier.fillMaxSize(),
++        modifier = modifier.fillMaxWidth(),
+         horizontalAlignment = Alignment.CenterHorizontally,
+         verticalArrangement = Arrangement.Center,
+     ) {
+-        AppEmptyState(
+-            message = "등록된 아이가 없습니다.",
+-            modifier = Modifier.weight(1f),
++        Text(
++            text = "아직 등록된 아이가 없어요.",
++            style = MaterialTheme.typography.titleMedium,
++            fontWeight = FontWeight.SemiBold,
++            color = MaterialTheme.colorScheme.onBackground,
++            textAlign = TextAlign.Center,
+         )
+-        AppPrimaryButton(
+-            text = "아이 프로필 만들기",
++        Spacer(modifier = Modifier.height(18.dp))
++        AddProfileTile(
++            enabled = true,
+             onClick = onNavigateToCreate,
++            modifier = Modifier.fillMaxWidth(EMPTY_PROFILE_TILE_WIDTH_FRACTION),
+         )
+     }
+ }
+@@ -309,9 +412,10 @@ private fun EmptyContent(onNavigateToCreate: () -> Unit) {
+ private fun ErrorContent(
+     message: String,
+     onRetry: () -> Unit,
++    modifier: Modifier = Modifier,
+ ) {
+     Column(
+-        modifier = Modifier.fillMaxSize(),
++        modifier = modifier.fillMaxWidth(),
+         horizontalAlignment = Alignment.CenterHorizontally,
+         verticalArrangement = Arrangement.Center,
+     ) {
+@@ -327,4 +431,30 @@ private fun ErrorContent(
+     }
+ }
+ 
++@Composable
++private fun profileAvatarColors(index: Int): ProfileAvatarColors {
++    val colorScheme = MaterialTheme.colorScheme
++    return when (index % PROFILE_AVATAR_PALETTE_SIZE) {
++        PRIMARY_PROFILE_PALETTE_INDEX ->
++            ProfileAvatarColors(colorScheme.primaryContainer, colorScheme.onPrimaryContainer)
++        SECONDARY_PROFILE_PALETTE_INDEX ->
++            ProfileAvatarColors(colorScheme.secondaryContainer, colorScheme.onSecondaryContainer)
++        TERTIARY_PROFILE_PALETTE_INDEX ->
++            ProfileAvatarColors(colorScheme.tertiaryContainer, colorScheme.onTertiaryContainer)
++        else -> ProfileAvatarColors(colorScheme.errorContainer, colorScheme.onErrorContainer)
++    }
++}
++
++private data class ProfileAvatarColors(
++    val container: Color,
++    val content: Color,
++)
++
+ private const val DISABLED_ALPHA = 0.5f
++private const val PROFILE_GRID_COLUMNS = 2
++private const val PROFILE_TILE_RADIUS_DP = 28
++private const val PROFILE_AVATAR_PALETTE_SIZE = 4
++private const val EMPTY_PROFILE_TILE_WIDTH_FRACTION = 0.56f
++private const val PRIMARY_PROFILE_PALETTE_INDEX = 0
++private const val SECONDARY_PROFILE_PALETTE_INDEX = 1
++private const val TERTIARY_PROFILE_PALETTE_INDEX = 2
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+@@ -89,6 +89,7 @@ data class ConversationUiState(
+ fun conversationRoute(
+     modifier: Modifier = Modifier,
+     onOpenSignDebug: (() -> Unit)? = null,
++    onNavigateToLogin: (() -> Unit)? = null,
+     viewModel: ConversationViewModel = hiltViewModel(),
+ ) {
+     val sessionState by viewModel.sessionState.collectAsStateWithLifecycle()
+@@ -154,6 +155,7 @@ fun conversationRoute(
+                 onFeedbackReasonConfirmed = viewModel::submitTranslationFeedback,
+                 onFeedbackDismissed = viewModel::clearTranslationFeedbackSubmitState,
+                 onOpenSignDebug = onOpenSignDebug,
++                onNavigateToLogin = onNavigateToLogin,
+             ),
+         modifier = modifier,
+     )
+@@ -167,6 +169,7 @@ private data class ConversationActions(
+     val onFeedbackReasonConfirmed: (ChatMessage, TranslationFeedbackReason) -> Unit,
+     val onFeedbackDismissed: () -> Unit,
+     val onOpenSignDebug: (() -> Unit)?,
++    val onNavigateToLogin: (() -> Unit)?,
+ )
+ 
+ private data class TranslationFeedbackSheetUiState(
+@@ -207,6 +210,7 @@ private fun ConversationScreen(
+                     translationMode = uiState.translationMode,
+                     onTranslationModeSelected = actions.onTranslationModeSelected,
+                     onOpenSignDebug = actions.onOpenSignDebug,
++                    onNavigateToLogin = actions.onNavigateToLogin,
+                 )
+                 AppNetworkStatusBanner(isOnline = uiState.isOnline)
+                 TranslationModeNotice(text = uiState.translationModeNotice)
+@@ -560,6 +564,7 @@ private fun SessionHeader(
+     translationMode: TranslationMode,
+     onTranslationModeSelected: (TranslationMode) -> Unit,
+     onOpenSignDebug: (() -> Unit)?,
++    onNavigateToLogin: (() -> Unit)?,
+ ) {
+     Column(
+         modifier =
+@@ -616,6 +621,16 @@ private fun SessionHeader(
+                             )
+                         }
+                     }
++                    if (onNavigateToLogin != null) {
++                        TextButton(onClick = onNavigateToLogin) {
++                            Text(
++                                text = "로그인",
++                                style = MaterialTheme.typography.labelMedium,
++                                color = MaterialTheme.colorScheme.primary,
++                                fontWeight = FontWeight.Bold,
++                            )
++                        }
++                    }
+                     AppBadge(
+                         text =
+                             headerLabel(
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/data/repository/LoginRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/data/repository/LoginRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/data/repository/LoginRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/data/repository/LoginRepository.kt
+@@ -28,13 +28,10 @@ class LoginRepository
+                 if (response.isSuccessful) {
+                     response.body() ?: throw LoginException("응답 본문이 비어 있습니다.")
+                 } else {
+-                    val errorMessage =
+-                        when (response.code()) {
+-                            HTTP_UNAUTHORIZED -> "이메일 또는 비밀번호가 올바르지 않습니다."
+-                            HTTP_BAD_REQUEST -> "입력 정보를 확인해 주세요."
+-                            else -> "로그인에 실패했습니다. (${response.code()})"
+-                        }
+-                    throw LoginException(errorMessage)
++                    throw createLoginException(
++                        status = response.code(),
++                        errorBody = response.errorBody()?.string(),
++                    )
+                 }
+             } catch (e: CancellationException) {
+                 throw e
+@@ -74,6 +71,29 @@ class LoginRepository
+                 throw LoginException("알 수 없는 오류가 발생했습니다.", e)
+             }
+ 
++        private fun createLoginException(
++            status: Int,
++            errorBody: String?,
++        ): LoginException {
++            val problemDetails = parseProblemDetails(errorBody)
++            val defaultMessage =
++                when (status) {
++                    HTTP_UNAUTHORIZED -> "이메일 또는 비밀번호가 올바르지 않습니다."
++                    HTTP_BAD_REQUEST -> "입력 정보를 확인해 주세요."
++                    else -> "로그인에 실패했습니다. ($status)"
++                }
++
++            logProblemDetails("Login failed", status, problemDetails)
++
++            return LoginException(
++                message = defaultMessage,
++                status = problemDetails?.status ?: status,
++                code = problemDetails?.code,
++                traceId = problemDetails?.traceId,
++                instance = problemDetails?.instance,
++            )
++        }
++
+         private fun createNaverLoginException(
+             status: Int,
+             errorBody: String?,
+@@ -86,21 +106,10 @@ class LoginRepository
+                     else -> "네이버 로그인에 실패했습니다. ($status)"
+                 }
+ 
+-            Log.e(
+-                TAG,
+-                "Naver login failed. " +
+-                    "status=$status, " +
+-                    "code=${problemDetails?.code}, " +
+-                    "traceId=${problemDetails?.traceId}, " +
+-                    "instance=${problemDetails?.instance}",
+-            )
+-
+-            val message =
+-                problemDetails?.detail?.takeIf { it.isNotBlank() }
+-                    ?: defaultMessage
++            logProblemDetails("Naver login failed", status, problemDetails)
+ 
+             return LoginException(
+-                message = message,
++                message = defaultMessage,
+                 status = problemDetails?.status ?: status,
+                 code = problemDetails?.code,
+                 traceId = problemDetails?.traceId,
+@@ -114,14 +123,29 @@ class LoginRepository
+             return try {
+                 gson.fromJson(errorBody, ProblemDetailsDto::class.java)
+             } catch (e: JsonSyntaxException) {
+-                Log.e(TAG, "Failed to parse naver login error body", e)
++                Log.e(TAG, "Failed to parse login error body", e)
+                 null
+             } catch (e: IllegalStateException) {
+-                Log.e(TAG, "Failed to parse naver login error body", e)
++                Log.e(TAG, "Failed to parse login error body", e)
+                 null
+             }
+         }
+ 
++        private fun logProblemDetails(
++            prefix: String,
++            status: Int,
++            problemDetails: ProblemDetailsDto?,
++        ) {
++            Log.e(
++                TAG,
++                "$prefix. " +
++                    "status=$status, " +
++                    "code=${problemDetails?.code}, " +
++                    "traceId=${problemDetails?.traceId}, " +
++                    "instance=${problemDetails?.instance}",
++            )
++        }
++
+         companion object {
+             private const val TAG = "LoginRepository"
+             private const val HTTP_UNAUTHORIZED = 401
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginRoute.kt
+@@ -1,9 +1,15 @@
++@file:Suppress("FunctionNaming")
++
+ package com.ssafy.mobile.feature.login.presentation
+ 
+ import androidx.activity.compose.rememberLauncherForActivityResult
+ import androidx.activity.result.contract.ActivityResultContracts
++import androidx.compose.foundation.Image
++import androidx.compose.foundation.background
+ import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+@@ -11,6 +17,8 @@ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.heightIn
+ import androidx.compose.foundation.layout.imePadding
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.width
++import androidx.compose.foundation.layout.widthIn
+ import androidx.compose.foundation.rememberScrollState
+ import androidx.compose.foundation.text.KeyboardActions
+ import androidx.compose.foundation.text.KeyboardOptions
+@@ -24,30 +32,29 @@ import androidx.compose.material3.TextButton
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+-import androidx.compose.runtime.mutableStateOf
+-import androidx.compose.runtime.saveable.rememberSaveable
+-import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.focus.FocusDirection
+ import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.graphics.ColorFilter
++import androidx.compose.ui.layout.ContentScale
+ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.platform.LocalFocusManager
+-import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.res.painterResource
+ import androidx.compose.ui.text.input.ImeAction
+ import androidx.compose.ui.text.input.KeyboardType
+ import androidx.compose.ui.text.input.PasswordVisualTransformation
+-import androidx.compose.ui.text.input.VisualTransformation
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import com.navercorp.nid.NaverIdLoginSDK
+-import com.ssafy.mobile.core.ui.components.AppCard
++import com.ssafy.mobile.R
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+-import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+-import com.ssafy.mobile.core.ui.components.AppTextField
+-import com.ssafy.mobile.core.ui.feedback.AppErrorText
++import com.ssafy.mobile.core.ui.components.AuthMessageCard
++import com.ssafy.mobile.core.ui.components.AuthMessageType
++import com.ssafy.mobile.core.ui.components.AuthTextField
++import com.ssafy.mobile.core.ui.theme.SudaFriendlyFontFamily
+ 
+ @Composable
+ fun LoginRoute(
+@@ -71,9 +78,7 @@ fun LoginRoute(
+                 if (errorCode != NAVER_USER_CANCEL_CODE) {
+                     val errorDescription = NaverIdLoginSDK.getLastErrorDescription().orEmpty()
+                     viewModel.onNaverLoginError(
+-                        errorDescription.ifBlank {
+-                            "네이버 로그인에 실패했습니다."
+-                        },
++                        errorDescription.ifBlank { "네이버 로그인에 실패했습니다." },
+                     )
+                 }
+             } else {
+@@ -147,16 +152,32 @@ private fun LoginScreen(
+                 Modifier
+                     .fillMaxSize()
+                     .verticalScroll(rememberScrollState())
+-                    .padding(24.dp)
++                    .padding(horizontal = 28.dp, vertical = 40.dp)
+                     .imePadding(),
+             horizontalAlignment = Alignment.CenterHorizontally,
+             verticalArrangement = Arrangement.Center,
+         ) {
+             LoginHeader()
+ 
+-            Spacer(modifier = Modifier.height(28.dp))
++            Spacer(modifier = Modifier.height(40.dp))
++
++            Column(
++                modifier =
++                    Modifier
++                        .fillMaxWidth()
++                        .widthIn(max = 420.dp),
++            ) {
++                val errorState = uiState as? LoginUiState.Error
++                AuthMessageCard(
++                    visible = errorState != null,
++                    type = errorState?.type ?: AuthMessageType.General,
++                    modifier = Modifier.fillMaxWidth(),
++                )
++
++                if (errorState != null) {
++                    Spacer(modifier = Modifier.height(16.dp))
++                }
+ 
+-            AppCard(modifier = Modifier.fillMaxWidth()) {
+                 LoginInputFields(
+                     email = email,
+                     password = password,
+@@ -168,53 +189,48 @@ private fun LoginScreen(
+                     onLoginClick = onLoginClick,
+                 )
+ 
+-                AppErrorText(
+-                    message = (uiState as? LoginUiState.Error)?.message.orEmpty(),
++                AppPrimaryButton(
++                    text = "로그인",
++                    onClick = onLoginClick,
++                    enabled = !isLoading,
++                    loading = isLoading,
+                     modifier = Modifier.fillMaxWidth(),
+                 )
+ 
+-                Spacer(modifier = Modifier.height(12.dp))
++                AuthDivider(modifier = Modifier.padding(vertical = 18.dp))
+ 
+-                LoginActionButtons(
+-                    isLoading = isLoading,
+-                    isNaverLoginEnabled = isNaverLoginEnabled,
+-                    onLoginClick = onLoginClick,
+-                    onSignupClick = onSignupClick,
+-                    onNaverLoginClick = onNaverLoginClick,
++                NaverLoginButton(
++                    onClick = onNaverLoginClick,
++                    enabled = !isLoading && isNaverLoginEnabled,
+                 )
+             }
+ 
+-            Spacer(modifier = Modifier.height(16.dp))
+-            Text(
+-                text = "보호자 계정으로 아이의 학습 기록과 프로필을 관리할 수 있어요.",
+-                style = MaterialTheme.typography.bodySmall,
+-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                textAlign = TextAlign.Center,
+-                modifier = Modifier.fillMaxWidth(),
+-            )
++            Spacer(modifier = Modifier.height(24.dp))
++
++            SignupTextLink(onSignupClick = onSignupClick)
+         }
+     }
+ }
+ 
+ @Composable
+ private fun LoginHeader() {
+-    Text(
+-        text = "SUDA",
+-        style = MaterialTheme.typography.displayMedium,
+-        color = MaterialTheme.colorScheme.primary,
+-        fontWeight = FontWeight.Black,
+-    )
+-    Spacer(modifier = Modifier.height(8.dp))
+-    Text(
+-        text = "보호자 로그인",
+-        style = MaterialTheme.typography.headlineSmall,
+-        color = MaterialTheme.colorScheme.onSurface,
+-        fontWeight = FontWeight.Bold,
++    Image(
++        painter = painterResource(id = R.drawable.suda_wordmark),
++        contentDescription = "SUDA",
++        contentScale = ContentScale.Fit,
++        colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.primary),
++        modifier =
++            Modifier
++                .fillMaxWidth(LOGO_WIDTH_FRACTION)
++                .height(LOGO_HEIGHT_DP.dp),
+     )
+-    Spacer(modifier = Modifier.height(8.dp))
++    Spacer(modifier = Modifier.height(18.dp))
+     Text(
+-        text = "아이의 오늘 학습을 확인하고 이어갈 준비를 해요.",
+-        style = MaterialTheme.typography.bodyMedium,
++        text = "보호자 계정으로 로그인해 주세요",
++        style =
++            MaterialTheme.typography.titleMedium.copy(
++                fontFamily = SudaFriendlyFontFamily,
++            ),
+         color = MaterialTheme.colorScheme.onSurfaceVariant,
+         textAlign = TextAlign.Center,
+     )
+@@ -233,13 +249,11 @@ private fun LoginInputFields(
+     onLoginClick: () -> Unit,
+ ) {
+     val focusManager = LocalFocusManager.current
+-    var passwordVisible by rememberSaveable { mutableStateOf(false) }
+ 
+-    AppTextField(
++    AuthTextField(
+         value = email,
+         onValueChange = onEmailChanged,
+         label = "이메일",
+-        placeholder = "example@email.com",
+         isError = emailError != null,
+         supportingText = emailError,
+         enabled = !isLoading,
+@@ -255,19 +269,14 @@ private fun LoginInputFields(
+         modifier = Modifier.fillMaxWidth(),
+     )
+ 
+-    AppTextField(
++    AuthTextField(
+         value = password,
+         onValueChange = onPasswordChanged,
+         label = "비밀번호",
+         isError = passwordError != null,
+         supportingText = passwordError,
+         enabled = !isLoading,
+-        visualTransformation =
+-            if (passwordVisible) {
+-                VisualTransformation.None
+-            } else {
+-                PasswordVisualTransformation()
+-            },
++        visualTransformation = PasswordVisualTransformation(),
+         keyboardOptions =
+             KeyboardOptions(
+                 keyboardType = KeyboardType.Password,
+@@ -280,46 +289,37 @@ private fun LoginInputFields(
+                     onLoginClick()
+                 },
+             ),
+-        trailingIcon = {
+-            TextButton(onClick = { passwordVisible = !passwordVisible }) {
+-                Text(if (passwordVisible) "숨기기" else "보기")
+-            }
+-        },
+         modifier = Modifier.fillMaxWidth(),
+     )
+ }
+ 
+ @Composable
+-private fun LoginActionButtons(
+-    isLoading: Boolean,
+-    isNaverLoginEnabled: Boolean,
+-    onLoginClick: () -> Unit,
+-    onSignupClick: () -> Unit,
+-    onNaverLoginClick: () -> Unit,
+-) {
+-    AppPrimaryButton(
+-        text = "로그인",
+-        onClick = onLoginClick,
+-        enabled = !isLoading,
+-        loading = isLoading,
+-        modifier = Modifier.fillMaxWidth(),
+-    )
+-
+-    Spacer(modifier = Modifier.height(8.dp))
+-
+-    AppSecondaryButton(
+-        text = "회원가입",
+-        onClick = onSignupClick,
+-        enabled = !isLoading,
+-        modifier = Modifier.fillMaxWidth(),
+-    )
+-
+-    Spacer(modifier = Modifier.height(16.dp))
+-
+-    NaverLoginButton(
+-        onClick = onNaverLoginClick,
+-        enabled = !isLoading && isNaverLoginEnabled,
+-    )
++private fun AuthDivider(modifier: Modifier = Modifier) {
++    Row(
++        modifier = modifier.fillMaxWidth(),
++        verticalAlignment = Alignment.CenterVertically,
++    ) {
++        Box(
++            modifier =
++                Modifier
++                    .weight(1f)
++                    .height(1.dp)
++                    .background(MaterialTheme.colorScheme.outlineVariant),
++        )
++        Text(
++            text = "또는",
++            style = MaterialTheme.typography.bodySmall,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            modifier = Modifier.padding(horizontal = 14.dp),
++        )
++        Box(
++            modifier =
++                Modifier
++                    .weight(1f)
++                    .height(1.dp)
++                    .background(MaterialTheme.colorScheme.outlineVariant),
++        )
++    }
+ }
+ 
+ @Composable
+@@ -335,7 +335,7 @@ private fun NaverLoginButton(
+             modifier
+                 .fillMaxWidth()
+                 .heightIn(min = 52.dp),
+-        shape = MaterialTheme.shapes.small,
++        shape = MaterialTheme.shapes.medium,
+         colors =
+             ButtonDefaults.buttonColors(
+                 containerColor = naverGreen,
+@@ -351,7 +351,32 @@ private fun NaverLoginButton(
+     }
+ }
+ 
++@Composable
++private fun SignupTextLink(onSignupClick: () -> Unit) {
++    Row(
++        verticalAlignment = Alignment.CenterVertically,
++        horizontalArrangement = Arrangement.Center,
++        modifier = Modifier.fillMaxWidth(),
++    ) {
++        Text(
++            text = "아직 계정이 없나요?",
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++        )
++        Spacer(modifier = Modifier.width(2.dp))
++        TextButton(onClick = onSignupClick) {
++            Text(
++                text = "회원가입",
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.primary,
++            )
++        }
++    }
++}
++
+ private const val NAVER_USER_CANCEL_CODE = "user_cancel"
++private const val LOGO_WIDTH_FRACTION = 0.9f
++private const val LOGO_HEIGHT_DP = 120
+ 
+ @Suppress("MagicNumber")
+ private val naverGreen = Color(0xFF03C75A)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginUiState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginUiState.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginUiState.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginUiState.kt
+@@ -1,5 +1,7 @@
+ package com.ssafy.mobile.feature.login.presentation
+ 
++import com.ssafy.mobile.core.ui.components.AuthMessageType
++
+ sealed interface LoginUiState {
+     data object Idle : LoginUiState
+ 
+@@ -10,6 +12,6 @@ sealed interface LoginUiState {
+     ) : LoginUiState
+ 
+     data class Error(
+-        val message: String,
++        val type: AuthMessageType = AuthMessageType.General,
+     ) : LoginUiState
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/presentation/LoginViewModel.kt
+@@ -9,6 +9,7 @@ import com.ssafy.mobile.core.auth.AuthSessionManager
+ import com.ssafy.mobile.core.auth.AuthState
+ import com.ssafy.mobile.core.auth.TokenStorage
+ import com.ssafy.mobile.core.session.ActiveChildStorage
++import com.ssafy.mobile.core.ui.components.AuthMessageType
+ import com.ssafy.mobile.feature.learning.data.repository.LearningQuizAnswerSubmissionQueueSyncer
+ import com.ssafy.mobile.feature.login.data.dto.LoginResponseDto
+ import com.ssafy.mobile.feature.login.data.oauth.NaverOAuthManager
+@@ -27,6 +28,7 @@ import kotlinx.coroutines.launch
+ import kotlinx.coroutines.withContext
+ 
+ @HiltViewModel
++@Suppress("TooManyFunctions")
+ class LoginViewModel
+     @Inject
+     constructor(
+@@ -60,11 +62,13 @@ class LoginViewModel
+         fun onEmailChanged(value: String) {
+             _email.value = value
+             _emailError.value = null
++            clearError()
+         }
+ 
+         fun onPasswordChanged(value: String) {
+             _password.value = value
+             _passwordError.value = null
++            clearError()
+         }
+ 
+         fun initializeNaverSdk(context: Context) {
+@@ -89,12 +93,13 @@ class LoginViewModel
+                 } catch (e: CancellationException) {
+                     throw e
+                 } catch (e: LoginException) {
+-                    showLoginError(e.message ?: "로그인에 실패했습니다.")
++                    showLoginError(e.toAuthMessageType())
+                 } catch (e: IOException) {
+                     Log.e(TAG, "Login network error", e)
+-                    showLoginError("네트워크 연결을 확인해 주세요.")
++                    showLoginError(AuthMessageType.Network)
+                 } catch (e: IllegalStateException) {
+-                    showLoginError(e.message ?: "알 수 없는 오류가 발생했습니다.")
++                    Log.e(TAG, "Login failed with invalid state", e)
++                    showLoginError()
+                 }
+             }
+         }
+@@ -102,7 +107,7 @@ class LoginViewModel
+         fun loginWithNaverToken(providerAccessToken: String) {
+             if (_uiState.value is LoginUiState.Loading) return
+             if (providerAccessToken.isBlank()) {
+-                showLoginError("네이버 인증 토큰이 유효하지 않습니다.")
++                showLoginError(AuthMessageType.InvalidProviderToken)
+                 return
+             }
+ 
+@@ -118,18 +123,20 @@ class LoginViewModel
+                 } catch (e: CancellationException) {
+                     throw e
+                 } catch (e: LoginException) {
+-                    showLoginError(e.message ?: "네이버 로그인에 실패했습니다.")
++                    showLoginError(e.toAuthMessageType())
+                 } catch (e: IOException) {
+                     Log.e(TAG, "Naver login network error", e)
+-                    showLoginError("네트워크 연결을 확인해 주세요.")
++                    showLoginError(AuthMessageType.Network)
+                 } catch (e: IllegalStateException) {
+-                    showLoginError(e.message ?: "네이버 로그인 중 오류가 발생했습니다.")
++                    Log.e(TAG, "Naver login failed with invalid state", e)
++                    showLoginError()
+                 }
+             }
+         }
+ 
+         fun onNaverLoginError(message: String) {
+-            showLoginError(message)
++            Log.e(TAG, "Naver login failed. message=$message")
++            showLoginError()
+         }
+ 
+         private suspend fun handleLoginSuccess(response: LoginResponseDto) {
+@@ -145,11 +152,11 @@ class LoginViewModel
+                 throw e
+             } catch (e: GeneralSecurityException) {
+                 Log.e(TAG, "Token storage failed", e)
+-                showLoginError("로그인 정보를 저장하지 못했습니다. 다시 시도해 주세요.")
++                showLoginError()
+                 return
+             } catch (e: IllegalArgumentException) {
+                 Log.e(TAG, "Token storage failed", e)
+-                showLoginError("로그인 정보를 저장하지 못했습니다. 다시 시도해 주세요.")
++                showLoginError()
+                 return
+             }
+ 
+@@ -160,7 +167,7 @@ class LoginViewModel
+ 
+             val hasActiveChild = activeChildId != null
+ 
+-            // 인증 상태 업데이트
++            // 로그인 성공 후 전역 인증 상태를 최신 상태로 맞춘다.
+             val authState =
+                 if (activeChildId != null) {
+                     AuthState.AuthenticatedWithChild(activeChildId)
+@@ -173,8 +180,21 @@ class LoginViewModel
+             _uiState.value = LoginUiState.Success(hasActiveChild = hasActiveChild)
+         }
+ 
+-        private fun showLoginError(message: String) {
+-            _uiState.value = LoginUiState.Error(message = message)
++        private fun showLoginError(type: AuthMessageType = AuthMessageType.General) {
++            _uiState.value = LoginUiState.Error(type = type)
++        }
++
++        private fun LoginException.toAuthMessageType(): AuthMessageType =
++            if (cause is IOException) {
++                AuthMessageType.Network
++            } else {
++                AuthMessageType.fromBackendCode(code)
++            }
++
++        private fun clearError() {
++            if (_uiState.value is LoginUiState.Error) {
++                _uiState.value = LoginUiState.Idle
++            }
+         }
+ 
+         private fun validateInputs(): Boolean {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AppSettingsRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AppSettingsRoute.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AppSettingsRoute.kt
+@@ -0,0 +1,164 @@
++package com.ssafy.mobile.feature.mypage.presentation
++
++import androidx.compose.foundation.clickable
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.material3.ExperimentalMaterial3Api
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.RadioButton
++import androidx.compose.material3.Scaffold
++import androidx.compose.material3.Text
++import androidx.compose.material3.TextButton
++import androidx.compose.material3.TopAppBar
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.getValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.unit.dp
++import androidx.hilt.navigation.compose.hiltViewModel
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppCard
++import com.ssafy.mobile.core.ui.theme.AppThemeMode
++
++@Composable
++fun AppSettingsRoute(
++    onNavigateBack: () -> Unit,
++    modifier: Modifier = Modifier,
++    viewModel: AppSettingsViewModel = hiltViewModel(),
++) {
++    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
++
++    AppSettingsScreen(
++        themeMode = themeMode,
++        onThemeModeSelected = viewModel::updateThemeMode,
++        onNavigateBack = onNavigateBack,
++        modifier = modifier,
++    )
++}
++
++@OptIn(ExperimentalMaterial3Api::class)
++@Composable
++private fun AppSettingsScreen(
++    themeMode: AppThemeMode,
++    onThemeModeSelected: (AppThemeMode) -> Unit,
++    onNavigateBack: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Scaffold(
++        modifier = modifier.fillMaxSize(),
++        containerColor = MaterialTheme.colorScheme.background,
++        topBar = {
++            TopAppBar(
++                title = {
++                    Text(
++                        text = "앱 설정",
++                        style = MaterialTheme.typography.titleLarge,
++                        fontWeight = FontWeight.Bold,
++                    )
++                },
++                navigationIcon = {
++                    TextButton(onClick = onNavigateBack) {
++                        Text(text = "뒤로")
++                    }
++                },
++            )
++        },
++    ) { padding ->
++        Column(
++            modifier =
++                Modifier
++                    .fillMaxSize()
++                    .padding(padding)
++                    .padding(horizontal = 24.dp, vertical = 16.dp),
++            verticalArrangement = Arrangement.spacedBy(16.dp),
++        ) {
++            Text(
++                text = "앱 사용 환경을 설정합니다.",
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++            )
++            ThemeModeSettingsCard(
++                selectedMode = themeMode,
++                onThemeModeSelected = onThemeModeSelected,
++            )
++        }
++    }
++}
++
++@Composable
++private fun ThemeModeSettingsCard(
++    selectedMode: AppThemeMode,
++    onThemeModeSelected: (AppThemeMode) -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    AppCard(modifier = modifier.fillMaxWidth()) {
++        Column(
++            verticalArrangement = Arrangement.spacedBy(12.dp),
++        ) {
++            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
++                Text(
++                    text = "테마 설정",
++                    style = MaterialTheme.typography.titleMedium,
++                    fontWeight = FontWeight.SemiBold,
++                )
++                Text(
++                    text = "앱 화면을 시스템 설정, 라이트 모드, 다크 모드 중에서 선택합니다.",
++                    style = MaterialTheme.typography.bodySmall,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                )
++            }
++
++            AppThemeMode.entries.forEach { mode ->
++                ThemeModeRow(
++                    mode = mode,
++                    selected = mode == selectedMode,
++                    onClick = { onThemeModeSelected(mode) },
++                )
++            }
++        }
++    }
++}
++
++@Composable
++private fun ThemeModeRow(
++    mode: AppThemeMode,
++    selected: Boolean,
++    onClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Row(
++        modifier =
++            modifier
++                .fillMaxWidth()
++                .clickable(onClick = onClick)
++                .padding(vertical = 4.dp),
++        verticalAlignment = Alignment.CenterVertically,
++        horizontalArrangement = Arrangement.spacedBy(8.dp),
++    ) {
++        RadioButton(
++            selected = selected,
++            onClick = onClick,
++        )
++        Column(
++            modifier = Modifier.weight(1f),
++            verticalArrangement = Arrangement.spacedBy(2.dp),
++        ) {
++            Text(
++                text = mode.label,
++                style = MaterialTheme.typography.bodyLarge,
++                fontWeight = FontWeight.SemiBold,
++                color = MaterialTheme.colorScheme.onSurface,
++            )
++            Text(
++                text = mode.description,
++                style = MaterialTheme.typography.bodySmall,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++            )
++        }
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AppSettingsViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AppSettingsViewModel.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/AppSettingsViewModel.kt
+@@ -0,0 +1,34 @@
++package com.ssafy.mobile.feature.mypage.presentation
++
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.core.ui.theme.AppThemeMode
++import com.ssafy.mobile.core.ui.theme.AppThemeModeRepository
++import dagger.hilt.android.lifecycle.HiltViewModel
++import javax.inject.Inject
++import kotlinx.coroutines.flow.SharingStarted
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.stateIn
++import kotlinx.coroutines.launch
++
++@HiltViewModel
++class AppSettingsViewModel
++    @Inject
++    constructor(
++        private val appThemeModeRepository: AppThemeModeRepository,
++    ) : ViewModel() {
++        val themeMode: StateFlow<AppThemeMode> =
++            appThemeModeRepository.themeMode.stateIn(
++                scope = viewModelScope,
++                started = SharingStarted.WhileSubscribed(STATE_SUBSCRIPTION_TIMEOUT_MS),
++                initialValue = AppThemeMode.System,
++            )
++
++        fun updateThemeMode(mode: AppThemeMode) {
++            viewModelScope.launch {
++                appThemeModeRepository.saveThemeMode(mode)
++            }
++        }
++    }
++
++private const val STATE_SUBSCRIPTION_TIMEOUT_MS = 5_000L
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt
+@@ -40,6 +40,7 @@ import java.util.Locale
+ 
+ @Composable
+ fun MyPageRoute(
++    onNavigateToAppSettings: () -> Unit,
+     onLogoutSuccess: () -> Unit,
+     onNavigateToAccountEdit: () -> Unit,
+     modifier: Modifier = Modifier,
+@@ -75,6 +76,7 @@ fun MyPageRoute(
+         onDownloadModelClick = viewModel::downloadAiModel,
+         onCancelDownloadClick = viewModel::cancelAiModelDownload,
+         onDeleteModelClick = { showDeleteModelDialog = true },
++        onAppSettingsClick = onNavigateToAppSettings,
+         onAccountEditClick = onNavigateToAccountEdit,
+         onLogoutClick = { showLogoutDialog = true },
+         modifier = modifier,
+@@ -119,6 +121,7 @@ private fun MyPageScreen(
+     onDownloadModelClick: () -> Unit,
+     onCancelDownloadClick: () -> Unit,
+     onDeleteModelClick: () -> Unit,
++    onAppSettingsClick: () -> Unit,
+     onAccountEditClick: () -> Unit,
+     onLogoutClick: () -> Unit,
+     modifier: Modifier = Modifier,
+@@ -168,10 +171,8 @@ private fun MyPageScreen(
+             )
+             MyPageMenuItem(
+                 title = "앱 설정",
+-                description = "권한, 알림, 학습 환경",
+-                onClick = {},
+-                enabled = false,
+-                badgeText = "준비 중",
++                description = "테마, 권한, 학습 환경",
++                onClick = onAppSettingsClick,
+             )
+             AiModelManagementCard(
+                 state = aiModelState,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/data/repository/SignupRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/data/repository/SignupRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/data/repository/SignupRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/data/repository/SignupRepository.kt
+@@ -1,5 +1,9 @@
+ package com.ssafy.mobile.feature.signup.data.repository
+ 
++import android.util.Log
++import com.google.gson.Gson
++import com.google.gson.JsonSyntaxException
++import com.google.gson.annotations.SerializedName
+ import com.ssafy.mobile.feature.signup.data.api.SignupApiService
+ import com.ssafy.mobile.feature.signup.data.dto.SignupRequestDto
+ import com.ssafy.mobile.feature.signup.data.dto.SignupResponseDto
+@@ -12,7 +16,7 @@ class SignupRepository
+     constructor(
+         private val signupApiService: SignupApiService,
+     ) {
+-        @Suppress("ThrowsCount")
++        @Suppress("ThrowsCount", "TooGenericExceptionCaught")
+         suspend fun signup(
+             email: String,
+             password: String,
+@@ -29,29 +33,93 @@ class SignupRepository
+                     )
+ 
+                 if (response.isSuccessful) {
+-                    response.body() ?: error("응답 본문이 비어 있습니다.")
++                    response.body() ?: throw SignupException("응답 본문이 비어 있습니다.")
+                 } else {
+-                    val errorMessage =
+-                        when (response.code()) {
+-                            HTTP_CONFLICT -> "이미 사용 중인 이메일입니다."
+-                            HTTP_BAD_REQUEST -> "입력 정보를 확인해 주세요."
+-                            else -> "회원가입에 실패했습니다. (${response.code()})"
+-                        }
+-                    error(errorMessage)
++                    throw createSignupException(
++                        status = response.code(),
++                        errorBody = response.errorBody()?.string(),
++                    )
+                 }
+             } catch (e: CancellationException) {
+                 throw e
++            } catch (e: SignupException) {
++                throw e
+             } catch (e: IOException) {
+                 throw SignupException("네트워크 연결을 확인해 주세요.", e)
++            } catch (e: Exception) {
++                throw SignupException("알 수 없는 오류가 발생했습니다.", e)
++            }
++
++        private fun createSignupException(
++            status: Int,
++            errorBody: String?,
++        ): SignupException {
++            val problemDetails = parseProblemDetails(errorBody)
++            val defaultMessage =
++                when (status) {
++                    HTTP_CONFLICT -> "이미 사용 중인 이메일입니다."
++                    HTTP_BAD_REQUEST -> "입력 정보를 확인해 주세요."
++                    else -> "회원가입에 실패했습니다. ($status)"
++                }
++
++            Log.e(
++                TAG,
++                "Signup failed. " +
++                    "status=$status, " +
++                    "code=${problemDetails?.code}, " +
++                    "traceId=${problemDetails?.traceId}, " +
++                    "instance=${problemDetails?.instance}",
++            )
++
++            return SignupException(
++                message = defaultMessage,
++                status = problemDetails?.status ?: status,
++                code = problemDetails?.code,
++                traceId = problemDetails?.traceId,
++                instance = problemDetails?.instance,
++            )
++        }
++
++        private fun parseProblemDetails(errorBody: String?): ProblemDetailsDto? {
++            if (errorBody.isNullOrBlank()) return null
++
++            return try {
++                gson.fromJson(errorBody, ProblemDetailsDto::class.java)
++            } catch (e: JsonSyntaxException) {
++                Log.e(TAG, "Failed to parse signup error body", e)
++                null
++            } catch (e: IllegalStateException) {
++                Log.e(TAG, "Failed to parse signup error body", e)
++                null
+             }
++        }
+ 
+         companion object {
++            private const val TAG = "SignupRepository"
+             private const val HTTP_BAD_REQUEST = 400
+             private const val HTTP_CONFLICT = 409
++            private val gson = Gson()
+         }
+     }
+ 
+ class SignupException(
+     message: String,
+     cause: Throwable? = null,
++    val status: Int? = null,
++    val code: String? = null,
++    val traceId: String? = null,
++    val instance: String? = null,
+ ) : RuntimeException(message, cause)
++
++private data class ProblemDetailsDto(
++    @SerializedName("status")
++    val status: Int?,
++    @SerializedName("detail")
++    val detail: String?,
++    @SerializedName("code")
++    val code: String?,
++    @SerializedName("traceId")
++    val traceId: String?,
++    @SerializedName("instance")
++    val instance: String?,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupRoute.kt
+@@ -2,22 +2,25 @@ package com.ssafy.mobile.feature.signup.presentation
+ 
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.imePadding
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.widthIn
+ import androidx.compose.foundation.rememberScrollState
+ import androidx.compose.foundation.text.KeyboardActions
+ import androidx.compose.foundation.text.KeyboardOptions
+ import androidx.compose.foundation.verticalScroll
++import androidx.compose.material3.Icon
++import androidx.compose.material3.IconButton
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.material3.TextButton
+ import androidx.compose.runtime.Composable
+-import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableStateOf
+ import androidx.compose.runtime.saveable.rememberSaveable
+@@ -26,7 +29,7 @@ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.focus.FocusDirection
+ import androidx.compose.ui.platform.LocalFocusManager
+-import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.res.painterResource
+ import androidx.compose.ui.text.input.ImeAction
+ import androidx.compose.ui.text.input.KeyboardType
+ import androidx.compose.ui.text.input.PasswordVisualTransformation
+@@ -35,11 +38,12 @@ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+-import com.ssafy.mobile.core.ui.components.AppCard
++import com.ssafy.mobile.R
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+-import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+-import com.ssafy.mobile.core.ui.components.AppTextField
+-import com.ssafy.mobile.core.ui.feedback.AppErrorText
++import com.ssafy.mobile.core.ui.components.AuthMessageCard
++import com.ssafy.mobile.core.ui.components.AuthMessageType
++import com.ssafy.mobile.core.ui.components.AuthTextField
++import com.ssafy.mobile.core.ui.theme.SudaFriendlyFontFamily
+ 
+ @Composable
+ fun SignupRoute(
+@@ -57,12 +61,6 @@ fun SignupRoute(
+     val confirmPasswordError by viewModel.confirmPasswordError.collectAsStateWithLifecycle()
+     val nameError by viewModel.nameError.collectAsStateWithLifecycle()
+ 
+-    LaunchedEffect(uiState) {
+-        if (uiState is SignupUiState.Success) {
+-            onNavigateToLogin()
+-        }
+-    }
+-
+     SignupScreen(
+         email = email,
+         password = password,
+@@ -114,16 +112,40 @@ private fun SignupScreen(
+                 Modifier
+                     .fillMaxSize()
+                     .verticalScroll(rememberScrollState())
+-                    .padding(24.dp)
++                    .padding(horizontal = 28.dp, vertical = 32.dp)
+                     .imePadding(),
+             horizontalAlignment = Alignment.CenterHorizontally,
+             verticalArrangement = Arrangement.Center,
+         ) {
+             SignupHeader()
+ 
+-            Spacer(modifier = Modifier.height(28.dp))
++            Spacer(modifier = Modifier.height(24.dp))
++
++            Column(
++                modifier =
++                    Modifier
++                        .fillMaxWidth()
++                        .widthIn(max = 420.dp),
++            ) {
++                val messageType =
++                    when (uiState) {
++                        is SignupUiState.Error -> uiState.type
++                        SignupUiState.Success -> AuthMessageType.SignupComplete
++                        else -> AuthMessageType.General
++                    }
++                val isMessageVisible =
++                    uiState is SignupUiState.Error || uiState is SignupUiState.Success
++
++                AuthMessageCard(
++                    visible = isMessageVisible,
++                    type = messageType,
++                    modifier = Modifier.fillMaxWidth(),
++                )
++
++                if (isMessageVisible) {
++                    Spacer(modifier = Modifier.height(16.dp))
++                }
+ 
+-            AppCard(modifier = Modifier.fillMaxWidth()) {
+                 SignupInputFields(
+                     email = email,
+                     password = password,
+@@ -141,28 +163,18 @@ private fun SignupScreen(
+                     onSignupClick = onSignupClick,
+                 )
+ 
+-                AppErrorText(
+-                    message = (uiState as? SignupUiState.Error)?.message.orEmpty(),
++                AppPrimaryButton(
++                    text = "회원가입",
++                    onClick = onSignupClick,
++                    enabled = !isLoading,
++                    loading = isLoading,
+                     modifier = Modifier.fillMaxWidth(),
+                 )
+-
+-                Spacer(modifier = Modifier.height(12.dp))
+-
+-                SignupActionButtons(
+-                    isLoading = isLoading,
+-                    onSignupClick = onSignupClick,
+-                    onNavigateToLogin = onNavigateToLogin,
+-                )
+             }
+ 
+-            Spacer(modifier = Modifier.height(16.dp))
+-            Text(
+-                text = "가입 후 로그인하면 아이 프로필을 만들고 학습을 시작할 수 있어요.",
+-                style = MaterialTheme.typography.bodySmall,
+-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                textAlign = TextAlign.Center,
+-                modifier = Modifier.fillMaxWidth(),
+-            )
++            Spacer(modifier = Modifier.height(24.dp))
++
++            LoginTextLink(onNavigateToLogin = onNavigateToLogin)
+         }
+     }
+ }
+@@ -170,22 +182,11 @@ private fun SignupScreen(
+ @Composable
+ private fun SignupHeader() {
+     Text(
+-        text = "SUDA",
+-        style = MaterialTheme.typography.displayMedium,
+-        color = MaterialTheme.colorScheme.primary,
+-        fontWeight = FontWeight.Black,
+-    )
+-    Spacer(modifier = Modifier.height(8.dp))
+-    Text(
+-        text = "보호자 회원가입",
+-        style = MaterialTheme.typography.headlineSmall,
+-        color = MaterialTheme.colorScheme.onSurface,
+-        fontWeight = FontWeight.Bold,
+-    )
+-    Spacer(modifier = Modifier.height(8.dp))
+-    Text(
+-        text = "보호자 정보를 등록하고 아이의 학습 여정을 준비해요.",
+-        style = MaterialTheme.typography.bodyMedium,
++        text = "보호자 계정을 만들어 주세요",
++        style =
++            MaterialTheme.typography.titleMedium.copy(
++                fontFamily = SudaFriendlyFontFamily,
++            ),
+         color = MaterialTheme.colorScheme.onSurfaceVariant,
+         textAlign = TextAlign.Center,
+     )
+@@ -210,14 +211,18 @@ private fun SignupInputFields(
+     onSignupClick: () -> Unit,
+ ) {
+     val focusManager = LocalFocusManager.current
+-    var passwordVisible by rememberSaveable { mutableStateOf(false) }
+-    var confirmPasswordVisible by rememberSaveable { mutableStateOf(false) }
++    var passwordsVisible by rememberSaveable { mutableStateOf(false) }
++    val passwordTransformation =
++        if (passwordsVisible) {
++            VisualTransformation.None
++        } else {
++            PasswordVisualTransformation()
++        }
+ 
+-    AppTextField(
++    AuthTextField(
+         value = email,
+         onValueChange = onEmailChanged,
+         label = "이메일",
+-        placeholder = "example@email.com",
+         isError = emailError != null,
+         supportingText = emailError,
+         enabled = !isLoading,
+@@ -233,11 +238,10 @@ private fun SignupInputFields(
+         modifier = Modifier.fillMaxWidth(),
+     )
+ 
+-    AppTextField(
++    AuthTextField(
+         value = name,
+         onValueChange = onNameChanged,
+         label = "보호자 이름",
+-        placeholder = "이름을 입력해 주세요",
+         isError = nameError != null,
+         supportingText = nameError,
+         enabled = !isLoading,
+@@ -253,19 +257,14 @@ private fun SignupInputFields(
+         modifier = Modifier.fillMaxWidth(),
+     )
+ 
+-    AppTextField(
++    AuthTextField(
+         value = password,
+         onValueChange = onPasswordChanged,
+         label = "비밀번호",
+         isError = passwordError != null,
+         supportingText = passwordError,
+         enabled = !isLoading,
+-        visualTransformation =
+-            if (passwordVisible) {
+-                VisualTransformation.None
+-            } else {
+-                PasswordVisualTransformation()
+-            },
++        visualTransformation = passwordTransformation,
+         keyboardOptions =
+             KeyboardOptions(
+                 keyboardType = KeyboardType.Password,
+@@ -276,26 +275,22 @@ private fun SignupInputFields(
+                 onNext = { focusManager.moveFocus(FocusDirection.Down) },
+             ),
+         trailingIcon = {
+-            TextButton(onClick = { passwordVisible = !passwordVisible }) {
+-                Text(if (passwordVisible) "숨기기" else "보기")
+-            }
++            PasswordVisibilityButton(
++                visible = passwordsVisible,
++                onToggle = { passwordsVisible = !passwordsVisible },
++            )
+         },
+         modifier = Modifier.fillMaxWidth(),
+     )
+ 
+-    AppTextField(
++    AuthTextField(
+         value = confirmPassword,
+         onValueChange = onConfirmPasswordChanged,
+         label = "비밀번호 확인",
+         isError = confirmPasswordError != null,
+         supportingText = confirmPasswordError,
+         enabled = !isLoading,
+-        visualTransformation =
+-            if (confirmPasswordVisible) {
+-                VisualTransformation.None
+-            } else {
+-                PasswordVisualTransformation()
+-            },
++        visualTransformation = passwordTransformation,
+         keyboardOptions =
+             KeyboardOptions(
+                 keyboardType = KeyboardType.Password,
+@@ -309,34 +304,50 @@ private fun SignupInputFields(
+                 },
+             ),
+         trailingIcon = {
+-            TextButton(onClick = { confirmPasswordVisible = !confirmPasswordVisible }) {
+-                Text(if (confirmPasswordVisible) "숨기기" else "보기")
+-            }
++            PasswordVisibilityButton(
++                visible = passwordsVisible,
++                onToggle = { passwordsVisible = !passwordsVisible },
++            )
+         },
+         modifier = Modifier.fillMaxWidth(),
+     )
+ }
+ 
+ @Composable
+-private fun SignupActionButtons(
+-    isLoading: Boolean,
+-    onSignupClick: () -> Unit,
+-    onNavigateToLogin: () -> Unit,
++private fun PasswordVisibilityButton(
++    visible: Boolean,
++    onToggle: () -> Unit,
+ ) {
+-    AppPrimaryButton(
+-        text = "회원가입",
+-        onClick = onSignupClick,
+-        enabled = !isLoading,
+-        loading = isLoading,
+-        modifier = Modifier.fillMaxWidth(),
+-    )
+-
+-    Spacer(modifier = Modifier.height(8.dp))
++    IconButton(onClick = onToggle) {
++        Icon(
++            painter =
++                painterResource(
++                    id = if (visible) R.drawable.ic_visibility_off else R.drawable.ic_visibility,
++                ),
++            contentDescription = if (visible) "비밀번호 숨기기" else "비밀번호 보기",
++            tint = MaterialTheme.colorScheme.onSurfaceVariant,
++        )
++    }
++}
+ 
+-    AppSecondaryButton(
+-        text = "로그인으로 돌아가기",
+-        onClick = onNavigateToLogin,
+-        enabled = !isLoading,
++@Composable
++private fun LoginTextLink(onNavigateToLogin: () -> Unit) {
++    Row(
++        verticalAlignment = Alignment.CenterVertically,
++        horizontalArrangement = Arrangement.Center,
+         modifier = Modifier.fillMaxWidth(),
+-    )
++    ) {
++        Text(
++            text = "이미 계정이 있나요?",
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++        )
++        TextButton(onClick = onNavigateToLogin) {
++            Text(
++                text = "로그인",
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.primary,
++            )
++        }
++    }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupUiState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupUiState.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupUiState.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupUiState.kt
+@@ -1,5 +1,7 @@
+ package com.ssafy.mobile.feature.signup.presentation
+ 
++import com.ssafy.mobile.core.ui.components.AuthMessageType
++
+ sealed interface SignupUiState {
+     data object Idle : SignupUiState
+ 
+@@ -8,6 +10,6 @@ sealed interface SignupUiState {
+     data object Success : SignupUiState
+ 
+     data class Error(
+-        val message: String,
++        val type: AuthMessageType = AuthMessageType.General,
+     ) : SignupUiState
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/presentation/SignupViewModel.kt
+@@ -4,6 +4,7 @@ import android.util.Log
+ import android.util.Patterns
+ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.core.ui.components.AuthMessageType
+ import com.ssafy.mobile.feature.signup.data.repository.SignupException
+ import com.ssafy.mobile.feature.signup.data.repository.SignupRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
+@@ -69,21 +70,25 @@ class SignupViewModel
+         fun onEmailChanged(value: String) {
+             _email.value = value
+             _emailError.value = null
++            clearError()
+         }
+ 
+         fun onPasswordChanged(value: String) {
+             _password.value = value
+             _passwordError.value = null
++            clearError()
+         }
+ 
+         fun onConfirmPasswordChanged(value: String) {
+             _confirmPassword.value = value
+             _confirmPasswordError.value = null
++            clearError()
+         }
+ 
+         fun onNameChanged(value: String) {
+             _name.value = value
+             _nameError.value = null
++            clearError()
+         }
+ 
+         fun signup() {
+@@ -106,27 +111,34 @@ class SignupViewModel
+                 } catch (e: CancellationException) {
+                     throw e
+                 } catch (e: SignupException) {
+-                    _uiState.value =
+-                        SignupUiState.Error(
+-                            message = e.message ?: "회원가입에 실패했습니다.",
+-                        )
++                    val messageType = e.toAuthMessageType()
++                    if (messageType == AuthMessageType.DuplicateEmail) {
++                        _emailError.value = "이미 사용 중인 이메일입니다."
++                    }
++                    showSignupError(messageType)
+                 } catch (e: IOException) {
+                     Log.e(TAG, "Signup network error", e)
+-                    _uiState.value =
+-                        SignupUiState.Error(
+-                            message = "네트워크 연결을 확인해 주세요.",
+-                        )
++                    showSignupError(AuthMessageType.Network)
+                 } catch (e: IllegalStateException) {
+-                    _uiState.value =
+-                        SignupUiState.Error(
+-                            message = e.message ?: "알 수 없는 오류가 발생했습니다.",
+-                        )
++                    Log.e(TAG, "Signup failed with invalid state", e)
++                    showSignupError()
+                 }
+             }
+         }
+ 
++        private fun showSignupError(type: AuthMessageType = AuthMessageType.General) {
++            _uiState.value = SignupUiState.Error(type = type)
++        }
++
++        private fun SignupException.toAuthMessageType(): AuthMessageType =
++            if (cause is IOException) {
++                AuthMessageType.Network
++            } else {
++                AuthMessageType.fromBackendCode(code)
++            }
++
+         fun clearError() {
+-            if (_uiState.value is SignupUiState.Error) {
++            if (_uiState.value is SignupUiState.Error || _uiState.value is SignupUiState.Success) {
+                 _uiState.value = SignupUiState.Idle
+             }
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt b/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
+@@ -4,6 +4,7 @@ import android.os.Bundle
+ import androidx.activity.ComponentActivity
+ import androidx.activity.compose.setContent
+ import androidx.activity.enableEdgeToEdge
++import androidx.compose.foundation.isSystemInDarkTheme
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+@@ -78,7 +79,13 @@ class MainActivity : ComponentActivity() {
+                 }
+             }
+ 
+-            MobileTheme {
++            val mainViewModel: MainViewModel = hiltViewModel()
++            val appThemeMode by mainViewModel.appThemeMode.collectAsStateWithLifecycle()
++            val systemInDarkTheme = isSystemInDarkTheme()
++
++            MobileTheme(
++                darkTheme = appThemeMode.shouldUseDarkTheme(systemInDarkTheme),
++            ) {
+                 val permissionState by permissionHandler.permissionState
+                     .collectAsStateWithLifecycle()
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/MainViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/MainViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/MainViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/MainViewModel.kt
+@@ -1,17 +1,32 @@
+ package com.ssafy.mobile
+ 
+ import androidx.lifecycle.ViewModel
++import androidx.lifecycle.viewModelScope
+ import com.ssafy.mobile.core.auth.AuthSessionManager
+ import com.ssafy.mobile.core.auth.AuthState
++import com.ssafy.mobile.core.ui.theme.AppThemeMode
++import com.ssafy.mobile.core.ui.theme.AppThemeModeRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import javax.inject.Inject
++import kotlinx.coroutines.flow.SharingStarted
+ import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.stateIn
+ 
+ @HiltViewModel
+ class MainViewModel
+     @Inject
+     constructor(
+-        private val authSessionManager: AuthSessionManager,
++        authSessionManager: AuthSessionManager,
++        appThemeModeRepository: AppThemeModeRepository,
+     ) : ViewModel() {
+         val authState: StateFlow<AuthState> = authSessionManager.authState
++
++        val appThemeMode: StateFlow<AppThemeMode> =
++            appThemeModeRepository.themeMode.stateIn(
++                scope = viewModelScope,
++                started = SharingStarted.WhileSubscribed(STATE_SUBSCRIPTION_TIMEOUT_MS),
++                initialValue = AppThemeMode.System,
++            )
+     }
++
++private const val STATE_SUBSCRIPTION_TIMEOUT_MS = 5_000L
+
+
+diff --git a/mobile/app/src/main/res/drawable/ic_visibility.xml b/mobile/app/src/main/res/drawable/ic_visibility.xml
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable/ic_visibility.xml
+@@ -0,0 +1,9 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:fillColor="#FF000000"
++        android:pathData="M12,4.5C7,4.5 2.73,7.61 1,12c1.73,4.39 6,7.5 11,7.5s9.27,-3.11 11,-7.5C21.27,7.61 17,4.5 12,4.5zM12,17c-2.76,0 -5,-2.24 -5,-5s2.24,-5 5,-5s5,2.24 5,5s-2.24,5 -5,5zM12,9c-1.66,0 -3,1.34 -3,3s1.34,3 3,3s3,-1.34 3,-3s-1.34,-3 -3,-3z" />
++</vector>
+
+
+diff --git a/mobile/app/src/main/res/drawable/ic_visibility_off.xml b/mobile/app/src/main/res/drawable/ic_visibility_off.xml
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable/ic_visibility_off.xml
+@@ -0,0 +1,9 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:fillColor="#FF000000"
++        android:pathData="M2.81,2.81L1.39,4.22l3.05,3.05C3.06,8.38 1.91,9.99 1,12c1.73,4.39 6,7.5 11,7.5c1.55,0 3.03,-0.3 4.38,-0.84l3.4,3.4l1.41,-1.41L2.81,2.81zM12,17c-2.76,0 -5,-2.24 -5,-5c0,-0.8 0.19,-1.56 0.53,-2.22l1.55,1.55C9.03,11.55 9,11.77 9,12c0,1.66 1.34,3 3,3c0.23,0 0.45,-0.03 0.67,-0.08l1.55,1.55C13.56,16.81 12.8,17 12,17zM12,7c2.76,0 5,2.24 5,5c0,0.65 -0.13,1.26 -0.35,1.83l2.92,2.92C21.05,15.61 22.23,13.98 23,12c-1.73,-4.39 -6,-7.5 -11,-7.5c-1.4,0 -2.74,0.25 -3.98,0.71l2.16,2.16C10.75,7.13 11.36,7 12,7z" />
++</vector>
+
+
+diff --git a/mobile/app/src/main/res/drawable/suda_wordmark.xml b/mobile/app/src/main/res/drawable/suda_wordmark.xml
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable/suda_wordmark.xml
+@@ -0,0 +1,18 @@
++﻿<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="220dp"
++    android:height="72dp"
++    android:viewportWidth="1024"
++    android:viewportHeight="336">
++    <path
++        android:fillColor="#FF000000"
++        android:pathData="M575.967834,223.907959 C567.311951,223.888321 559.144653,224.063950 550.991638,223.798676 C540.825500,223.467896 537.657654,220.033981 537.652893,210.007614 C537.640808,184.857910 537.634644,159.708191 537.643860,134.558487 C537.647766,123.884979 540.894836,120.546051 551.761780,120.740669 C565.064819,120.978912 578.428223,119.576721 591.664795,121.587090 C619.645874,125.836838 635.365417,144.355118 635.336975,172.762589 C635.317383,192.323135 628.552368,208.290649 610.517151,217.851303 C599.885742,223.487091 588.187988,223.977463 575.967834,223.907959 M607.538269,195.006516 C615.555725,185.688675 616.300476,174.647202 614.000000,163.436752 C611.412170,150.826126 603.540894,142.899307 590.416565,140.971252 C580.484131,139.512131 570.484253,140.563141 560.518066,140.324799 C557.304016,140.247925 557.326477,142.501892 557.327332,144.775650 C557.334167,163.250534 557.396790,181.725922 557.263733,200.199875 C557.237610,203.819626 558.710510,204.762924 562.035156,204.687439 C569.354797,204.521240 576.693481,204.905609 584.000793,204.561890 C592.615417,204.156708 600.879761,202.396332 607.538269,195.006516 z" />
++    <path
++        android:fillColor="#FF000000"
++        android:pathData="M267.445557,223.897064 C262.081024,222.976730 257.129730,222.312958 252.257782,221.276306 C246.005997,219.946045 242.454529,214.842255 243.653198,209.369873 C244.928421,203.547974 249.690201,200.853729 256.314331,202.095718 C268.576233,204.394730 280.825256,206.893158 293.415009,204.759186 C296.726471,204.197891 299.959747,203.423187 302.788849,201.564606 C305.707947,199.646896 307.863953,197.088654 307.521851,193.355957 C307.198669,189.829819 304.776459,187.767990 301.720795,186.443695 C295.405304,183.706650 288.594940,182.830124 281.948212,181.369064 C275.128876,179.870041 268.218323,178.711212 261.669464,176.212097 C249.870377,171.709457 243.055359,162.455475 242.971695,151.070724 C242.880661,138.684418 249.989685,128.093201 261.694946,123.564034 C272.839203,119.251953 284.499786,119.139549 296.170807,120.085442 C302.121307,120.567703 308.060150,121.528603 313.920929,122.692787 C320.338867,123.967667 323.721161,128.989334 322.436676,134.577347 C321.182800,140.032303 316.359589,142.644745 310.118958,141.826462 C298.934540,140.359924 287.764435,138.037201 276.395325,140.217590 C275.742706,140.342758 275.064728,140.342331 274.416656,140.483414 C268.023254,141.875153 263.852600,145.542404 263.548340,150.015366 C263.293030,153.768677 266.771698,157.349716 273.402832,159.103302 C282.236420,161.439285 291.211365,163.235764 300.095978,165.386261 C303.321259,166.166931 306.535492,167.107971 309.627258,168.305130 C321.629303,172.952377 328.147705,181.530807 328.193176,192.937347 C328.244141,205.733963 322.238068,214.823120 310.681641,220.188675 C302.014130,224.212967 292.662537,224.728363 283.335754,224.870682 C278.194214,224.949142 273.041656,224.305832 267.445557,223.897064 z" />
++    <path
++        android:fillColor="#FF000000"
++        android:pathData="M405.447418,190.344360 C411.290009,208.626175 438.241058,209.219055 448.712219,199.348541 C453.753113,194.596802 455.644196,188.510910 455.652435,181.748566 C455.672791,165.088287 455.667786,148.427963 455.652283,131.767670 C455.649933,129.237350 455.736694,126.758316 457.404358,124.649178 C460.289185,121.000565 464.100006,119.583588 468.497253,120.848267 C472.965454,122.133354 475.349548,125.386620 475.349731,130.150131 C475.350494,149.309311 476.000671,168.499481 475.113159,187.617950 C474.393280,203.124756 466.154541,214.720001 451.595123,220.776947 C437.461639,226.656693 422.822052,226.638977 408.753235,220.828049 C391.735687,213.799179 384.460419,199.773773 384.099792,181.993439 C383.768768,165.672928 383.975311,149.340622 384.032745,133.013809 C384.047028,128.954132 384.554810,124.902138 388.332306,122.361923 C391.613525,120.155457 395.162018,119.829391 398.749542,121.660622 C403.020020,123.840485 404.192444,127.729561 404.201202,132.117340 C404.233795,148.444336 404.218079,164.771469 404.206787,181.098541 C404.204712,184.105347 404.231750,187.100327 405.447418,190.344360 z" />
++    <path
++        android:fillColor="#FF000000"
++        android:pathData="M739.856201,120.733170 C747.088013,122.879196 751.620850,127.403336 754.556213,133.824142 C765.983643,158.820404 777.508545,183.772079 788.936157,208.768250 C791.664368,214.735718 789.773987,220.482101 784.574829,222.763489 C779.155640,225.141434 773.714661,222.884598 771.030945,217.020889 C760.216309,193.391129 749.446716,169.740738 738.627563,146.113052 C737.758667,144.215561 737.372314,141.576431 734.695435,141.447235 C731.638550,141.299713 731.259094,144.189987 730.343628,146.210068 C719.685974,169.726791 709.038269,193.248230 698.491150,216.814636 C696.399048,221.489426 693.038513,223.896744 687.987244,223.645370 C683.490601,223.421600 680.673035,220.865356 679.245911,216.632416 C678.371094,214.037613 679.108276,211.720856 680.179199,209.406754 C692.003479,183.856827 703.762207,158.276291 715.675964,132.768173 C720.230896,123.015648 728.955811,118.739281 739.856201,120.733170 z" />
++</vector>
+
+
+diff --git a/mobile/app/src/main/res/font/gowun_dodum_regular.ttf b/mobile/app/src/main/res/font/gowun_dodum_regular.ttf
+--- /dev/null
++++ b/mobile/app/src/main/res/font/gowun_dodum_regular.ttf
+Binary files /dev/null and b/mobile/app/src/main/res/font/gowun_dodum_regular.ttf differ
+
+
+diff --git a/mobile/app/src/main/res/font/jua_regular.ttf b/mobile/app/src/main/res/font/jua_regular.ttf
+--- /dev/null
++++ b/mobile/app/src/main/res/font/jua_regular.ttf
+Binary files /dev/null and b/mobile/app/src/main/res/font/jua_regular.ttf differ
+
+
+diff --git a/mobile/app/src/main/res/font/pretendard_bold.otf b/mobile/app/src/main/res/font/pretendard_bold.otf
+--- /dev/null
++++ b/mobile/app/src/main/res/font/pretendard_bold.otf
+Binary files /dev/null and b/mobile/app/src/main/res/font/pretendard_bold.otf differ
+
+
+diff --git a/mobile/app/src/main/res/font/pretendard_medium.otf b/mobile/app/src/main/res/font/pretendard_medium.otf
+--- /dev/null
++++ b/mobile/app/src/main/res/font/pretendard_medium.otf
+Binary files /dev/null and b/mobile/app/src/main/res/font/pretendard_medium.otf differ
+
+
+diff --git a/mobile/app/src/main/res/font/pretendard_regular.otf b/mobile/app/src/main/res/font/pretendard_regular.otf
+--- /dev/null
++++ b/mobile/app/src/main/res/font/pretendard_regular.otf
+Binary files /dev/null and b/mobile/app/src/main/res/font/pretendard_regular.otf differ
+
+
+diff --git a/mobile/app/src/main/res/font/pretendard_semibold.otf b/mobile/app/src/main/res/font/pretendard_semibold.otf
+--- /dev/null
++++ b/mobile/app/src/main/res/font/pretendard_semibold.otf
+Binary files /dev/null and b/mobile/app/src/main/res/font/pretendard_semibold.otf differ
+
+

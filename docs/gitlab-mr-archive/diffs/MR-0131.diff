@@ -1,0 +1,115 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/docs/QuizControllerDocs.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/docs/QuizControllerDocs.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/docs/QuizControllerDocs.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/docs/QuizControllerDocs.java
+@@ -28,9 +28,9 @@ public interface QuizControllerDocs {
+       summary = "퀴즈 세션 생성",
+       description =
+           """
+-      사용자가 선택한 카테고리와 난이도 기준으로 퀴즈 세션을 생성합니다.
+-      생성 시 해당 조건의 단어를 랜덤으로 뽑아 퀴즈 문제 목록을 만듭니다.
+-      """,
++  사용자가 선택한 카테고리와 난이도 기준으로 퀴즈 세션을 생성합니다.
++  생성 시 해당 조건의 단어를 랜덤으로 뽑아 퀴즈 문제 목록을 만듭니다.
++  """,
+       security = {@SecurityRequirement(name = "bearerAuth")})
+   @ApiResponse(responseCode = "200", description = "퀴즈 세션 생성 성공")
+   @ApiErrorCodes({"COMMON_UNAUTHORIZED", "CHILD_PROFILE_NOT_FOUND"})
+@@ -52,10 +52,10 @@ public interface QuizControllerDocs {
+       summary = "퀴즈 답변 제출",
+       description =
+           """
+-      아이가 녹음한 음성 파일을 제출합니다.
+-      백엔드에서 STT를 통해 음성을 텍스트로 변환하고,
+-      정답 단어와 유사도를 비교하여 별점과 피드백을 반환합니다.
+-      """,
++  아이가 녹음한 음성 파일을 제출합니다.
++  백엔드에서 STT를 통해 음성을 텍스트로 변환하고,
++  정답 단어와 유사도를 비교하여 별점과 피드백을 반환합니다.
++  """,
+       security = {@SecurityRequirement(name = "bearerAuth")})
+   @ApiResponse(responseCode = "200", description = "답변 제출 및 채점 성공")
+   @ApiErrorCodes({"COMMON_UNAUTHORIZED", "QUIZ_SESSION_NOT_FOUND", "QUIZ_NOT_CURRENT_QUESTION"})
+@@ -72,7 +72,7 @@ public interface QuizControllerDocs {
+       description = "퀴즈 세션의 전체 결과와 문제별 답변 내역을 조회합니다.",
+       security = {@SecurityRequirement(name = "bearerAuth")})
+   @ApiResponse(responseCode = "200", description = "퀴즈 결과 조회 성공")
+-  @ApiErrorCodes({"COMMON_UNAUTHORIZED", "QUIZ_SESSION_NOT_FOUND"})
++  @ApiErrorCodes({"COMMON_UNAUTHORIZED", "QUIZ_SESSION_NOT_FOUND", "LEARN_QUIZ_NOT_COMPLETED"})
+   QuizResultResponse getResult(
+       @Parameter(hidden = true) Authentication authentication,
+       @Parameter(description = "퀴즈 세션 ID", example = "10") @PathVariable Long sessionId);
+@@ -81,10 +81,10 @@ public interface QuizControllerDocs {
+       summary = "퀴즈 세션 종료",
+       description =
+           """
+-      퀴즈 세션을 종료 상태로 변경합니다.
+-      모든 문제를 풀면 답변 제출 시 자동 종료되지만,
+-      사용자가 중간에 종료하는 경우에도 사용할 수 있습니다.
+-      """,
++  퀴즈 세션을 종료 상태로 변경합니다.
++  모든 문제를 풀면 답변 제출 시 자동 종료되지만,
++  사용자가 중간에 종료하는 경우에도 사용할 수 있습니다.
++  """,
+       security = {@SecurityRequirement(name = "bearerAuth")})
+   @ApiResponse(responseCode = "200", description = "퀴즈 세션 종료 성공")
+   @ApiErrorCodes({"COMMON_UNAUTHORIZED", "QUIZ_SESSION_NOT_FOUND"})
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizResultResponse.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizResultResponse.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizResultResponse.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizResultResponse.java
+@@ -1,9 +1,13 @@
+ package com.ssafy.backend.domain.learn.quiz.dto.response;
+ 
++import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
+ import java.util.List;
+ 
+ public record QuizResultResponse(
+     Long sessionId,
++    Long categoryId,
++    LearnDifficulty difficulty,
++    Long childProfileId,
+     Integer totalQuestionCount,
+     Integer correctCount,
+     Integer totalStar,
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/exception/QuizErrorCode.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/exception/QuizErrorCode.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/exception/QuizErrorCode.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/exception/QuizErrorCode.java
+@@ -7,6 +7,7 @@ public enum QuizErrorCode implements ErrorCode {
+   SESSION_NOT_FOUND("QUIZ_SESSION_NOT_FOUND", HttpStatus.NOT_FOUND, "퀴즈 세션을 찾을 수 없습니다."),
+   SESSION_ALREADY_COMPLETED(
+       "QUIZ_SESSION_ALREADY_COMPLETED", HttpStatus.BAD_REQUEST, "이미 종료된 퀴즈 세션입니다."),
++  SESSION_NOT_COMPLETED("LEARN_QUIZ_NOT_COMPLETED", HttpStatus.CONFLICT, "아직 완료되지 않은 퀴즈 세션입니다."),
+   NOT_ENOUGH_WORDS("QUIZ_NOT_ENOUGH_WORDS", HttpStatus.BAD_REQUEST, "조건에 맞는 퀴즈 문제가 부족합니다."),
+   NO_CURRENT_QUESTION("QUIZ_NO_CURRENT_QUESTION", HttpStatus.NOT_FOUND, "현재 풀 수 있는 문제가 없습니다."),
+   QUESTION_NOT_FOUND("QUIZ_QUESTION_NOT_FOUND", HttpStatus.NOT_FOUND, "퀴즈 문제를 찾을 수 없습니다."),
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizService.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizService.java
+@@ -195,6 +195,10 @@ public class QuizService {
+   public QuizResultResponse getResult(Long userId, Long sessionId) {
+     QuizSession session = getOwnedSession(sessionId, userId);
+ 
++    if (!session.isCompleted()) {
++      throw new BusinessException(QuizErrorCode.SESSION_NOT_COMPLETED);
++    }
++
+     List<QuizResultResponse.AnswerItem> answers =
+         quizAnswerRepository.findBySessionIdOrderByQuestionQuestionNumberAsc(sessionId).stream()
+             .map(
+@@ -211,6 +215,9 @@ public class QuizService {
+ 
+     return new QuizResultResponse(
+         session.getId(),
++        session.getCategoryId(),
++        session.getDifficulty(),
++        session.getChildProfileId(),
+         session.getTotalQuestionCount(),
+         session.getCorrectCount(),
+         session.getTotalStar(),
+
+

@@ -1,0 +1,1272 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/docs/QuizControllerDocs.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/docs/QuizControllerDocs.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/docs/QuizControllerDocs.java
+@@ -0,0 +1,94 @@
++package com.ssafy.backend.domain.learn.quiz.controller.docs;
++
++import com.ssafy.backend.domain.learn.quiz.dto.request.QuizSessionCreateRequest;
++import com.ssafy.backend.domain.learn.quiz.dto.response.QuizAnswerResponse;
++import com.ssafy.backend.domain.learn.quiz.dto.response.QuizCurrentQuestionResponse;
++import com.ssafy.backend.domain.learn.quiz.dto.response.QuizResultResponse;
++import com.ssafy.backend.domain.learn.quiz.dto.response.QuizSessionCreateResponse;
++import com.ssafy.backend.domain.learn.quiz.dto.response.QuizSessionEndResponse;
++import com.ssafy.backend.global.docs.ApiErrorCodes;
++import io.swagger.v3.oas.annotations.Operation;
++import io.swagger.v3.oas.annotations.Parameter;
++import io.swagger.v3.oas.annotations.media.Content;
++import io.swagger.v3.oas.annotations.responses.ApiResponse;
++import io.swagger.v3.oas.annotations.security.SecurityRequirement;
++import io.swagger.v3.oas.annotations.tags.Tag;
++import jakarta.validation.Valid;
++import org.springframework.security.core.Authentication;
++import org.springframework.web.bind.annotation.PathVariable;
++import org.springframework.web.bind.annotation.RequestBody;
++import org.springframework.web.bind.annotation.RequestParam;
++import org.springframework.web.bind.annotation.RequestPart;
++import org.springframework.web.multipart.MultipartFile;
++
++@Tag(name = "Learn Quiz", description = "학습 퀴즈 API")
++public interface QuizControllerDocs {
++
++  @Operation(
++      summary = "퀴즈 세션 생성",
++      description =
++          """
++      사용자가 선택한 카테고리와 난이도 기준으로 퀴즈 세션을 생성합니다.
++      생성 시 해당 조건의 단어를 랜덤으로 뽑아 퀴즈 문제 목록을 만듭니다.
++      """,
++      security = {@SecurityRequirement(name = "bearerAuth")})
++  @ApiResponse(responseCode = "200", description = "퀴즈 세션 생성 성공")
++  @ApiErrorCodes({"COMMON_UNAUTHORIZED", "CHILD_PROFILE_NOT_FOUND"})
++  QuizSessionCreateResponse createSession(
++      @Parameter(hidden = true) Authentication authentication,
++      @Valid @RequestBody QuizSessionCreateRequest request);
++
++  @Operation(
++      summary = "현재 퀴즈 문제 조회",
++      description = "진행 중인 퀴즈 세션에서 아직 답변하지 않은 현재 문제를 조회합니다.",
++      security = {@SecurityRequirement(name = "bearerAuth")})
++  @ApiResponse(responseCode = "200", description = "현재 문제 조회 성공")
++  @ApiErrorCodes({"COMMON_UNAUTHORIZED", "QUIZ_SESSION_NOT_FOUND"})
++  QuizCurrentQuestionResponse getCurrentQuestion(
++      @Parameter(hidden = true) Authentication authentication,
++      @Parameter(description = "퀴즈 세션 ID", example = "10") @PathVariable Long sessionId);
++
++  @Operation(
++      summary = "퀴즈 답변 제출",
++      description =
++          """
++      아이가 녹음한 음성 파일을 제출합니다.
++      백엔드에서 STT를 통해 음성을 텍스트로 변환하고,
++      정답 단어와 유사도를 비교하여 별점과 피드백을 반환합니다.
++      """,
++      security = {@SecurityRequirement(name = "bearerAuth")})
++  @ApiResponse(responseCode = "200", description = "답변 제출 및 채점 성공")
++  @ApiErrorCodes({"COMMON_UNAUTHORIZED", "QUIZ_SESSION_NOT_FOUND", "QUIZ_NOT_CURRENT_QUESTION"})
++  QuizAnswerResponse submitAnswer(
++      @Parameter(hidden = true) Authentication authentication,
++      @Parameter(description = "퀴즈 세션 ID", example = "10") @PathVariable Long sessionId,
++      @Parameter(description = "현재 문제 ID", example = "101") @RequestParam Long questionId,
++      @Parameter(description = "아이 음성 파일", content = @Content(mediaType = "audio/webm"))
++          @RequestPart("audioFile")
++          MultipartFile audioFile);
++
++  @Operation(
++      summary = "퀴즈 결과 조회",
++      description = "퀴즈 세션의 전체 결과와 문제별 답변 내역을 조회합니다.",
++      security = {@SecurityRequirement(name = "bearerAuth")})
++  @ApiResponse(responseCode = "200", description = "퀴즈 결과 조회 성공")
++  @ApiErrorCodes({"COMMON_UNAUTHORIZED", "QUIZ_SESSION_NOT_FOUND"})
++  QuizResultResponse getResult(
++      @Parameter(hidden = true) Authentication authentication,
++      @Parameter(description = "퀴즈 세션 ID", example = "10") @PathVariable Long sessionId);
++
++  @Operation(
++      summary = "퀴즈 세션 종료",
++      description =
++          """
++      퀴즈 세션을 종료 상태로 변경합니다.
++      모든 문제를 풀면 답변 제출 시 자동 종료되지만,
++      사용자가 중간에 종료하는 경우에도 사용할 수 있습니다.
++      """,
++      security = {@SecurityRequirement(name = "bearerAuth")})
++  @ApiResponse(responseCode = "200", description = "퀴즈 세션 종료 성공")
++  @ApiErrorCodes({"COMMON_UNAUTHORIZED", "QUIZ_SESSION_NOT_FOUND"})
++  QuizSessionEndResponse endSession(
++      @Parameter(hidden = true) Authentication authentication,
++      @Parameter(description = "퀴즈 세션 ID", example = "10") @PathVariable Long sessionId);
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/QuizController.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/QuizController.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/controller/QuizController.java
+@@ -0,0 +1,75 @@
++package com.ssafy.backend.domain.learn.quiz.controller;
++
++import com.ssafy.backend.domain.learn.quiz.controller.docs.QuizControllerDocs;
++import com.ssafy.backend.domain.learn.quiz.dto.request.QuizSessionCreateRequest;
++import com.ssafy.backend.domain.learn.quiz.dto.response.QuizAnswerResponse;
++import com.ssafy.backend.domain.learn.quiz.dto.response.QuizCurrentQuestionResponse;
++import com.ssafy.backend.domain.learn.quiz.dto.response.QuizResultResponse;
++import com.ssafy.backend.domain.learn.quiz.dto.response.QuizSessionCreateResponse;
++import com.ssafy.backend.domain.learn.quiz.dto.response.QuizSessionEndResponse;
++import com.ssafy.backend.domain.learn.quiz.service.QuizService;
++import com.ssafy.backend.global.exception.BusinessException;
++import com.ssafy.backend.global.exception.CommonErrorCode;
++import jakarta.validation.Valid;
++import org.springframework.http.MediaType;
++import org.springframework.security.core.Authentication;
++import org.springframework.web.bind.annotation.*;
++import org.springframework.web.multipart.MultipartFile;
++
++@RestController
++@RequestMapping("/api/v1/learn/quizzes")
++public class QuizController implements QuizControllerDocs {
++
++  private final QuizService quizService;
++
++  public QuizController(QuizService quizService) {
++    this.quizService = quizService;
++  }
++
++  @Override
++  @PostMapping("/sessions")
++  public QuizSessionCreateResponse createSession(
++      Authentication authentication, @Valid @RequestBody QuizSessionCreateRequest request) {
++    return quizService.createSession(resolveUserId(authentication), request);
++  }
++
++  @Override
++  @GetMapping("/sessions/{sessionId}/questions/current")
++  public QuizCurrentQuestionResponse getCurrentQuestion(
++      Authentication authentication, @PathVariable Long sessionId) {
++    return quizService.getCurrentQuestion(resolveUserId(authentication), sessionId);
++  }
++
++  @Override
++  @PostMapping(
++      value = "/sessions/{sessionId}/answers",
++      consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
++  public QuizAnswerResponse submitAnswer(
++      Authentication authentication,
++      @PathVariable Long sessionId,
++      @RequestParam Long questionId,
++      @RequestPart("audioFile") MultipartFile audioFile) {
++    return quizService.submitAnswer(
++        resolveUserId(authentication), sessionId, questionId, audioFile);
++  }
++
++  @Override
++  @GetMapping("/sessions/{sessionId}/result")
++  public QuizResultResponse getResult(Authentication authentication, @PathVariable Long sessionId) {
++    return quizService.getResult(resolveUserId(authentication), sessionId);
++  }
++
++  @Override
++  @PatchMapping("/sessions/{sessionId}")
++  public QuizSessionEndResponse endSession(
++      Authentication authentication, @PathVariable Long sessionId) {
++    return quizService.endSession(resolveUserId(authentication), sessionId);
++  }
++
++  private Long resolveUserId(Authentication authentication) {
++    if (authentication == null || !(authentication.getPrincipal() instanceof Long userId)) {
++      throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
++    }
++    return userId;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/request/QuizSessionCreateRequest.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/request/QuizSessionCreateRequest.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/request/QuizSessionCreateRequest.java
+@@ -0,0 +1,11 @@
++package com.ssafy.backend.domain.learn.quiz.dto.request;
++
++import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
++import jakarta.validation.constraints.NotNull;
++import jakarta.validation.constraints.Positive;
++
++public record QuizSessionCreateRequest(
++    @NotNull Long childProfileId,
++    @NotNull Long categoryId,
++    @NotNull LearnDifficulty difficulty,
++    @NotNull @Positive Integer totalQuestionCount) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizAnswerResponse.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizAnswerResponse.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizAnswerResponse.java
+@@ -0,0 +1,13 @@
++package com.ssafy.backend.domain.learn.quiz.dto.response;
++
++public record QuizAnswerResponse(
++    Long sessionId,
++    Long questionId,
++    Long wordId,
++    String targetText,
++    String recognizedText,
++    Boolean isCorrect,
++    Integer star,
++    String feedback,
++    Boolean hasNext,
++    Integer nextQuestionNumber) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizCurrentQuestionResponse.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizCurrentQuestionResponse.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizCurrentQuestionResponse.java
+@@ -0,0 +1,9 @@
++package com.ssafy.backend.domain.learn.quiz.dto.response;
++
++public record QuizCurrentQuestionResponse(
++    Long sessionId,
++    Long questionId,
++    Long wordId,
++    Integer questionNumber,
++    Integer totalQuestionCount,
++    String imageUrl) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizResultResponse.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizResultResponse.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizResultResponse.java
+@@ -0,0 +1,20 @@
++package com.ssafy.backend.domain.learn.quiz.dto.response;
++
++import java.util.List;
++
++public record QuizResultResponse(
++    Long sessionId,
++    Integer totalQuestionCount,
++    Integer correctCount,
++    Integer totalStar,
++    List<AnswerItem> answers) {
++
++  public record AnswerItem(
++      Long questionId,
++      Long wordId,
++      String targetText,
++      String recognizedText,
++      Boolean isCorrect,
++      Integer star,
++      String feedback) {}
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizSessionCreateResponse.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizSessionCreateResponse.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizSessionCreateResponse.java
+@@ -0,0 +1,12 @@
++package com.ssafy.backend.domain.learn.quiz.dto.response;
++
++import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
++import com.ssafy.backend.domain.learn.quiz.entity.QuizSessionStatus;
++
++public record QuizSessionCreateResponse(
++    Long sessionId,
++    Long categoryId,
++    LearnDifficulty difficulty,
++    Integer totalQuestionCount,
++    Integer currentQuestionNumber,
++    QuizSessionStatus status) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizSessionEndResponse.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizSessionEndResponse.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/dto/response/QuizSessionEndResponse.java
+@@ -0,0 +1,7 @@
++package com.ssafy.backend.domain.learn.quiz.dto.response;
++
++import com.ssafy.backend.domain.learn.quiz.entity.QuizSessionStatus;
++import java.time.LocalDateTime;
++
++public record QuizSessionEndResponse(
++    Long sessionId, QuizSessionStatus status, LocalDateTime endedAt) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/entity/QuizAnswer.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/entity/QuizAnswer.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/entity/QuizAnswer.java
+@@ -0,0 +1,151 @@
++package com.ssafy.backend.domain.learn.quiz.entity;
++
++import com.ssafy.backend.domain.learn.entity.Learn;
++import jakarta.persistence.*;
++import java.time.LocalDateTime;
++
++@Entity
++@Table(name = "quiz_answers")
++public class QuizAnswer {
++
++  @Id
++  @GeneratedValue(strategy = GenerationType.IDENTITY)
++  private Long id;
++
++  @ManyToOne(fetch = FetchType.LAZY)
++  @JoinColumn(name = "session_id", nullable = false)
++  private QuizSession session;
++
++  @OneToOne(fetch = FetchType.LAZY)
++  @JoinColumn(name = "question_id", nullable = false)
++  private QuizQuestion question;
++
++  @ManyToOne(fetch = FetchType.LAZY)
++  @JoinColumn(name = "word_id", nullable = false)
++  private Learn word;
++
++  @Column(name = "target_text", nullable = false, length = 100)
++  private String targetText;
++
++  @Column(name = "recognized_text", length = 100)
++  private String recognizedText;
++
++  @Column(name = "is_correct", nullable = false)
++  private Boolean isCorrect;
++
++  @Column(nullable = false)
++  private Integer star;
++
++  @Column(length = 255)
++  private String feedback;
++
++  @Column(name = "grading_reason", length = 500)
++  private String gradingReason;
++
++  @Column private Double confidence;
++
++  @Column(name = "answered_at", nullable = false)
++  private LocalDateTime answeredAt;
++
++  protected QuizAnswer() {}
++
++  private QuizAnswer(
++      QuizSession session,
++      QuizQuestion question,
++      Learn word,
++      String targetText,
++      String recognizedText,
++      Boolean isCorrect,
++      Integer star,
++      String feedback,
++      String gradingReason,
++      Double confidence) {
++    this.session = session;
++    this.question = question;
++    this.word = word;
++    this.targetText = targetText;
++    this.recognizedText = recognizedText;
++    this.isCorrect = isCorrect;
++    this.star = star;
++    this.feedback = feedback;
++    this.gradingReason = gradingReason;
++    this.confidence = confidence;
++    this.answeredAt = LocalDateTime.now();
++  }
++
++  public static QuizAnswer create(
++      QuizSession session,
++      QuizQuestion question,
++      Learn word,
++      String targetText,
++      String recognizedText,
++      Boolean isCorrect,
++      Integer star,
++      String feedback,
++      String gradingReason,
++      Double confidence) {
++    return new QuizAnswer(
++        session,
++        question,
++        word,
++        targetText,
++        recognizedText,
++        isCorrect,
++        star,
++        feedback,
++        gradingReason,
++        confidence);
++  }
++
++  public Long getId() {
++    return id;
++  }
++
++  public QuizSession getSession() {
++    return session;
++  }
++
++  public QuizQuestion getQuestion() {
++    return question;
++  }
++
++  public Learn getWord() {
++    return word;
++  }
++
++  public String getTargetText() {
++    return targetText;
++  }
++
++  public String getRecognizedText() {
++    return recognizedText;
++  }
++
++  public Boolean getIsCorrect() {
++    return isCorrect;
++  }
++
++  public boolean isCorrect() {
++    return Boolean.TRUE.equals(isCorrect);
++  }
++
++  public Integer getStar() {
++    return star;
++  }
++
++  public String getFeedback() {
++    return feedback;
++  }
++
++  public String getGradingReason() {
++    return gradingReason;
++  }
++
++  public Double getConfidence() {
++    return confidence;
++  }
++
++  public LocalDateTime getAnsweredAt() {
++    return answeredAt;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/entity/QuizQuestion.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/entity/QuizQuestion.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/entity/QuizQuestion.java
+@@ -0,0 +1,67 @@
++package com.ssafy.backend.domain.learn.quiz.entity;
++
++import com.ssafy.backend.domain.learn.entity.Learn;
++import jakarta.persistence.*;
++
++@Entity
++@Table(name = "quiz_questions")
++public class QuizQuestion {
++
++  @Id
++  @GeneratedValue(strategy = GenerationType.IDENTITY)
++  private Long id;
++
++  @ManyToOne(fetch = FetchType.LAZY)
++  @JoinColumn(name = "session_id", nullable = false)
++  private QuizSession session;
++
++  @ManyToOne(fetch = FetchType.LAZY)
++  @JoinColumn(name = "word_id", nullable = false)
++  private Learn word;
++
++  @Column(name = "question_number", nullable = false)
++  private Integer questionNumber;
++
++  @Column(nullable = false)
++  private Boolean answered = false;
++
++  protected QuizQuestion() {}
++
++  private QuizQuestion(QuizSession session, Learn word, Integer questionNumber) {
++    this.session = session;
++    this.word = word;
++    this.questionNumber = questionNumber;
++  }
++
++  public static QuizQuestion create(QuizSession session, Learn word, Integer questionNumber) {
++    return new QuizQuestion(session, word, questionNumber);
++  }
++
++  public void markAnswered() {
++    this.answered = true;
++  }
++
++  public Long getId() {
++    return id;
++  }
++
++  public QuizSession getSession() {
++    return session;
++  }
++
++  public Learn getWord() {
++    return word;
++  }
++
++  public Integer getQuestionNumber() {
++    return questionNumber;
++  }
++
++  public Boolean getAnswered() {
++    return answered;
++  }
++
++  public boolean isAnswered() {
++    return Boolean.TRUE.equals(answered);
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/entity/QuizSession.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/entity/QuizSession.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/entity/QuizSession.java
+@@ -0,0 +1,123 @@
++package com.ssafy.backend.domain.learn.quiz.entity;
++
++import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
++import com.ssafy.backend.global.entity.BaseEntity;
++import jakarta.persistence.*;
++import java.time.LocalDateTime;
++
++@Entity
++@Table(name = "quiz_sessions")
++public class QuizSession extends BaseEntity {
++
++  @Id
++  @GeneratedValue(strategy = GenerationType.IDENTITY)
++  private Long id;
++
++  @Column(name = "child_profile_id", nullable = false)
++  private Long childProfileId;
++
++  @Column(name = "category_id", nullable = false)
++  private Long categoryId;
++
++  @Enumerated(EnumType.STRING)
++  @Column(nullable = false, length = 50)
++  private LearnDifficulty difficulty;
++
++  @Column(name = "total_question_count", nullable = false)
++  private Integer totalQuestionCount;
++
++  @Column(name = "correct_count", nullable = false)
++  private Integer correctCount = 0;
++
++  @Column(name = "total_star", nullable = false)
++  private Integer totalStar = 0;
++
++  @Enumerated(EnumType.STRING)
++  @Column(nullable = false, length = 30)
++  private QuizSessionStatus status = QuizSessionStatus.IN_PROGRESS;
++
++  @Column(name = "started_at", nullable = false)
++  private LocalDateTime startedAt;
++
++  @Column(name = "ended_at")
++  private LocalDateTime endedAt;
++
++  protected QuizSession() {}
++
++  private QuizSession(
++      Long childProfileId,
++      Long categoryId,
++      LearnDifficulty difficulty,
++      Integer totalQuestionCount) {
++    this.childProfileId = childProfileId;
++    this.categoryId = categoryId;
++    this.difficulty = difficulty;
++    this.totalQuestionCount = totalQuestionCount;
++    this.startedAt = LocalDateTime.now();
++  }
++
++  public static QuizSession create(
++      Long childProfileId,
++      Long categoryId,
++      LearnDifficulty difficulty,
++      Integer totalQuestionCount) {
++    return new QuizSession(childProfileId, categoryId, difficulty, totalQuestionCount);
++  }
++
++  public void increaseCorrectCount() {
++    this.correctCount++;
++  }
++
++  public void addStar(int star) {
++    this.totalStar += star;
++  }
++
++  public void complete() {
++    this.status = QuizSessionStatus.COMPLETED;
++    this.endedAt = LocalDateTime.now();
++  }
++
++  public boolean isCompleted() {
++    return this.status == QuizSessionStatus.COMPLETED;
++  }
++
++  public Long getId() {
++    return id;
++  }
++
++  public Long getChildProfileId() {
++    return childProfileId;
++  }
++
++  public Long getCategoryId() {
++    return categoryId;
++  }
++
++  public LearnDifficulty getDifficulty() {
++    return difficulty;
++  }
++
++  public Integer getTotalQuestionCount() {
++    return totalQuestionCount;
++  }
++
++  public Integer getCorrectCount() {
++    return correctCount;
++  }
++
++  public Integer getTotalStar() {
++    return totalStar;
++  }
++
++  public QuizSessionStatus getStatus() {
++    return status;
++  }
++
++  public LocalDateTime getStartedAt() {
++    return startedAt;
++  }
++
++  public LocalDateTime getEndedAt() {
++    return endedAt;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/entity/QuizSessionStatus.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/entity/QuizSessionStatus.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/entity/QuizSessionStatus.java
+@@ -0,0 +1,6 @@
++package com.ssafy.backend.domain.learn.quiz.entity;
++
++public enum QuizSessionStatus {
++  IN_PROGRESS,
++  COMPLETED
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/exception/QuizErrorCode.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/exception/QuizErrorCode.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/exception/QuizErrorCode.java
+@@ -0,0 +1,49 @@
++package com.ssafy.backend.domain.learn.quiz.exception;
++
++import com.ssafy.backend.global.exception.ErrorCode;
++import org.springframework.http.HttpStatus;
++
++public enum QuizErrorCode implements ErrorCode {
++  SESSION_NOT_FOUND("QUIZ_SESSION_NOT_FOUND", HttpStatus.NOT_FOUND, "퀴즈 세션을 찾을 수 없습니다."),
++  SESSION_ALREADY_COMPLETED(
++      "QUIZ_SESSION_ALREADY_COMPLETED", HttpStatus.BAD_REQUEST, "이미 종료된 퀴즈 세션입니다."),
++  NOT_ENOUGH_WORDS("QUIZ_NOT_ENOUGH_WORDS", HttpStatus.BAD_REQUEST, "조건에 맞는 퀴즈 문제가 부족합니다."),
++  NO_CURRENT_QUESTION("QUIZ_NO_CURRENT_QUESTION", HttpStatus.NOT_FOUND, "현재 풀 수 있는 문제가 없습니다."),
++  QUESTION_NOT_FOUND("QUIZ_QUESTION_NOT_FOUND", HttpStatus.NOT_FOUND, "퀴즈 문제를 찾을 수 없습니다."),
++  QUESTION_ALREADY_ANSWERED(
++      "QUIZ_QUESTION_ALREADY_ANSWERED", HttpStatus.BAD_REQUEST, "이미 답변한 문제입니다."),
++  QUESTION_NOT_IN_SESSION(
++      "QUIZ_QUESTION_NOT_IN_SESSION", HttpStatus.BAD_REQUEST, "해당 세션의 문제가 아닙니다."),
++  STT_FAILED("QUIZ_STT_FAILED", HttpStatus.BAD_GATEWAY, "음성 인식에 실패했습니다."),
++  NOT_CURRENT_QUESTION("QUIZ_NOT_CURRENT_QUESTION", HttpStatus.BAD_REQUEST, "현재 풀 차례의 문제가 아닙니다.");
++
++  private final String code;
++  private final HttpStatus httpStatus;
++  private final String message;
++
++  QuizErrorCode(String code, HttpStatus httpStatus, String message) {
++    this.code = code;
++    this.httpStatus = httpStatus;
++    this.message = message;
++  }
++
++  @Override
++  public String getCode() {
++    return code;
++  }
++
++  @Override
++  public HttpStatus getHttpStatus() {
++    return httpStatus;
++  }
++
++  @Override
++  public String getDomainTitle() {
++    return "퀴즈 오류";
++  }
++
++  @Override
++  public String getMessage() {
++    return message;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/repository/QuizAnswerRepository.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/repository/QuizAnswerRepository.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/repository/QuizAnswerRepository.java
+@@ -0,0 +1,15 @@
++package com.ssafy.backend.domain.learn.quiz.repository;
++
++import com.ssafy.backend.domain.learn.quiz.entity.QuizAnswer;
++import java.util.List;
++import java.util.Optional;
++import org.springframework.data.jpa.repository.JpaRepository;
++
++public interface QuizAnswerRepository extends JpaRepository<QuizAnswer, Long> {
++
++  List<QuizAnswer> findBySessionIdOrderByQuestionQuestionNumberAsc(Long sessionId);
++
++  Optional<QuizAnswer> findByQuestionId(Long questionId);
++
++  boolean existsByQuestionId(Long questionId);
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/repository/QuizQuestionRepository.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/repository/QuizQuestionRepository.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/repository/QuizQuestionRepository.java
+@@ -0,0 +1,16 @@
++package com.ssafy.backend.domain.learn.quiz.repository;
++
++import com.ssafy.backend.domain.learn.quiz.entity.QuizQuestion;
++import java.util.List;
++import java.util.Optional;
++import org.springframework.data.jpa.repository.JpaRepository;
++
++public interface QuizQuestionRepository extends JpaRepository<QuizQuestion, Long> {
++
++  Optional<QuizQuestion> findFirstBySessionIdAndAnsweredFalseOrderByQuestionNumberAsc(
++      Long sessionId);
++
++  boolean existsBySessionIdAndAnsweredFalse(Long sessionId);
++
++  List<QuizQuestion> findBySessionIdOrderByQuestionNumberAsc(Long sessionId);
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/repository/QuizSessionRepository.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/repository/QuizSessionRepository.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/repository/QuizSessionRepository.java
+@@ -0,0 +1,6 @@
++package com.ssafy.backend.domain.learn.quiz.repository;
++
++import com.ssafy.backend.domain.learn.quiz.entity.QuizSession;
++import org.springframework.data.jpa.repository.JpaRepository;
++
++public interface QuizSessionRepository extends JpaRepository<QuizSession, Long> {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizGrade.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizGrade.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizGrade.java
+@@ -0,0 +1,4 @@
++package com.ssafy.backend.domain.learn.quiz.service;
++
++public record QuizGrade(
++    boolean isCorrect, int star, String feedback, String reason, double confidence) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizGradingService.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizGradingService.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizGradingService.java
+@@ -0,0 +1,76 @@
++package com.ssafy.backend.domain.learn.quiz.service;
++
++import org.springframework.stereotype.Service;
++
++@Service
++public class QuizGradingService {
++
++  public QuizGrade grade(String targetText, String recognizedText) {
++    String target = normalize(targetText);
++    String recognized = normalize(recognizedText);
++
++    if (target.isBlank() || recognized.isBlank()) {
++      return new QuizGrade(false, 1, "다시 한번 연습해봐요!", "인식된 텍스트 없음", 0.0);
++    }
++
++    if (target.equals(recognized)) {
++      return new QuizGrade(true, 3, "정확하게 말했어요!", "완전 일치", 1.0);
++    }
++
++    double similarity = calculateSimilarity(target, recognized);
++
++    if (similarity >= 0.85) {
++      return new QuizGrade(true, 3, "정확하게 말했어요!", "높은 유사도", similarity);
++    }
++
++    if (similarity >= 0.5) {
++      return new QuizGrade(true, 2, "조금 아쉽지만 잘했어요!", "부분 유사", similarity);
++    }
++
++    return new QuizGrade(false, 1, "다시 한번 연습해봐요!", "낮은 유사도", similarity);
++  }
++
++  private String normalize(String text) {
++    if (text == null) {
++      return "";
++    }
++
++    return text.trim().replaceAll("\\s+", "").replaceAll("[^가-힣a-zA-Z0-9]", "").toLowerCase();
++  }
++
++  private double calculateSimilarity(String source, String target) {
++    int maxLength = Math.max(source.length(), target.length());
++
++    if (maxLength == 0) {
++      return 1.0;
++    }
++
++    int distance = levenshteinDistance(source, target);
++    return 1.0 - ((double) distance / maxLength);
++  }
++
++  private int levenshteinDistance(String source, String target) {
++    int sourceLength = source.length();
++    int targetLength = target.length();
++
++    int[][] dp = new int[sourceLength + 1][targetLength + 1];
++
++    for (int i = 0; i <= sourceLength; i++) {
++      dp[i][0] = i;
++    }
++
++    for (int j = 0; j <= targetLength; j++) {
++      dp[0][j] = j;
++    }
++
++    for (int i = 1; i <= sourceLength; i++) {
++      for (int j = 1; j <= targetLength; j++) {
++        int cost = source.charAt(i - 1) == target.charAt(j - 1) ? 0 : 1;
++
++        dp[i][j] = Math.min(Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1), dp[i - 1][j - 1] + cost);
++      }
++    }
++
++    return dp[sourceLength][targetLength];
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizService.java b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizService.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/quiz/service/QuizService.java
+@@ -0,0 +1,320 @@
++package com.ssafy.backend.domain.learn.quiz.service;
++
++import com.ssafy.backend.domain.child.exception.ChildProfileErrorCode;
++import com.ssafy.backend.domain.child.repository.ChildProfileRepository;
++import com.ssafy.backend.domain.comms.service.ClovaSttClient;
++import com.ssafy.backend.domain.learn.entity.Learn;
++import com.ssafy.backend.domain.learn.quiz.dto.request.QuizSessionCreateRequest;
++import com.ssafy.backend.domain.learn.quiz.dto.response.QuizAnswerResponse;
++import com.ssafy.backend.domain.learn.quiz.dto.response.QuizCurrentQuestionResponse;
++import com.ssafy.backend.domain.learn.quiz.dto.response.QuizResultResponse;
++import com.ssafy.backend.domain.learn.quiz.dto.response.QuizSessionCreateResponse;
++import com.ssafy.backend.domain.learn.quiz.dto.response.QuizSessionEndResponse;
++import com.ssafy.backend.domain.learn.quiz.entity.QuizAnswer;
++import com.ssafy.backend.domain.learn.quiz.entity.QuizQuestion;
++import com.ssafy.backend.domain.learn.quiz.entity.QuizSession;
++import com.ssafy.backend.domain.learn.quiz.exception.QuizErrorCode;
++import com.ssafy.backend.domain.learn.quiz.repository.QuizAnswerRepository;
++import com.ssafy.backend.domain.learn.quiz.repository.QuizQuestionRepository;
++import com.ssafy.backend.domain.learn.quiz.repository.QuizSessionRepository;
++import com.ssafy.backend.domain.learn.repository.LearnRepository;
++import com.ssafy.backend.global.exception.BusinessException;
++import java.util.List;
++import org.springframework.stereotype.Service;
++import org.springframework.transaction.annotation.Transactional;
++import org.springframework.web.multipart.MultipartFile;
++
++@Service
++public class QuizService {
++
++  private static final String DEFAULT_LOCALE = "ko-KR";
++  private static final String DEFAULT_AUDIO_MIME_TYPE = "audio/mpeg";
++
++  private final QuizSessionRepository quizSessionRepository;
++  private final QuizQuestionRepository quizQuestionRepository;
++  private final QuizAnswerRepository quizAnswerRepository;
++  private final LearnRepository learnRepository;
++  private final ChildProfileRepository childProfileRepository;
++  private final ClovaSttClient clovaSttClient;
++  private final QuizGradingService quizGradingService;
++
++  public QuizService(
++      QuizSessionRepository quizSessionRepository,
++      QuizQuestionRepository quizQuestionRepository,
++      QuizAnswerRepository quizAnswerRepository,
++      LearnRepository learnRepository,
++      ChildProfileRepository childProfileRepository,
++      ClovaSttClient clovaSttClient,
++      QuizGradingService quizGradingService) {
++    this.quizSessionRepository = quizSessionRepository;
++    this.quizQuestionRepository = quizQuestionRepository;
++    this.quizAnswerRepository = quizAnswerRepository;
++    this.learnRepository = learnRepository;
++    this.childProfileRepository = childProfileRepository;
++    this.clovaSttClient = clovaSttClient;
++    this.quizGradingService = quizGradingService;
++  }
++
++  @Transactional
++  public QuizSessionCreateResponse createSession(Long userId, QuizSessionCreateRequest request) {
++    validateChildProfileOwner(request.childProfileId(), userId);
++
++    List<Learn> words =
++        learnRepository.findRandomQuizWordsByCategoryAndDifficulty(
++            request.categoryId(), request.difficulty().name(), request.totalQuestionCount());
++
++    if (words.size() < request.totalQuestionCount()) {
++      throw new BusinessException(QuizErrorCode.NOT_ENOUGH_WORDS);
++    }
++
++    QuizSession session =
++        QuizSession.create(
++            request.childProfileId(),
++            request.categoryId(),
++            request.difficulty(),
++            request.totalQuestionCount());
++
++    quizSessionRepository.save(session);
++
++    for (int i = 0; i < words.size(); i++) {
++      QuizQuestion question = QuizQuestion.create(session, words.get(i), i + 1);
++      quizQuestionRepository.save(question);
++    }
++
++    return new QuizSessionCreateResponse(
++        session.getId(),
++        session.getCategoryId(),
++        session.getDifficulty(),
++        session.getTotalQuestionCount(),
++        1,
++        session.getStatus());
++  }
++
++  @Transactional(readOnly = true)
++  public QuizCurrentQuestionResponse getCurrentQuestion(Long userId, Long sessionId) {
++    QuizSession session = getOwnedSession(sessionId, userId);
++
++    if (session.isCompleted()) {
++      throw new BusinessException(QuizErrorCode.SESSION_ALREADY_COMPLETED);
++    }
++
++    QuizQuestion question =
++        quizQuestionRepository
++            .findFirstBySessionIdAndAnsweredFalseOrderByQuestionNumberAsc(sessionId)
++            .orElseThrow(() -> new BusinessException(QuizErrorCode.NO_CURRENT_QUESTION));
++
++    Learn word = question.getWord();
++
++    return new QuizCurrentQuestionResponse(
++        session.getId(),
++        question.getId(),
++        word.getId(),
++        question.getQuestionNumber(),
++        session.getTotalQuestionCount(),
++        word.getImageUrl());
++  }
++
++  @Transactional
++  public QuizAnswerResponse submitAnswer(
++      Long userId, Long sessionId, Long questionId, MultipartFile audioFile) {
++    QuizSession session = getOwnedSession(sessionId, userId);
++
++    if (session.isCompleted()) {
++      throw new BusinessException(QuizErrorCode.SESSION_ALREADY_COMPLETED);
++    }
++
++    QuizQuestion question =
++        quizQuestionRepository
++            .findById(questionId)
++            .orElseThrow(() -> new BusinessException(QuizErrorCode.QUESTION_NOT_FOUND));
++
++    validateQuestionBelongsToSession(question, sessionId);
++
++    if (question.isAnswered() || quizAnswerRepository.existsByQuestionId(questionId)) {
++      throw new BusinessException(QuizErrorCode.QUESTION_ALREADY_ANSWERED);
++    }
++
++    validateCurrentQuestion(question, sessionId);
++
++    String recognizedText = transcribe(audioFile);
++
++    Learn word = question.getWord();
++    String targetText = word.getDisplayText();
++
++    QuizGrade grade = quizGradingService.grade(targetText, recognizedText);
++
++    QuizAnswer answer =
++        QuizAnswer.create(
++            session,
++            question,
++            word,
++            targetText,
++            recognizedText,
++            grade.isCorrect(),
++            grade.star(),
++            grade.feedback(),
++            grade.reason(),
++            grade.confidence());
++
++    quizAnswerRepository.save(answer);
++
++    question.markAnswered();
++
++    if (grade.isCorrect()) {
++      session.increaseCorrectCount();
++    }
++
++    session.addStar(grade.star());
++
++    boolean hasNext = quizQuestionRepository.existsBySessionIdAndAnsweredFalse(sessionId);
++
++    Integer nextQuestionNumber = hasNext ? getNextQuestionNumber(sessionId) : null;
++
++    if (!hasNext) {
++      session.complete();
++    }
++
++    return new QuizAnswerResponse(
++        session.getId(),
++        question.getId(),
++        word.getId(),
++        targetText,
++        recognizedText,
++        grade.isCorrect(),
++        grade.star(),
++        grade.feedback(),
++        hasNext,
++        nextQuestionNumber);
++  }
++
++  @Transactional(readOnly = true)
++  public QuizResultResponse getResult(Long userId, Long sessionId) {
++    QuizSession session = getOwnedSession(sessionId, userId);
++
++    List<QuizResultResponse.AnswerItem> answers =
++        quizAnswerRepository.findBySessionIdOrderByQuestionQuestionNumberAsc(sessionId).stream()
++            .map(
++                answer ->
++                    new QuizResultResponse.AnswerItem(
++                        answer.getQuestion().getId(),
++                        answer.getWord().getId(),
++                        answer.getTargetText(),
++                        answer.getRecognizedText(),
++                        answer.isCorrect(),
++                        answer.getStar(),
++                        answer.getFeedback()))
++            .toList();
++
++    return new QuizResultResponse(
++        session.getId(),
++        session.getTotalQuestionCount(),
++        session.getCorrectCount(),
++        session.getTotalStar(),
++        answers);
++  }
++
++  @Transactional
++  public QuizSessionEndResponse endSession(Long userId, Long sessionId) {
++    QuizSession session = getOwnedSession(sessionId, userId);
++
++    if (!session.isCompleted()) {
++      session.complete();
++    }
++
++    return new QuizSessionEndResponse(session.getId(), session.getStatus(), session.getEndedAt());
++  }
++
++  private QuizSession getSession(Long sessionId) {
++    return quizSessionRepository
++        .findById(sessionId)
++        .orElseThrow(() -> new BusinessException(QuizErrorCode.SESSION_NOT_FOUND));
++  }
++
++  private QuizSession getOwnedSession(Long sessionId, Long userId) {
++    QuizSession session = getSession(sessionId);
++    validateChildProfileOwner(session.getChildProfileId(), userId);
++    return session;
++  }
++
++  private void validateChildProfileOwner(Long childProfileId, Long userId) {
++    childProfileRepository
++        .findByIdAndUserIdAndActiveTrue(childProfileId, userId)
++        .orElseThrow(() -> new BusinessException(ChildProfileErrorCode.NOT_FOUND));
++  }
++
++  private void validateQuestionBelongsToSession(QuizQuestion question, Long sessionId) {
++    if (!question.getSession().getId().equals(sessionId)) {
++      throw new BusinessException(QuizErrorCode.QUESTION_NOT_IN_SESSION);
++    }
++  }
++
++  private void validateCurrentQuestion(QuizQuestion submittedQuestion, Long sessionId) {
++    QuizQuestion currentQuestion =
++        quizQuestionRepository
++            .findFirstBySessionIdAndAnsweredFalseOrderByQuestionNumberAsc(sessionId)
++            .orElseThrow(() -> new BusinessException(QuizErrorCode.NO_CURRENT_QUESTION));
++
++    if (!currentQuestion.getId().equals(submittedQuestion.getId())) {
++      throw new BusinessException(QuizErrorCode.NOT_CURRENT_QUESTION);
++    }
++  }
++
++  private String transcribe(MultipartFile audioFile) {
++    try {
++      String audioMimeType = resolveAudioMimeType(audioFile);
++
++      return clovaSttClient.transcribe(audioFile, DEFAULT_LOCALE, audioMimeType);
++    } catch (RuntimeException e) {
++      throw new BusinessException(QuizErrorCode.STT_FAILED);
++    }
++  }
++
++  private String resolveAudioMimeType(MultipartFile audioFile) {
++    String contentType = audioFile.getContentType();
++
++    if (contentType != null
++        && !contentType.isBlank()
++        && !"application/octet-stream".equals(contentType)) {
++      return contentType;
++    }
++
++    return guessMimeType(audioFile.getOriginalFilename());
++  }
++
++  private String guessMimeType(String filename) {
++    if (filename == null || filename.isBlank()) {
++      return DEFAULT_AUDIO_MIME_TYPE;
++    }
++
++    String lowerFilename = filename.toLowerCase();
++
++    if (lowerFilename.endsWith(".mp3")) {
++      return "audio/mpeg";
++    }
++
++    if (lowerFilename.endsWith(".wav")) {
++      return "audio/wav";
++    }
++
++    if (lowerFilename.endsWith(".m4a")) {
++      return "audio/mp4";
++    }
++
++    if (lowerFilename.endsWith(".webm")) {
++      return "audio/webm";
++    }
++
++    if (lowerFilename.endsWith(".ogg")) {
++      return "audio/ogg";
++    }
++
++    return DEFAULT_AUDIO_MIME_TYPE;
++  }
++
++  private Integer getNextQuestionNumber(Long sessionId) {
++    return quizQuestionRepository
++        .findFirstBySessionIdAndAnsweredFalseOrderByQuestionNumberAsc(sessionId)
++        .map(QuizQuestion::getQuestionNumber)
++        .orElse(null);
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/repository/LearnRepository.java b/backend/src/main/java/com/ssafy/backend/domain/learn/repository/LearnRepository.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/repository/LearnRepository.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/repository/LearnRepository.java
+@@ -8,19 +8,38 @@ import org.springframework.data.repository.query.Param;
+ 
+ public interface LearnRepository extends JpaRepository<Learn, Long> {
+ 
++  // 단어장용: 고정 순서
+   @Query(
+       value =
+           """
+-      SELECT *
+-      FROM learn
+-      WHERE category_id = :categoryId
+-        AND difficulty = :difficulty
+-        AND active = true
+-      ORDER BY sort_order ASC, id ASC
+-      LIMIT :limit
+-      """,
++            SELECT *
++            FROM learn
++            WHERE category_id = :categoryId
++              AND difficulty = :difficulty
++              AND active = true
++            ORDER BY sort_order ASC, id ASC
++            LIMIT :limit
++            """,
+       nativeQuery = true)
+-  List<Learn> findRandomWordsByCategoryAndDifficulty(
++  List<Learn> findWordsByCategoryAndDifficultyOrderBySortOrder(
++      @Param("categoryId") Long categoryId,
++      @Param("difficulty") String difficulty,
++      @Param("limit") int limit);
++
++  // 퀴즈용: 랜덤 순서
++  @Query(
++      value =
++          """
++            SELECT *
++            FROM learn
++            WHERE category_id = :categoryId
++              AND difficulty = :difficulty
++              AND active = true
++            ORDER BY RANDOM()
++            LIMIT :limit
++            """,
++      nativeQuery = true)
++  List<Learn> findRandomQuizWordsByCategoryAndDifficulty(
+       @Param("categoryId") Long categoryId,
+       @Param("difficulty") String difficulty,
+       @Param("limit") int limit);
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/service/LearnService.java b/backend/src/main/java/com/ssafy/backend/domain/learn/service/LearnService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/service/LearnService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/service/LearnService.java
+@@ -54,7 +54,7 @@ public class LearnService {
+   public LearnWordListResponse getWords(Long categoryId, LearnDifficulty difficulty) {
+     return new LearnWordListResponse(
+         learnRepository
+-            .findRandomWordsByCategoryAndDifficulty(
++            .findWordsByCategoryAndDifficultyOrderBySortOrder(
+                 categoryId, difficulty.name(), DEFAULT_WORD_COUNT)
+             .stream()
+             .map(
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260507140000__drop_attempt_count_from_quiz_answers.sql b/backend/src/main/resources/db/migration/V20260507140000__drop_attempt_count_from_quiz_answers.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260507140000__drop_attempt_count_from_quiz_answers.sql
+@@ -0,0 +1,2 @@
++ALTER TABLE quiz_answers
++  DROP COLUMN IF EXISTS attempt_count;
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260507153400__add_audit_columns_to_quiz_tables.sql b/backend/src/main/resources/db/migration/V20260507153400__add_audit_columns_to_quiz_tables.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260507153400__add_audit_columns_to_quiz_tables.sql
+@@ -0,0 +1,3 @@
++ALTER TABLE quiz_sessions
++  ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+

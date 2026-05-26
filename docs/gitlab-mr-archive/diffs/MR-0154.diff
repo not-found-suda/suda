@@ -1,0 +1,5765 @@
+﻿diff --git a/docs/sign-word-spotter-mobile-feature-notes.md b/docs/sign-word-spotter-mobile-feature-notes.md
+--- /dev/null
++++ b/docs/sign-word-spotter-mobile-feature-notes.md
+@@ -0,0 +1,327 @@
++# Sign Word Spotter Mobile Feature Investigation
++
++작성일: 2026-05-11
++
++## 배경
++
++수어 단어 감지 모델을 `sen_word_variant_spotter_bg3_allviews_win16_fixed30.tflite`로 교체한 뒤, 서버 검증에서는 성능이 괜찮아 보였지만 모바일 앱 리플레이에서는 `WS: -`가 나오는 문제가 있었다.
++
++초기 모바일 로그에서는 `가다`가 후보로 나오더라도 score/margin이 현재 앱 threshold를 통과하지 못했다.
++
++```text
++WordSpotting raw frames=37 windows=17
++rawTop=가다@16-32 s=0.815 m=0.671 2=<background>:0.144 ...
++accepted=-
++```
++
++당시 앱 threshold:
++
++```text
++score >= 0.992
++margin >= 0.95
++```
++
++## 사용한 주요 모델/데이터
++
++- PyTorch 모델:
++  - `~/Son/mobile-ai/artifacts/sen_word_variant_spotter_bg3_allviews_win16.pt`
++- TFLite 모델:
++  - `~/Son/final_models/sen_word_variant_spotter_bg3_allviews_win16_fixed30.tflite`
++  - 앱 asset: `mobile/app/src/main/assets/models/sen_word_variant_spotter_bg3_allviews_win16_fixed30.tflite`
++- Label map:
++  - `~/Son/final_models/label_map_sen_word_variant_spotter_bg3_allviews_win16.json`
++  - 앱 asset: `mobile/app/src/main/assets/models/label_map_sen_word_variant_spotter_bg3_allviews_win16.json`
++- 기존 서버 feature:
++  - `~/Son/full-word/features_332`
++- 새 tasks backend feature 후보:
++  - `~/Son/full-word/features_332_tasks`
++
++## 확인한 사실
++
++### 1. 모바일 TFLite 실행 자체는 정상
++
++앱에서 리플레이 후 실제 모바일 feature CSV를 저장하도록 디버그 기능을 추가했다.
++
++저장 위치:
++
++```text
++/sdcard/Download/S14P31A404-debug/
++```
++
++예시:
++
++```text
++Download/S14P31A404-debug/sign_replay_features_8678_1778480149921.csv
++```
++
++이 CSV를 서버로 옮긴 뒤 같은 TFLite 모델에 넣었더니 모바일 로그와 동일한 결과가 재현됐다.
++
++```text
++016-032 가다:0.815 | <background>:0.144 | 불가능:0.022
++004-020 빨리:0.811 | 불량:0.116 | 얼마:0.067
++```
++
++따라서 다음은 정상으로 판단했다.
++
++- 앱의 TFLite 모델 로딩
++- 앱의 label map 해석
++- 앱의 TFLite inference
++- 서버에서 TFLite를 호출하는 방식
++
++### 2. 서버 PyTorch 결과와 모바일 TFLite 결과는 직접 비교하면 안 됨
++
++서버에서 처음 비교했던 `가다:0.999` 결과는 PyTorch GRU 모델 기준이었다.
++
++```text
++server feature + PyTorch GRU => 가다:0.999
++mobile feature + TFLite Conv1D => 가다:0.815
++```
++
++서로 다른 모델이므로 score 분포를 직접 비교하면 안 된다.
++
++### 3. 기존 서버 `solutions` feature는 모바일 feature와 많이 다름
++
++같은 TFLite 모델로 `가다_right1`을 비교했을 때:
++
++```text
++solutions feature:
++000-016 얼마:0.999
++012-028 기차:0.952 | 가다:0.028
++
++mobile CSV feature:
++016-032 가다:0.815 | <background>:0.144
++```
++
++즉 기존 Python MediaPipe `solutions` backend로 만든 feature는 모바일 앱에서 실제 생성되는 feature와 분포 차이가 크다.
++
++### 4. 서버 `tasks` backend는 `solutions`보다 모바일에 가까움
++
++서버에서 `holistic_landmarker.task`를 사용한 `tasks` backend 추출을 시도했다. 처음에는 다음 에러가 발생했다.
++
++```text
++libGLESv2.so.2: cannot open shared object file
++```
++
++해결:
++
++```bash
++conda install -c conda-forge -y libglvnd libegl libgles
++export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:$LD_LIBRARY_PATH"
++```
++
++이후 `tasks` backend 추출 성공.
++
++4개 테스트 영상 비교 결과:
++
++```text
++== 가다_right1 ==
++solutions: 얼마/기차로 강하게 틀어짐
++tasks:     012-028 가다:0.648 top1
++mobile:    016-032 가다:0.815 top1
++
++== 가다_right2 ==
++solutions: 기차/얼마로 강하게 틀어짐
++tasks:     016-032 가다:0.806, 단 빨리:0.855도 높음
++
++== 가다_left1 ==
++tasks: background/없다 쪽
++
++== 가다_left2 ==
++tasks: 없다/background 쪽
++```
++
++해석:
++
++- `tasks`는 `solutions`보다 모바일 feature 동작에 훨씬 가까움
++- 오른손 `가다`에서 `가다`를 의미 있는 후보로 올림
++- 왼손 `가다`에서는 `가다`가 강하게 뜨지 않음
++- 하지만 Android 모바일 feature와 100% 동일하지는 않음
++
++## 현재 결론
++
++가장 직접적인 문제:
++
++```text
++학습/검증에 사용한 서버 feature 분포와 앱에서 실제 생성되는 모바일 feature 분포가 다르다.
++```
++
++앱에서 `WS: -`가 나온 직접 원인:
++
++```text
++모바일 feature 기준 TFLite score가 0.8대인데, 앱 threshold가 0.992/0.95로 너무 높다.
++```
++
++근본적인 개선 방향:
++
++```text
++서버 feature를 solutions가 아니라 tasks backend로 다시 추출하고,
++그 feature로 TFLite를 재학습한 뒤,
++모바일 CSV 기준으로 threshold를 다시 잡는다.
++```
++
++## 진행 중인 작업
++
++`mvp_21_word_allviews_manifest_valid.csv` 기준 WORD allviews feature를 `tasks` backend로 재추출 중이다.
++
++출력 폴더:
++
++```text
++~/Son/full-word/features_332_tasks
++```
++
++8분할 병렬 실행 중이며, 리소스 상태는 양호했다.
++
++관측 속도:
++
++```text
++134 -> 179 files / 1 minute
++약 45 files/min
++```
++
++예상 총 소요:
++
++```text
++약 50~65분
++```
++
++진행률 확인 스크립트:
++
++```bash
++cd ~/Son
++
++python - <<'PY'
++import csv
++from pathlib import Path
++from collections import Counter
++
++manifest = Path("mobile-ai/data/mvp_21_word_allviews_manifest_valid.csv")
++feature_root = Path("full-word/features_332_tasks")
++feature_stems = {p.stem for p in feature_root.rglob("*.npy")}
++
++done = []
++missing = []
++
++with manifest.open("r", encoding="utf-8-sig", newline="") as f:
++    rows = list(csv.DictReader(f))
++
++for r in rows:
++    stem = Path(r["video_name"]).stem
++    if stem in feature_stems:
++        done.append(r)
++    else:
++        missing.append(r)
++
++print(f"done={len(done)}/{len(rows)}")
++print(f"missing={len(missing)}")
++print("done_by_view", Counter(Path(r["video_name"]).stem.split("_")[-1] for r in done))
++print("missing_by_view", Counter(Path(r["video_name"]).stem.split("_")[-1] for r in missing))
++PY
++```
++
++## 다음 단계
++
++### 1. tasks feature 추출 완료 확인
++
++`~/Son/full-word/features_332_tasks`가 manifest 기준으로 모두 채워졌는지 확인한다.
++
++### 2. 새 manifest 생성
++
++```bash
++conda activate mobile-ai
++cd ~/Son
++
++python mobile-ai/src/build_sen_word_variant_spotter_manifest.py \
++  --sen-window-manifest ~/Son/mvp-v3-24-rich/sen_window_spotter_bg3_win16/sen_window_spotter_manifest.csv \
++  --word-manifest ~/Son/mobile-ai/data/mvp_21_word_allviews_manifest_valid.csv \
++  --word-feature-root ~/Son/full-word/features_332_tasks \
++  --output-root ~/Son/mvp-v3-24-rich/sen_word_variant_spotter_bg3_tasks_allviews_win16 \
++  --max-word-per-label 60 \
++  --word-window-frames 16,20,24,32,40,52,64 \
++  --word-window-stride 4 \
++  --word-positive-min-coverage 0.60 \
++  --word-positive-min-purity 0.25 \
++  --max-word-windows-per-clip 8 \
++  --overwrite
++```
++
++### 3. TFLite 재학습
++
++`mobile-ai-tf` 환경에서 GPU 사용:
++
++```bash
++conda activate mobile-ai-tf
++cd ~/Son
++
++export TF_ENABLE_ONEDNN_OPTS=0
++export CUDA_DEVICE_ORDER=PCI_BUS_ID
++export CUDA_VISIBLE_DEVICES=1
++
++python mobile-ai/src/train_tflite_intent_classifier.py \
++  --manifest ~/Son/mvp-v3-24-rich/sen_word_variant_spotter_bg3_tasks_allviews_win16/sen_word_variant_spotter_manifest.csv \
++  --output ~/Son/final_models/sen_word_variant_spotter_bg3_tasks_allviews_win16_fixed30.tflite \
++  --label-map ~/Son/final_models/label_map_sen_word_variant_spotter_bg3_tasks_allviews_win16.json \
++  --keras-output ~/Son/final_models/sen_word_variant_spotter_bg3_tasks_allviews_win16_fixed30.keras \
++  --epochs 80 \
++  --batch-size 64
++```
++
++### 4. 모바일 CSV 기준 검증
++
++재학습된 TFLite를 모바일 CSV feature에 넣어서 `가다_right1/right2`의 score가 기존보다 좋아지는지 확인한다.
++
++기존 모바일 CSV 기준:
++
++```text
++가다_right1: 가다 0.815
++```
++
++새 모델에서 기대하는 방향:
++
++```text
++가다 score 상승
++빨리/기차/얼마 false positive 감소
++```
++
++### 5. 앱 threshold 재보정
++
++최종 threshold는 서버 validation이 아니라 모바일 CSV 및 앱 리플레이 기준으로 결정한다.
++
++현재 후보 시작점:
++
++```text
++score_threshold: 0.70 ~ 0.80
++margin_threshold: 0.50 ~ 0.60
++```
++
++단, false positive를 함께 확인해야 한다.
++
++## 앱에 추가된 디버그 기능
++
++### 분석 프레임 MP4 녹화
++
++디버그 화면에서 분석 프레임을 MP4로 저장할 수 있다.
++
++저장 위치:
++
++```text
++Movies/S14P31A404-debug/
++```
++
++### 리플레이 feature CSV 저장
++
++리플레이가 끝나면 앱이 실제 TFLite에 들어가는 feature sequence를 CSV로 저장한다.
++
++저장 위치:
++
++```text
++Download/S14P31A404-debug/
++```
++
++로그 예시:
++
++```text
++SignReplay D FEATURE_CSV saved=Download/S14P31A404-debug/sign_replay_features_8678_1778480149921.csv
++```
++
++이 CSV는 특정 기기에서 실제 앱이 생성한 feature이므로, 모바일 동작 재현의 기준 데이터로 사용한다.
++
+
+
+diff --git a/mobile/app/schemas/com.ssafy.mobile.feature.sample.data.local.db.SampleDatabase/1.json b/mobile/app/schemas/com.ssafy.mobile.feature.sample.data.local.db.SampleDatabase/1.json
+--- /dev/null
++++ b/mobile/app/schemas/com.ssafy.mobile.feature.sample.data.local.db.SampleDatabase/1.json
+@@ -0,0 +1,55 @@
++{
++  "formatVersion": 1,
++  "database": {
++    "version": 1,
++    "identityHash": "ce5f3c963840e3127b947437b014b6e4",
++    "entities": [
++      {
++        "tableName": "sample_todo",
++        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `userId` INTEGER NOT NULL, `title` TEXT NOT NULL, `completed` INTEGER NOT NULL, `savedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
++        "fields": [
++          {
++            "fieldPath": "id",
++            "columnName": "id",
++            "affinity": "INTEGER",
++            "notNull": true
++          },
++          {
++            "fieldPath": "userId",
++            "columnName": "userId",
++            "affinity": "INTEGER",
++            "notNull": true
++          },
++          {
++            "fieldPath": "title",
++            "columnName": "title",
++            "affinity": "TEXT",
++            "notNull": true
++          },
++          {
++            "fieldPath": "completed",
++            "columnName": "completed",
++            "affinity": "INTEGER",
++            "notNull": true
++          },
++          {
++            "fieldPath": "savedAt",
++            "columnName": "savedAt",
++            "affinity": "INTEGER",
++            "notNull": true
++          }
++        ],
++        "primaryKey": {
++          "autoGenerate": false,
++          "columnNames": [
++            "id"
++          ]
++        }
++      }
++    ],
++    "setupQueries": [
++      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
++      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ce5f3c963840e3127b947437b014b6e4')"
++    ]
++  }
++}
+\ No newline at end of file
+
+
+diff --git a/mobile/app/src/main/assets/models/label_map.json b/mobile/app/src/main/assets/models/label_map.json
+--- a/mobile/app/src/main/assets/models/label_map.json
++++ /dev/null
+@@ -1,92 +0,0 @@
+-{
+-    "0": "none",
+-    "1": "가다",
+-    "2": "가족",
+-    "3": "감사",
+-    "4": "강아지",
+-    "5": "걷다",
+-    "6": "고조할아버지",
+-    "7": "국그릇",
+-    "8": "귀엽다",
+-    "9": "기차",
+-    "10": "꿈",
+-    "11": "나",
+-    "12": "놀다",
+-    "13": "누나",
+-    "14": "눈",
+-    "15": "덥다",
+-    "16": "돕다",
+-    "17": "따뜻하다",
+-    "18": "딸",
+-    "19": "딸기",
+-    "20": "뜨겁다",
+-    "21": "맞다",
+-    "22": "목마르다",
+-    "23": "무섭다",
+-    "24": "바다",
+-    "25": "바람",
+-    "26": "밥",
+-    "27": "밥그릇",
+-    "28": "배고프다",
+-    "29": "배부르다",
+-    "30": "병원",
+-    "31": "비",
+-    "32": "뽀뽀",
+-    "33": "사과",
+-    "34": "새",
+-    "35": "서다",
+-    "36": "세수",
+-    "37": "세수대야",
+-    "38": "슬프다",
+-    "39": "시원하다",
+-    "40": "아기",
+-    "41": "아들딸",
+-    "42": "아프다",
+-    "43": "안다",
+-    "44": "앞서가다",
+-    "45": "양치",
+-    "46": "어떻게",
+-    "47": "얻어먹다",
+-    "48": "엄마",
+-    "49": "여동생",
+-    "50": "예쁘다",
+-    "51": "오다",
+-    "52": "오빠",
+-    "53": "오줌",
+-    "54": "외아들",
+-    "55": "외할머니",
+-    "56": "외할아버지",
+-    "57": "우유",
+-    "58": "유리그릇",
+-    "59": "의사",
+-    "60": "일어나다",
+-    "61": "자다",
+-    "62": "작은아빠",
+-    "63": "작은엄마",
+-    "64": "작은할아버지",
+-    "65": "잠자다",
+-    "66": "장난감",
+-    "67": "저",
+-    "68": "전화번호",
+-    "69": "조심",
+-    "70": "졸리다",
+-    "71": "좋다",
+-    "72": "즐겁다",
+-    "73": "춥다",
+-    "74": "치과의사",
+-    "75": "치약",
+-    "76": "친가족",
+-    "77": "친구",
+-    "78": "친아들",
+-    "79": "칼국수",
+-    "80": "큰언니",
+-    "81": "피곤하다",
+-    "82": "하늘",
+-    "83": "할머니",
+-    "84": "할아버지",
+-    "85": "행복",
+-    "86": "형",
+-    "87": "화나다",
+-    "88": "흙",
+-    "89": "힘들다"
+-}
+\ No newline at end of file
+
+
+diff --git a/mobile/app/src/main/assets/models/label_map_v5_1.json b/mobile/app/src/main/assets/models/label_map_v5_1.json
+--- a/mobile/app/src/main/assets/models/label_map_v5_1.json
++++ /dev/null
+@@ -1,9 +0,0 @@
+-{
+-    "0": "기차",
+-    "1": "장난감",
+-    "2": "놀다",
+-    "3": "가다",
+-    "4": "일어나다",
+-    "5": "병원",
+-    "6": "조심"
+-}
+\ No newline at end of file
+
+
+diff --git a/mobile/app/src/main/assets/models/label_map_v6.json b/mobile/app/src/main/assets/models/label_map_v6.json
+--- /dev/null
++++ b/mobile/app/src/main/assets/models/label_map_v6.json
+@@ -0,0 +1,25 @@
++{
++    "0": "걷다",
++    "1": "가다",
++    "2": "주다",
++    "3": "돕다",
++    "4": "배고프다",
++    "5": "아기",
++    "6": "좋다",
++    "7": "싫다",
++    "8": "감기",
++    "9": "기차",
++    "10": "놀다",
++    "11": "목마르다",
++    "12": "무섭다",
++    "13": "밥",
++    "14": "손",
++    "15": "아프다",
++    "16": "웃다",
++    "17": "장난감",
++    "18": "조심",
++    "19": "병원",
++    "20": "엄마",
++    "21": "감사",
++    "22": "none"
++}
+\ No newline at end of file
+
+
+diff --git a/mobile/app/src/main/assets/models/sign_model.tflite b/mobile/app/src/main/assets/models/sign_model.tflite
+--- a/mobile/app/src/main/assets/models/sign_model.tflite
++++ /dev/null
+Binary files a/mobile/app/src/main/assets/models/sign_model.tflite and /dev/null differ
+
+
+diff --git a/mobile/app/src/main/assets/models/sign_model_v5_1_float16.tflite b/mobile/app/src/main/assets/models/sign_model_v5_1_float16.tflite
+--- a/mobile/app/src/main/assets/models/sign_model_v5_1_float16.tflite
++++ /dev/null
+Binary files a/mobile/app/src/main/assets/models/sign_model_v5_1_float16.tflite and /dev/null differ
+
+
+diff --git a/mobile/app/src/main/assets/models/sign_model_v5_1_float32.tflite b/mobile/app/src/main/assets/models/sign_model_v5_1_float32.tflite
+--- a/mobile/app/src/main/assets/models/sign_model_v5_1_float32.tflite
++++ /dev/null
+Binary files a/mobile/app/src/main/assets/models/sign_model_v5_1_float32.tflite and /dev/null differ
+
+
+diff --git a/mobile/app/src/main/assets/models/sign_model_v6_float16.tflite b/mobile/app/src/main/assets/models/sign_model_v6_float16.tflite
+--- /dev/null
++++ b/mobile/app/src/main/assets/models/sign_model_v6_float16.tflite
+Binary files /dev/null and b/mobile/app/src/main/assets/models/sign_model_v6_float16.tflite differ
+
+
+diff --git a/mobile/app/src/main/assets/models/sign_model_v6_float32.tflite b/mobile/app/src/main/assets/models/sign_model_v6_float32.tflite
+--- /dev/null
++++ b/mobile/app/src/main/assets/models/sign_model_v6_float32.tflite
+Binary files /dev/null and b/mobile/app/src/main/assets/models/sign_model_v6_float32.tflite differ
+
+
+diff --git a/mobile/app/src/main/assets/models/train_config_v6.json b/mobile/app/src/main/assets/models/train_config_v6.json
+--- /dev/null
++++ b/mobile/app/src/main/assets/models/train_config_v6.json
+@@ -0,0 +1,240 @@
++{
++    "run_idx": 2,
++    "data_dir": "/home/j-k14a404/Kim/Ondevice_training_v6/processed_npy_v6",
++    "model_dir_name": "v6_24words_tcn",
++    "model_type": "tcn",
++    "epochs": 120,
++    "batch_size": 16,
++    "learning_rate": 0.001,
++    "weight_decay": 0.0,
++    "input_dim": 332,
++    "max_len": 30,
++    "d_model": 128,
++    "num_heads": 8,
++    "num_layers": 3,
++    "num_workers": 2,
++    "pin_memory": true,
++    "persistent_workers": true,
++    "use_class_weights": false,
++    "use_scheduler": false,
++    "scheduler_factor": 0.5,
++    "scheduler_patience": 12,
++    "use_balanced_sampler": false,
++    "single_batch_check_steps": 200,
++    "use_early_stopping": true,
++    "early_stopping_patience": 25,
++    "early_stopping_min_delta": 0.001,
++    "classes": [
++        "걷다",
++        "가다",
++        "주다",
++        "돕다",
++        "배고프다",
++        "아기",
++        "좋다",
++        "싫다",
++        "감기",
++        "기차",
++        "놀다",
++        "목마르다",
++        "무섭다",
++        "밥",
++        "손",
++        "아프다",
++        "웃다",
++        "장난감",
++        "조심",
++        "병원",
++        "엄마",
++        "감사",
++        "none"
++    ],
++    "stats": {
++        "class_counts": {
++            "걷다": 80,
++            "가다": 80,
++            "주다": 80,
++            "돕다": 80,
++            "배고프다": 80,
++            "아기": 80,
++            "좋다": 80,
++            "싫다": 80,
++            "감기": 80,
++            "기차": 80,
++            "놀다": 80,
++            "목마르다": 80,
++            "무섭다": 80,
++            "밥": 80,
++            "손": 80,
++            "아프다": 80,
++            "웃다": 80,
++            "장난감": 80,
++            "조심": 80,
++            "병원": 75,
++            "엄마": 75,
++            "감사": 80,
++            "none": 60
++        },
++        "variant_counts": {
++            "걷다/걷다": 80,
++            "가다/가다": 80,
++            "주다/주다": 80,
++            "돕다/돕다": 80,
++            "배고프다/배고프다": 80,
++            "아기/아기": 80,
++            "좋다/좋다": 80,
++            "싫다/싫다": 80,
++            "감기/감기": 80,
++            "기차/기차": 80,
++            "놀다/놀다": 80,
++            "목마르다/목마르다": 80,
++            "무섭다/무섭다": 80,
++            "밥/밥": 80,
++            "손/손": 80,
++            "아프다/아프다": 80,
++            "웃다/웃다": 80,
++            "장난감/장난감": 80,
++            "조심/조심": 80,
++            "병원/병원": 75,
++            "엄마/엄마": 75,
++            "감사/감사": 80,
++            "none/none": 60
++        },
++        "priority_file_keywords": [
++            "_FRONT",
++            "_LEFT",
++            "_RIGHT"
++        ],
++        "priority_file_counts": {
++            "걷다": 0,
++            "가다": 0,
++            "주다": 0,
++            "돕다": 0,
++            "배고프다": 0,
++            "아기": 0,
++            "좋다": 0,
++            "싫다": 0,
++            "감기": 0,
++            "기차": 0,
++            "놀다": 0,
++            "목마르다": 0,
++            "무섭다": 0,
++            "밥": 0,
++            "손": 0,
++            "아프다": 0,
++            "웃다": 0,
++            "장난감": 0,
++            "조심": 0,
++            "병원": 0,
++            "엄마": 0,
++            "감사": 0,
++            "none": 60
++        },
++        "train_class_counts": {
++            "걷다": 120,
++            "가다": 120,
++            "주다": 120,
++            "돕다": 120,
++            "배고프다": 120,
++            "아기": 120,
++            "좋다": 120,
++            "싫다": 120,
++            "감기": 120,
++            "기차": 120,
++            "놀다": 120,
++            "목마르다": 120,
++            "무섭다": 120,
++            "밥": 120,
++            "손": 120,
++            "아프다": 120,
++            "웃다": 120,
++            "장난감": 120,
++            "조심": 120,
++            "병원": 120,
++            "엄마": 120,
++            "감사": 120,
++            "none": 120
++        },
++        "val_class_counts": {
++            "걷다": 16,
++            "가다": 16,
++            "주다": 16,
++            "돕다": 16,
++            "배고프다": 16,
++            "아기": 16,
++            "좋다": 16,
++            "싫다": 16,
++            "감기": 16,
++            "기차": 16,
++            "놀다": 16,
++            "목마르다": 16,
++            "무섭다": 16,
++            "밥": 16,
++            "손": 16,
++            "아프다": 16,
++            "웃다": 16,
++            "장난감": 16,
++            "조심": 16,
++            "병원": 15,
++            "엄마": 15,
++            "감사": 16,
++            "none": 12
++        },
++        "target_variants": {},
++        "max_files_per_class": {},
++        "file_sample_seed": 42,
++        "total_size": 3122,
++        "original_total_size": 1810,
++        "train_size": 2760,
++        "original_train_size": 1448,
++        "val_size": 362,
++        "stratified_split": true,
++        "balanced_sampling": false,
++        "use_augmentation": true,
++        "normalize_mode": "none",
++        "target_samples_per_class": 120,
++        "augmentation_counts": {
++            "걷다": 56,
++            "가다": 56,
++            "주다": 56,
++            "돕다": 56,
++            "배고프다": 56,
++            "아기": 56,
++            "좋다": 56,
++            "싫다": 56,
++            "감기": 56,
++            "기차": 56,
++            "놀다": 56,
++            "목마르다": 56,
++            "무섭다": 56,
++            "밥": 56,
++            "손": 56,
++            "아프다": 56,
++            "웃다": 56,
++            "장난감": 56,
++            "조심": 56,
++            "병원": 60,
++            "엄마": 60,
++            "감사": 56,
++            "none": 72
++        },
++        "augmentation": {
++            "seed": 2026,
++            "noise_std": 0.005,
++            "time_scale_range": [
++                0.95,
++                1.05
++            ],
++            "time_shift_range": [
++                -2,
++                2
++            ]
++        },
++        "dataloader": {
++            "num_workers": 2,
++            "pin_memory": true,
++            "persistent_workers": true
++        },
++        "skipped_file_count": 0
++    }
++}
+\ No newline at end of file
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/model/SignRecognitionEvent.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/model/SignRecognitionEvent.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/model/SignRecognitionEvent.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/model/SignRecognitionEvent.kt
+@@ -22,6 +22,7 @@ sealed interface SignRecognitionEvent {
+         val confidence: Float,
+         val startedAtMs: Long,
+         val endedAtMs: Long,
++        val sentenceType: String? = null,
+     ) : SignRecognitionEvent
+ 
+     data object NoHandsDetected : SignRecognitionEvent
+@@ -42,6 +43,10 @@ data class SignRecognitionMetrics(
+     val timestampMs: Long,
+     val currentGloss: String? = null,
+     val confidence: Float? = null,
++    val classIndex: Int? = null,
++    val secondGloss: String? = null,
++    val secondConfidence: Float? = null,
++    val margin: Float? = null,
+     val hasHands: Boolean = false,
+     val poseLandmarkCount: Int = 0,
+     val leftHandLandmarkCount: Int = 0,
+@@ -49,6 +54,15 @@ data class SignRecognitionMetrics(
+     val lipLandmarkCount: Int = 0,
+     val sequenceFrameCount: Int = 0,
+     val sequenceHandFrameCount: Int = 0,
++    val sequenceTimestampsMs: List<Long> = emptyList(),
+     val tfliteInferenceMs: Double? = null,
++    val featureProbe: SignFeatureProbeSlices? = null,
+     val config: SignRecognitionConfig = SignRecognitionConfig(),
+ )
++
++data class SignFeatureProbeSlices(
++    val head: List<Float>,
++    val faceStart: List<Float>,
++    val poseStart: List<Float>,
++    val distanceStart: List<Float>,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoder.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoder.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoder.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoder.kt
+@@ -9,6 +9,7 @@ import kotlin.math.sqrt
+ 
+ class LandmarkFeatureEncoder(
+     val isHandForwardFillEnabled: Boolean = false,
++    private val normalizeMode: LandmarkFeatureNormalizeMode = LandmarkFeatureNormalizeMode.RAW,
+ ) {
+     private var previousPose: List<LandmarkPoint>? = null
+     private var previousLeftHand: List<LandmarkPoint>? = null
+@@ -33,14 +34,12 @@ class LandmarkFeatureEncoder(
+                 leftHand = frame.leftHand.landmarks,
+                 rightHand = frame.rightHand.landmarks,
+             )
+-        val normalizer = createNormalizer(rawLandmarks)
+         val values =
+             FloatArray(SignModelContract.FEATURE_DIMENSION).also { output ->
+-                writeNormalizedFeatures(
++                writeFeatures(
+                     output = output,
+                     rawLandmarks = rawLandmarks,
+                     distances = distances,
+-                    normalizer = normalizer,
+                 )
+             }
+ 
+@@ -216,21 +215,29 @@ class LandmarkFeatureEncoder(
+         return currentOffset
+     }
+ 
+-    private fun writeNormalizedFeatures(
++    private fun writeFeatures(
+         output: FloatArray,
+         rawLandmarks: List<LandmarkPoint>,
+         distances: FloatArray,
+-        normalizer: LandmarkNormalizer,
+     ) {
++        val normalizer =
++            when (normalizeMode) {
++                LandmarkFeatureNormalizeMode.RAW -> null
++                LandmarkFeatureNormalizeMode.SHOULDER -> createNormalizer(rawLandmarks)
++            }
+         var offset = 0
+         rawLandmarks.forEach { landmark ->
+-            val normalized = normalizer.normalize(landmark)
+-            output[offset++] = normalized.x
+-            output[offset++] = normalized.y
+-            output[offset++] = normalized.z
++            val encoded = normalizer?.normalize(landmark) ?: landmark
++            output[offset++] = encoded.x
++            output[offset++] = encoded.y
++            output[offset++] = encoded.z
+         }
+         distances.forEach { distance ->
+-            output[offset++] = distance / normalizer.scale
++            output[offset++] =
++                when (normalizer) {
++                    null -> distance
++                    else -> distance / normalizer.scale
++                }
+         }
+     }
+ 
+@@ -270,6 +277,11 @@ class LandmarkFeatureEncoder(
+     }
+ }
+ 
++enum class LandmarkFeatureNormalizeMode {
++    RAW,
++    SHOULDER,
++}
++
+ class LandmarkFeatureFrame(
+     val timestampMs: Long,
+     val values: FloatArray,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureSequenceResampler.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureSequenceResampler.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureSequenceResampler.kt
+@@ -0,0 +1,130 @@
++@file:Suppress("ReturnCount")
++
++package com.ssafy.mobile.core.vision.feature
++
++import com.ssafy.mobile.core.vision.inference.SignModelContract
++
++object LandmarkFeatureSequenceResampler {
++    fun resampleToModelInput(
++        frames: List<LandmarkFeatureFrame>,
++        sequenceLength: Int = SignModelContract.SEQUENCE_LENGTH,
++    ): FloatArray {
++        require(sequenceLength > 0) {
++            "Sequence length must be positive."
++        }
++
++        val output =
++            FloatArray(sequenceLength * SignModelContract.FEATURE_DIMENSION)
++        if (frames.isEmpty()) {
++            return output
++        }
++
++        if (frames.size == sequenceLength) {
++            frames.copyIntoOutput(output)
++            return output
++        }
++
++        if (frames.size > sequenceLength) {
++            sampleEvenly(
++                frames = frames,
++                output = output,
++                sequenceLength = sequenceLength,
++            )
++            return output
++        }
++
++        if (frames.size < MIN_INTERPOLATION_FRAME_COUNT) {
++            interpolateToLength(
++                frames = frames,
++                output = output,
++                sequenceLength = sequenceLength,
++            )
++            return output
++        }
++
++        writeWithLastFramePadding(
++            frames = frames,
++            output = output,
++            sequenceLength = sequenceLength,
++        )
++        return output
++    }
++
++    private fun List<LandmarkFeatureFrame>.copyIntoOutput(output: FloatArray) {
++        forEachIndexed { index, frame ->
++            frame.values.copyInto(
++                destination = output,
++                destinationOffset = index * SignModelContract.FEATURE_DIMENSION,
++            )
++        }
++    }
++
++    private fun sampleEvenly(
++        frames: List<LandmarkFeatureFrame>,
++        output: FloatArray,
++        sequenceLength: Int,
++    ) {
++        val sourceMaxIndex = frames.lastIndex.toFloat()
++        val targetMaxIndex = (sequenceLength - 1).coerceAtLeast(1).toFloat()
++        for (targetIndex in 0 until sequenceLength) {
++            val sourceIndex = (targetIndex * sourceMaxIndex / targetMaxIndex).toInt()
++            frames[sourceIndex].values.copyInto(
++                destination = output,
++                destinationOffset = targetIndex * SignModelContract.FEATURE_DIMENSION,
++            )
++        }
++    }
++
++    private fun interpolateToLength(
++        frames: List<LandmarkFeatureFrame>,
++        output: FloatArray,
++        sequenceLength: Int,
++    ) {
++        val sourceMaxIndex = frames.lastIndex.toFloat()
++        val targetMaxIndex = (sequenceLength - 1).coerceAtLeast(1).toFloat()
++        for (targetIndex in 0 until sequenceLength) {
++            val sourcePosition = targetIndex * sourceMaxIndex / targetMaxIndex
++            val lowerIndex = sourcePosition.toInt().coerceAtMost(frames.lastIndex)
++            val upperIndex = (lowerIndex + 1).coerceAtMost(frames.lastIndex)
++            val weight = sourcePosition - lowerIndex
++            writeInterpolatedFrame(
++                output = output,
++                outputOffset = targetIndex * SignModelContract.FEATURE_DIMENSION,
++                lower = frames[lowerIndex].values,
++                upper = frames[upperIndex].values,
++                weight = weight,
++            )
++        }
++    }
++
++    private fun writeWithLastFramePadding(
++        frames: List<LandmarkFeatureFrame>,
++        output: FloatArray,
++        sequenceLength: Int,
++    ) {
++        frames.copyIntoOutput(output)
++        val lastFrame = frames.last()
++        for (targetIndex in frames.size until sequenceLength) {
++            lastFrame.values.copyInto(
++                destination = output,
++                destinationOffset = targetIndex * SignModelContract.FEATURE_DIMENSION,
++            )
++        }
++    }
++
++    private fun writeInterpolatedFrame(
++        output: FloatArray,
++        outputOffset: Int,
++        lower: FloatArray,
++        upper: FloatArray,
++        weight: Float,
++    ) {
++        for (featureIndex in 0 until SignModelContract.FEATURE_DIMENSION) {
++            output[outputOffset + featureIndex] =
++                lower[featureIndex] +
++                (upper[featureIndex] - lower[featureIndex]) * weight
++        }
++    }
++
++    private const val MIN_INTERPOLATION_FRAME_COUNT = 15
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/SignSequenceBuffer.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/SignSequenceBuffer.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/SignSequenceBuffer.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/SignSequenceBuffer.kt
+@@ -6,9 +6,13 @@ import kotlin.math.ceil
+ 
+ class SignSequenceBuffer(
+     private val sequenceLength: Int = DEFAULT_SEQUENCE_LENGTH,
++    minimumPredictionFrames: Int = DEFAULT_MINIMUM_PREDICTION_FRAMES,
+     minimumHandFrameRatio: Float = DEFAULT_MINIMUM_HAND_FRAME_RATIO,
+ ) {
+     private val frames = ArrayDeque<LandmarkFeatureFrame>(sequenceLength)
++    private val minimumFrames: Int =
++        minimumPredictionFrames
++            .coerceIn(MINIMUM_PREDICTION_FRAMES_LOWER_BOUND, sequenceLength)
+     private val minimumHandFrames: Int =
+         ceil(sequenceLength * minimumHandFrameRatio)
+             .toInt()
+@@ -21,7 +25,7 @@ class SignSequenceBuffer(
+         get() = frames.count { frame -> frame.hasHands }
+ 
+     val hasEnoughFrames: Boolean
+-        get() = frames.size == sequenceLength
++        get() = frames.size >= minimumFrames
+ 
+     val hasEnoughHandFrames: Boolean
+         get() = handFrameCount >= minimumHandFrames
+@@ -33,21 +37,36 @@ class SignSequenceBuffer(
+         frames.addLast(frame)
+     }
+ 
+-    fun buildSequenceInput(): FloatArray? {
+-        if (!hasEnoughFrames || !hasEnoughHandFrames) {
+-            return null
+-        }
++    fun buildSequenceInput(): FloatArray? = buildSequenceSnapshot()?.values
+ 
++    fun buildSequenceSnapshot(): SignSequenceSnapshot? {
++        val readyFrames = buildReadyFrames() ?: return null
+         val sequence = FloatArray(sequenceLength * SignModelContract.FEATURE_DIMENSION)
+         var offset = 0
+-        frames.forEach { frame ->
++        readyFrames.forEach { frame ->
+             frame.values.copyInto(
+                 destination = sequence,
+                 destinationOffset = offset,
+             )
+             offset += SignModelContract.FEATURE_DIMENSION
+         }
+-        return sequence
++        return SignSequenceSnapshot(
++            values = sequence,
++            timestampsMs = readyFrames.map { frame -> frame.timestampMs },
++        )
++    }
++
++    private fun buildReadyFrames(): List<LandmarkFeatureFrame>? {
++        if (!hasEnoughFrames || !hasEnoughHandFrames) {
++            return null
++        }
++
++        val readyFrames = frames.toMutableList()
++        val lastFrame = readyFrames.lastOrNull()
++        while (readyFrames.size < sequenceLength && lastFrame != null) {
++            readyFrames.add(lastFrame)
++        }
++        return readyFrames
+     }
+ 
+     fun clear() {
+@@ -56,7 +75,14 @@ class SignSequenceBuffer(
+ 
+     companion object {
+         const val DEFAULT_SEQUENCE_LENGTH = SignModelContract.SEQUENCE_LENGTH
+-        const val DEFAULT_MINIMUM_HAND_FRAME_RATIO = 0.33f
++        const val DEFAULT_MINIMUM_PREDICTION_FRAMES = 15
++        const val DEFAULT_MINIMUM_HAND_FRAME_RATIO = 0f
+         private const val MINIMUM_HAND_FRAMES = 1
++        private const val MINIMUM_PREDICTION_FRAMES_LOWER_BOUND = 1
+     }
+ }
++
++class SignSequenceSnapshot(
++    val values: FloatArray,
++    val timestampsMs: List<Long>,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapter.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapter.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapter.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapter.kt
+@@ -1,8 +1,16 @@
+ package com.ssafy.mobile.core.vision.inference
+ 
++import com.ssafy.mobile.core.vision.feature.LandmarkFeatureFrame
++
+ interface SignInferenceAdapter {
++    val supportsFullSegmentInference: Boolean
++        get() = false
++
+     fun predict(sequence: FloatArray): SignInferenceResult
+ 
++    fun predictSegment(frames: List<LandmarkFeatureFrame>): SignInferenceResult =
++        error("This inference adapter does not support full-segment inference.")
++
+     fun close()
+ }
+ 
+@@ -10,6 +18,13 @@ data class SignInferenceResult(
+     val gloss: String,
+     val confidence: Float,
+     val margin: Float = MAX_CONFIDENCE,
++    val classIndex: Int? = null,
++    val secondGloss: String? = null,
++    val secondConfidence: Float? = null,
++    val rawGloss: String? = null,
++    val accepted: Boolean = true,
++    val rejectionReason: String? = null,
++    val topCandidates: List<SignInferenceCandidate> = emptyList(),
+ ) {
+     init {
+         require(confidence in MIN_CONFIDENCE..MAX_CONFIDENCE) {
+@@ -25,3 +40,10 @@ data class SignInferenceResult(
+         const val MAX_CONFIDENCE = 1f
+     }
+ }
++
++data class SignInferenceCandidate(
++    val rank: Int,
++    val classIndex: Int,
++    val gloss: String,
++    val confidence: Float,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapterFactory.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapterFactory.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapterFactory.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapterFactory.kt
+@@ -5,6 +5,7 @@ import java.io.IOException
+ 
+ class SignInferenceAdapterFactory(
+     private val context: Context,
++    private val runtimeMode: SignInferenceRuntimeMode = SignInferenceRuntimeConfig.primaryMode,
+     private val variant: SignModelVariant = SignModelVariant.DEFAULT,
+     private val modelAssetPath: String = variant.modelAssetPath,
+     private val labelMapAssetPath: String = SignModelContract.LABEL_MAP_ASSET_PATH,
+@@ -17,7 +18,7 @@ class SignInferenceAdapterFactory(
+                 hasLabelMap = appContext.hasAsset(labelMapAssetPath),
+             )
+ 
+-        return when (assetState.resolvePolicy()) {
++        return when (assetState.resolvePolicy(runtimeMode)) {
+             SignInferenceAdapterPolicy.FAKE ->
+                 FakeSignInferenceAdapter()
+             SignInferenceAdapterPolicy.TFLITE ->
+@@ -41,11 +42,16 @@ enum class SignInferenceAdapterPolicy {
+     TFLITE,
+ }
+ 
+-fun SignInferenceAssetState.resolvePolicy(): SignInferenceAdapterPolicy =
+-    when {
+-        !hasModel && !hasLabelMap -> SignInferenceAdapterPolicy.FAKE
+-        hasModel && hasLabelMap -> SignInferenceAdapterPolicy.TFLITE
+-        else -> error("TFLite model and label map assets must be provided together.")
++fun SignInferenceAssetState.resolvePolicy(
++    runtimeMode: SignInferenceRuntimeMode = SignInferenceRuntimeConfig.primaryMode,
++): SignInferenceAdapterPolicy =
++    when (runtimeMode) {
++        SignInferenceRuntimeMode.TFLITE ->
++            when {
++                !hasModel && !hasLabelMap -> SignInferenceAdapterPolicy.FAKE
++                hasModel && hasLabelMap -> SignInferenceAdapterPolicy.TFLITE
++                else -> error("TFLite model and label map assets must be provided together.")
++            }
+     }
+ 
+ private fun Context.hasAsset(assetPath: String): Boolean =
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceRuntimeConfig.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceRuntimeConfig.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceRuntimeConfig.kt
+@@ -0,0 +1,25 @@
++package com.ssafy.mobile.core.vision.inference
++
++enum class SignInferenceRuntimeMode {
++    TFLITE,
++}
++
++enum class DebugReplayInferenceMode {
++    MATCH_PRIMARY,
++    TFLITE_INTENT_CLASSIFIER,
++}
++
++object SignInferenceRuntimeConfig {
++    val primaryMode: SignInferenceRuntimeMode = SignInferenceRuntimeMode.TFLITE
++    val debugReplayMode: DebugReplayInferenceMode = DebugReplayInferenceMode.MATCH_PRIMARY
++}
++
++fun DebugReplayInferenceMode.resolve(): DebugReplayInferenceMode =
++    when (this) {
++        DebugReplayInferenceMode.MATCH_PRIMARY ->
++            when (SignInferenceRuntimeConfig.primaryMode) {
++                SignInferenceRuntimeMode.TFLITE ->
++                    DebugReplayInferenceMode.TFLITE_INTENT_CLASSIFIER
++            }
++        else -> this
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignLabelMap.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignLabelMap.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignLabelMap.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignLabelMap.kt
+@@ -3,6 +3,9 @@ package com.ssafy.mobile.core.vision.inference
+ class SignLabelMap private constructor(
+     private val labelsByIndex: Map<Int, String>,
+ ) {
++    val size: Int
++        get() = labelsByIndex.size
++
+     fun glossFor(classIndex: Int): String =
+         labelsByIndex[classIndex] ?: SignModelContract.UNKNOWN_GLOSS
+ 
+@@ -43,12 +46,28 @@ class SignLabelMap private constructor(
+                 }
+ 
+         private fun extractLabelsArray(jsonObject: String): String {
+-            val startIndex = jsonObject.indexOf('[')
+-            val endIndex = jsonObject.lastIndexOf(']')
+-            require(startIndex >= 0 && endIndex > startIndex) {
++            val labelsPropertyIndex = jsonObject.indexOf(LABELS_PROPERTY)
++            require(labelsPropertyIndex >= 0) {
++                "Could not find labels property."
++            }
++            val startIndex = jsonObject.indexOf('[', startIndex = labelsPropertyIndex)
++            require(startIndex >= 0) {
+                 "Could not find labels array."
+             }
+-            return jsonObject.substring(startIndex, endIndex + 1)
++
++            var depth = 0
++            for (index in startIndex until jsonObject.length) {
++                when (jsonObject[index]) {
++                    '[' -> depth += 1
++                    ']' -> {
++                        depth -= 1
++                        if (depth == 0) {
++                            return jsonObject.substring(startIndex, index + 1)
++                        }
++                    }
++                }
++            }
++            error("Could not find labels array end.")
+         }
+ 
+         private fun String.unescapeJsonString(): String =
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt
+@@ -4,13 +4,13 @@ object SignModelContract {
+     const val BATCH_SIZE = 1
+     const val SEQUENCE_LENGTH = 30
+     const val FEATURE_DIMENSION = 332
+-    const val CLASS_COUNT = 7
+-    const val CONFIDENCE_THRESHOLD = 0.75f
+-    const val MARGIN_THRESHOLD = 0.08f
++    const val CLASS_COUNT = 23
++    const val CONFIDENCE_THRESHOLD = 0.80f
++    const val MARGIN_THRESHOLD = 0.0f
+     const val FLOAT_BYTE_SIZE = 4
+     const val FLAT_SEQUENCE_INPUT_SIZE = SEQUENCE_LENGTH * FEATURE_DIMENSION
+     val MODEL_ASSET_PATH = SignModelVariant.DEFAULT.modelAssetPath
+-    const val LABEL_MAP_ASSET_PATH = "models/label_map_v5_1.json"
++    const val LABEL_MAP_ASSET_PATH = "models/label_map_v6.json"
+     const val UNKNOWN_GLOSS = "unknown"
+     val inputShape: IntArray = intArrayOf(BATCH_SIZE, SEQUENCE_LENGTH, FEATURE_DIMENSION)
+     val outputShape: IntArray = intArrayOf(BATCH_SIZE, CLASS_COUNT)
+@@ -32,38 +32,73 @@ data class SignModelOutput(
+     }
+ 
+     fun topPrediction(): SignModelPrediction? {
++        val rankedPredictions = rankedPredictions()
++        val topPrediction = rankedPredictions.firstOrNull() ?: return null
++        val secondPrediction = rankedPredictions.getOrNull(1)
++        return topPrediction.withSecondPrediction(secondPrediction)
++    }
++
++    fun rankedPredictions(limit: Int = SignModelContract.CLASS_COUNT): List<SignModelPrediction> {
+         val probabilities =
+             when (SignModelContract.outputActivation) {
+                 ModelOutputActivation.LOGITS -> values.toSoftmaxProbabilities()
+-                ModelOutputActivation.PROBABILITIES -> values
++                ModelOutputActivation.PROBABILITIES -> values.asProbabilities()
++            }
++        return probabilities
++            .withIndex()
++            .sortedByDescending { indexedValue -> indexedValue.value }
++            .take(limit)
++            .map { indexedValue ->
++                SignModelPrediction(
++                    classIndex = indexedValue.index,
++                    confidence = indexedValue.value,
++                    secondClassIndex = null,
++                    secondConfidence = null,
++                    margin = indexedValue.value,
++                    isConfident = false,
++                )
+             }
+-        val rankedProbabilities =
+-            probabilities
+-                .withIndex()
+-                .sortedByDescending { indexedValue -> indexedValue.value }
+-        val indexedConfidence = rankedProbabilities.firstOrNull() ?: return null
+-        val nextConfidence =
+-            rankedProbabilities.getOrNull(1)?.value
+-                ?: SignInferenceResult.MIN_CONFIDENCE
+-        val margin = indexedConfidence.value - nextConfidence
+-        return SignModelPrediction(
+-            classIndex = indexedConfidence.index,
+-            confidence = indexedConfidence.value,
+-            margin = margin,
+-            isConfident =
+-                indexedConfidence.value >= SignModelContract.CONFIDENCE_THRESHOLD &&
+-                    margin >= SignModelContract.MARGIN_THRESHOLD,
+-        )
+     }
+ }
+ 
+ data class SignModelPrediction(
+     val classIndex: Int,
+     val confidence: Float,
++    val secondClassIndex: Int?,
++    val secondConfidence: Float?,
+     val margin: Float,
+     val isConfident: Boolean,
+ )
+ 
++private fun SignModelPrediction.withSecondPrediction(
++    secondPrediction: SignModelPrediction?,
++): SignModelPrediction {
++    val margin =
++        confidence -
++            (secondPrediction?.confidence ?: SignInferenceResult.MIN_CONFIDENCE)
++    return copy(
++        secondClassIndex = secondPrediction?.classIndex,
++        secondConfidence = secondPrediction?.confidence,
++        margin = margin,
++        isConfident =
++            confidence >= SignModelContract.CONFIDENCE_THRESHOLD &&
++                margin >= SignModelContract.MARGIN_THRESHOLD,
++    )
++}
++
++private fun List<Float>.asProbabilities(): List<Float> {
++    if (isEmpty()) return emptyList()
++    val sum = sum()
++    val looksLikeProbabilities =
++        all { value -> value in 0f..1f } &&
++            sum in PROBABILITY_SUM_LOWER_BOUND..PROBABILITY_SUM_UPPER_BOUND
++    return if (looksLikeProbabilities) {
++        this
++    } else {
++        toSoftmaxProbabilities()
++    }
++}
++
+ private fun List<Float>.toSoftmaxProbabilities(): List<Float> {
+     val maxLogit = maxOrNull() ?: 0f
+     val expValues = map { value -> kotlin.math.exp((value - maxLogit).toDouble()) }
+@@ -74,3 +109,6 @@ private fun List<Float>.toSoftmaxProbabilities(): List<Float> {
+         else -> expValues.map { value -> (value / expSum).toFloat() }
+     }
+ }
++
++private const val PROBABILITY_SUM_LOWER_BOUND = 0.98f
++private const val PROBABILITY_SUM_UPPER_BOUND = 1.02f
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelVariant.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelVariant.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelVariant.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelVariant.kt
+@@ -5,16 +5,16 @@ enum class SignModelVariant(
+     val modelAssetPath: String,
+ ) {
+     FLOAT16(
+-        displayName = "float16",
+-        modelAssetPath = "models/sign_model_v5_1_float16.tflite",
++        displayName = "v6-float16",
++        modelAssetPath = "models/sign_model_v6_float16.tflite",
+     ),
+     FLOAT32(
+-        displayName = "float32",
+-        modelAssetPath = "models/sign_model_v5_1_float32.tflite",
++        displayName = "v6-float32",
++        modelAssetPath = "models/sign_model_v6_float32.tflite",
+     ),
+     ;
+ 
+     companion object {
+-        val DEFAULT = FLOAT16
++        val DEFAULT = FLOAT32
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/TfliteSignInferenceAdapter.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/TfliteSignInferenceAdapter.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/TfliteSignInferenceAdapter.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/TfliteSignInferenceAdapter.kt
+@@ -34,15 +34,52 @@ class TfliteSignInferenceAdapter private constructor(
+                 FloatArray(SignModelContract.CLASS_COUNT)
+             }
+         model.interpreter.run(sequence.toInputBuffer(), output)
+-        val prediction = SignModelOutput(output.first().toList()).topPrediction()
++        val modelOutput = SignModelOutput(output.first().toList())
++        val prediction = modelOutput.topPrediction()
++        val topGloss =
++            prediction?.let { result ->
++                model.labelMap.glossFor(result.classIndex)
++            } ?: SignModelContract.UNKNOWN_GLOSS
++        val accepted = prediction?.isConfident == true && !topGloss.isIgnoredGloss()
++        val rejectionReason =
++            when {
++                prediction == null -> "no_prediction"
++                topGloss.isIgnoredGloss() -> "ignored_gloss"
++                prediction.confidence < SignModelContract.CONFIDENCE_THRESHOLD ->
++                    "low_confidence"
++                prediction.margin < SignModelContract.MARGIN_THRESHOLD ->
++                    "low_margin"
++                else -> null
++            }
++        val topCandidates =
++            modelOutput
++                .rankedPredictions(limit = TOP_CANDIDATE_COUNT)
++                .mapIndexed { index, candidate ->
++                    SignInferenceCandidate(
++                        rank = index + 1,
++                        classIndex = candidate.classIndex,
++                        gloss = model.labelMap.glossFor(candidate.classIndex),
++                        confidence = candidate.confidence,
++                    )
++                }
+ 
+         return SignInferenceResult(
+             gloss =
+-                prediction?.let { result ->
+-                    model.labelMap.glossFor(result.classIndex)
++                topGloss.takeIf {
++                    accepted
+                 } ?: SignModelContract.UNKNOWN_GLOSS,
+             confidence = prediction?.confidence ?: MIN_CONFIDENCE,
+             margin = prediction?.margin ?: MIN_CONFIDENCE,
++            classIndex = prediction?.classIndex,
++            rawGloss = topGloss,
++            accepted = accepted,
++            rejectionReason = rejectionReason,
++            topCandidates = topCandidates,
++            secondGloss =
++                prediction
++                    ?.secondClassIndex
++                    ?.let { classIndex -> model.labelMap.glossFor(classIndex) },
++            secondConfidence = prediction?.secondConfidence,
+         )
+     }
+ 
+@@ -75,9 +112,14 @@ class TfliteSignInferenceAdapter private constructor(
+ 
+         private const val TAG = "SignPipeline"
+         private const val MIN_CONFIDENCE = 0f
++        private const val TOP_CANDIDATE_COUNT = 3
+     }
+ }
+ 
++private fun String.isIgnoredGloss(): Boolean = trim().lowercase() in IGNORED_GLOSSES
++
++private val IGNORED_GLOSSES = setOf("none", "unknown", "<none>", "<unknown>")
++
+ private fun FloatArray.toInputBuffer(): ByteBuffer {
+     val inputBuffer =
+         ByteBuffer
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/wordspotting/WordSpottingScanner.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/wordspotting/WordSpottingScanner.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/wordspotting/WordSpottingScanner.kt
+@@ -0,0 +1,41 @@
++package com.ssafy.mobile.core.vision.wordspotting
++
++import com.ssafy.mobile.core.vision.feature.LandmarkFeatureFrame
++
++interface WordSpottingScanner {
++    fun scan(frames: List<LandmarkFeatureFrame>): WordSpottingResult
++
++    fun close()
++}
++
++data class WordSpottingResult(
++    val isAvailable: Boolean,
++    val candidates: List<WordSpottingCandidate> = emptyList(),
++) {
++    val glosses: List<String> = candidates.map { candidate -> candidate.gloss }
++    val text: String = glosses.joinToString(separator = " ")
++    val confidence: Float =
++        candidates
++            .map { candidate -> candidate.score }
++            .average()
++            .takeIf { value -> !value.isNaN() }
++            ?.toFloat()
++            ?: 0f
++}
++
++data class WordSpottingCandidate(
++    val startFrameIndex: Int,
++    val endFrameIndex: Int,
++    val gloss: String,
++    val score: Float,
++    val margin: Float,
++    val secondGloss: String?,
++    val secondScore: Float?,
++)
++
++object NoOpWordSpottingScanner : WordSpottingScanner {
++    override fun scan(frames: List<LandmarkFeatureFrame>): WordSpottingResult =
++        WordSpottingResult(isAvailable = false)
++
++    override fun close() = Unit
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
+@@ -1,13 +1,23 @@
++@file:Suppress("MagicNumber", "ReturnCount", "TooManyFunctions")
++
+ package com.ssafy.mobile.core.vision
+ 
++import com.ssafy.mobile.core.model.SignFeatureProbeSlices
+ import com.ssafy.mobile.core.model.SignRecognitionEvent
+ import com.ssafy.mobile.core.model.SignRecognitionMetrics
+ import com.ssafy.mobile.core.vision.feature.LandmarkFeatureEncoder
++import com.ssafy.mobile.core.vision.feature.LandmarkFeatureFrame
++import com.ssafy.mobile.core.vision.feature.SignFeatureSpec
+ import com.ssafy.mobile.core.vision.feature.SignSequenceBuffer
+ import com.ssafy.mobile.core.vision.inference.FakeSignInferenceAdapter
+ import com.ssafy.mobile.core.vision.inference.SignInferenceAdapter
+ import com.ssafy.mobile.core.vision.inference.SignInferenceResult
++import com.ssafy.mobile.core.vision.inference.SignModelContract
+ import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
++import com.ssafy.mobile.core.vision.landmark.LandmarkPoint
++import com.ssafy.mobile.core.vision.wordspotting.NoOpWordSpottingScanner
++import com.ssafy.mobile.core.vision.wordspotting.WordSpottingScanner
++import java.util.ArrayDeque
+ import java.util.concurrent.atomic.AtomicBoolean
+ import javax.inject.Inject
+ import kotlin.system.measureNanoTime
+@@ -20,6 +30,7 @@ class RealSignRecognitionEngine(
+     private val featureEncoder: LandmarkFeatureEncoder = LandmarkFeatureEncoder(),
+     private var sequenceBuffer: SignSequenceBuffer = SignSequenceBuffer(),
+     private val inferenceAdapter: SignInferenceAdapter = FakeSignInferenceAdapter(),
++    private val wordSpottingScanner: WordSpottingScanner = NoOpWordSpottingScanner,
+     private val noHandsDetectionTracker: NoHandsDetectionTracker = NoHandsDetectionTracker(),
+     private var predictionStabilizer: SignPredictionStabilizer = SignPredictionStabilizer(),
+     private val logger: SignPipelineLogger = SignPipelineLogger(),
+@@ -27,10 +38,12 @@ class RealSignRecognitionEngine(
+     @Inject
+     constructor(
+         inferenceAdapter: SignInferenceAdapter,
++        wordSpottingScanner: WordSpottingScanner,
+     ) : this(
+         featureEncoder = LandmarkFeatureEncoder(),
+         sequenceBuffer = SignSequenceBuffer(),
+         inferenceAdapter = inferenceAdapter,
++        wordSpottingScanner = wordSpottingScanner,
+         noHandsDetectionTracker = NoHandsDetectionTracker(),
+         predictionStabilizer = SignPredictionStabilizer(),
+         logger = SignPipelineLogger(),
+@@ -39,6 +52,11 @@ class RealSignRecognitionEngine(
+     private val isStarted = AtomicBoolean(false)
+     private var config = SignRecognitionConfig()
+     private var hasSeenHandsInSegment = false
++    private var missingHandFrames = 0
++    private var sentenceIsQuestion = false
++    private val segmentFrames = mutableListOf<LandmarkFeatureFrame>()
++    private val sentenceBuffer = mutableListOf<StableSignPrediction>()
++    private val neutralEyebrowGaps = ArrayDeque<Float>(NEUTRAL_FACE_WINDOW)
+     private val _events =
+         MutableSharedFlow<SignRecognitionEvent>(
+             extraBufferCapacity = EVENT_BUFFER_CAPACITY,
+@@ -54,6 +72,10 @@ class RealSignRecognitionEngine(
+ 
+         resetSessionState()
+         logger.logEngineStarted()
++        logger.logInferenceAdapter(
++            adapterName = inferenceAdapter::class.java.simpleName,
++            supportsFullSegmentInference = inferenceAdapter.supportsFullSegmentInference,
++        )
+         logger.logHandForwardFillMode(featureEncoder.isHandForwardFillEnabled)
+         _events.tryEmit(SignRecognitionEvent.Started)
+         _events.tryEmit(SignRecognitionEvent.Ready)
+@@ -105,45 +127,92 @@ class RealSignRecognitionEngine(
+ 
+     private fun processFrame(frame: LandmarkFrameResult) {
+         logger.logFrameState(frame)
+-        if (shouldSkipFrame(frame)) {
++        if (!frame.hasHands) {
++            frame.normalizedEyebrowGap()?.let(::addNeutralEyebrowGap)
++            processNoHandsFrame(frame)
+             return
+         }
+ 
+-        createPredictionEvent(frame)?.let { event ->
+-            _events.tryEmit(event)
++        processHandFrame(frame)
++    }
++
++    private fun processHandFrame(frame: LandmarkFrameResult) {
++        if (!hasSeenHandsInSegment) {
++            hasSeenHandsInSegment = true
+         }
++        missingHandFrames = 0
++        updateSentenceType(frame)
++        noHandsDetectionTracker.reset()
++        processFeatureFrame(frame)
+     }
+ 
+-    private fun createPredictionEvent(
+-        frame: LandmarkFrameResult,
+-    ): SignRecognitionEvent.Prediction? {
++    private fun processFeatureFrame(frame: LandmarkFrameResult) {
+         val feature = featureEncoder.encode(frame)
+         logger.logFeatureProbe(feature.probe)
++        segmentFrames += feature
+         sequenceBuffer.add(feature)
+-        val sequence = sequenceBuffer.buildReadySequenceInput(logger)
+-        var tfliteInferenceMs: Double? = null
++        _events.tryEmit(
++            SignRecognitionEvent.Metrics(
++                snapshot =
++                    SignRecognitionMetrics(
++                        timestampMs = frame.timestampMs,
++                        currentGloss = null,
++                        confidence = null,
++                        hasHands = frame.hasHands,
++                        poseLandmarkCount = frame.pose.landmarks.size,
++                        leftHandLandmarkCount = frame.leftHand.landmarks.size,
++                        rightHandLandmarkCount = frame.rightHand.landmarks.size,
++                        lipLandmarkCount = frame.lips.landmarks.size,
++                        sequenceFrameCount = segmentFrames.size,
++                        sequenceHandFrameCount = segmentFrames.count { it.hasHands },
++                        sequenceTimestampsMs = segmentFrames.map { it.timestampMs },
++                        featureProbe = feature.values.toFeatureProbeSlices(),
++                        config = config,
++                    ),
++            ),
++        )
++        emitLiveWindowInferenceResult(frame)
++    }
++
++    private fun emitLiveWindowInferenceResult(frame: LandmarkFrameResult) {
++        val snapshot = sequenceBuffer.buildSequenceSnapshot() ?: return
++        logger.logModelInputStats(
++            frameCount = sequenceBuffer.size,
++            handFrameCount = sequenceBuffer.handFrameCount,
++            sequence = snapshot.values,
++        )
+         var result: SignInferenceResult? = null
+-        if (sequence != null) {
+-            val elapsedNanos =
+-                measureNanoTime {
+-                    result = inferenceAdapter.predict(sequence)
+-                }
+-            tfliteInferenceMs = elapsedNanos / NANOS_PER_MILLIS
+-        }
+-        result?.let { inferenceResult ->
+-            logger.logInferenceResult(
+-                sequenceSize = sequence?.size ?: 0,
+-                gloss = inferenceResult.gloss,
+-                confidence = inferenceResult.confidence,
+-            )
+-        }
++        val elapsedNanos =
++            measureNanoTime {
++                result = inferenceAdapter.predict(snapshot.values)
++            }
++        val inferenceResult = result ?: return
++        logger.logInferenceResult(
++            sequenceSize = snapshot.values.size,
++            gloss = inferenceResult.gloss,
++            confidence = inferenceResult.confidence,
++            margin = inferenceResult.margin,
++            secondGloss = inferenceResult.secondGloss,
++            secondConfidence = inferenceResult.secondConfidence,
++            rawGloss = inferenceResult.rawGloss,
++            accepted = inferenceResult.accepted,
++            rejectionReason = inferenceResult.rejectionReason,
++            topCandidates = inferenceResult.topCandidates,
++        )
+         _events.tryEmit(
+             SignRecognitionEvent.Metrics(
+                 snapshot =
+                     SignRecognitionMetrics(
+                         timestampMs = frame.timestampMs,
+-                        currentGloss = result?.gloss,
+-                        confidence = result?.confidence,
++                        currentGloss =
++                            inferenceResult.gloss.takeUnless {
++                                it == SignModelContract.UNKNOWN_GLOSS
++                            },
++                        confidence = inferenceResult.confidence,
++                        classIndex = inferenceResult.classIndex,
++                        secondGloss = inferenceResult.secondGloss,
++                        secondConfidence = inferenceResult.secondConfidence,
++                        margin = inferenceResult.margin,
+                         hasHands = frame.hasHands,
+                         poseLandmarkCount = frame.pose.landmarks.size,
+                         leftHandLandmarkCount = frame.leftHand.landmarks.size,
+@@ -151,54 +220,107 @@ class RealSignRecognitionEngine(
+                         lipLandmarkCount = frame.lips.landmarks.size,
+                         sequenceFrameCount = sequenceBuffer.size,
+                         sequenceHandFrameCount = sequenceBuffer.handFrameCount,
+-                        tfliteInferenceMs = tfliteInferenceMs,
++                        sequenceTimestampsMs = snapshot.timestampsMs,
++                        tfliteInferenceMs = elapsedNanos / NANOS_PER_MILLIS,
+                         config = config,
+                     ),
+             ),
+         )
++
+         val stablePrediction =
+-            result?.let { inferenceResult ->
+-                predictionStabilizer.onPrediction(
+-                    result = inferenceResult,
+-                    timestampMs = frame.timestampMs,
+-                )
+-            }
+-        return stablePrediction?.let { prediction ->
+-            logger.logPredictionEmitted(
+-                gloss = prediction.gloss,
+-                confidence = prediction.confidence,
+-            )
++            predictionStabilizer.onPrediction(
++                result = inferenceResult,
++                timestampMs = frame.timestampMs,
++            ) ?: return
++        logger.logPredictionEmitted(
++            gloss = stablePrediction.gloss,
++            confidence = stablePrediction.confidence,
++        )
++        appendSentencePrediction(stablePrediction)
++        _events.tryEmit(
+             SignRecognitionEvent.Prediction(
+-                gloss = prediction.gloss,
+-                confidence = prediction.confidence,
++                gloss = stablePrediction.gloss,
++                confidence = stablePrediction.confidence,
+                 timestampMs = frame.timestampMs,
+-            )
++            ),
++        )
++    }
++
++    private fun appendSentencePrediction(prediction: StableSignPrediction) {
++        if (sentenceBuffer.lastOrNull()?.gloss != prediction.gloss) {
++            sentenceBuffer += prediction
+         }
+     }
+ 
+-    private fun shouldSkipFrame(frame: LandmarkFrameResult): Boolean {
+-        var shouldSkip = false
+-        if (frame.hasHands) {
+-            hasSeenHandsInSegment = true
+-            noHandsDetectionTracker.onFrame(frame)
+-        } else if (!hasSeenHandsInSegment) {
++    private fun updateSentenceType(frame: LandmarkFrameResult) {
++        val currentGap = frame.normalizedEyebrowGap() ?: return
++        if (neutralEyebrowGaps.size < MIN_NEUTRAL_FACE_SAMPLES) {
++            return
++        }
++        val neutralGap = neutralEyebrowGaps.toList().median()
++        if (currentGap - neutralGap >= QUESTION_EYEBROW_DELTA_THRESHOLD) {
++            sentenceIsQuestion = true
++        }
++    }
++
++    private fun addNeutralEyebrowGap(gap: Float) {
++        if (neutralEyebrowGaps.size == NEUTRAL_FACE_WINDOW) {
++            neutralEyebrowGaps.removeFirst()
++        }
++        neutralEyebrowGaps.addLast(gap)
++    }
++
++    private fun processNoHandsFrame(frame: LandmarkFrameResult) {
++        if (!hasSeenHandsInSegment) {
+             noHandsDetectionTracker.reset()
+-            shouldSkip = true
+-        } else {
+-            val noHandsEvent = noHandsDetectionTracker.onFrame(frame)
+-            if (noHandsEvent != null) {
+-                resetRecognitionState()
+-                logger.logNoHandsDetected()
+-                _events.tryEmit(noHandsEvent)
+-                shouldSkip = true
+-            }
++            return
+         }
+ 
+-        return shouldSkip
++        missingHandFrames += 1
++        if (missingHandFrames <= MAX_MISSING_HAND_FRAMES) {
++            processFeatureFrame(frame)
++            return
++        }
++
++        emitFinalSentence(frame)
++        resetRecognitionState()
++        logger.logNoHandsDetected()
++        _events.tryEmit(SignRecognitionEvent.NoHandsDetected)
++    }
++
++    private fun emitFinalSentence(frame: LandmarkFrameResult) {
++        if (sentenceBuffer.isEmpty()) {
++            return
++        }
++
++        val glosses = sentenceBuffer.map { prediction -> prediction.gloss }
++        val confidence =
++            sentenceBuffer
++                .map { prediction -> prediction.confidence }
++                .average()
++                .takeIf { value -> !value.isNaN() }
++                ?.toFloat()
++                ?: 0f
++        val sentenceType =
++            if (sentenceIsQuestion) {
++                QUESTION_SENTENCE_TYPE
++            } else {
++                DECLARATIVE_SENTENCE_TYPE
++            }
++        _events.tryEmit(
++            SignRecognitionEvent.Utterance(
++                glosses = glosses,
++                confidence = confidence,
++                startedAtMs = segmentFrames.firstOrNull()?.timestampMs ?: frame.timestampMs,
++                endedAtMs = segmentFrames.lastOrNull()?.timestampMs ?: frame.timestampMs,
++                sentenceType = sentenceType,
++            ),
++        )
+     }
+ 
+     fun close() {
+         stop()
++        wordSpottingScanner.close()
+         inferenceAdapter.close()
+     }
+ 
+@@ -209,7 +331,11 @@ class RealSignRecognitionEngine(
+ 
+     private fun resetRecognitionState() {
+         hasSeenHandsInSegment = false
++        missingHandFrames = 0
++        sentenceIsQuestion = false
++        sentenceBuffer.clear()
+         featureEncoder.reset()
++        segmentFrames.clear()
+         sequenceBuffer.clear()
+         predictionStabilizer.reset()
+     }
+@@ -217,21 +343,94 @@ class RealSignRecognitionEngine(
+     private companion object {
+         const val EVENT_BUFFER_CAPACITY = 64
+         const val NANOS_PER_MILLIS = 1_000_000.0
++        const val MAX_MISSING_HAND_FRAMES = 15
++        const val NEUTRAL_FACE_WINDOW = 45
++        const val MIN_NEUTRAL_FACE_SAMPLES = 15
++        const val QUESTION_EYEBROW_DELTA_THRESHOLD = 0.055f
++        const val DECLARATIVE_SENTENCE_TYPE = "평서문"
++        const val QUESTION_SENTENCE_TYPE = "의문문"
+     }
+ }
+ 
+-private fun SignSequenceBuffer.buildReadySequenceInput(logger: SignPipelineLogger): FloatArray? =
+-    when {
+-        !hasEnoughFrames -> {
+-            logger.logSequenceBuffering(size)
+-            null
+-        }
+-        !hasEnoughHandFrames -> {
+-            logger.logSequenceWaitingForHands(
+-                handFrames = handFrameCount,
+-                totalFrames = size,
+-            )
+-            null
+-        }
+-        else -> buildSequenceInput()
++private fun LandmarkFrameResult.normalizedEyebrowGap(): Float? {
++    if (!face.landmarks.hasIndices(EYEBROW_FACE_INDICES)) {
++        return null
++    }
++    val leftEye = face.landmarks.averagePoint(LEFT_EYE_CENTER_INDICES)
++    val rightEye = face.landmarks.averagePoint(RIGHT_EYE_CENTER_INDICES)
++    val eyeDistance = leftEye.distanceTo2d(rightEye)
++    if (eyeDistance < MIN_EYE_DISTANCE) {
++        return null
+     }
++
++    val eyebrowY =
++        (LEFT_EYEBROW_INDICES + RIGHT_EYEBROW_INDICES)
++            .map { index -> face.landmarks[index].y }
++            .average()
++            .toFloat()
++    val eyeY =
++        (LEFT_EYE_CENTER_INDICES + RIGHT_EYE_CENTER_INDICES)
++            .map { index -> face.landmarks[index].y }
++            .average()
++            .toFloat()
++    return (eyeY - eyebrowY) / eyeDistance
++}
++
++private fun List<LandmarkPoint>.averagePoint(indices: List<Int>): LandmarkPoint {
++    val points = indices.map { index -> this[index] }
++    return LandmarkPoint(
++        x = points.map { point -> point.x }.average().toFloat(),
++        y = points.map { point -> point.y }.average().toFloat(),
++        z = points.map { point -> point.z }.average().toFloat(),
++    )
++}
++
++private fun LandmarkPoint.distanceTo2d(other: LandmarkPoint): Float {
++    val dx = x - other.x
++    val dy = y - other.y
++    return kotlin.math.sqrt(dx * dx + dy * dy)
++}
++
++private fun List<Float>.median(): Float {
++    if (isEmpty()) {
++        return 0f
++    }
++    val sortedValues = sorted()
++    val middle = sortedValues.size / 2
++    return if (sortedValues.size % 2 == 0) {
++        (sortedValues[middle - 1] + sortedValues[middle]) / 2f
++    } else {
++        sortedValues[middle]
++    }
++}
++
++private fun List<LandmarkPoint>.hasIndices(indices: List<Int>): Boolean =
++    indices.all { index -> index in this.indices }
++
++private fun FloatArray.toFeatureProbeSlices(): SignFeatureProbeSlices =
++    SignFeatureProbeSlices(
++        head = sliceFrom(startIndex = 0),
++        faceStart = sliceFrom(startIndex = SignFeatureSpec.FACE_OFFSET),
++        poseStart = sliceFrom(startIndex = SignFeatureSpec.POSE_OFFSET),
++        distanceStart = sliceFrom(startIndex = SignFeatureSpec.DISTANCE_OFFSET),
++    )
++
++private fun FloatArray.sliceFrom(startIndex: Int): List<Float> =
++    copyOfRange(
++        fromIndex = startIndex,
++        toIndex =
++            (startIndex + FEATURE_PROBE_SLICE_SIZE)
++                .coerceAtMost(size),
++    ).toList()
++
++private const val FEATURE_PROBE_SLICE_SIZE = 10
++private val LEFT_EYEBROW_INDICES = listOf(70, 63, 105, 66)
++private val RIGHT_EYEBROW_INDICES = listOf(336, 296, 334, 293)
++private val LEFT_EYE_CENTER_INDICES = listOf(33, 133)
++private val RIGHT_EYE_CENTER_INDICES = listOf(362, 263)
++private val EYEBROW_FACE_INDICES =
++    LEFT_EYEBROW_INDICES +
++        RIGHT_EYEBROW_INDICES +
++        LEFT_EYE_CENTER_INDICES +
++        RIGHT_EYE_CENTER_INDICES
++private const val MIN_EYE_DISTANCE = 0.000001f
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPipelineLogger.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPipelineLogger.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPipelineLogger.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPipelineLogger.kt
+@@ -4,6 +4,7 @@ import android.os.SystemClock
+ import android.util.Log
+ import com.ssafy.mobile.core.vision.feature.LandmarkFeatureProbe
+ import com.ssafy.mobile.core.vision.feature.SignSequenceBuffer
++import com.ssafy.mobile.core.vision.inference.SignInferenceCandidate
+ import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
+ import com.ssafy.mobile.core.vision.landmark.LandmarkPoint
+ import java.util.Locale
+@@ -21,6 +22,16 @@ class SignPipelineLogger(
+         log("Sign recognition engine started.")
+     }
+ 
++    fun logInferenceAdapter(
++        adapterName: String,
++        supportsFullSegmentInference: Boolean,
++    ) {
++        log(
++            "Inference adapter. name=$adapterName, " +
++                "supportsFullSegmentInference=$supportsFullSegmentInference",
++        )
++    }
++
+     fun logHandForwardFillMode(isEnabled: Boolean) {
+         log("Hand forward-fill. enabled=$isEnabled")
+     }
+@@ -83,10 +94,18 @@ class SignPipelineLogger(
+         )
+     }
+ 
++    @Suppress("LongParameterList")
+     fun logInferenceResult(
+         sequenceSize: Int,
+         gloss: String,
+         confidence: Float,
++        margin: Float? = null,
++        secondGloss: String? = null,
++        secondConfidence: Float? = null,
++        rawGloss: String? = null,
++        accepted: Boolean? = null,
++        rejectionReason: String? = null,
++        topCandidates: List<SignInferenceCandidate> = emptyList(),
+     ) {
+         val now = elapsedRealtime()
+         if (now - lastInferenceLogAtMillis < DEBUG_LOG_INTERVAL_MILLIS) {
+@@ -95,7 +114,30 @@ class SignPipelineLogger(
+         lastInferenceLogAtMillis = now
+ 
+         log(
+-            "Inference result. sequenceSize=$sequenceSize, gloss=$gloss, confidence=$confidence",
++            "Inference result. sequenceSize=$sequenceSize, gloss=$gloss, " +
++                "confidence=$confidence, margin=$margin, " +
++                "secondGloss=$secondGloss, secondConfidence=$secondConfidence, " +
++                "rawGloss=$rawGloss, accepted=$accepted, reason=$rejectionReason, " +
++                "top=${topCandidates.toLogString()}",
++        )
++    }
++
++    fun logModelInputStats(
++        frameCount: Int,
++        handFrameCount: Int,
++        sequence: FloatArray,
++    ) {
++        val now = elapsedRealtime()
++        if (now - lastInferenceLogAtMillis < DEBUG_LOG_INTERVAL_MILLIS) {
++            return
++        }
++
++        val stats = sequence.toStats()
++        log(
++            "Model input. segmentFrames=$frameCount, handFrames=$handFrameCount, " +
++                "flatSize=${sequence.size}, mean=${stats.mean.format()}, " +
++                "std=${stats.std.format()}, zeroRatio=${stats.zeroRatio.format()}, " +
++                "min=${stats.min.format()}, max=${stats.max.format()}",
+         )
+     }
+ 
+@@ -116,5 +158,61 @@ class SignPipelineLogger(
+     }
+ }
+ 
++private fun List<SignInferenceCandidate>.toLogString(): String =
++    joinToString(separator = " | ") { candidate ->
++        "#${candidate.rank}:${candidate.gloss}[${candidate.classIndex}]=" +
++            candidate.confidence.format()
++    }
++
++private fun FloatArray.toStats(): SequenceStats {
++    if (isEmpty()) {
++        return SequenceStats(
++            mean = 0f,
++            std = 0f,
++            zeroRatio = 0f,
++            min = 0f,
++            max = 0f,
++        )
++    }
++
++    var sum = 0.0
++    var squareSum = 0.0
++    var zeroCount = 0
++    var min = Float.POSITIVE_INFINITY
++    var max = Float.NEGATIVE_INFINITY
++    forEach { value ->
++        sum += value
++        squareSum += value * value
++        if (value == 0f) {
++            zeroCount += 1
++        }
++        if (value < min) {
++            min = value
++        }
++        if (value > max) {
++            max = value
++        }
++    }
++    val mean = (sum / size).toFloat()
++    val variance = (squareSum / size - mean * mean).coerceAtLeast(0.0)
++    return SequenceStats(
++        mean = mean,
++        std = kotlin.math.sqrt(variance).toFloat(),
++        zeroRatio = zeroCount.toFloat() / size,
++        min = min,
++        max = max,
++    )
++}
++
++private fun Float.format(): String = String.format(Locale.US, "%.4f", this)
++
++private data class SequenceStats(
++    val mean: Float,
++    val std: Float,
++    val zeroRatio: Float,
++    val min: Float,
++    val max: Float,
++)
++
+ private fun LandmarkPoint.toLogString(): String =
+     String.format(Locale.US, "(%.4f,%.4f,%.4f)", x, y, z)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPredictionStabilizer.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPredictionStabilizer.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPredictionStabilizer.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPredictionStabilizer.kt
+@@ -54,6 +54,7 @@ class SignPredictionStabilizer(
+             }
+         } else {
+             recentPredictions.clear()
++            lastEmittedGloss = null
+         }
+ 
+         return stablePrediction
+@@ -123,9 +124,9 @@ class SignPredictionStabilizer(
+     )
+ 
+     companion object {
+-        const val DEFAULT_WINDOW_SIZE = 6
++        const val DEFAULT_WINDOW_SIZE = 5
+         const val DEFAULT_REQUIRED_VOTES = 4
+-        const val DEFAULT_EMIT_COOLDOWN_MS = 1_000L
++        const val DEFAULT_EMIT_COOLDOWN_MS = 0L
+         const val MIN_CONFIDENCE = 0f
+         const val MAX_CONFIDENCE = 1f
+         const val NONE_GLOSS = "none"
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+@@ -5,6 +5,8 @@ import com.ssafy.mobile.core.vision.RealSignRecognitionEngine
+ import com.ssafy.mobile.core.vision.SignRecognitionEngine
+ import com.ssafy.mobile.core.vision.inference.SignInferenceAdapter
+ import com.ssafy.mobile.core.vision.inference.TfliteSignInferenceAdapter
++import com.ssafy.mobile.core.vision.wordspotting.NoOpWordSpottingScanner
++import com.ssafy.mobile.core.vision.wordspotting.WordSpottingScanner
+ import com.ssafy.mobile.feature.conversation.data.remote.TranslateApiService
+ import com.ssafy.mobile.feature.conversation.data.repository.DataStoreTranslationModeRepository
+ import com.ssafy.mobile.feature.conversation.data.repository.DefaultTranslateRepository
+@@ -53,5 +55,9 @@ abstract class ConversationModule {
+         fun provideSignInferenceAdapter(
+             @ApplicationContext context: Context,
+         ): SignInferenceAdapter = TfliteSignInferenceAdapter.createOrFallback(context)
++
++        @Provides
++        @Singleton
++        fun provideWordSpottingScanner(): WordSpottingScanner = NoOpWordSpottingScanner
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+@@ -1,10 +1,11 @@
+-@file:Suppress("MagicNumber", "TooManyFunctions")
++@file:Suppress("LongMethod", "LongParameterList", "MagicNumber", "TooManyFunctions")
+ 
+ package com.ssafy.mobile.feature.conversation.presentation
+ 
+ import android.app.Activity
+ import android.content.Context
+ import android.content.ContextWrapper
++import android.content.pm.ActivityInfo
+ import android.util.Log
+ import android.view.WindowManager
+ import androidx.compose.foundation.BorderStroke
+@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.aspectRatio
+ import androidx.compose.foundation.layout.fillMaxHeight
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+@@ -22,6 +24,7 @@ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.sizeIn
++import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.lazy.LazyRow
+ import androidx.compose.foundation.lazy.items
+ import androidx.compose.foundation.lazy.rememberLazyListState
+@@ -42,6 +45,7 @@ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableStateOf
+ import androidx.compose.runtime.remember
++import androidx.compose.runtime.saveable.rememberSaveable
+ import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+@@ -50,6 +54,8 @@ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
++import androidx.compose.ui.window.Dialog
++import androidx.compose.ui.window.DialogProperties
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+@@ -67,6 +73,7 @@ private const val SUBTITLE_WIDTH_FRACTION = 0.95f
+ private const val SUBTITLE_HEIGHT_FRACTION = 0.4f
+ private const val PHASE_CARD_ALPHA = 0.88f
+ private const val INPUT_LANE_LABEL_ALPHA = 0.14f
++private const val CAMERA_PREVIEW_ASPECT_RATIO = 16f / 9f
+ 
+ data class ConversationUiState(
+     val sessionState: SessionState,
+@@ -117,7 +124,12 @@ fun conversationRoute(
+     }
+ 
+     DisposableEffect(Unit) {
+-        onDispose { viewModel.stopSession() }
++        onDispose {
++            val activity = context.findActivity()
++            if (activity?.isChangingConfigurations != true) {
++                viewModel.stopSession()
++            }
++        }
+     }
+ 
+     val uiState =
+@@ -174,6 +186,7 @@ private fun ConversationScreen(
+ ) {
+     var feedbackTargetMessage by remember { mutableStateOf<ChatMessage?>(null) }
+     var selectedFeedbackReason by remember { mutableStateOf<TranslationFeedbackReason?>(null) }
++    var isCameraFullscreen by rememberSaveable { mutableStateOf(false) }
+ 
+     fun closeFeedbackSheet() {
+         feedbackTargetMessage = null
+@@ -209,27 +222,62 @@ private fun ConversationScreen(
+             modifier =
+                 Modifier
+                     .padding(paddingValues)
+-                    .fillMaxSize(),
++                    .fillMaxSize()
++                    .background(MaterialTheme.colorScheme.background),
+         ) {
+             // 카메라 인식 영역 및 자막 오버레이
+-            SignRecognitionArea(
+-                sessionState = uiState.sessionState,
+-                signInputPhase = uiState.signInputPhase,
+-                speechInputPhase = uiState.speechInputPhase,
+-                messages = uiState.messages,
+-                onLandmarkFrame = actions.onLandmarkFrame,
+-                onFeedbackClick = { message ->
+-                    feedbackTargetMessage = message
+-                    selectedFeedbackReason = null
+-                },
+-                modifier = Modifier.weight(1.0f),
+-            )
++            if (isCameraFullscreen) {
++                CameraFullscreenPlaceholder(
++                    modifier =
++                        Modifier
++                            .fillMaxWidth()
++                            .aspectRatio(CAMERA_PREVIEW_ASPECT_RATIO),
++                )
++            } else {
++                SignRecognitionArea(
++                    sessionState = uiState.sessionState,
++                    signInputPhase = uiState.signInputPhase,
++                    speechInputPhase = uiState.speechInputPhase,
++                    messages = uiState.messages,
++                    onLandmarkFrame = actions.onLandmarkFrame,
++                    onFeedbackClick = { message ->
++                        feedbackTargetMessage = message
++                        selectedFeedbackReason = null
++                    },
++                    onFullscreenClick =
++                        {
++                            isCameraFullscreen = true
++                        }.takeIf { uiState.sessionState == SessionState.Active },
++                    showStatusOverlay = false,
++                    showSubtitles = false,
++                    showDebugOverlay = false,
++                    modifier =
++                        Modifier
++                            .fillMaxWidth()
++                            .aspectRatio(CAMERA_PREVIEW_ASPECT_RATIO),
++                )
++            }
+ 
+-            // 실시간 인식 결과 영역 (글로스 나열)
+-            GlossRecognitionArea(
+-                lastGlosses = uiState.lastGlosses,
+-                signInputPhase = uiState.signInputPhase,
+-            )
++            Column(
++                modifier =
++                    Modifier
++                        .fillMaxWidth()
++                        .weight(1f)
++                        .background(MaterialTheme.colorScheme.background),
++            ) {
++                ParallelInputStatusCard(
++                    signInputPhase = uiState.signInputPhase,
++                    speechInputPhase = uiState.speechInputPhase,
++                    modifier =
++                        Modifier
++                            .fillMaxWidth()
++                            .padding(horizontal = 16.dp, vertical = 10.dp),
++                )
++                GlossRecognitionArea(
++                    lastGlosses = uiState.lastGlosses,
++                    signInputPhase = uiState.signInputPhase,
++                )
++            }
+         }
+     }
+ 
+@@ -246,6 +294,16 @@ private fun ConversationScreen(
+         onReasonSelected = { selectedFeedbackReason = it },
+         onDismiss = { closeFeedbackSheet() },
+     )
++
++    if (isCameraFullscreen) {
++        CameraFullscreenDialog(
++            uiState = uiState,
++            actions = actions,
++            onDismiss = {
++                isCameraFullscreen = false
++            },
++        )
++    }
+ }
+ 
+ @OptIn(ExperimentalMaterial3Api::class)
+@@ -279,6 +337,23 @@ private fun TranslationFeedbackSheetHost(
+     }
+ }
+ 
++@Composable
++private fun CameraFullscreenPlaceholder(modifier: Modifier = Modifier) {
++    Box(
++        modifier =
++            modifier
++                .fillMaxWidth()
++                .background(Color.Black),
++        contentAlignment = Alignment.Center,
++    ) {
++        Text(
++            text = "전체 화면으로 표시 중",
++            color = Color.White,
++            style = MaterialTheme.typography.titleMedium,
++        )
++    }
++}
++
+ @Composable
+ private fun SignRecognitionArea(
+     sessionState: SessionState,
+@@ -287,6 +362,10 @@ private fun SignRecognitionArea(
+     messages: List<ChatMessage>,
+     onLandmarkFrame: (LandmarkFrameResult) -> Unit,
+     onFeedbackClick: (ChatMessage) -> Unit,
++    showStatusOverlay: Boolean = true,
++    showSubtitles: Boolean = true,
++    showDebugOverlay: Boolean = true,
++    onFullscreenClick: (() -> Unit)? = null,
+     modifier: Modifier = Modifier,
+ ) {
+     Box(
+@@ -294,27 +373,29 @@ private fun SignRecognitionArea(
+     ) {
+         SignRecognitionScreen(
+             isSessionActive = sessionState == SessionState.Active,
++            showDebugOverlay = showDebugOverlay,
+             onLandmarkFrameAvailable = onLandmarkFrame,
+             modifier = Modifier.fillMaxSize(),
+         )
+ 
+-        // 자막 리스트 오버레이 (하단 40% 영역)
+-        Box(
+-            modifier =
+-                Modifier
+-                    .fillMaxWidth(SUBTITLE_WIDTH_FRACTION)
+-                    .fillMaxHeight(SUBTITLE_HEIGHT_FRACTION)
+-                    .align(Alignment.BottomCenter)
+-                    .padding(bottom = 16.dp),
+-        ) {
+-            SubtitleList(
+-                messages = messages,
+-                emptyText = subtitlePlaceholder(signInputPhase, speechInputPhase),
+-                onFeedbackClick = onFeedbackClick,
+-            )
++        if (showSubtitles) {
++            Box(
++                modifier =
++                    Modifier
++                        .fillMaxWidth(SUBTITLE_WIDTH_FRACTION)
++                        .fillMaxHeight(SUBTITLE_HEIGHT_FRACTION)
++                        .align(Alignment.BottomCenter)
++                        .padding(bottom = 16.dp),
++            ) {
++                SubtitleList(
++                    messages = messages,
++                    emptyText = subtitlePlaceholder(signInputPhase, speechInputPhase),
++                    onFeedbackClick = onFeedbackClick,
++                )
++            }
+         }
+ 
+-        if (sessionState == SessionState.Active) {
++        if (showStatusOverlay && sessionState == SessionState.Active) {
+             ParallelInputStatusCard(
+                 signInputPhase = signInputPhase,
+                 speechInputPhase = speechInputPhase,
+@@ -325,6 +406,17 @@ private fun SignRecognitionArea(
+             )
+         }
+ 
++        if (onFullscreenClick != null) {
++            CameraOverlayButton(
++                text = "전체",
++                onClick = onFullscreenClick,
++                modifier =
++                    Modifier
++                        .align(Alignment.TopEnd)
++                        .padding(12.dp),
++            )
++        }
++
+         if (sessionState == SessionState.Idle) {
+             Box(
+                 modifier =
+@@ -343,6 +435,186 @@ private fun SignRecognitionArea(
+     }
+ }
+ 
++@Composable
++private fun CameraFullscreenDialog(
++    uiState: ConversationUiState,
++    actions: ConversationActions,
++    onDismiss: () -> Unit,
++) {
++    ForceLandscapeOrientationEffect()
++
++    LaunchedEffect(uiState.sessionState) {
++        if (uiState.sessionState != SessionState.Active) {
++            onDismiss()
++        }
++    }
++
++    Dialog(
++        onDismissRequest = onDismiss,
++        properties =
++            DialogProperties(
++                usePlatformDefaultWidth = false,
++                decorFitsSystemWindows = false,
++            ),
++    ) {
++        Surface(
++            modifier = Modifier.fillMaxSize(),
++            color = Color.Black,
++        ) {
++            Row(
++                modifier =
++                    Modifier
++                        .fillMaxSize()
++                        .padding(12.dp),
++                horizontalArrangement = Arrangement.spacedBy(12.dp),
++            ) {
++                Box(
++                    modifier =
++                        Modifier
++                            .weight(1f)
++                            .fillMaxHeight()
++                            .background(Color.Black),
++                    contentAlignment = Alignment.Center,
++                ) {
++                    SignRecognitionArea(
++                        sessionState = uiState.sessionState,
++                        signInputPhase = uiState.signInputPhase,
++                        speechInputPhase = uiState.speechInputPhase,
++                        messages = uiState.messages,
++                        onLandmarkFrame = actions.onLandmarkFrame,
++                        onFeedbackClick = {},
++                        showStatusOverlay = false,
++                        showSubtitles = false,
++                        showDebugOverlay = false,
++                        modifier =
++                            Modifier
++                                .fillMaxHeight()
++                                .aspectRatio(CAMERA_PREVIEW_ASPECT_RATIO),
++                    )
++                }
++                FullscreenStatusPanel(
++                    uiState = uiState,
++                    onStopSession = {
++                        actions.onStopSession()
++                        onDismiss()
++                    },
++                    modifier =
++                        Modifier
++                            .fillMaxHeight()
++                            .width(320.dp),
++                )
++            }
++        }
++    }
++}
++
++@Composable
++private fun ForceLandscapeOrientationEffect() {
++    val activity = LocalContext.current.findActivity()
++
++    DisposableEffect(activity) {
++        if (activity == null) {
++            onDispose { }
++        } else {
++            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
++            onDispose {
++                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
++            }
++        }
++    }
++}
++
++@Composable
++private fun FullscreenStatusPanel(
++    uiState: ConversationUiState,
++    onStopSession: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Surface(
++        modifier = modifier,
++        shape = RoundedCornerShape(16.dp),
++        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
++        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
++    ) {
++        Column(
++            modifier =
++                Modifier
++                    .fillMaxSize()
++                    .padding(16.dp),
++            verticalArrangement = Arrangement.spacedBy(14.dp),
++        ) {
++            Text(
++                text = "실시간 수어",
++                style = MaterialTheme.typography.titleMedium,
++                color = MaterialTheme.colorScheme.onSurface,
++                fontWeight = FontWeight.Bold,
++            )
++            InputLaneStatusRow(
++                label = "수어",
++                title = uiState.signInputPhase.title(),
++                description = uiState.signInputPhase.description(),
++                isWarning = uiState.signInputPhase.isWarning(),
++            )
++            Box(
++                modifier =
++                    Modifier
++                        .fillMaxWidth()
++                        .height(1.dp)
++                        .background(MaterialTheme.colorScheme.outlineVariant),
++            )
++            Text(
++                text = "인식 결과",
++                style = MaterialTheme.typography.titleSmall,
++                color = MaterialTheme.colorScheme.onSurface,
++                fontWeight = FontWeight.Bold,
++            )
++            if (uiState.lastGlosses.isEmpty()) {
++                Text(
++                    text = uiState.signInputPhase.glossPlaceholder(),
++                    style = MaterialTheme.typography.bodyMedium,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                )
++            } else {
++                LazyRow(
++                    horizontalArrangement = Arrangement.spacedBy(8.dp),
++                ) {
++                    items(uiState.lastGlosses) { gloss ->
++                        GlossChip(gloss = gloss)
++                    }
++                }
++            }
++            Box(modifier = Modifier.weight(1f))
++            AppSecondaryButton(
++                text = "종료",
++                onClick = onStopSession,
++                modifier = Modifier.fillMaxWidth(),
++            )
++        }
++    }
++}
++
++@Composable
++private fun CameraOverlayButton(
++    text: String,
++    onClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Surface(
++        modifier = modifier.clickable(onClick = onClick),
++        shape = RoundedCornerShape(999.dp),
++        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
++        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
++    ) {
++        Text(
++            text = text,
++            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
++            style = MaterialTheme.typography.labelMedium,
++            color = MaterialTheme.colorScheme.onSurface,
++            fontWeight = FontWeight.Bold,
++        )
++    }
++}
++
+ @Composable
+ private fun TranslationFeedbackSheet(
+     uiState: TranslationFeedbackSheetUiState,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/AnalysisFrameVideoRecorder.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/AnalysisFrameVideoRecorder.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/AnalysisFrameVideoRecorder.kt
+@@ -0,0 +1,318 @@
++@file:Suppress("TooGenericExceptionCaught")
++
++package com.ssafy.mobile.feature.sign.presentation
++
++import android.content.ContentValues
++import android.content.Context
++import android.graphics.Bitmap
++import android.graphics.Color
++import android.graphics.Rect
++import android.media.MediaCodec
++import android.media.MediaCodecInfo
++import android.media.MediaFormat
++import android.media.MediaMuxer
++import android.os.Build
++import android.os.Environment
++import android.provider.MediaStore
++import android.view.Surface
++import java.io.File
++import java.util.concurrent.ExecutorService
++import java.util.concurrent.Executors
++import java.util.concurrent.TimeUnit
++import java.util.concurrent.atomic.AtomicInteger
++
++internal class AnalysisFrameVideoRecorder(
++    private val context: Context,
++    private val fps: Int = DEFAULT_FPS,
++) {
++    private val executor: ExecutorService = Executors.newSingleThreadExecutor()
++    private val pendingFrames = AtomicInteger(0)
++    private val lock = Any()
++    private var session: EncoderSession? = null
++    private var completedPath: String? = null
++    private var failure: Throwable? = null
++    private var cancelled = false
++
++    val isRecording: Boolean
++        get() = synchronized(lock) { !cancelled && session != null && failure == null }
++
++    fun record(bitmap: Bitmap) {
++        val shouldSkip =
++            synchronized(lock) {
++                cancelled
++            } ||
++                failure != null ||
++                pendingFrames.get() >= MAX_PENDING_FRAMES
++        if (shouldSkip) {
++            return
++        }
++        val frame = bitmap.copy(Bitmap.Config.ARGB_8888, false)
++        pendingFrames.incrementAndGet()
++        executor.execute {
++            try {
++                getOrCreateSession(frame).encode(frame)
++            } catch (exception: Exception) {
++                synchronized(lock) {
++                    failure = exception
++                    session?.releaseQuietly()
++                    session = null
++                }
++            } finally {
++                frame.recycle()
++                pendingFrames.decrementAndGet()
++            }
++        }
++    }
++
++    fun stop(): String {
++        executor.shutdown()
++        executor.awaitTermination(STOP_TIMEOUT_SECONDS, TimeUnit.SECONDS)
++        synchronized(lock) {
++            val activeSession = session
++            session = null
++            activeSession?.finish()
++            failure?.let { throw it }
++            return completedPath ?: activeSession?.outputPath ?: "Movies/S14P31A404-debug"
++        }
++    }
++
++    fun cancel() {
++        executor.shutdown()
++        executor.awaitTermination(STOP_TIMEOUT_SECONDS, TimeUnit.SECONDS)
++        synchronized(lock) {
++            cancelled = true
++            val activeSession = session
++            session = null
++            activeSession?.discard()
++        }
++    }
++
++    private fun getOrCreateSession(bitmap: Bitmap): EncoderSession =
++        synchronized(lock) {
++            failure?.let { throw it }
++            check(!cancelled) { "Recording has been cancelled." }
++            session
++                ?: EncoderSession
++                    .create(
++                        context = context,
++                        width = bitmap.width.toEvenDimension(),
++                        height = bitmap.height.toEvenDimension(),
++                        fps = fps,
++                    ).also {
++                        session = it
++                        completedPath = it.outputPath
++                    }
++        }
++
++    private class EncoderSession private constructor(
++        private val codec: MediaCodec,
++        private val muxer: MediaMuxer,
++        private val inputSurface: Surface,
++        private val output: MuxerOutput,
++        private val width: Int,
++        private val height: Int,
++        private val fps: Int,
++    ) {
++        private val bufferInfo = MediaCodec.BufferInfo()
++        private var muxerStarted = false
++        private var trackIndex = -1
++        private var frameIndex = 0L
++
++        val outputPath: String
++            get() = output.displayPath
++
++        fun encode(bitmap: Bitmap) {
++            drain(endOfStream = false)
++            draw(bitmap)
++            frameIndex += 1L
++        }
++
++        fun finish() {
++            runCatching {
++                drain(endOfStream = false)
++                codec.signalEndOfInputStream()
++                drain(endOfStream = true)
++            }
++            releaseQuietly()
++            output.markComplete?.invoke()
++        }
++
++        fun discard() {
++            releaseQuietly()
++            output.discard?.invoke()
++        }
++
++        fun releaseQuietly() {
++            runCatching { inputSurface.release() }
++            runCatching { codec.stop() }
++            runCatching { codec.release() }
++            runCatching { muxer.stop() }
++            runCatching { muxer.release() }
++        }
++
++        private fun draw(bitmap: Bitmap) {
++            val canvas = inputSurface.lockCanvas(null)
++            try {
++                canvas.drawColor(Color.BLACK)
++                val target = Rect(0, 0, width, height)
++                canvas.drawBitmap(bitmap, null, target, null)
++            } finally {
++                inputSurface.unlockCanvasAndPost(canvas)
++            }
++        }
++
++        private fun drain(endOfStream: Boolean) {
++            while (true) {
++                val outputBufferIndex = codec.dequeueOutputBuffer(bufferInfo, DEQUEUE_TIMEOUT_US)
++                when {
++                    outputBufferIndex == MediaCodec.INFO_TRY_AGAIN_LATER -> {
++                        if (!endOfStream) return
++                    }
++
++                    outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
++                        check(!muxerStarted) { "Output format changed after muxer started." }
++                        trackIndex = muxer.addTrack(codec.outputFormat)
++                        muxer.start()
++                        muxerStarted = true
++                    }
++
++                    outputBufferIndex >= 0 -> {
++                        val encodedData =
++                            codec.getOutputBuffer(outputBufferIndex)
++                                ?: error("Encoder output buffer is null.")
++                        if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
++                            bufferInfo.size = 0
++                        }
++                        if (bufferInfo.size > 0) {
++                            check(muxerStarted) { "Muxer has not started." }
++                            encodedData.position(bufferInfo.offset)
++                            encodedData.limit(bufferInfo.offset + bufferInfo.size)
++                            bufferInfo.presentationTimeUs = frameIndex * MICROS_PER_SECOND / fps
++                            muxer.writeSampleData(trackIndex, encodedData, bufferInfo)
++                        }
++                        val reachedEnd =
++                            bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
++                        codec.releaseOutputBuffer(outputBufferIndex, false)
++                        if (reachedEnd) return
++                    }
++                }
++            }
++        }
++
++        companion object {
++            fun create(
++                context: Context,
++                width: Int,
++                height: Int,
++                fps: Int,
++            ): EncoderSession {
++                val output = createMuxerOutput(context)
++                val format =
++                    MediaFormat.createVideoFormat(MIME_TYPE, width, height).apply {
++                        setInteger(
++                            MediaFormat.KEY_COLOR_FORMAT,
++                            MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface,
++                        )
++                        setInteger(MediaFormat.KEY_BIT_RATE, width * height * BITRATE_PER_PIXEL)
++                        setInteger(MediaFormat.KEY_FRAME_RATE, fps)
++                        setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, I_FRAME_INTERVAL_SECONDS)
++                    }
++                val codec = MediaCodec.createEncoderByType(MIME_TYPE)
++                codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
++                val surface = codec.createInputSurface()
++                codec.start()
++                return EncoderSession(
++                    codec = codec,
++                    muxer = output.muxer,
++                    inputSurface = surface,
++                    output = output,
++                    width = width,
++                    height = height,
++                    fps = fps,
++                )
++            }
++        }
++    }
++
++    private companion object {
++        const val DEFAULT_FPS = 15
++        const val MAX_PENDING_FRAMES = 3
++        const val STOP_TIMEOUT_SECONDS = 5L
++        const val MIME_TYPE = "video/avc"
++        const val BITRATE_PER_PIXEL = 6
++        const val I_FRAME_INTERVAL_SECONDS = 1
++        const val DEQUEUE_TIMEOUT_US = 10_000L
++        const val NANOS_PER_SECOND = 1_000_000_000L
++        const val MICROS_PER_SECOND = 1_000_000L
++        const val RELATIVE_DIRECTORY = "Movies/S14P31A404-debug"
++    }
++}
++
++private data class MuxerOutput(
++    val muxer: MediaMuxer,
++    val displayPath: String,
++    val markComplete: (() -> Unit)?,
++    val discard: (() -> Unit)?,
++)
++
++private fun createMuxerOutput(context: Context): MuxerOutput {
++    val fileName = "sign_debug_analysis_${System.currentTimeMillis()}.mp4"
++    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
++        val values =
++            ContentValues().apply {
++                put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
++                put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
++                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/S14P31A404-debug")
++                put(MediaStore.Video.Media.IS_PENDING, 1)
++            }
++        val resolver = context.contentResolver
++        val uri =
++            resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
++                ?: error("MediaStore insert failed")
++        val descriptor =
++            resolver.openFileDescriptor(uri, "w")
++                ?: error("Could not open video output descriptor")
++        val muxer =
++            MediaMuxer(
++                descriptor.fileDescriptor,
++                MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4,
++            )
++        return MuxerOutput(
++            muxer = muxer,
++            displayPath = "Movies/S14P31A404-debug/$fileName",
++            markComplete = {
++                descriptor.close()
++                val completeValues =
++                    ContentValues().apply {
++                        put(MediaStore.Video.Media.IS_PENDING, 0)
++                    }
++                resolver.update(uri, completeValues, null, null)
++            },
++            discard = {
++                runCatching { descriptor.close() }
++                resolver.delete(uri, null, null)
++            },
++        )
++    }
++
++    val directory =
++        File(
++            context.getExternalFilesDir(Environment.DIRECTORY_MOVIES),
++            "S14P31A404-debug",
++        ).apply { mkdirs() }
++    val file = File(directory, fileName)
++    return MuxerOutput(
++        muxer =
++            MediaMuxer(
++                file.absolutePath,
++                MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4,
++            ),
++        displayPath = file.absolutePath,
++        markComplete = null,
++        discard = {
++            file.delete()
++        },
++    )
++}
++
++private fun Int.toEvenDimension(): Int = if (this % 2 == 0) this else this - 1
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt
+@@ -1,3 +1,5 @@
++@file:Suppress("TooManyFunctions")
++
+ package com.ssafy.mobile.feature.sign.presentation
+ 
+ import android.graphics.Bitmap
+@@ -14,8 +16,12 @@ import androidx.camera.core.ImageAnalysis
+ import androidx.camera.core.ImageProxy
+ import androidx.camera.core.Preview
+ import androidx.camera.core.UseCase
++import androidx.camera.core.resolutionselector.AspectRatioStrategy
++import androidx.camera.core.resolutionselector.ResolutionSelector
++import androidx.camera.core.resolutionselector.ResolutionStrategy
+ import androidx.camera.lifecycle.ProcessCameraProvider
+ import androidx.camera.view.PreviewView
++import androidx.compose.ui.unit.IntSize
+ import androidx.lifecycle.LifecycleOwner
+ import java.io.ByteArrayOutputStream
+ import java.nio.ByteBuffer
+@@ -50,8 +56,8 @@ internal fun bindCameraUseCases(
+     settings: CameraAnalysisSettings = CameraAnalysisSettings(),
+     onFrameAvailable: (YuvAnalysisFrame) -> Unit,
+ ): CameraBinding {
+-    val targetRotation = previewView.display?.rotation ?: Surface.ROTATION_0
+-    val previewUseCase = createPreviewUseCase(previewView, targetRotation)
++    val targetRotation = previewView.display?.rotation ?: Surface.ROTATION_90
++    val previewUseCase = createPreviewUseCase(previewView, targetRotation, settings)
+     val cameraConfig = selectCamera(cameraProvider)
+     val analysisUseCase =
+         createImageAnalysisUseCase(
+@@ -83,9 +89,11 @@ internal data class CameraBinding(
+ private fun createPreviewUseCase(
+     previewView: PreviewView,
+     targetRotation: Int,
++    settings: CameraAnalysisSettings,
+ ): Preview =
+     Preview
+         .Builder()
++        .setResolutionSelector(createLandscapeResolutionSelector(settings.targetResolution))
+         .setTargetRotation(targetRotation)
+         .build()
+         .also { preview ->
+@@ -103,19 +111,16 @@ private fun createImageAnalysisUseCase(
+             .Builder()
+             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
++            .setResolutionSelector(createLandscapeResolutionSelector(settings.targetResolution))
+             .setTargetRotation(targetRotation)
+-            .setTargetResolution(
+-                Size(
+-                    settings.targetResolution.width,
+-                    settings.targetResolution.height,
+-                ),
+-            ).build()
++            .build()
+ 
+     analysis.setAnalyzer(
+         analyzerExecutor,
+         SignFrameAnalyzer(
+             targetFps = settings.targetFps,
+             analysisFrameInterval = settings.analysisFrameInterval,
++            mirrorAnalysisInput = settings.mirrorAnalysisInput,
+             onFrameAvailable = onFrameAvailable,
+         ),
+     )
+@@ -139,9 +144,21 @@ private data class CameraAnalysisConfig(
+     val selector: CameraSelector,
+ )
+ 
++private fun createLandscapeResolutionSelector(targetResolution: IntSize): ResolutionSelector =
++    ResolutionSelector
++        .Builder()
++        .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
++        .setResolutionStrategy(
++            ResolutionStrategy(
++                Size(targetResolution.width, targetResolution.height),
++                ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
++            ),
++        ).build()
++
+ private class SignFrameAnalyzer(
+     private val targetFps: Int,
+     private val analysisFrameInterval: Int,
++    private val mirrorAnalysisInput: Boolean,
+     private val onFrameAvailable: (YuvAnalysisFrame) -> Unit,
+ ) : ImageAnalysis.Analyzer {
+     private var frameIndex = 0L
+@@ -160,14 +177,14 @@ private class SignFrameAnalyzer(
+             }
+ 
+             lastAnalyzedAtMs = nowMs
+-            onFrameAvailable(image.toYuvAnalysisFrame())
++            onFrameAvailable(image.toYuvAnalysisFrame(mirrorAnalysisInput))
+         } finally {
+             image.close()
+         }
+     }
+ }
+ 
+-private fun ImageProxy.toYuvAnalysisFrame(): YuvAnalysisFrame =
++private fun ImageProxy.toYuvAnalysisFrame(mirrorAnalysisInput: Boolean): YuvAnalysisFrame =
+     YuvAnalysisFrame(
+         timestampNanos = imageInfo.timestamp,
+         timestampMs = imageInfo.timestamp / NANOS_PER_MILLIS,
+@@ -175,7 +192,7 @@ private fun ImageProxy.toYuvAnalysisFrame(): YuvAnalysisFrame =
+         width = width,
+         height = height,
+         rotationDegrees = imageInfo.rotationDegrees,
+-        bitmap = toUprightBitmap(),
++        bitmap = toUprightBitmap(mirrorAnalysisInput),
+         planes =
+             planes.map { plane ->
+                 YuvPlane(
+@@ -186,7 +203,7 @@ private fun ImageProxy.toYuvAnalysisFrame(): YuvAnalysisFrame =
+             },
+     )
+ 
+-private fun ImageProxy.toUprightBitmap(): Bitmap {
++private fun ImageProxy.toUprightBitmap(mirrorAnalysisInput: Boolean): Bitmap {
+     val nv21 = toNv21()
+     val jpegBytes =
+         ByteArrayOutputStream().use { outputStream ->
+@@ -204,7 +221,14 @@ private fun ImageProxy.toUprightBitmap(): Bitmap {
+             outputStream.toByteArray()
+         }
+     val bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
+-    return bitmap.rotate(imageInfo.rotationDegrees)
++    val rotated = bitmap.rotate(imageInfo.rotationDegrees)
++    val mirrored =
++        if (mirrorAnalysisInput) {
++            rotated.mirrorHorizontally()
++        } else {
++            rotated
++        }
++    return mirrored.centerCropToAspectRatio(LANDSCAPE_ASPECT_RATIO)
+ }
+ 
+ private fun ImageProxy.toNv21(): ByteArray {
+@@ -276,9 +300,51 @@ private fun Bitmap.rotate(rotationDegrees: Int): Bitmap {
+     return rotated
+ }
+ 
++private fun Bitmap.mirrorHorizontally(): Bitmap {
++    val mirrored =
++        Bitmap.createBitmap(
++            this,
++            0,
++            0,
++            width,
++            height,
++            Matrix().apply { postScale(-1f, 1f, width / 2f, height / 2f) },
++            true,
++        )
++    if (mirrored != this) {
++        recycle()
++    }
++    return mirrored
++}
++
++private fun Bitmap.centerCropToAspectRatio(targetAspectRatio: Float): Bitmap {
++    val currentAspectRatio = width.toFloat() / height.toFloat()
++    val cropWidth: Int
++    val cropHeight: Int
++
++    if (currentAspectRatio > targetAspectRatio) {
++        cropHeight = height
++        cropWidth = (height * targetAspectRatio).toInt().coerceAtMost(width)
++    } else {
++        cropWidth = width
++        cropHeight = (width / targetAspectRatio).toInt().coerceAtMost(height)
++    }
++
++    if (cropWidth == width && cropHeight == height) return this
++
++    val left = (width - cropWidth) / 2
++    val top = (height - cropHeight) / 2
++    val cropped = Bitmap.createBitmap(this, left, top, cropWidth, cropHeight)
++    if (cropped != this) {
++        recycle()
++    }
++    return cropped
++}
++
+ private const val NANOS_PER_MILLIS = 1_000_000L
+ private const val MILLIS_PER_SECOND = 1_000L
+ private const val JPEG_QUALITY = 90
++private const val LANDSCAPE_ASPECT_RATIO = 16f / 9f
+ private const val CHROMA_DIVISOR = 2
+ private const val Y_PLANE_INDEX = 0
+ private const val U_PLANE_INDEX = 1
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraDebugModels.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraDebugModels.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraDebugModels.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraDebugModels.kt
+@@ -6,6 +6,7 @@ data class CameraAnalysisSettings(
+     val targetResolution: IntSize = IntSize(DEFAULT_TARGET_WIDTH, DEFAULT_TARGET_HEIGHT),
+     val targetFps: Int = DEFAULT_TARGET_FPS,
+     val analysisFrameInterval: Int = DEFAULT_ANALYSIS_FRAME_INTERVAL,
++    val mirrorAnalysisInput: Boolean = DEFAULT_MIRROR_ANALYSIS_INPUT,
+ ) {
+     init {
+         require(targetResolution.width > 0 && targetResolution.height > 0) {
+@@ -20,10 +21,11 @@ data class CameraAnalysisSettings(
+     }
+ 
+     companion object {
+-        const val DEFAULT_TARGET_WIDTH = 640
+-        const val DEFAULT_TARGET_HEIGHT = 480
++        const val DEFAULT_TARGET_WIDTH = 960
++        const val DEFAULT_TARGET_HEIGHT = 540
+         const val DEFAULT_TARGET_FPS = 15
+         const val DEFAULT_ANALYSIS_FRAME_INTERVAL = 1
++        const val DEFAULT_MIRROR_ANALYSIS_INPUT = false
+     }
+ }
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/ReplayWindowScanner.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/ReplayWindowScanner.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/ReplayWindowScanner.kt
+@@ -0,0 +1,193 @@
++package com.ssafy.mobile.feature.sign.presentation
++
++import android.content.Context
++import android.util.Log
++import com.ssafy.mobile.core.vision.feature.LandmarkFeatureEncoder
++import com.ssafy.mobile.core.vision.feature.LandmarkFeatureFrame
++import com.ssafy.mobile.core.vision.inference.SignInferenceAdapterFactory
++import com.ssafy.mobile.core.vision.inference.SignInferenceResult
++import com.ssafy.mobile.core.vision.inference.SignInferenceRuntimeMode
++import com.ssafy.mobile.core.vision.inference.SignModelContract
++import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
++import java.util.Locale
++
++internal class ReplayWindowScanner(
++    private val context: Context,
++) {
++    fun logExhaustiveWindows(frames: List<LandmarkFrameResult>) {
++        if (!LOG_EXHAUSTIVE_WINDOWS) return
++
++        if (frames.size < SignModelContract.SEQUENCE_LENGTH) {
++            Log.d(
++                TAG,
++                "SKIP frameCount=${frames.size} required=${SignModelContract.SEQUENCE_LENGTH}",
++            )
++            return
++        }
++
++        val features = frames.map(LandmarkFeatureEncoder()::encode)
++        val bestHits: MutableMap<String, ReplayWindowTargetHit?> =
++            TARGET_GLOSSES
++                .associateWith { null as ReplayWindowTargetHit? }
++                .toMutableMap()
++        val inferenceAdapter =
++            SignInferenceAdapterFactory(
++                context = context,
++                runtimeMode = SignInferenceRuntimeMode.TFLITE,
++            ).create()
++
++        try {
++            val lastWindowStart = features.size - SignModelContract.SEQUENCE_LENGTH
++            Log.d(TAG, "START frameCount=${features.size} windows=${lastWindowStart + 1}")
++            for (windowStart in 0..lastWindowStart) {
++                val windowEnd = windowStart + SignModelContract.SEQUENCE_LENGTH
++                val window = features.subList(windowStart, windowEnd)
++                val hit =
++                    ReplayWindowHit(
++                        windowIndex = windowStart,
++                        startFrameNumber = windowStart + 1,
++                        endFrameNumber = windowEnd,
++                        startTimestampMs = window.first().timestampMs,
++                        endTimestampMs = window.last().timestampMs,
++                        handFrameCount = window.count { it.hasHands },
++                        result = inferenceAdapter.predict(window.toSequenceInput()),
++                    )
++
++                logWindow(hit)
++                updateBestHits(bestHits, hit)
++            }
++            logSummary(bestHits)
++        } finally {
++            inferenceAdapter.close()
++        }
++    }
++
++    private fun List<LandmarkFeatureFrame>.toSequenceInput(): FloatArray {
++        val sequence =
++            FloatArray(
++                SignModelContract.SEQUENCE_LENGTH *
++                    SignModelContract.FEATURE_DIMENSION,
++            )
++        var offset = 0
++        forEach { frame ->
++            frame.values.copyInto(
++                destination = sequence,
++                destinationOffset = offset,
++            )
++            offset += SignModelContract.FEATURE_DIMENSION
++        }
++        return sequence
++    }
++
++    private fun logWindow(hit: ReplayWindowHit) {
++        val result = hit.result
++        val top1Index = result.classIndex?.toString() ?: "-"
++        Log.d(
++            TAG,
++            "WINDOW #${hit.windowIndex} " +
++                "frames=${hit.startFrameNumber}-${hit.endFrameNumber} " +
++                "time=${hit.startTimestampMs}-${hit.endTimestampMs}ms " +
++                "hands=${hit.handFrameCount}/${SignModelContract.SEQUENCE_LENGTH} " +
++                "top1=[$top1Index]${result.gloss} " +
++                formatPercent(result.confidence) +
++                " top2=${result.secondGloss ?: "-"} " +
++                formatPercent(result.secondConfidence ?: 0f) +
++                " margin=${formatPercent(result.margin)}",
++        )
++    }
++
++    private fun updateBestHits(
++        bestHits: MutableMap<String, ReplayWindowTargetHit?>,
++        hit: ReplayWindowHit,
++    ) {
++        val result = hit.result
++        bestHits.updateBestHit(
++            gloss = result.gloss,
++            candidate =
++                ReplayWindowTargetHit(
++                    hit = hit,
++                    rank = 1,
++                    confidence = result.confidence,
++                ),
++        )
++        result.secondGloss?.let { secondGloss ->
++            bestHits.updateBestHit(
++                gloss = secondGloss,
++                candidate =
++                    ReplayWindowTargetHit(
++                        hit = hit,
++                        rank = 2,
++                        confidence = result.secondConfidence ?: 0f,
++                    ),
++            )
++        }
++    }
++
++    private fun MutableMap<String, ReplayWindowTargetHit?>.updateBestHit(
++        gloss: String,
++        candidate: ReplayWindowTargetHit,
++    ) {
++        if (!containsKey(gloss)) return
++
++        val current = this[gloss]
++        if (current == null || candidate.confidence > current.confidence) {
++            this[gloss] = candidate
++        }
++    }
++
++    private fun logSummary(bestHits: Map<String, ReplayWindowTargetHit?>) {
++        bestHits.forEach { (gloss, bestHit) ->
++            if (bestHit == null) {
++                Log.d(TAG, "BEST $gloss none")
++                return@forEach
++            }
++
++            val hit = bestHit.hit
++            Log.d(
++                TAG,
++                "BEST $gloss " +
++                    "rank=top${bestHit.rank} " +
++                    "confidence=${formatPercent(bestHit.confidence)} " +
++                    "window=#${hit.windowIndex} " +
++                    "frames=${hit.startFrameNumber}-${hit.endFrameNumber} " +
++                    "time=${hit.startTimestampMs}-${hit.endTimestampMs}ms " +
++                    "windowTop1=${hit.result.gloss} " +
++                    formatPercent(hit.result.confidence),
++            )
++        }
++    }
++
++    private fun formatPercent(value: Float): String =
++        String.format(Locale.US, "%.1f%%", value * PERCENT_MULTIPLIER)
++
++    private data class ReplayWindowHit(
++        val windowIndex: Int,
++        val startFrameNumber: Int,
++        val endFrameNumber: Int,
++        val startTimestampMs: Long,
++        val endTimestampMs: Long,
++        val handFrameCount: Int,
++        val result: SignInferenceResult,
++    )
++
++    private data class ReplayWindowTargetHit(
++        val hit: ReplayWindowHit,
++        val rank: Int,
++        val confidence: Float,
++    )
++
++    private companion object {
++        const val LOG_EXHAUSTIVE_WINDOWS = true
++        const val PERCENT_MULTIPLIER = 100f
++        const val TAG = "SignReplayWindow"
++        val TARGET_GLOSSES =
++            listOf(
++                "장난감",
++                "조심",
++                "일어나다",
++                "기차",
++                "병원",
++                "가다",
++            )
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugRoute.kt
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignDebugViewModel.kt
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt
+@@ -2,9 +2,11 @@
+ 
+ package com.ssafy.mobile.feature.sign.presentation
+ 
++import android.graphics.Bitmap
+ import android.os.SystemClock
+ import androidx.camera.lifecycle.ProcessCameraProvider
+ import androidx.camera.view.PreviewView
++import androidx.compose.foundation.Image
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.padding
+@@ -21,7 +23,10 @@ import androidx.compose.runtime.rememberUpdatedState
+ import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.alpha
+ import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.graphics.asImageBitmap
++import androidx.compose.ui.layout.ContentScale
+ import androidx.compose.ui.platform.LocalConfiguration
+ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.text.style.TextAlign
+@@ -94,6 +99,7 @@ private fun CameraPreviewContent(
+     val previewView =
+         remember {
+             PreviewView(context).apply {
++                implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                 scaleType = PreviewView.ScaleType.FILL_CENTER
+             }
+         }
+@@ -104,6 +110,7 @@ private fun CameraPreviewContent(
+     var fps by remember { mutableStateOf(0.0) }
+     var latestLandmarkFrame by remember { mutableStateOf<LandmarkFrameResult?>(null) }
+     var latestAnalysisImageSize by remember { mutableStateOf(IntSize.Zero) }
++    var latestAnalysisBitmap by remember { mutableStateOf<Bitmap?>(null) }
+     val lastDebugOverlayUpdateAtMs = remember { AtomicLong(0L) }
+ 
+     DisposableEffect(landmarkExtractor) {
+@@ -114,6 +121,7 @@ private fun CameraPreviewContent(
+         if (!isSessionActive) {
+             latestLandmarkFrame = null
+             latestAnalysisImageSize = IntSize.Zero
++            latestAnalysisBitmap = null
+         }
+     }
+ 
+@@ -161,6 +169,7 @@ private fun CameraPreviewContent(
+                         lastDebugOverlayUpdateAtMs.set(nowMs)
+                         previewView.post {
+                             latestLandmarkFrame = landmarkFrame
++                            latestAnalysisBitmap = frame.bitmap
+                             latestAnalysisImageSize =
+                                 IntSize(frame.bitmap.width, frame.bitmap.height)
+                         }
+@@ -188,6 +197,7 @@ private fun CameraPreviewContent(
+         fps = fps,
+         landmarkFrame = latestLandmarkFrame,
+         analysisImageSize = latestAnalysisImageSize,
++        analysisBitmap = latestAnalysisBitmap,
+         showDebugOverlay = showDebugOverlay,
+         modifier = modifier,
+     )
+@@ -343,20 +353,35 @@ private fun CameraPreviewBox(
+     fps: Double,
+     landmarkFrame: LandmarkFrameResult?,
+     analysisImageSize: IntSize,
++    analysisBitmap: Bitmap?,
+     showDebugOverlay: Boolean,
+     modifier: Modifier = Modifier,
+ ) {
++    val showAnalysisBitmap = showDebugOverlay && analysisBitmap != null
++
+     Box(modifier = modifier.fillMaxSize()) {
+         AndroidView(
+             factory = { previewView },
+-            modifier = Modifier.fillMaxSize(),
++            modifier =
++                Modifier
++                    .fillMaxSize()
++                    .alpha(if (showAnalysisBitmap) 0.0f else 1.0f),
+         )
+ 
++        if (showAnalysisBitmap) {
++            Image(
++                bitmap = analysisBitmap.asImageBitmap(),
++                contentDescription = null,
++                contentScale = ContentScale.Crop,
++                modifier = Modifier.fillMaxSize(),
++            )
++        }
++
+         if (showDebugOverlay) {
+             LandmarkDebugOverlay(
+                 frame = landmarkFrame,
+                 analysisImageSize = analysisImageSize,
+-                mirrorHorizontally = FRONT_CAMERA_PREVIEW_IS_MIRRORED,
++                mirrorHorizontally = analysisBitmap == null && FRONT_CAMERA_PREVIEW_IS_MIRRORED,
+                 modifier = Modifier.fillMaxSize(),
+             )
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/WholeVideoIntentClassifier.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/WholeVideoIntentClassifier.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/WholeVideoIntentClassifier.kt
+@@ -0,0 +1,57 @@
++package com.ssafy.mobile.feature.sign.presentation
++
++import android.content.Context
++import android.util.Log
++import com.ssafy.mobile.core.vision.feature.LandmarkFeatureEncoder
++import com.ssafy.mobile.core.vision.feature.LandmarkFeatureSequenceResampler
++import com.ssafy.mobile.core.vision.inference.DebugReplayInferenceMode
++import com.ssafy.mobile.core.vision.inference.SignInferenceAdapterFactory
++import com.ssafy.mobile.core.vision.inference.SignInferenceResult
++import com.ssafy.mobile.core.vision.inference.SignInferenceRuntimeConfig
++import com.ssafy.mobile.core.vision.inference.SignInferenceRuntimeMode
++import com.ssafy.mobile.core.vision.inference.resolve
++import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
++
++internal class WholeVideoIntentClassifier(
++    private val context: Context,
++) {
++    fun classify(frames: List<LandmarkFrameResult>): SignInferenceResult {
++        require(frames.isNotEmpty()) {
++            "Video replay did not produce any landmark frames."
++        }
++
++        val replayMode = SignInferenceRuntimeConfig.debugReplayMode.resolve()
++        Log.d(TAG, "Whole-video replay inference mode=$replayMode")
++
++        return when (replayMode) {
++            DebugReplayInferenceMode.TFLITE_INTENT_CLASSIFIER ->
++                classifyWithTfliteIntentClassifier(frames)
++            DebugReplayInferenceMode.MATCH_PRIMARY ->
++                error("Replay inference mode must be resolved.")
++        }
++    }
++
++    private fun classifyWithTfliteIntentClassifier(
++        frames: List<LandmarkFrameResult>,
++    ): SignInferenceResult {
++        val encoder = LandmarkFeatureEncoder()
++        val featureFrames = frames.map(encoder::encode)
++        val sequence = LandmarkFeatureSequenceResampler.resampleToModelInput(featureFrames)
++        val adapter =
++            SignInferenceAdapterFactory(
++                context = context,
++                runtimeMode = SignInferenceRuntimeMode.TFLITE,
++            ).create()
++
++        return try {
++            val result = adapter.predict(sequence)
++            result.copy(gloss = "TFLite: ${result.gloss}")
++        } finally {
++            adapter.close()
++        }
++    }
++
++    private companion object {
++        const val TAG = "SignReplay"
++    }
++}
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoderTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoderTest.kt
+--- a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoderTest.kt
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoderTest.kt
+@@ -27,7 +27,7 @@ class LandmarkFeatureEncoderTest {
+     }
+ 
+     @Test
+-    fun normalizesZeroPaddedRawHandLandmarks() {
++    fun encodesZeroPaddedRawHandLandmarks() {
+         val encoder = LandmarkFeatureEncoder(isHandForwardFillEnabled = false)
+         encoder.encode(createFrame())
+ 
+@@ -177,9 +177,9 @@ class LandmarkFeatureEncoderTest {
+         const val TIMESTAMP_MS = 1_000L
+         const val FLOAT_DELTA = 0.0001f
+         const val FULL_POSE_LANDMARK_COUNT = 33
+-        const val POSE_X_NORMALIZED = 0f
+-        const val LEFT_HAND_X_NORMALIZED = 0.25f
+-        const val RIGHT_HAND_X_NORMALIZED = -0.25f
+-        const val NORMALIZED_ZERO_PADDED_HAND_VALUE = -0.5f
++        const val POSE_X_NORMALIZED = 0.5f
++        const val LEFT_HAND_X_NORMALIZED = 0.75f
++        const val RIGHT_HAND_X_NORMALIZED = 0.25f
++        const val NORMALIZED_ZERO_PADDED_HAND_VALUE = 0f
+     }
+ }
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureSequenceResamplerTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureSequenceResamplerTest.kt
+--- /dev/null
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureSequenceResamplerTest.kt
+@@ -0,0 +1,65 @@
++package com.ssafy.mobile.core.vision.feature
++
++import com.ssafy.mobile.core.vision.inference.SignModelContract
++import org.junit.Assert.assertEquals
++import org.junit.Test
++
++class LandmarkFeatureSequenceResamplerTest {
++    @Test
++    fun returnsZerosWhenNoFramesAreAvailable() {
++        val sequence =
++            LandmarkFeatureSequenceResampler.resampleToModelInput(
++                frames = emptyList(),
++                sequenceLength = TEST_SEQUENCE_LENGTH,
++            )
++
++        assertEquals(TEST_SEQUENCE_LENGTH * SignModelContract.FEATURE_DIMENSION, sequence.size)
++        assertEquals(0f, sequence[0], FLOAT_DELTA)
++        assertEquals(0f, sequence.last(), FLOAT_DELTA)
++    }
++
++    @Test
++    fun repeatsSingleFrameAcrossSequence() {
++        val sequence =
++            LandmarkFeatureSequenceResampler.resampleToModelInput(
++                frames = listOf(createFeatureFrame(7f)),
++                sequenceLength = TEST_SEQUENCE_LENGTH,
++            )
++
++        assertEquals(7f, sequence[0], FLOAT_DELTA)
++        assertEquals(7f, sequence[SignModelContract.FEATURE_DIMENSION], FLOAT_DELTA)
++        assertEquals(7f, sequence[SignModelContract.FEATURE_DIMENSION * 2], FLOAT_DELTA)
++    }
++
++    @Test
++    fun linearlyResamplesFramesToTargetLength() {
++        val sequence =
++            LandmarkFeatureSequenceResampler.resampleToModelInput(
++                frames =
++                    listOf(
++                        createFeatureFrame(0f),
++                        createFeatureFrame(10f),
++                        createFeatureFrame(20f),
++                    ),
++                sequenceLength = FIVE_FRAME_SEQUENCE_LENGTH,
++            )
++
++        assertEquals(0f, sequence[0], FLOAT_DELTA)
++        assertEquals(5f, sequence[SignModelContract.FEATURE_DIMENSION], FLOAT_DELTA)
++        assertEquals(10f, sequence[SignModelContract.FEATURE_DIMENSION * 2], FLOAT_DELTA)
++        assertEquals(15f, sequence[SignModelContract.FEATURE_DIMENSION * 3], FLOAT_DELTA)
++        assertEquals(20f, sequence[SignModelContract.FEATURE_DIMENSION * 4], FLOAT_DELTA)
++    }
++
++    private fun createFeatureFrame(value: Float): LandmarkFeatureFrame =
++        LandmarkFeatureFrame(
++            timestampMs = 0L,
++            values = FloatArray(SignModelContract.FEATURE_DIMENSION) { value },
++        )
++
++    private companion object {
++        const val TEST_SEQUENCE_LENGTH = 3
++        const val FIVE_FRAME_SEQUENCE_LENGTH = 5
++        const val FLOAT_DELTA = 0.0001f
++    }
++}
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/SignSequenceBufferTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/SignSequenceBufferTest.kt
+--- a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/SignSequenceBufferTest.kt
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/SignSequenceBufferTest.kt
+@@ -10,7 +10,11 @@ import org.junit.Test
+ class SignSequenceBufferTest {
+     @Test
+     fun returnsNullUntilSequenceLengthIsSatisfied() {
+-        val buffer = SignSequenceBuffer(sequenceLength = TEST_SEQUENCE_LENGTH)
++        val buffer =
++            SignSequenceBuffer(
++                sequenceLength = TEST_SEQUENCE_LENGTH,
++                minimumPredictionFrames = TEST_SEQUENCE_LENGTH,
++            )
+ 
+         buffer.add(createFeatureFrame(value = 1f))
+ 
+@@ -20,7 +24,11 @@ class SignSequenceBufferTest {
+ 
+     @Test
+     fun buildsSequenceInputWhenEnoughFramesAreBuffered() {
+-        val buffer = SignSequenceBuffer(sequenceLength = TEST_SEQUENCE_LENGTH)
++        val buffer =
++            SignSequenceBuffer(
++                sequenceLength = TEST_SEQUENCE_LENGTH,
++                minimumPredictionFrames = TEST_SEQUENCE_LENGTH,
++            )
+ 
+         buffer.add(createFeatureFrame(value = 1f))
+         buffer.add(createFeatureFrame(value = 2f))
+@@ -36,9 +44,35 @@ class SignSequenceBufferTest {
+         assertEquals(3f, sequence[SignModelContract.FEATURE_DIMENSION * 2], FLOAT_DELTA)
+     }
+ 
++    @Test
++    fun padsLastFrameWhenMinimumPredictionFramesAreBuffered() {
++        val buffer =
++            SignSequenceBuffer(
++                sequenceLength = TEST_SEQUENCE_LENGTH,
++                minimumPredictionFrames = TEST_MINIMUM_PREDICTION_FRAMES,
++            )
++
++        buffer.add(createFeatureFrame(value = 1f, timestampMs = 1_000L))
++        buffer.add(createFeatureFrame(value = 2f, timestampMs = 2_000L))
++
++        val snapshot = requireNotNull(buffer.buildSequenceSnapshot())
++        val sequence = snapshot.values
++
++        assertTrue(buffer.hasEnoughFrames)
++        assertEquals(TEST_SEQUENCE_LENGTH * SignModelContract.FEATURE_DIMENSION, sequence.size)
++        assertEquals(1f, sequence[0], FLOAT_DELTA)
++        assertEquals(2f, sequence[SignModelContract.FEATURE_DIMENSION], FLOAT_DELTA)
++        assertEquals(2f, sequence[SignModelContract.FEATURE_DIMENSION * 2], FLOAT_DELTA)
++        assertEquals(listOf(1_000L, 2_000L, 2_000L), snapshot.timestampsMs)
++    }
++
+     @Test
+     fun returnsNullWhenBufferedSequenceHasTooFewHandFrames() {
+-        val buffer = SignSequenceBuffer(sequenceLength = TEST_SEQUENCE_LENGTH)
++        val buffer =
++            SignSequenceBuffer(
++                sequenceLength = TEST_SEQUENCE_LENGTH,
++                minimumPredictionFrames = TEST_SEQUENCE_LENGTH,
++            )
+ 
+         buffer.add(createFeatureFrame(value = 1f, hasHands = false))
+         buffer.add(createFeatureFrame(value = 2f, hasHands = false))
+@@ -51,7 +85,11 @@ class SignSequenceBufferTest {
+ 
+     @Test
+     fun keepsOnlyRecentFrames() {
+-        val buffer = SignSequenceBuffer(sequenceLength = TEST_SEQUENCE_LENGTH)
++        val buffer =
++            SignSequenceBuffer(
++                sequenceLength = TEST_SEQUENCE_LENGTH,
++                minimumPredictionFrames = TEST_SEQUENCE_LENGTH,
++            )
+ 
+         buffer.add(createFeatureFrame(value = 1f))
+         buffer.add(createFeatureFrame(value = 2f))
+@@ -67,7 +105,11 @@ class SignSequenceBufferTest {
+ 
+     @Test
+     fun clearRemovesBufferedFrames() {
+-        val buffer = SignSequenceBuffer(sequenceLength = TEST_SEQUENCE_LENGTH)
++        val buffer =
++            SignSequenceBuffer(
++                sequenceLength = TEST_SEQUENCE_LENGTH,
++                minimumPredictionFrames = TEST_SEQUENCE_LENGTH,
++            )
+         buffer.add(createFeatureFrame(value = 1f))
+         buffer.add(createFeatureFrame(value = 2f))
+         buffer.add(createFeatureFrame(value = 3f))
+@@ -81,16 +123,18 @@ class SignSequenceBufferTest {
+ 
+     private fun createFeatureFrame(
+         value: Float,
++        timestampMs: Long = TIMESTAMP_MS,
+         hasHands: Boolean = true,
+     ): LandmarkFeatureFrame =
+         LandmarkFeatureFrame(
+-            timestampMs = TIMESTAMP_MS,
++            timestampMs = timestampMs,
+             values = FloatArray(SignModelContract.FEATURE_DIMENSION) { value },
+             hasHands = hasHands,
+         )
+ 
+     private companion object {
+         const val TEST_SEQUENCE_LENGTH = 3
++        const val TEST_MINIMUM_PREDICTION_FRAMES = 2
+         const val TIMESTAMP_MS = 1_000L
+         const val FLOAT_DELTA = 0.0001f
+     }
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignInferenceAssetStateTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignInferenceAssetStateTest.kt
+--- a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignInferenceAssetStateTest.kt
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignInferenceAssetStateTest.kt
+@@ -11,7 +11,7 @@ class SignInferenceAssetStateTest {
+             SignInferenceAssetState(
+                 hasModel = false,
+                 hasLabelMap = false,
+-            ).resolvePolicy()
++            ).resolvePolicy(SignInferenceRuntimeMode.TFLITE)
+ 
+         assertEquals(SignInferenceAdapterPolicy.FAKE, policy)
+     }
+@@ -22,7 +22,7 @@ class SignInferenceAssetStateTest {
+             SignInferenceAssetState(
+                 hasModel = true,
+                 hasLabelMap = true,
+-            ).resolvePolicy()
++            ).resolvePolicy(SignInferenceRuntimeMode.TFLITE)
+ 
+         assertEquals(SignInferenceAdapterPolicy.TFLITE, policy)
+     }
+@@ -33,7 +33,7 @@ class SignInferenceAssetStateTest {
+             SignInferenceAssetState(
+                 hasModel = true,
+                 hasLabelMap = false,
+-            ).resolvePolicy()
++            ).resolvePolicy(SignInferenceRuntimeMode.TFLITE)
+         }
+     }
+ 
+@@ -43,7 +43,7 @@ class SignInferenceAssetStateTest {
+             SignInferenceAssetState(
+                 hasModel = false,
+                 hasLabelMap = true,
+-            ).resolvePolicy()
++            ).resolvePolicy(SignInferenceRuntimeMode.TFLITE)
+         }
+     }
+ }
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignModelOutputTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignModelOutputTest.kt
+--- a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignModelOutputTest.kt
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignModelOutputTest.kt
+@@ -7,9 +7,11 @@ import org.junit.Test
+ 
+ class SignModelOutputTest {
+     @Test
+-    fun usesTfliteProbabilitiesAsPredictionConfidence() {
++    fun readsProbabilitiesAsPredictionConfidence() {
+         val probabilities =
+-            MutableList(SignModelContract.CLASS_COUNT) { LOW_PROBABILITY }.also {
++            MutableList(SignModelContract.CLASS_COUNT) {
++                (1f - HIGH_PROBABILITY) / (SignModelContract.CLASS_COUNT - 1)
++            }.also {
+                 it[EXPECTED_CLASS_INDEX] = HIGH_PROBABILITY
+             }
+ 
+@@ -23,40 +25,18 @@ class SignModelOutputTest {
+     }
+ 
+     @Test
+-    fun marksLowTopProbabilityAsNotConfident() {
+-        val probabilities =
+-            MutableList(SignModelContract.CLASS_COUNT) { LOW_PROBABILITY }.also {
+-                it[EXPECTED_CLASS_INDEX] = LOW_TOP_PROBABILITY
+-            }
+-
+-        val prediction = SignModelOutput(probabilities).topPrediction()
+-
+-        assertEquals(EXPECTED_CLASS_INDEX, prediction?.classIndex)
+-        assertFalse(prediction?.isConfident == true)
+-    }
+-
+-    @Test
+-    fun marksLowTopMarginAsNotConfident() {
+-        val probabilities =
+-            MutableList(SignModelContract.CLASS_COUNT) { LOW_PROBABILITY }.also {
+-                it[EXPECTED_CLASS_INDEX] = HIGH_PROBABILITY
+-                it[SECOND_CLASS_INDEX] = HIGH_PROBABILITY - LOW_MARGIN
+-            }
++    fun marksLowTopConfidenceAsNotConfident() {
++        val probabilities = MutableList(SignModelContract.CLASS_COUNT) { FLAT_PROBABILITY }
+ 
+         val prediction = SignModelOutput(probabilities).topPrediction()
+ 
+-        assertEquals(EXPECTED_CLASS_INDEX, prediction?.classIndex)
+-        assertEquals(LOW_MARGIN, prediction?.margin ?: 0f, FLOAT_DELTA)
++        assertEquals(0, prediction?.classIndex)
+         assertFalse(prediction?.isConfident == true)
+     }
+ 
+     private companion object {
+         const val EXPECTED_CLASS_INDEX = 3
+-        const val SECOND_CLASS_INDEX = 2
+-        const val LOW_PROBABILITY = 0.01f
+         const val HIGH_PROBABILITY = 0.9f
+-        const val LOW_TOP_PROBABILITY = 0.5f
+-        const val LOW_MARGIN = 0.05f
+-        const val FLOAT_DELTA = 0.0001f
++        const val FLAT_PROBABILITY = 0.0f
+     }
+ }
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngineTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngineTest.kt
+--- a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngineTest.kt
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngineTest.kt
+@@ -64,7 +64,7 @@ class RealSignRecognitionEngineTest {
+         }
+ 
+     @Test
+-    fun emitsPredictionWhenSequenceIsReady() =
++    fun emitsPredictionWhenLiveWindowIsStable() =
+         runBlocking {
+             val engine = createEngine()
+             val predictionDeferred =
+@@ -76,15 +76,76 @@ class RealSignRecognitionEngineTest {
+ 
+             yield()
+             engine.start()
+-            engine.submitFrame(createFrame(timestampMs = 1L))
+-            engine.submitFrame(createFrame(timestampMs = 2L))
+-            engine.submitFrame(createFrame(timestampMs = 3L))
+-            engine.submitFrame(createFrame(timestampMs = 4L))
++            repeatStablePredictionFrames(startTimestampMs = 1L, engine = engine)
++            engine.submitFrame(createNoHandsFrame(timestampMs = 1_000L))
++            engine.submitFrame(createNoHandsFrame(timestampMs = 1_000L + NO_HANDS_DELAY_MS))
+ 
+             val prediction = predictionDeferred.await()
+             assertEquals(TEST_GLOSS, prediction.gloss)
+             assertEquals(TEST_CONFIDENCE, prediction.confidence, FLOAT_DELTA)
+-            assertEquals(4L, prediction.timestampMs)
++            assertEquals(151L, prediction.timestampMs)
++        }
++
++    @Test
++    fun emitsPredictionWithResampledPartialSegment() =
++        runBlocking {
++            val inferenceAdapter = RecordingInferenceAdapter()
++            val engine =
++                createEngine(
++                    inferenceAdapter = inferenceAdapter,
++                    sequenceBuffer =
++                        SignSequenceBuffer(
++                            sequenceLength = TEST_PARTIAL_SEQUENCE_LENGTH,
++                            minimumPredictionFrames = TEST_MINIMUM_PREDICTION_FRAMES,
++                        ),
++                    predictionStabilizer =
++                        SignPredictionStabilizer(
++                            confidenceThreshold = TEST_CONFIDENCE_THRESHOLD,
++                            windowSize = 1,
++                            requiredVotes = 1,
++                        ),
++                )
++            val predictionDeferred =
++                async {
++                    withTimeout(TIMEOUT_MS) {
++                        engine.events.filterIsInstance<SignRecognitionEvent.Prediction>().first()
++                    }
++                }
++
++            yield()
++            engine.start()
++            repeatStablePredictionFrames(startTimestampMs = 1L, engine = engine)
++            engine.submitFrame(createNoHandsFrame(timestampMs = 1_000L))
++            engine.submitFrame(createNoHandsFrame(timestampMs = 1_000L + NO_HANDS_DELAY_MS))
++
++            assertTrue(inferenceAdapter.predictCallCount > 0)
++            assertEquals(TEST_GLOSS, predictionDeferred.await().gloss)
++        }
++
++    @Test
++    fun waitsForMinimumLiveWindowBeforeRunningInference() =
++        runBlocking {
++            val inferenceAdapter = RecordingInferenceAdapter()
++            val engine =
++                createEngine(
++                    inferenceAdapter = inferenceAdapter,
++                    predictionStabilizer =
++                        SignPredictionStabilizer(
++                            confidenceThreshold = TEST_CONFIDENCE_THRESHOLD,
++                            windowSize = 1,
++                            requiredVotes = 1,
++                        ),
++                )
++
++            engine.start()
++            engine.submitFrame(createFrame(timestampMs = 1L))
++            assertEquals(0, inferenceAdapter.predictCallCount)
++
++            engine.submitFrame(createFrame(timestampMs = 2L))
++            assertEquals(1, inferenceAdapter.predictCallCount)
++
++            engine.submitFrame(createFrame(timestampMs = 3L))
++            assertEquals(2, inferenceAdapter.predictCallCount)
+         }
+ 
+     @Test
+@@ -140,15 +201,16 @@ class RealSignRecognitionEngineTest {
+ 
+             yield()
+             engine.start()
+-            engine.submitFrame(createFrame(timestampMs = 1L))
+-            engine.submitFrame(createFrame(timestampMs = 2L))
++            repeatStablePredictionFrames(startTimestampMs = 1L, engine = engine)
++            engine.submitFrame(createNoHandsFrame(timestampMs = 1_000L))
++            engine.submitFrame(createNoHandsFrame(timestampMs = 1_000L + NO_HANDS_DELAY_MS))
+ 
+             val error = errorDeferred.await()
+             assertTrue(error.cause is IllegalStateException)
+         }
+ 
+     @Test
+-    fun emitsNoHandsDetectedAfterContinuousNoHandsFrames() =
++    fun emitsNoHandsDetectedWhenHandsDisappear() =
+         runBlocking {
+             val engine = createEngine()
+             val noHandsDeferred =
+@@ -163,28 +225,28 @@ class RealSignRecognitionEngineTest {
+             yield()
+             engine.start()
+             engine.submitFrame(createFrame(timestampMs = 0L))
+-            engine.submitFrame(createNoHandsFrame(timestampMs = 0L))
+-            engine.submitFrame(createNoHandsFrame(timestampMs = NO_HANDS_DELAY_MS))
++            submitMissingHandFrames(engine = engine, startTimestampMs = 10L)
+ 
+             assertEquals(SignRecognitionEvent.NoHandsDetected, noHandsDeferred.await())
+         }
+ 
+     @Test
+-    fun keepsNoHandsFramesInSequenceUntilResetDelay() =
++    fun startsNewSegmentAfterHandsDisappear() =
+         runBlocking {
+             val inferenceAdapter = RecordingInferenceAdapter()
+             val engine = createEngine(inferenceAdapter = inferenceAdapter)
+ 
+             engine.start()
+             engine.submitFrame(createFrame(timestampMs = 1L))
+-            engine.submitFrame(createNoHandsFrame(timestampMs = 2L))
+-
+-            assertEquals(1, inferenceAdapter.predictCallCount)
++            submitMissingHandFrames(engine = engine, startTimestampMs = 2L)
++            val predictCountAfterReset = inferenceAdapter.predictCallCount
+ 
+-            engine.submitFrame(createNoHandsFrame(timestampMs = 2L + NO_HANDS_DELAY_MS))
+             engine.submitFrame(createFrame(timestampMs = 3L + NO_HANDS_DELAY_MS))
++            assertEquals(predictCountAfterReset, inferenceAdapter.predictCallCount)
+ 
+-            assertEquals(1, inferenceAdapter.predictCallCount)
++            repeatStablePredictionFrames(startTimestampMs = 4L + NO_HANDS_DELAY_MS, engine = engine)
++
++            assertTrue(inferenceAdapter.predictCallCount > predictCountAfterReset)
+         }
+ 
+     @Test
+@@ -204,9 +266,9 @@ class RealSignRecognitionEngineTest {
+             yield()
+             engine.start()
+             repeatStablePredictionFrames(startTimestampMs = 1L, engine = engine)
+-            engine.submitFrame(createNoHandsFrame(timestampMs = 10L))
+-            engine.submitFrame(createNoHandsFrame(timestampMs = 10L + NO_HANDS_DELAY_MS))
+-            repeatStablePredictionFrames(startTimestampMs = 20L, engine = engine)
++            submitMissingHandFrames(engine = engine, startTimestampMs = 1_000L)
++            repeatStablePredictionFrames(startTimestampMs = 2_000L, engine = engine)
++            submitMissingHandFrames(engine = engine, startTimestampMs = 3_000L)
+ 
+             val predictions = predictionsDeferred.await()
+             assertEquals(TEST_GLOSS, predictions[0].gloss)
+@@ -215,10 +277,20 @@ class RealSignRecognitionEngineTest {
+ 
+     private fun createEngine(
+         inferenceAdapter: SignInferenceAdapter = RecordingInferenceAdapter(),
++        sequenceBuffer: SignSequenceBuffer =
++            SignSequenceBuffer(
++                sequenceLength = TEST_SEQUENCE_LENGTH,
++            ),
++        predictionStabilizer: SignPredictionStabilizer =
++            SignPredictionStabilizer(
++                confidenceThreshold = TEST_CONFIDENCE_THRESHOLD,
++                windowSize = TEST_PREDICTION_WINDOW_SIZE,
++                requiredVotes = TEST_REQUIRED_VOTES,
++            ),
+     ): RealSignRecognitionEngine =
+         RealSignRecognitionEngine(
+             featureEncoder = LandmarkFeatureEncoder(),
+-            sequenceBuffer = SignSequenceBuffer(sequenceLength = TEST_SEQUENCE_LENGTH),
++            sequenceBuffer = sequenceBuffer,
+             inferenceAdapter = inferenceAdapter,
+             noHandsDetectionTracker =
+                 NoHandsDetectionTracker(
+@@ -229,12 +301,7 @@ class RealSignRecognitionEngineTest {
+                     log = {},
+                     elapsedRealtime = { 0L },
+                 ),
+-            predictionStabilizer =
+-                SignPredictionStabilizer(
+-                    confidenceThreshold = TEST_CONFIDENCE_THRESHOLD,
+-                    windowSize = TEST_PREDICTION_WINDOW_SIZE,
+-                    requiredVotes = TEST_REQUIRED_VOTES,
+-                ),
++            predictionStabilizer = predictionStabilizer,
+         )
+ 
+     private class RecordingInferenceAdapter(
+@@ -284,8 +351,21 @@ class RealSignRecognitionEngineTest {
+         startTimestampMs: Long,
+         engine: RealSignRecognitionEngine,
+     ) {
+-        repeat(TEST_SEQUENCE_LENGTH + TEST_REQUIRED_VOTES - 1) { index ->
+-            engine.submitFrame(createFrame(timestampMs = startTimestampMs + index))
++        repeat(TEST_STABLE_SEGMENT_FRAMES) { index ->
++            engine.submitFrame(
++                createFrame(timestampMs = startTimestampMs + index * TEST_FRAME_INTERVAL_MS),
++            )
++        }
++    }
++
++    private fun submitMissingHandFrames(
++        engine: RealSignRecognitionEngine,
++        startTimestampMs: Long,
++    ) {
++        repeat(MISSING_HAND_RESET_FRAMES) { index ->
++            engine.submitFrame(
++                createNoHandsFrame(timestampMs = startTimestampMs + index * TEST_FRAME_INTERVAL_MS),
++            )
+         }
+     }
+ 
+@@ -323,12 +403,17 @@ class RealSignRecognitionEngineTest {
+ 
+     private companion object {
+         const val TEST_SEQUENCE_LENGTH = 2
++        const val TEST_PARTIAL_SEQUENCE_LENGTH = 4
++        const val TEST_MINIMUM_PREDICTION_FRAMES = 2
+         const val TEST_GLOSS = "엄마"
+         const val TEST_CONFIDENCE = 0.91f
+         const val TEST_CONFIDENCE_THRESHOLD = 0.85f
+         const val TEST_PREDICTION_WINDOW_SIZE = 5
+         const val TEST_REQUIRED_VOTES = 3
++        const val TEST_STABLE_SEGMENT_FRAMES = 8
++        const val TEST_FRAME_INTERVAL_MS = 50L
+         const val NO_HANDS_DELAY_MS = 1_000L
++        const val MISSING_HAND_RESET_FRAMES = 16
+         const val FULL_POSE_LANDMARK_COUNT = 33
+         const val FLOAT_DELTA = 0.0001f
+         const val TIMEOUT_MS = 1_000L
+
+
+diff --git a/mobile/docs/ctc-onnx-runtime-switch.md b/mobile/docs/ctc-onnx-runtime-switch.md
+--- /dev/null
++++ b/mobile/docs/ctc-onnx-runtime-switch.md
+@@ -0,0 +1,208 @@
++# CTC ONNX Runtime Switch
++
++작성일: 2026-05-12
++
++## 요약
++
++현재 앱은 두 가지 수어 인식 런타임을 같이 보유한다.
++
++- `CTC_ONNX`: 664-dim `[x, dx]` feature를 입력으로 받는 CTC sequence 모델
++- `TFLITE`: 기존 30-frame window 기반 TFLite word spotting 모델
++
++기본값은 `CTC_ONNX`다. ONNX가 앱에서 불안정하거나 Android 16KB native library 이슈가 커지면, 설정 한 줄로 기존 TFLite 경로로 되돌릴 수 있다.
++
++## 모델 파일
++
++현재 앱에 포함된 CTC ONNX 파일:
++
++```text
++mobile/app/src/main/assets/models/ctc_sen_delta664_useraug.onnx
++mobile/app/src/main/assets/models/ctc_sen_vocab.json
++```
++
++기존 TFLite 모델은 그대로 유지한다.
++
++```text
++mobile/app/src/main/assets/models/sen_word_variant_spotter_bg3_wordwin8_fixed30.tflite
++mobile/app/src/main/assets/models/label_map_sen_word_variant_spotter_bg3_wordwin8.json
++```
++
++## 런타임 전환
++
++전환 위치:
++
++```text
++mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceRuntimeConfig.kt
++```
++
++ONNX CTC 사용:
++
++```kotlin
++val primaryMode: SignInferenceRuntimeMode = SignInferenceRuntimeMode.CTC_ONNX
++```
++
++기존 TFLite 사용:
++
++```kotlin
++val primaryMode: SignInferenceRuntimeMode = SignInferenceRuntimeMode.TFLITE
++```
++
++디버그 영상 리플레이는 기본적으로 `primaryMode`를 따라간다.
++
++```kotlin
++val debugReplayMode: DebugReplayInferenceMode = DebugReplayInferenceMode.MATCH_PRIMARY
++```
++
++필요하면 디버그 리플레이만 강제로 고정할 수 있다.
++
++```kotlin
++val debugReplayMode: DebugReplayInferenceMode = DebugReplayInferenceMode.CTC_ONNX
++val debugReplayMode: DebugReplayInferenceMode = DebugReplayInferenceMode.TFLITE_WORD_SPOTTING
++```
++
++## 코드 역할
++
++```text
++SignInferenceRuntimeConfig.kt
++```
++
++앱에서 사용할 primary inference runtime과 debug replay runtime을 정한다.
++
++```text
++CtcOnnxSignInferenceAdapter.kt
++```
++
++ONNX Runtime으로 CTC 모델을 실행한다. `LandmarkFeatureFrame` 목록을 664-dim `[x, dx]` feature로 변환하고, CTC greedy decoding으로 단어열을 만든다.
++
++```text
++SignInferenceAdapterFactory.kt
++```
++
++설정값과 asset 존재 여부에 따라 ONNX CTC 또는 TFLite adapter를 생성한다.
++
++```text
++RealSignRecognitionEngine.kt
++```
++
++실시간 카메라 입력에서 손이 보이는 구간을 segment로 모은 뒤, CTC adapter가 지원되면 전체 segment를 한 번에 decoding한다.
++
++```text
++WholeVideoIntentClassifier.kt
++```
++
++디버그 영상 업로드/리플레이에서 ONNX CTC 또는 TFLite word spotting 중 하나를 실행한다. ONNX 모드에서는 결과가 `CTC: ...` 형태로 표시된다.
++
++```text
++ReplayWindowScanner.kt
++```
++
++고정 window exhaustive replay는 구조상 TFLite 전용이다. 이 경로는 `[1, 30, 332]` fixed-window classifier를 전제로 한다.
++
++## CTC 출력 조건
++
++현재 CTC 경로에는 별도의 confidence threshold가 없다.
++
++CTC가 non-blank token을 하나라도 decode하면 utterance를 출력하고, 전부 blank이면 출력하지 않는다. 지금 적용된 segment guard는 다음과 같다.
++
++```text
++min segment frames: 8
++min hand frames: 6
++min segment duration: 250 ms
++```
++
++CTC 결과의 confidence는 출력된 token frame들의 평균 softmax 값이다. 기존 TFLite의 class confidence와 의미가 완전히 같지는 않다.
++
++기존 TFLite threshold는 여전히 남아 있지만, ONNX full-segment CTC 경로에는 적용되지 않는다.
++
++```text
++SignModelContract.CONFIDENCE_THRESHOLD = 0.75f
++SignModelContract.MARGIN_THRESHOLD = 0.08f
++```
++
++## 현재 검증된 상태
++
++빌드/테스트:
++
++```powershell
++cd C:\Users\SSAFY\Desktop\Project\S14P31A404\mobile
++$env:GRADLE_USER_HOME='C:\Users\SSAFY\Desktop\Project\S14P31A404\mobile\.gradle-user-home'
++.\gradlew.bat :app:ktlintCheck :app:compileDebugKotlin
++.\gradlew.bat :app:testDebugUnitTest --tests com.ssafy.mobile.core.vision.inference.SignInferenceAssetStateTest
++.\gradlew.bat :app:installDebug
++```
++
++ADB logcat에서 확인된 ONNX 사용 로그:
++
++```text
++SignPipeline: Inference adapter. name=CtcOnnxSignInferenceAdapter, supportsFullSegmentInference=true
++```
++
++APK 내부에 포함된 ONNX 관련 파일:
++
++```text
++assets/models/ctc_sen_delta664_useraug.onnx
++assets/models/ctc_sen_vocab.json
++lib/arm64-v8a/libonnxruntime.so
++lib/arm64-v8a/libonnxruntime4j_jni.so
++```
++
++## 디버그 리플레이 확인
++
++앱에서 디버그 영상을 올렸을 때 ONNX CTC가 사용되는지 보려면 logcat에서 다음 패턴을 확인한다.
++
++```powershell
++adb logcat -d | Select-String -Pattern "Inference adapter|Whole-video replay inference mode|CTC ONNX|TFLite sign model"
++```
++
++ONNX CTC를 쓰는 경우 기대 로그:
++
++```text
++Inference adapter. name=CtcOnnxSignInferenceAdapter, supportsFullSegmentInference=true
++Whole-video replay inference mode=CTC_ONNX
++```
++
++TFLite 리플레이를 쓰는 경우 기대 로그:
++
++```text
++Whole-video replay inference mode=TFLITE_WORD_SPOTTING
++```
++
++## 실험 결과 해석
++
++현재 앱에 넣은 ONNX 모델은 `NIA + 순우 0512 idx1/2 adaptation + 약한 증강` 계열이다.
++
++서버 평가에서 순우 19개 앱 feature 기준:
++
++```text
++sequence_acc = 0.8947
++wer = 0.0435
++```
++
++현원 데이터는 zero-shot 및 few-shot 결과가 안정적이지 않았다. 현원 영상은 프레임 수가 짧고 동작 속도가 빠른 편이라, 현재 모델의 사용자 adaptation 범위를 벗어나는 케이스로 보는 것이 안전하다.
++
++따라서 현재 앱 테스트의 우선순위는 다음과 같다.
++
++1. 순우 스타일 영상이 앱 실시간 입력에서도 잘 나오는지 확인
++2. 디버그 리플레이가 ONNX CTC 경로를 타는지 확인
++3. 현원처럼 빠른 사용자에 대해서는 촬영 가이드, 속도 증강, 별도 adaptation 전략을 분리해서 검증
++
++## 알려진 이슈
++
++Android 16KB page-size 호환성 경고가 뜰 수 있다.
++
++경고 대상에는 ONNX Runtime native library가 포함된다.
++
++```text
++lib/arm64-v8a/libonnxruntime.so
++lib/arm64-v8a/libonnxruntime4j_jni.so
++```
++
++이 때문에 production 방향은 아직 확정하지 않는다. ONNX 경로가 인식 성능 측면에서 유리하더라도, 배포 안정성까지 확인되기 전까지는 TFLite fallback을 유지한다.
++
++## 다음 작업 후보
++
++- CTC confidence gate 추가
++- 너무 짧거나 너무 빠른 segment를 걸러내는 후처리 추가
++- ONNX Runtime 16KB 호환성 해결 가능 여부 확인
++- 필요하면 CTC 모델을 TFLite로 다시 export하는 경로 검토
++- 사용자별 few-shot adaptation 데이터 수집 기준 정리
+
+
+diff --git a/mobile/.gitignore b/mobile/.gitignore
+--- a/mobile/.gitignore
++++ b/mobile/.gitignore
+@@ -34,3 +34,9 @@ local.properties
+ 
+ # MediaPipe official model assets are downloaded locally.
+ /app/src/main/assets/models/holistic_landmarker.task
++
++# ONNX Runtime caused Android 16KB page-size issues in this project.
++# Keep committed mobile models on the TFLite path unless this is revisited.
++/app/src/main/assets/models/*.onnx
++/app/src/main/assets/models/*.onnx.data
++/app/src/main/assets/models/label_map_mvp_v3_24_intent.json
+
+
+diff --git a/mobile/README.md b/mobile/README.md
+--- a/mobile/README.md
++++ b/mobile/README.md
+@@ -1,10 +1,12 @@
+ # Mobile
+ 
+-## MediaPipe 모델 파일
++이 앱은 카메라 프레임에서 MediaPipe Holistic landmark를 추출하고, 앱에 포함된
++TFLite 모델로 한국어 수어 단어를 온디바이스에서 인식합니다.
+ 
+-`holistic_landmarker.task`는 용량이 커서 Git에 포함하지 않습니다.
++## 필수 외부 파일
+ 
+-아래 링크에서 다운로드한 뒤 다음 경로에 넣어주세요.
++`holistic_landmarker.task`는 용량이 커서 Git에 포함하지 않습니다. 새 PC에서
++앱을 실행하려면 아래 파일을 직접 다운로드해서 넣어야 합니다.
+ 
+ ```text
+ mobile/app/src/main/assets/models/holistic_landmarker.task
+@@ -15,3 +17,105 @@ mobile/app/src/main/assets/models/holistic_landmarker.task
+ ```text
+ https://storage.googleapis.com/mediapipe-models/holistic_landmarker/holistic_landmarker/float16/1/holistic_landmarker.task
+ ```
++
++이 파일이 없으면 카메라 landmark 추출이 동작하지 않습니다.
++
++## Git에 포함되는 모델
++
++현재 앱에서 사용하는 주요 TFLite 모델은 Git에 포함합니다.
++
++```text
++mobile/app/src/main/assets/models/sen_word_variant_spotter_bg3_wordwin8_fixed30.tflite
++mobile/app/src/main/assets/models/label_map_sen_word_variant_spotter_bg3_wordwin8.json
++```
++
++위 모델은 word spotting용입니다. 입력은 `[1, 30, 332]`, 출력은
++`__SEN`/`__WORD` domain label 후보 확률입니다. 앱에서는 `가다__SEN`과
++`가다__WORD`를 `가다`로 합쳐서 표시합니다.
++
++비교/디버그용 전체 문장 분류 모델도 포함되어 있습니다.
++
++```text
++mobile/app/src/main/assets/models/intent_classifier_mvp_v3_24_fixed30.tflite
++mobile/app/src/main/assets/models/label_map_mvp_v3_24_intent_tflite.json
++```
++
++ONNX 모델은 Android 16KB page-size 호환성 문제 때문에 사용하지 않습니다.
++
++## 실행
++
++Android Studio에서 `mobile` 모듈을 열거나, 루트에서 아래 명령을 실행합니다.
++
++```bash
++cd mobile
++./gradlew assembleDebug
++```
++
++실기기 설치:
++
++```bash
++./gradlew installDebug
++```
++
++Android 디바이스가 인식되지 않으면 USB 디버깅과 `adb devices`를 먼저 확인하세요.
++
++## 앱에서 확인하는 방법
++
++1. 앱 실행
++2. `소통` 탭 이동
++3. `기기` 모드 선택
++4. `대화 시작하기`
++5. 카메라에 손을 보이게 두고 수어 동작
++
++현재 안정적으로 테스트할 수 있는 단어/구문:
++
++```text
++가다
++방법
++빨리
++가능
++공항
++에어컨
++불량
++없다
++
++가다 방법
++공항 가다
++에어컨 불량
++빨리 가능
++불가능 불량
++```
++
++인식 결과는 실시간 상태 영역과 gloss chip으로 표시됩니다. 아무 동작도 하지
++않을 때는 임의 단어가 계속 뜨지 않는 것이 정상입니다.
++
++## 카메라 비율
++
++학습 데이터는 16:9 landscape 영상입니다. 모바일 세로 카메라와 분포 차이가
++커서, 앱은 분석 입력을 16:9 center crop으로 맞춥니다.
++
++관련 파일:
++
++```text
++mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt
++mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt
++mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
++```
++
++## AI 실험 문서
++
++다른 사람이 현재 연구 흐름을 이어가려면 먼저 아래 문서를 읽는 것이 좋습니다.
++
++```text
++mobile-ai/docs/mobile-sign-recognition-handoff.md
++mobile-ai/docs/final_experiment_summary_2026-05-10.md
++```
++
++요약:
++
++```text
++현재 앱 MVP: sen_word_variant_spotter_bg3_wordwin8_fixed30.tflite
++현재 연구 방향: sentence 내부 word spotting
++주요 이슈: WORD 단독 수어와 SEN 문장 속 수어의 도메인 차이
++다음 실험: 라벨 확장, WORD/SEN variant 학습, WORD sliding positive
++```
+
+
+diff --git a/mobile-ai/config/label_manifest_child_mvp.json b/mobile-ai/config/label_manifest_child_mvp.json
+--- /dev/null
++++ b/mobile-ai/config/label_manifest_child_mvp.json
+@@ -0,0 +1,24 @@
++{
++  "target_labels": [
++    "엄마",
++    "아기",
++    "밥",
++    "우유",
++    "자다",
++    "아프다",
++    "병원",
++    "놀다",
++    "장난감",
++    "좋다",
++    "싫다",
++    "조심",
++    "배고프다",
++    "졸리다",
++    "행복",
++    "화나다"
++  ],
++  "blank_label": "<blank>",
++  "canonical_labels": {
++    "잠자다": "자다"
++  }
++}
+
+
+diff --git a/mobile-ai/config/label_manifest_mvp.json b/mobile-ai/config/label_manifest_mvp.json
+--- /dev/null
++++ b/mobile-ai/config/label_manifest_mvp.json
+@@ -0,0 +1,28 @@
++{
++  "target_labels": [
++    "기차",
++    "장난감",
++    "놀다",
++    "가다",
++    "일어나다",
++    "병원",
++    "조심"
++  ],
++  "blank_sources": [
++    "none"
++  ],
++  "canonical_labels": {
++    "기차": "기차",
++    "장난감": "장난감",
++    "놀다": "놀다",
++    "가다": "가다",
++    "가다3": "가다",
++    "가다4": "가다",
++    "일어나다": "일어나다",
++    "일어나다1": "일어나다",
++    "일어나다2": "일어나다",
++    "병원": "병원",
++    "조심": "조심",
++    "none": "<blank>"
++  }
++}
+
+
+diff --git a/mobile-ai/config/label_manifest_sentence_smoke.json b/mobile-ai/config/label_manifest_sentence_smoke.json
+--- /dev/null
++++ b/mobile-ai/config/label_manifest_sentence_smoke.json
+@@ -0,0 +1,13 @@
++{
++  "target_labels": [
++    "병원",
++    "주차",
++    "배",
++    "아프다",
++    "명동",
++    "가다",
++    "좋다"
++  ],
++  "blank_label": "<blank>",
++  "canonical_labels": {}
++}
+
+
+diff --git a/mobile-ai/data/continuous_v1/holdout/.gitkeep b/mobile-ai/data/continuous_v1/holdout/.gitkeep
+--- /dev/null
++++ b/mobile-ai/data/continuous_v1/holdout/.gitkeep
+@@ -0,0 +1 @@
++
+
+
+diff --git a/mobile-ai/data/continuous_v1/train/.gitkeep b/mobile-ai/data/continuous_v1/train/.gitkeep
+--- /dev/null
++++ b/mobile-ai/data/continuous_v1/train/.gitkeep
+@@ -0,0 +1 @@
++
+
+
+diff --git a/mobile-ai/docs/current_status_2026-05-11.md b/mobile-ai/docs/current_status_2026-05-11.md
+--- /dev/null
++++ b/mobile-ai/docs/current_status_2026-05-11.md
+@@ -0,0 +1,349 @@
++# Current Sign Recognition Status - 2026-05-11
++
++이 문서는 현재 수어 인식 실험과 모바일 적용 상태를 다음 작업자가 바로
++이어받을 수 있도록 정리한 최신 상태 문서이다.
++
++## 결론
++
++현재 MVP 방향은 고정 문장 분류가 아니라 sentence 내부 word spotting이다.
++
++현재 best 서버 모델:
++
++```text
++model: /home/j-k14a404/Son/mobile-ai/artifacts/sen_word_variant_spotter_bg3_wordwin8.pt
++validation files: 88
++sequence_acc: 0.7500
++wer: 0.1224
++scan thresholds:
++  score_threshold=0.99
++  margin_threshold=0.95
++  max_detections=8
++canonical_suffixes:
++  __SEN,__WORD
++```
++
++현재 모바일 적용 모델:
++
++```text
++mobile/app/src/main/assets/models/sen_word_variant_spotter_bg3_wordwin8_fixed30.tflite
++mobile/app/src/main/assets/models/label_map_sen_word_variant_spotter_bg3_wordwin8.json
++```
++
++모바일 모델 shape:
++
++```text
++input_shape=[1, 30, 332]
++output_shape=[1, 43]
++```
++
++TFLite window classification 검증:
++
++```text
++files=6048
++top1_acc=0.9724
++top3_acc=0.9983
++```
++
++주의: TFLite의 `top1_acc`는 window classification 정확도이고, 최종 품질은
++sliding scan의 WER로 판단해야 한다. 현재 최종 서버 기준 best는 PyTorch
++scan 결과 `WER=0.1224`이다.
++
++## 왜 이 모델이 best인가
++
++초기 best word spotter는 sentence 내부 window만 학습한 모델이었다.
++
++```text
++sen_window_spotter_bg3
++sequence_acc=0.7045
++wer=0.1531
++```
++
++그 뒤 isolated WORD 데이터와 sentence 내부 SEN 데이터를 같은 label로 억지로
++섞지 않고, domain suffix로 분리해서 학습했다.
++
++```text
++가다__SEN
++가다__WORD
++방법__SEN
++방법__WORD
++...
++```
++
++추론 때만 suffix를 제거해서 canonical word로 합친다.
++
++```text
++가다__SEN + 가다__WORD -> 가다
++방법__SEN + 방법__WORD -> 방법
++```
++
++실험 결과:
++
++```text
++sen_window_spotter_bg3
++  sequence_acc=0.7045
++  wer=0.1531
++
++sen_word_variant_spotter_bg3
++  sequence_acc=0.7386
++  wer=0.1429
++
++sen_word_variant_spotter_bg3_wordwin4
++  sequence_acc=0.7386
++  wer=0.1378
++
++sen_word_variant_spotter_bg3_wordwin8
++  sequence_acc=0.7500
++  wer=0.1224
++```
++
++결론:
++
++```text
++SEN 문장 내부 window + WORD 단독 window를 domain label로 분리 학습하고,
++추론 때 canonical word로 합치는 방식이 현재 가장 좋다.
++```
++
++## 재현 명령
++
++### 1. WORD/SEN variant wordwin8 manifest 생성
++
++```bash
++cd ~/Son
++conda activate mobile-ai
++
++python mobile-ai/src/build_sen_word_variant_spotter_manifest.py \
++  --sen-window-manifest ~/Son/mvp-v3-24-rich/sen_window_spotter_bg3/sen_window_spotter_manifest.csv \
++  --word-manifest ~/Son/mobile-ai/data/full_word_morpheme_manifest.csv \
++  --word-feature-root ~/Son/full-word/features_332 \
++  --output-root ~/Son/mvp-v3-24-rich/sen_word_variant_spotter_bg3_wordwin8 \
++  --max-word-per-label 12 \
++  --word-window-frames 8,12,16,20,24,32,40,52,64 \
++  --word-window-stride 4 \
++  --word-positive-min-coverage 0.60 \
++  --word-positive-min-purity 0.25 \
++  --max-word-windows-per-clip 8 \
++  --overwrite
++```
++
++Manifest 결과:
++
++```text
++rows=27777
++split {'train': 21729, 'val': 6048}
++kind {'SEN_WIN_DOMAIN': 6680, 'SEN_WIN_NEG': 19081, 'WORD_DOMAIN': 2016}
++labels 43
++```
++
++### 2. PyTorch 모델 학습
++
++```bash
++python mobile-ai/src/train_sequence_classifier.py \
++  --manifest ~/Son/mvp-v3-24-rich/sen_word_variant_spotter_bg3_wordwin8/sen_word_variant_spotter_manifest.csv \
++  --output ~/Son/mobile-ai/artifacts/sen_word_variant_spotter_bg3_wordwin8.pt \
++  --epochs 40 \
++  --batch-size 8
++```
++
++### 3. Sliding scan 평가
++
++```bash
++python mobile-ai/src/scan_sen_with_segment_classifier.py \
++  --model ~/Son/mobile-ai/artifacts/sen_word_variant_spotter_bg3_wordwin8.pt \
++  --manifest ~/Son/mobile-ai/data/mvp_v3_24_sen_rich_manifest.csv \
++  --feature-root ~/Son/mvp-v3-24-rich/features_332 \
++  --split val \
++  --window-frames 8,12,16,20,24,32,40,52,64 \
++  --stride 4 \
++  --score-threshold 0.99 \
++  --margin-threshold 0.95 \
++  --max-detections 8 \
++  --canonical-suffixes __SEN,__WORD
++```
++
++결과:
++
++```text
++summary files=88 sequence_acc=0.7500 wer=0.1224
++```
++
++주요 남은 오류:
++
++```text
++insert  <extra> 가다    5
++delete  가다    <empty> 5
++insert  <extra> 기차    3
++insert  <extra> 원하다  2
++delete  빨리    <empty> 2
++```
++
++### 4. TFLite export
++
++```bash
++python mobile-ai/src/train_tflite_intent_classifier.py \
++  --manifest ~/Son/mvp-v3-24-rich/sen_word_variant_spotter_bg3_wordwin8/sen_word_variant_spotter_manifest.csv \
++  --output ~/Son/final_models/sen_word_variant_spotter_bg3_wordwin8_fixed30.tflite \
++  --label-map ~/Son/final_models/label_map_sen_word_variant_spotter_bg3_wordwin8.json \
++  --keras-output ~/Son/final_models/sen_word_variant_spotter_bg3_wordwin8_fixed30.keras \
++  --epochs 80 \
++  --batch-size 8
++```
++
++Export 결과:
++
++```text
++tflite=/home/j-k14a404/Son/final_models/sen_word_variant_spotter_bg3_wordwin8_fixed30.tflite
++label_map=/home/j-k14a404/Son/final_models/label_map_sen_word_variant_spotter_bg3_wordwin8.json
++labels=43
++input_shape=[1, 30, 332]
++output_shape=[1, 43]
++```
++
++## 모바일 적용 상태
++
++현재 Android 앱은 새 wordwin8 TFLite 모델을 기본 word spotter로 사용한다.
++
++관련 파일:
++
++```text
++mobile/app/src/main/java/com/ssafy/mobile/core/vision/wordspotting/WordSpottingScanner.kt
++mobile/app/src/main/assets/models/sen_word_variant_spotter_bg3_wordwin8_fixed30.tflite
++mobile/app/src/main/assets/models/label_map_sen_word_variant_spotter_bg3_wordwin8.json
++```
++
++앱에서 수행하는 canonical merge:
++
++```text
++softmax(logits)
++-> index별 확률을 label로 매핑
++-> label suffix 제거
++-> 같은 canonical gloss 확률 합산
++-> threshold / margin / NMS / adjacent duplicate collapse
++```
++
++예:
++
++```text
++가다__SEN: 0.70
++가다__WORD: 0.20
++<background>: 0.05
++
++canonical 가다: 0.90
++```
++
++빌드 확인:
++
++```text
++./gradlew.bat assembleDebug
++BUILD SUCCESSFUL
++```
++
++실기기 설치:
++
++```powershell
++cd C:\Users\son\Desktop\project\S14P31A404\mobile
++.\gradlew.bat installDebug
++```
++
++## 라벨 확장 실험 결과
++
++많이 등장한 SEN label을 top-N으로 한꺼번에 추가하는 실험은 실패 방향이었다.
++
++결과:
++
++```text
++batch_05
++new_labels=지하철,사용,내리다,곳,목적
++sequence_acc=0.3977
++wer=0.3878
++
++batch_10
++new_labels=지하철,사용,내리다,곳,목적,3,길,무엇,서울대학교,고장
++sequence_acc=0.2841
++wer=0.7245
++
++batch_15
++new_labels=지하철,사용,내리다,곳,목적,3,길,무엇,서울대학교,고장,공기청정기,난방,안되다,잃어버리다,접근
++sequence_acc=0.1364
++wer=0.7806
++```
++
++주요 실패 원인:
++
++```text
++새 label이 background/transition 구간에서 높은 confidence로 insert됨
++window classification val_acc는 높지만 full scan WER가 무너짐
++빈도순 label 확장은 word spotting 품질을 보장하지 않음
++```
++
++결론:
++
++```text
++라벨 확장은 top-N 일괄 추가가 아니라 greedy candidate 검증으로 해야 한다.
++```
++
++추천 방식:
++
++```text
++1. 후보 label 1개 추가
++2. wordwin8 구조로 manifest 생성
++3. 학습
++4. scan WER 확인
++5. insert 폭증 없으면 채택
++6. 나쁘면 제외
++7. 다음 label 테스트
++```
++
++## 카메라와 입력 비율
++
++학습 데이터는 landscape 16:9 영상 기반이다. 모바일 세로 카메라를 그대로 쓰면
++랜드마크 좌표 분포가 크게 바뀌고, 서버에서 확인한 portrait crop drift에서도
++예측이 크게 달라졌다.
++
++현재 앱 쪽 대응:
++
++```text
++CameraX Preview/ImageAnalysis는 16:9를 요청
++MediaPipe 입력 전 bitmap을 16:9 center crop
++UI에서도 카메라 영역을 16:9 기준으로 유지
++```
++
++이것은 완전한 일반화 해결책은 아니다. 실제 모바일 사용에서는 여전히 아래
++요인이 성능을 흔든다.
++
++```text
++전면 카메라 좌우반전
++사용자와 카메라 거리
++손이 16:9 crop 밖으로 나가는 문제
++조명/배경
++MediaPipe landmark jitter
++```
++
++## 다음 작업
++
++우선순위:
++
++```text
++1. 실기기에서 새 wordwin8 모델 테스트
++2. 앱 표시가 가다__SEN이 아니라 가다로 나오는지 확인
++3. 영상 업로드 테스트와 실시간 카메라 테스트를 분리해서 기록
++4. 모바일 카메라 환경에서 실패 샘플 수집
++5. 라벨 확장은 greedy 방식으로 별도 진행
++6. 필요하면 feature-level augmentation 도입
++```
++
++실기기 확인 포인트:
++
++```text
++아무 동작 없을 때 임의 단어가 뜨지 않는가
++가다/방법/빨리/가능 등 known label이 표시되는가
++결과가 suffix 없이 canonical word로 표시되는가
++카메라 16:9 crop에서 손이 잘리지 않는가
++```
++
++현재 상태를 한 줄로 정리하면:
++
++```text
++word spotting 연구 성능은 WER 0.1224까지 개선되었고,
++해당 모델은 TFLite로 export되어 Android 앱에 연결된 상태다.
++남은 핵심은 실제 모바일 카메라 환경 일반화 검증이다.
++```
+
+
+diff --git a/mobile-ai/docs/final_experiment_summary_2026-05-10.md b/mobile-ai/docs/final_experiment_summary_2026-05-10.md
+--- /dev/null
++++ b/mobile-ai/docs/final_experiment_summary_2026-05-10.md
+@@ -0,0 +1,531 @@
++# Final Sign Recognition Experiment Summary - 2026-05-10
++
++## Goal
++
++The final product needs an on-device sign recognition experience that is stable
++enough for demonstration, while also showing a credible path toward free word
++composition.
++
++Two recognition directions were evaluated:
++
++1. Fixed sentence intent classification.
++2. Word spotting from sentence-internal segments.
++
++The desired final direction is word spotting:
++
++- Use word spotting as the primary recognition goal, because it can extract
++  sentence-internal words and can eventually support freer composition.
++- Keep the sentence intent classifier as a stability baseline and fallback, not
++  as the main technical goal.
++
++## Data And Feature Setup
++
++Feature vectors use the Android-compatible 332-dimensional landmark format.
++
++Model input for the fixed sentence classifier:
++
++```text
++[1, 30, 332] -> [1, 24]
++```
++
++The 332 dimensions come from MediaPipe landmark-derived pose/hand/face features.
++The fixed sequence length of 30 is produced by resampling the detected video or
++sign segment.
++
++Feature extraction is environment-sensitive:
++
++```text
++Feature extraction env: mobile-ai-legacy
++Python: 3.10
++MediaPipe: 0.10.14
++Backend: mp.solutions.holistic
++```
++
++Training and evaluation are done in:
++
++```text
++Training env: mobile-ai
++Python: 3.11
++PyTorch/TensorFlow/TFLite tools
++```
++
++This split matters. The newer `mobile-ai` environment could not reliably extract
++features on the server:
++
++- MediaPipe Tasks backend hit headless server GL issues.
++- `mp.solutions.holistic` was unavailable in the newer MediaPipe package.
++- The legacy environment worked and was used for feature extraction.
++
++## Fixed Sentence Intent Classifier
++
++The fixed intent classifier was trained over 24 selected sentence labels.
++
++Representative server-side PyTorch result:
++
++```text
++files=88
++top1_acc=0.9886
++top3_acc=0.9886
++```
++
++TFLite/mobile-oriented retraining result:
++
++```text
++files=88
++top1_acc=0.9659
++top3_acc=0.9773
++input_shape=[1, 30, 332]
++output_shape=[1, 24]
++```
++
++This model is a useful fallback and comparison baseline because it is stable,
++small, and TFLite-compatible. It does not solve the desired free-composition
++goal because it only chooses among fixed sentence labels.
++
++ONNX was rejected for the final app because ONNX Runtime native libraries caused
++Android 16KB page-size compatibility issues. TFLite avoids that native runtime
++risk.
++
++Final TFLite assets:
++
++```text
++intent_classifier_mvp_v3_24_fixed30.tflite
++label_map_mvp_v3_24_intent_tflite.json
++```
++
++## Why Free Word Composition Is Hard
++
++Initial experiments showed that isolated WORD signs and the same labels inside
++SEN sentence videos do not always match well.
++
++For example, isolated `가다` and sentence-internal `가다` often differed enough
++that nearest-neighbor matching against isolated WORD examples failed. This means
++the task is not just "recognize isolated words and concatenate them."
++
++Sentence signing contains:
++
++```text
++preparation -> word A -> transition -> word B -> ending
++```
++
++The transition/preparation/ending motion can look like a real sign to a model.
++The main failure mode in free composition is therefore boundary and transition
++handling.
++
++## Word/Sentence Coverage
++
++Observed vocabulary overlap:
++
++```text
++WORD unique: 2963
++SEN unique: 449
++COMMON unique: 85
++WORD only: 2878
++SEN only: 364
++
++WORD labels covered by SEN: 0.0287
++SEN labels covered by WORD: 0.1893
++
++SEN token/video-count total: 506715
++SEN token/video-count covered by WORD: 98170
++SEN frequency covered by WORD: 0.1937
++```
++
++This means isolated WORD data is large, but only partially overlaps with
++sentence vocabulary. It is useful, but not enough to solve sentence-internal word
++spotting by itself.
++
++## Segment Word Classifier Experiments
++
++A sentence-internal segment classifier was trained using labeled SEN morpheme
++segments. The goal was to classify cropped sentence segments into target words or
++`<background>`.
++
++Strong segment-level validation can be misleading because the true challenge is
++scanning a full sentence and selecting the correct sequence.
++
++### bg5 Baseline
++
++The `bg5` model added background samples at a negative ratio of 5.
++
++Segment-level performance was high, but full sentence scanning was harder:
++
++```text
++scan files=88
++sequence_acc=0.4091
++wer=0.3214
++```
++
++### Mined Hard Negatives
++
++Hard negatives were mined by scanning training SEN videos and collecting
++high-confidence false-positive windows that did not overlap labeled target
++segments.
++
++Model:
++
++```text
++sen_segment_word_classifier_mvp_v3_24_bg5_mined.pt
++```
++
++Segment eval:
++
++```text
++files=987
++top1_acc=0.9747
++top3_acc=0.9980
++```
++
++Initial scan result:
++
++```text
++files=88
++sequence_acc=0.4091
++wer=0.3163
++```
++
++This became the best base word-spotting model.
++
++### WORD Unknown Negatives
++
++Additional isolated WORD features were extracted using the legacy MediaPipe
++environment. The goal was to use non-target isolated WORD signs as
++`<background>`/unknown negatives.
++
++Feature extraction completed for:
++
++```text
++845 WORD videos
++```
++
++Only 57 WORD unknown negative rows were ultimately added because of manifest and
++target-label filtering.
++
++Result:
++
++```text
++files=88
++sequence_acc=0.3409
++wer=0.3673
++```
++
++This worsened performance. It reduced some false positives but pushed real SEN
++words toward background, increasing deletion errors.
++
++Conclusion:
++
++```text
++Isolated WORD unknown negatives are not the right main fix.
++SEN-internal transition/background examples matter more.
++```
++
++### Strong Transition Background
++
++A stronger background ratio was tested to force SEN non-word regions into
++`<background>`.
++
++Result:
++
++```text
++files=88
++sequence_acc=0.2386
++wer=0.3980
++```
++
++This also worsened performance. The negative pressure was too strong and caused
++many real words to be missed.
++
++## Decoder Threshold Tuning
++
++Before the window-supervised experiment, the best improvement came from tuning
++the scan decoder rather than retraining.
++
++Best model:
++
++```text
++sen_segment_word_classifier_mvp_v3_24_bg5_mined.pt
++```
++
++Best settings:
++
++```text
++score_threshold=0.95
++margin_threshold=0.95
++max_detections=8
++window_frames=8,12,16,20,24,32,40,52,64
++stride=4
++```
++
++Best scan result:
++
++```text
++files=88
++sequence_acc=0.4545
++wer=0.2857
++```
++
++Fine grid search showed that score threshold had little effect in the
++0.93-0.96 range, while margin threshold was the key control. `margin=0.95`
++was consistently best.
++
++Remaining errors were mostly deletion errors:
++
++```text
++delete 맞다: 11
++delete 가다: 7
++delete 명동: 5
++delete 빨리: 5
++```
++
++This means the tuned decoder reduced excessive insertions, but short or
++ambiguous words were still missed.
++
++## Window-Supervised Word Spotter
++
++The major improvement came from matching the training distribution to the
++inference distribution.
++
++Previous segment models were trained on exact annotation crops:
++
++```text
++train: true segment start~end crop
++infer: sliding windows of 8,12,16,... frames
++```
++
++This caused a distribution mismatch. At inference time, many windows include
++partial words, transition motion, or extra context that the model did not see
++during training.
++
++A new manifest builder was added:
++
++```text
++mobile-ai/src/build_sen_window_spotter_manifest.py
++```
++
++It builds training samples using the same sliding-window style used by scan
++inference:
++
++```text
++window overlaps one true word enough -> label = that word
++window avoids all true words          -> label = <background>
++ambiguous partial-overlap window      -> skip
++```
++
++Manifest command:
++
++```bash
++python mobile-ai/src/build_sen_window_spotter_manifest.py \
++  --manifest ~/Son/mobile-ai/data/mvp_v3_24_sen_rich_manifest.csv \
++  --feature-root ~/Son/mvp-v3-24-rich/features_332 \
++  --output-root ~/Son/mvp-v3-24-rich/sen_window_spotter_bg3 \
++  --val-reals 13,14,15,16 \
++  --window-frames 8,12,16,20,24,32,40,52,64 \
++  --stride 4 \
++  --positive-min-coverage 0.60 \
++  --positive-min-purity 0.25 \
++  --negative-ratio 3 \
++  --max-positive-per-segment 8 \
++  --max-negatives-per-video 64 \
++  --overwrite
++```
++
++Generated manifest:
++
++```text
++rows=25761
++split {'train': 19713, 'val': 6048}
++kind {'SEN_WIN': 6680, 'SEN_WIN_NEG': 19081}
++labels=22
++```
++
++Important label counts:
++
++```text
++<background> 19081
++가다 2112
++방법 640
++맞다 384
++불량 384
++원하다 384
++불가능 384
++빨리 384
++```
++
++Model:
++
++```text
++sen_window_spotter_bg3.pt
++```
++
++Initial scan result with `score=0.95`, `margin=0.95`:
++
++```text
++files=88
++sequence_acc=0.6364
++wer=0.2041
++```
++
++This already improved substantially over the previous best:
++
++```text
++previous best: sequence_acc=0.4545, wer=0.2857
++window model:  sequence_acc=0.6364, wer=0.2041
++```
++
++A threshold grid search then found the best scan setting:
++
++```text
++score_threshold=0.99
++margin_threshold=0.95
++max_detections=8
++window_frames=8,12,16,20,24,32,40,52,64
++stride=4
++```
++
++Best scan result:
++
++```text
++files=88
++sequence_acc=0.7045
++wer=0.1531
++```
++
++This is now the best word-spotting/free-composition result.
++
++The main takeaway:
++
++```text
++Training the word spotter with sliding-window samples that match inference
++improves word spotting much more than adding isolated WORD unknown negatives or
++stronger random transition background.
++```
++
++## Current Best Model Choices
++
++### Primary Word Spotting Result
++
++Use:
++
++```text
++sen_window_spotter_bg3.pt
++score_threshold=0.99
++margin_threshold=0.95
++max_detections=8
++```
++
++Reason:
++
++- Best observed word-spotting scan performance.
++- Directly matches the desired final behavior: extracting ordered words from a
++  signed utterance.
++- Uses training samples that match the sliding-window inference distribution.
++
++Validation result:
++
++```text
++files=88
++sequence_acc=0.7045
++wer=0.1531
++```
++
++### Sentence Fallback Result
++
++Use:
++
++```text
++intent_classifier_mvp_v3_24_fixed30.tflite
++```
++
++Reason:
++
++- TFLite-compatible.
++- Small enough for on-device use.
++- High validation accuracy on the selected 24 sentence intents.
++- Useful as fallback/comparison, but not the main technical goal.
++
++## App Integration Notes
++
++The app currently uses whole-video/whole-segment classification for the stable
++intent classifier:
++
++```text
++camera/video frames
++-> MediaPipe landmarks
++-> 332-dim features
++-> resample to 30 frames
++-> TFLite intent classifier
++-> one of 24 sentence labels
++```
++
++For real-time use, the app should avoid emitting predictions while idle. It
++should:
++
++1. Accumulate frames while hands are visible.
++2. Wait for a short no-hands period to mark segment end.
++3. Classify the completed segment once.
++
++This is more stable than rolling-window sentence classification, but it is not
++fully streaming. It is closer to short utterance recognition.
++
++For the desired final direction, the app should prioritize a word spotting
++pipeline:
++
++```text
++camera/video frames
++-> MediaPipe landmarks
++-> 332-dim features
++-> sliding windows over the utterance
++-> fixed-length resampling per window
++-> word/background classifier
++-> NMS + threshold decoder
++-> ordered word sequence
++```
++
++The sentence intent classifier can still be displayed as a fallback/comparison:
++
++```text
++primary result: word spotting sequence
++fallback/comparison: sentence intent classifier
++```
++
++This aligns the product with the free-composition goal while retaining a stable
++fallback for demonstrations.
++
++## Final Interpretation
++
++Fixed sentence recognition is currently stronger numerically for the selected
++24 intents, but it is not the target behavior. The target behavior is extracting
++words from a signed utterance.
++
++Free word composition is partially working but remains limited by:
++
++- sentence-internal transition motion,
++- start/end boundary detection,
++- short word deletion,
++- differences between isolated WORD signs and SEN-internal signs.
++
++The most important finding is:
++
++```text
++The bottleneck is not just label vocabulary size.
++The bottleneck is modeling non-word transition regions inside sentences.
++```
++
++Best reported word-spotting/free-composition result so far:
++
++```text
++sequence_acc=0.7045
++wer=0.1531
++```
++
++This should be presented as the main technical direction, with the fixed
++sentence classifier retained as a fallback and baseline.
++
++## Mobile App Handoff
++
++For the current Android integration state, 16:9 camera handling, fullscreen
++landscape UI behavior, and manual app test plan, see:
++
++```text
++mobile-ai/docs/mobile-sign-recognition-handoff.md
++```
+
+
+diff --git a/mobile-ai/docs/mobile-sign-recognition-handoff.md b/mobile-ai/docs/mobile-sign-recognition-handoff.md
+--- /dev/null
++++ b/mobile-ai/docs/mobile-sign-recognition-handoff.md
+
+diff --git a/mobile-ai/docs/sequence_labeling_baseline_2026-05-09.md b/mobile-ai/docs/sequence_labeling_baseline_2026-05-09.md
+--- /dev/null
++++ b/mobile-ai/docs/sequence_labeling_baseline_2026-05-09.md
+
+diff --git a/mobile-ai/docs/sequence_labeling_plan.md b/mobile-ai/docs/sequence_labeling_plan.md
+--- /dev/null
++++ b/mobile-ai/docs/sequence_labeling_plan.md
+
+diff --git a/mobile-ai/docs/tflite_ctc_labeler_2026-05-12.md b/mobile-ai/docs/tflite_ctc_labeler_2026-05-12.md
+--- /dev/null
++++ b/mobile-ai/docs/tflite_ctc_labeler_2026-05-12.md
+
+diff --git a/mobile-ai/final_models/label_map_sen_word_variant_spotter_bg3_allviews_win16.json b/mobile-ai/final_models/label_map_sen_word_variant_spotter_bg3_allviews_win16.json
+--- /dev/null
++++ b/mobile-ai/final_models/label_map_sen_word_variant_spotter_bg3_allviews_win16.json
+
+diff --git a/mobile-ai/final_models/sen_word_variant_spotter_bg3_allviews_win16_fixed30.tflite b/mobile-ai/final_models/sen_word_variant_spotter_bg3_allviews_win16_fixed30.tflite
+--- /dev/null
++++ b/mobile-ai/final_models/sen_word_variant_spotter_bg3_allviews_win16_fixed30.tflite
+
+diff --git a/mobile-ai/src/__init__.py b/mobile-ai/src/__init__.py
+--- /dev/null
++++ b/mobile-ai/src/__init__.py
+
+diff --git a/mobile-ai/src/add_word_unknown_negatives.py b/mobile-ai/src/add_word_unknown_negatives.py
+--- /dev/null
++++ b/mobile-ai/src/add_word_unknown_negatives.py
+
+diff --git a/mobile-ai/src/augment_ctc_manifest.py b/mobile-ai/src/augment_ctc_manifest.py
+--- /dev/null
++++ b/mobile-ai/src/augment_ctc_manifest.py
+
+diff --git a/mobile-ai/src/augment_tflite_recurrent_manifest.py b/mobile-ai/src/augment_tflite_recurrent_manifest.py
+--- /dev/null
++++ b/mobile-ai/src/augment_tflite_recurrent_manifest.py
+
+diff --git a/mobile-ai/src/build_morpheme_manifest.py b/mobile-ai/src/build_morpheme_manifest.py
+--- /dev/null
++++ b/mobile-ai/src/build_morpheme_manifest.py
+
+diff --git a/mobile-ai/src/build_semi_composition_holdout.py b/mobile-ai/src/build_semi_composition_holdout.py
+--- /dev/null
++++ b/mobile-ai/src/build_semi_composition_holdout.py
+
+diff --git a/mobile-ai/src/build_sen_segment_classifier_manifest.py b/mobile-ai/src/build_sen_segment_classifier_manifest.py
+--- /dev/null
++++ b/mobile-ai/src/build_sen_segment_classifier_manifest.py
+
+diff --git a/mobile-ai/src/build_sen_window_spotter_manifest.py b/mobile-ai/src/build_sen_window_spotter_manifest.py
+--- /dev/null
++++ b/mobile-ai/src/build_sen_window_spotter_manifest.py
+
+diff --git a/mobile-ai/src/build_sen_word_variant_spotter_manifest.py b/mobile-ai/src/build_sen_word_variant_spotter_manifest.py
+--- /dev/null
++++ b/mobile-ai/src/build_sen_word_variant_spotter_manifest.py
+
+diff --git a/mobile-ai/src/build_sentence_manifest.py b/mobile-ai/src/build_sentence_manifest.py
+--- /dev/null
++++ b/mobile-ai/src/build_sentence_manifest.py
+
+diff --git a/mobile-ai/src/build_sequence_classification_manifests.py b/mobile-ai/src/build_sequence_classification_manifests.py
+--- /dev/null
++++ b/mobile-ai/src/build_sequence_classification_manifests.py
+
+diff --git a/mobile-ai/src/collect_continuous.py b/mobile-ai/src/collect_continuous.py
+--- /dev/null
++++ b/mobile-ai/src/collect_continuous.py
+
+diff --git a/mobile-ai/src/compare_portrait_video_drift.py b/mobile-ai/src/compare_portrait_video_drift.py
+--- /dev/null
++++ b/mobile-ai/src/compare_portrait_video_drift.py
+
+diff --git a/mobile-ai/src/compare_word_sen_segments.py b/mobile-ai/src/compare_word_sen_segments.py
+--- /dev/null
++++ b/mobile-ai/src/compare_word_sen_segments.py
+
+diff --git a/mobile-ai/src/dataset_ctc.py b/mobile-ai/src/dataset_ctc.py
+--- /dev/null
++++ b/mobile-ai/src/dataset_ctc.py
+
+diff --git a/mobile-ai/src/decode_sequence_labels.py b/mobile-ai/src/decode_sequence_labels.py
+--- /dev/null
++++ b/mobile-ai/src/decode_sequence_labels.py
+
+diff --git a/mobile-ai/src/export_ctc_labeler_onnx.py b/mobile-ai/src/export_ctc_labeler_onnx.py
+--- /dev/null
++++ b/mobile-ai/src/export_ctc_labeler_onnx.py
+
+diff --git a/mobile-ai/src/export_fixed_sequence_classifier_onnx.py b/mobile-ai/src/export_fixed_sequence_classifier_onnx.py
+--- /dev/null
++++ b/mobile-ai/src/export_fixed_sequence_classifier_onnx.py
+
+diff --git a/mobile-ai/src/export_keras_intent_classifier_tflite.py b/mobile-ai/src/export_keras_intent_classifier_tflite.py
+--- /dev/null
++++ b/mobile-ai/src/export_keras_intent_classifier_tflite.py
+
+diff --git a/mobile-ai/src/extract_flat_videos_332.py b/mobile-ai/src/extract_flat_videos_332.py
+--- /dev/null
++++ b/mobile-ai/src/extract_flat_videos_332.py
+
+diff --git a/mobile-ai/src/extract_manifest_videos_332.py b/mobile-ai/src/extract_manifest_videos_332.py
+--- /dev/null
++++ b/mobile-ai/src/extract_manifest_videos_332.py
+
+diff --git a/mobile-ai/src/extract_videos_332.py b/mobile-ai/src/extract_videos_332.py
+--- /dev/null
++++ b/mobile-ai/src/extract_videos_332.py
+
+diff --git a/mobile-ai/src/greedy_decode.py b/mobile-ai/src/greedy_decode.py
+--- /dev/null
++++ b/mobile-ai/src/greedy_decode.py
+
+diff --git a/mobile-ai/src/make_ctc_0512_adaptation_manifest.py b/mobile-ai/src/make_ctc_0512_adaptation_manifest.py
+--- /dev/null
++++ b/mobile-ai/src/make_ctc_0512_adaptation_manifest.py
+
+diff --git a/mobile-ai/src/make_delta_feature_manifest.py b/mobile-ai/src/make_delta_feature_manifest.py
+--- /dev/null
++++ b/mobile-ai/src/make_delta_feature_manifest.py
+
+diff --git a/mobile-ai/src/make_label_expansion_batches.py b/mobile-ai/src/make_label_expansion_batches.py
+--- /dev/null
++++ b/mobile-ai/src/make_label_expansion_batches.py
+
+diff --git a/mobile-ai/src/make_portrait_test_videos.py b/mobile-ai/src/make_portrait_test_videos.py
+--- /dev/null
++++ b/mobile-ai/src/make_portrait_test_videos.py
+
+diff --git a/mobile-ai/src/mine_sen_segment_hard_negatives.py b/mobile-ai/src/mine_sen_segment_hard_negatives.py
+--- /dev/null
++++ b/mobile-ai/src/mine_sen_segment_hard_negatives.py
+
+diff --git a/mobile-ai/src/predict_ctc_labeler.py b/mobile-ai/src/predict_ctc_labeler.py
+--- /dev/null
++++ b/mobile-ai/src/predict_ctc_labeler.py
+
+diff --git a/mobile-ai/src/predict_fixed_sequence_classifier.py b/mobile-ai/src/predict_fixed_sequence_classifier.py
+--- /dev/null
++++ b/mobile-ai/src/predict_fixed_sequence_classifier.py
+
+diff --git a/mobile-ai/src/predict_sequence_classifier.py b/mobile-ai/src/predict_sequence_classifier.py
+--- /dev/null
++++ b/mobile-ai/src/predict_sequence_classifier.py
+
+diff --git a/mobile-ai/src/predict_sequence_labeler.py b/mobile-ai/src/predict_sequence_labeler.py
+--- /dev/null
++++ b/mobile-ai/src/predict_sequence_labeler.py
+
+diff --git a/mobile-ai/src/predict_tflite_ctc_labeler.py b/mobile-ai/src/predict_tflite_ctc_labeler.py
+--- /dev/null
++++ b/mobile-ai/src/predict_tflite_ctc_labeler.py
+
+diff --git a/mobile-ai/src/prepare_sequence_labels.py b/mobile-ai/src/prepare_sequence_labels.py
+--- /dev/null
++++ b/mobile-ai/src/prepare_sequence_labels.py
+
+diff --git a/mobile-ai/src/scan_sen_with_segment_classifier.py b/mobile-ai/src/scan_sen_with_segment_classifier.py
+--- /dev/null
++++ b/mobile-ai/src/scan_sen_with_segment_classifier.py
+
+diff --git a/mobile-ai/src/scan_sen_with_tflite_spotter.py b/mobile-ai/src/scan_sen_with_tflite_spotter.py
+--- /dev/null
++++ b/mobile-ai/src/scan_sen_with_tflite_spotter.py
+
+diff --git a/mobile-ai/src/select_sen_top_labels.py b/mobile-ai/src/select_sen_top_labels.py
+--- /dev/null
++++ b/mobile-ai/src/select_sen_top_labels.py
+
+diff --git a/mobile-ai/src/sign_features.py b/mobile-ai/src/sign_features.py
+--- /dev/null
++++ b/mobile-ai/src/sign_features.py
+
+diff --git a/mobile-ai/src/spot_words_dtw.py b/mobile-ai/src/spot_words_dtw.py
+--- /dev/null
++++ b/mobile-ai/src/spot_words_dtw.py
+
+diff --git a/mobile-ai/src/train_ctc_labeler.py b/mobile-ai/src/train_ctc_labeler.py
+--- /dev/null
++++ b/mobile-ai/src/train_ctc_labeler.py
+
+diff --git a/mobile-ai/src/train_fixed_sequence_classifier.py b/mobile-ai/src/train_fixed_sequence_classifier.py
+--- /dev/null
++++ b/mobile-ai/src/train_fixed_sequence_classifier.py
+
+diff --git a/mobile-ai/src/train_sequence_classifier.py b/mobile-ai/src/train_sequence_classifier.py
+--- /dev/null
++++ b/mobile-ai/src/train_sequence_classifier.py
+
+diff --git a/mobile-ai/src/train_sequence_labeler.py b/mobile-ai/src/train_sequence_labeler.py
+--- /dev/null
++++ b/mobile-ai/src/train_sequence_labeler.py
+
+diff --git a/mobile-ai/src/train_tflite_ctc_labeler.py b/mobile-ai/src/train_tflite_ctc_labeler.py
+--- /dev/null
++++ b/mobile-ai/src/train_tflite_ctc_labeler.py
+
+diff --git a/mobile-ai/src/train_tflite_intent_classifier.py b/mobile-ai/src/train_tflite_intent_classifier.py
+--- /dev/null
++++ b/mobile-ai/src/train_tflite_intent_classifier.py
+
+diff --git a/mobile-ai/src/train_tflite_recurrent_classifier.py b/mobile-ai/src/train_tflite_recurrent_classifier.py
+--- /dev/null
++++ b/mobile-ai/src/train_tflite_recurrent_classifier.py
+
+diff --git a/mobile-ai/src/trim_video_by_hands.py b/mobile-ai/src/trim_video_by_hands.py
+--- /dev/null
++++ b/mobile-ai/src/trim_video_by_hands.py
+
+diff --git a/mobile-ai/.gitignore b/mobile-ai/.gitignore
+--- /dev/null
++++ b/mobile-ai/.gitignore
+
+diff --git a/mobile-ai/README.md b/mobile-ai/README.md
+--- /dev/null
++++ b/mobile-ai/README.md
+
+diff --git a/mobile-ai/requirements.txt b/mobile-ai/requirements.txt
+--- /dev/null
++++ b/mobile-ai/requirements.txt
+
+diff --git a/.gitignore b/.gitignore
+--- a/.gitignore
++++ b/.gitignore
+

@@ -1,0 +1,213 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/MediaPipeHolisticLandmarkExtractor.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/MediaPipeHolisticLandmarkExtractor.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/MediaPipeHolisticLandmarkExtractor.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/MediaPipeHolisticLandmarkExtractor.kt
+@@ -10,32 +10,48 @@ import com.google.mediapipe.tasks.vision.core.RunningMode
+ import com.google.mediapipe.tasks.vision.holisticlandmarker.HolisticLandmarker
+ import com.google.mediapipe.tasks.vision.holisticlandmarker.HolisticLandmarkerResult
+ import java.io.IOException
++import java.util.concurrent.atomic.AtomicBoolean
+ import java.util.concurrent.atomic.AtomicLong
+ 
+ class MediaPipeHolisticLandmarkExtractor private constructor(
+     private val landmarker: HolisticLandmarker?,
+ ) : AutoCloseable {
+     private val lastTimestampMs = AtomicLong(Long.MIN_VALUE)
++    private val isClosed = AtomicBoolean(false)
++    private val landmarkerLock = Any()
+ 
+     fun detect(
+         bitmap: Bitmap,
+         timestampMs: Long,
+     ): LandmarkFrameResult {
+-        val activeLandmarker = landmarker ?: return LandmarkFrameResult.empty(timestampMs)
+         val inputTimestampMs = nextTimestamp(timestampMs)
+         val result =
+-            runCatching {
+-                activeLandmarker.detectForVideo(
+-                    BitmapImageBuilder(bitmap).build(),
+-                    inputTimestampMs,
+-                )
+-            }.getOrNull()
++            landmarker?.let { activeLandmarker ->
++                synchronized(landmarkerLock) {
++                    if (isClosed.get()) {
++                        null
++                    } else {
++                        runCatching {
++                            activeLandmarker.detectForVideo(
++                                BitmapImageBuilder(bitmap).build(),
++                                inputTimestampMs,
++                            )
++                        }.getOrNull()
++                    }
++                }
++            }
+ 
+         return result?.toLandmarkFrameResult() ?: LandmarkFrameResult.empty(inputTimestampMs)
+     }
+ 
+     override fun close() {
+-        landmarker?.close()
++        if (!isClosed.compareAndSet(false, true)) {
++            return
++        }
++
++        synchronized(landmarkerLock) {
++            landmarker?.close()
++        }
+     }
+ 
+     private fun nextTimestamp(timestampMs: Long): Long {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -743,10 +743,15 @@ class ConversationViewModel
+         }
+ 
+         override fun onCleared() {
+-            super.onCleared()
++            signRecognitionEngine.stop()
+             audioPlayer.stop()
+             ttsPlayer.stop()
+             stopRecordingForStt()
++            translationJob?.cancel()
++            completionTimerJob?.cancel()
++            sttJob?.cancel()
++            cloudSttJob?.cancel()
++            super.onCleared()
+         }
+ 
+         fun onLandmarkFrame(frame: LandmarkFrameResult) {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt
+@@ -13,6 +13,7 @@ import androidx.camera.core.CameraSelector
+ import androidx.camera.core.ImageAnalysis
+ import androidx.camera.core.ImageProxy
+ import androidx.camera.core.Preview
++import androidx.camera.core.UseCase
+ import androidx.camera.lifecycle.ProcessCameraProvider
+ import androidx.camera.view.PreviewView
+ import androidx.lifecycle.LifecycleOwner
+@@ -48,7 +49,7 @@ internal fun bindCameraUseCases(
+     analyzerExecutor: Executor,
+     settings: CameraAnalysisSettings = CameraAnalysisSettings(),
+     onFrameAvailable: (YuvAnalysisFrame) -> Unit,
+-): ImageAnalysis {
++): CameraBinding {
+     val targetRotation = previewView.display?.rotation ?: Surface.ROTATION_0
+     val previewUseCase = createPreviewUseCase(previewView, targetRotation)
+     val cameraConfig = selectCamera(cameraProvider)
+@@ -68,9 +69,17 @@ internal fun bindCameraUseCases(
+         analysisUseCase,
+     )
+ 
+-    return analysisUseCase
++    return CameraBinding(
++        previewUseCase = previewUseCase,
++        analysisUseCase = analysisUseCase,
++    )
+ }
+ 
++internal data class CameraBinding(
++    val previewUseCase: UseCase,
++    val analysisUseCase: ImageAnalysis,
++)
++
+ private fun createPreviewUseCase(
+     previewView: PreviewView,
+     targetRotation: Int,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt
+@@ -3,7 +3,6 @@
+ package com.ssafy.mobile.feature.sign.presentation
+ 
+ import android.os.SystemClock
+-import androidx.camera.core.ImageAnalysis
+ import androidx.camera.lifecycle.ProcessCameraProvider
+ import androidx.camera.view.PreviewView
+ import androidx.compose.foundation.layout.Box
+@@ -38,6 +37,7 @@ import com.ssafy.mobile.core.vision.landmark.MediaPipeHolisticLandmarkExtractor
+ import java.util.Locale
+ import java.util.concurrent.Executor
+ import java.util.concurrent.Executors
++import java.util.concurrent.atomic.AtomicBoolean
+ import java.util.concurrent.atomic.AtomicLong
+ import kotlinx.coroutines.delay
+ 
+@@ -275,11 +275,19 @@ private fun CameraBindingEffect(
+         cameraAnalysisSettings,
+     ) {
+         val executor = ContextCompat.getMainExecutor(context)
+-        var boundAnalysisUseCase: ImageAnalysis? = null
++        val isDisposed = AtomicBoolean(false)
++        var cameraBinding: CameraBinding? = null
+         val listener =
+             Runnable {
++                if (isDisposed.get()) {
++                    return@Runnable
++                }
++
+                 runCatching {
+                     val cameraProvider = cameraProviderFuture.get()
++                    if (isDisposed.get()) {
++                        return@Runnable
++                    }
+                     bindCameraUseCases(
+                         cameraProvider = cameraProvider,
+                         lifecycleOwner = lifecycleOwner,
+@@ -288,20 +296,40 @@ private fun CameraBindingEffect(
+                         settings = cameraAnalysisSettings,
+                         onFrameAvailable = onFrameAvailable,
+                     )
+-                }.onSuccess { analysisUseCase ->
+-                    boundAnalysisUseCase = analysisUseCase
++                }.onSuccess { binding ->
++                    if (isDisposed.get()) {
++                        binding.analysisUseCase.clearAnalyzer()
++                        runCatching {
++                            cameraProviderFuture.get().unbind(
++                                binding.previewUseCase,
++                                binding.analysisUseCase,
++                            )
++                        }
++                        return@onSuccess
++                    }
++                    cameraBinding = binding
+                     onCameraErrorChanged(null)
+                 }.onFailure {
+-                    onCameraErrorChanged("Could not start the camera. Please restart the app.")
++                    if (!isDisposed.get()) {
++                        onCameraErrorChanged("Could not start the camera. Please restart the app.")
++                    }
+                 }
+             }
+ 
+         cameraProviderFuture.addListener(listener, executor)
+ 
+         onDispose {
+-            boundAnalysisUseCase?.clearAnalyzer()
++            isDisposed.set(true)
++            cameraBinding?.analysisUseCase?.clearAnalyzer()
+             if (cameraProviderFuture.isDone) {
+-                runCatching { cameraProviderFuture.get().unbindAll() }
++                cameraBinding?.let { binding ->
++                    runCatching {
++                        cameraProviderFuture.get().unbind(
++                            binding.previewUseCase,
++                            binding.analysisUseCase,
++                        )
++                    }
++                }
+             }
+         }
+     }
+
+

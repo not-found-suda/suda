@@ -1,0 +1,114 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Brush
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
++import androidx.hilt.navigation.compose.hiltViewModel
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ import com.ssafy.mobile.feature.quiz.domain.model.MockQuizQuestions
+@@ -49,9 +50,11 @@ fun quizQuestionRoute(modifier: Modifier = Modifier) {
+     var quizState by remember {
+         mutableStateOf(QuizSessionReducer.start(MockQuizQuestions.items))
+     }
++    val recordingViewModel: QuizRecordingViewModel = hiltViewModel()
+     val recordingController =
+         rememberQuizRecordingController(
+             currentQuestionId = quizState.currentQuestion?.id,
++            recorder = recordingViewModel.recorder,
+             onSubmitRecording = {
+                 quizState = submitMockAnswer(quizState)
+             },
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingState.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingState.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingState.kt
+@@ -1,8 +1,5 @@
+ package com.ssafy.mobile.feature.quiz.presentation
+ 
+-import android.Manifest
+-import android.content.Context
+-import android.content.pm.PackageManager
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Text
+@@ -15,9 +12,7 @@ import androidx.compose.runtime.remember
+ import androidx.compose.runtime.rememberUpdatedState
+ import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Modifier
+-import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.text.style.TextAlign
+-import androidx.core.content.ContextCompat
+ import com.ssafy.mobile.core.audio.AndroidAudioRecorder
+ import kotlinx.coroutines.delay
+ 
+@@ -47,14 +42,10 @@ internal class QuizRecordingController(
+ @Suppress("CyclomaticComplexMethod")
+ internal fun rememberQuizRecordingController(
+     currentQuestionId: Long?,
++    recorder: AndroidAudioRecorder,
+     onSubmitRecording: () -> Unit,
+ ): QuizRecordingController {
+-    val context = LocalContext.current
+     val submitRecording by rememberUpdatedState(onSubmitRecording)
+-    val recorder =
+-        remember(context) {
+-            AndroidAudioRecorder(context.applicationContext)
+-        }
+     var status by remember {
+         mutableStateOf(QuizRecordingStatus.Idle)
+     }
+@@ -103,11 +94,6 @@ internal fun rememberQuizRecordingController(
+     }
+ 
+     fun startRecording() {
+-        if (!context.hasRecordAudioPermission()) {
+-            status = QuizRecordingStatus.PermissionError
+-            return
+-        }
+-
+         val questionId = currentQuestionId ?: return
+         val startedAtMs = System.currentTimeMillis()
+         val started = recorder.start(fileName = "quiz_answer_${questionId}_$startedAtMs")
+@@ -198,12 +184,6 @@ private fun QuizRecordingStatus.message(answerAttemptCount: Int?): String =
+         QuizRecordingStatus.PermissionError -> "마이크 권한을 확인한 뒤 다시 시도해 주세요."
+     }
+ 
+-private fun Context.hasRecordAudioPermission(): Boolean =
+-    ContextCompat.checkSelfPermission(
+-        this,
+-        Manifest.permission.RECORD_AUDIO,
+-    ) == PackageManager.PERMISSION_GRANTED
+-
+ private const val RECORDING_MAX_DURATION_MS = 5_000L
+ private const val RECORDING_MIN_DURATION_MS = 500L
+ private const val RECORDING_POLL_INTERVAL_MS = 250L
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingViewModel.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingViewModel.kt
+@@ -0,0 +1,18 @@
++package com.ssafy.mobile.feature.quiz.presentation
++
++import androidx.lifecycle.ViewModel
++import com.ssafy.mobile.core.audio.AndroidAudioRecorder
++import dagger.hilt.android.lifecycle.HiltViewModel
++import javax.inject.Inject
++
++@HiltViewModel
++class QuizRecordingViewModel
++    @Inject
++    constructor(
++        val recorder: AndroidAudioRecorder,
++    ) : ViewModel() {
++        override fun onCleared() {
++            recorder.release()
++            super.onCleared()
++        }
++    }
+
+

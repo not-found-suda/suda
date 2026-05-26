@@ -1,0 +1,144 @@
+﻿diff --git a/docs/troubleshooting/hongheon/troubleshooting.md b/docs/troubleshooting/hongheon/troubleshooting.md
+--- /dev/null
++++ b/docs/troubleshooting/hongheon/troubleshooting.md
+@@ -0,0 +1,18 @@
++# hongheon 트러블슈팅
++
++## 기록 규칙
++
++- 문제를 발견한 날짜, 작업 브랜치, 재현 절차를 함께 남긴다.
++- 원인과 해결 방법이 확정되지 않았으면 "가설"로 구분해서 적는다.
++- 로그나 에러 메시지는 필요한 부분만 붙이고, Secret/Env/개인정보는 제외한다.
++
++## 기록
++
++### YYYY-MM-DD - 제목
++
++- 작업 브랜치:
++- 상황:
++- 재현 절차:
++- 원인:
++- 해결:
++- 참고:
+
+
+diff --git a/docs/troubleshooting/hwisu/troubleshooting.md b/docs/troubleshooting/hwisu/troubleshooting.md
+--- /dev/null
++++ b/docs/troubleshooting/hwisu/troubleshooting.md
+@@ -0,0 +1,18 @@
++# hwisu 트러블슈팅
++
++## 기록 규칙
++
++- 문제를 발견한 날짜, 작업 브랜치, 재현 절차를 함께 남긴다.
++- 원인과 해결 방법이 확정되지 않았으면 "가설"로 구분해서 적는다.
++- 로그나 에러 메시지는 필요한 부분만 붙이고, Secret/Env/개인정보는 제외한다.
++
++## 기록
++
++### YYYY-MM-DD - 제목
++
++- 작업 브랜치:
++- 상황:
++- 재현 절차:
++- 원인:
++- 해결:
++- 참고:
+
+
+diff --git a/docs/troubleshooting/hyuonwon/troubleshooting.md b/docs/troubleshooting/hyuonwon/troubleshooting.md
+--- /dev/null
++++ b/docs/troubleshooting/hyuonwon/troubleshooting.md
+@@ -0,0 +1,18 @@
++# hyuonwon 트러블슈팅
++
++## 기록 규칙
++
++- 문제를 발견한 날짜, 작업 브랜치, 재현 절차를 함께 남긴다.
++- 원인과 해결 방법이 확정되지 않았으면 "가설"로 구분해서 적는다.
++- 로그나 에러 메시지는 필요한 부분만 붙이고, Secret/Env/개인정보는 제외한다.
++
++## 기록
++
++### YYYY-MM-DD - 제목
++
++- 작업 브랜치:
++- 상황:
++- 재현 절차:
++- 원인:
++- 해결:
++- 참고:
+
+
+diff --git a/docs/troubleshooting/minseon/troubleshooting.md b/docs/troubleshooting/minseon/troubleshooting.md
+--- /dev/null
++++ b/docs/troubleshooting/minseon/troubleshooting.md
+@@ -0,0 +1,18 @@
++# minseon 트러블슈팅
++
++## 기록 규칙
++
++- 문제를 발견한 날짜, 작업 브랜치, 재현 절차를 함께 남긴다.
++- 원인과 해결 방법이 확정되지 않았으면 "가설"로 구분해서 적는다.
++- 로그나 에러 메시지는 필요한 부분만 붙이고, Secret/Env/개인정보는 제외한다.
++
++## 기록
++
++### YYYY-MM-DD - 제목
++
++- 작업 브랜치:
++- 상황:
++- 재현 절차:
++- 원인:
++- 해결:
++- 참고:
+
+
+diff --git a/docs/troubleshooting/soonwoo/troubleshooting.md b/docs/troubleshooting/soonwoo/troubleshooting.md
+--- /dev/null
++++ b/docs/troubleshooting/soonwoo/troubleshooting.md
+@@ -0,0 +1,18 @@
++# soonwoo 트러블슈팅
++
++## 기록 규칙
++
++- 문제를 발견한 날짜, 작업 브랜치, 재현 절차를 함께 남긴다.
++- 원인과 해결 방법이 확정되지 않았으면 "가설"로 구분해서 적는다.
++- 로그나 에러 메시지는 필요한 부분만 붙이고, Secret/Env/개인정보는 제외한다.
++
++## 기록
++
++### YYYY-MM-DD - 제목
++
++- 작업 브랜치:
++- 상황:
++- 재현 절차:
++- 원인:
++- 해결:
++- 참고:
+
+
+diff --git a/docs/troubleshooting/yeji/troubleshooting.md b/docs/troubleshooting/yeji/troubleshooting.md
+--- /dev/null
++++ b/docs/troubleshooting/yeji/troubleshooting.md
+@@ -0,0 +1,18 @@
++# yeji 트러블슈팅
++
++## 기록 규칙
++
++- 문제를 발견한 날짜, 작업 브랜치, 재현 절차를 함께 남긴다.
++- 원인과 해결 방법이 확정되지 않았으면 "가설"로 구분해서 적는다.
++- 로그나 에러 메시지는 필요한 부분만 붙이고, Secret/Env/개인정보는 제외한다.
++
++## 기록
++
++### YYYY-MM-DD - 제목
++
++- 작업 브랜치:
++- 상황:
++- 재현 절차:
++- 원인:
++- 해결:
++- 참고:
+
+

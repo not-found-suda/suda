@@ -1,0 +1,677 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/sign/exception/SignInferenceErrorCode.java b/backend/src/main/java/com/ssafy/backend/domain/sign/exception/SignInferenceErrorCode.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/sign/exception/SignInferenceErrorCode.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/sign/exception/SignInferenceErrorCode.java
+@@ -14,7 +14,25 @@ public enum SignInferenceErrorCode implements ErrorCode {
+       "SIGN_INFERENCE_AI_SERVER_UNAVAILABLE",
+       HttpStatus.BAD_GATEWAY,
+       "수어 인식 AI 서버 호출에 실패했습니다.",
+-      "수어 인식 AI 서버 오류");
++      "수어 인식 AI 서버 오류"),
++
++  AI_SERVER_TIMEOUT(
++      "SIGN_INFERENCE_AI_SERVER_TIMEOUT",
++      HttpStatus.GATEWAY_TIMEOUT,
++      "수어 인식 AI 서버 응답 시간이 초과되었습니다.",
++      "수어 인식 AI 서버 시간 초과"),
++
++  AI_SERVER_REJECTED_REQUEST(
++      "SIGN_INFERENCE_AI_SERVER_REJECTED_REQUEST",
++      HttpStatus.BAD_GATEWAY,
++      "수어 인식 AI 서버가 추론 요청을 거부했습니다.",
++      "수어 인식 AI 서버 요청 거부"),
++
++  AI_SERVER_INVALID_RESPONSE(
++      "SIGN_INFERENCE_AI_SERVER_INVALID_RESPONSE",
++      HttpStatus.BAD_GATEWAY,
++      "수어 인식 AI 서버 응답 형식이 올바르지 않습니다.",
++      "수어 인식 AI 서버 응답 오류");
+ 
+   private final String code;
+   private final HttpStatus httpStatus;
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/sign/service/SignAiClient.java b/backend/src/main/java/com/ssafy/backend/domain/sign/service/SignAiClient.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/sign/service/SignAiClient.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/sign/service/SignAiClient.java
+@@ -5,13 +5,17 @@ import com.ssafy.backend.domain.sign.dto.SignInferenceRequestDto;
+ import com.ssafy.backend.domain.sign.dto.SignInferenceResponseDto;
+ import com.ssafy.backend.domain.sign.exception.SignInferenceErrorCode;
+ import com.ssafy.backend.global.exception.BusinessException;
++import java.net.SocketTimeoutException;
+ import java.net.URI;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ import org.springframework.beans.factory.annotation.Qualifier;
++import org.springframework.http.HttpStatusCode;
+ import org.springframework.stereotype.Component;
++import org.springframework.web.client.ResourceAccessException;
+ import org.springframework.web.client.RestClient;
+ import org.springframework.web.client.RestClientException;
++import org.springframework.web.client.RestClientResponseException;
+ import org.springframework.web.util.UriComponentsBuilder;
+ 
+ @Component
+@@ -19,6 +23,7 @@ public class SignAiClient {
+ 
+   private static final Logger log = LoggerFactory.getLogger(SignAiClient.class);
+   private static final String PREDICT_PATH = "/internal/sign/predict";
++  private static final int MAX_ERROR_BODY_LOG_LENGTH = 1000;
+ 
+   private final RestClient restClient;
+   private final SignAiProperties properties;
+@@ -41,14 +46,72 @@ public class SignAiClient {
+               .retrieve()
+               .body(SignInferenceResponseDto.class);
+       if (response == null) {
+-        throw new BusinessException(SignInferenceErrorCode.AI_SERVER_UNAVAILABLE);
++        log.warn("Sign AI server returned empty response. uri={}", uri);
++        throw new BusinessException(SignInferenceErrorCode.AI_SERVER_INVALID_RESPONSE);
+       }
+       return response;
+     } catch (BusinessException exception) {
+       throw exception;
++    } catch (RestClientResponseException exception) {
++      SignInferenceErrorCode errorCode = resolveResponseErrorCode(exception.getStatusCode());
++      log.warn(
++          "Sign AI server returned error. uri={}, status={}, code={}, responseBody={}",
++          uri,
++          exception.getStatusCode(),
++          errorCode.getCode(),
++          abbreviate(exception.getResponseBodyAsString(), MAX_ERROR_BODY_LOG_LENGTH));
++      throw new BusinessException(errorCode);
++    } catch (ResourceAccessException exception) {
++      SignInferenceErrorCode errorCode =
++          hasCause(exception, SocketTimeoutException.class)
++              ? SignInferenceErrorCode.AI_SERVER_TIMEOUT
++              : SignInferenceErrorCode.AI_SERVER_UNAVAILABLE;
++      log.warn(
++          "Sign AI server access failed. uri={}, code={}, exceptionClass={}, message={}",
++          uri,
++          errorCode.getCode(),
++          exception.getClass().getName(),
++          exception.getMessage());
++      throw new BusinessException(errorCode);
+     } catch (RestClientException exception) {
+-      log.warn("Sign AI server request failed. uri={}, message={}", uri, exception.getMessage());
+-      throw new BusinessException(SignInferenceErrorCode.AI_SERVER_UNAVAILABLE);
++      log.warn(
++          "Sign AI server response handling failed. uri={}, exceptionClass={}, message={}",
++          uri,
++          exception.getClass().getName(),
++          exception.getMessage());
++      throw new BusinessException(SignInferenceErrorCode.AI_SERVER_INVALID_RESPONSE);
+     }
+   }
++
++  private SignInferenceErrorCode resolveResponseErrorCode(HttpStatusCode statusCode) {
++    if (statusCode.value() == 504) {
++      return SignInferenceErrorCode.AI_SERVER_TIMEOUT;
++    }
++    if (statusCode.is4xxClientError()) {
++      return SignInferenceErrorCode.AI_SERVER_REJECTED_REQUEST;
++    }
++    return SignInferenceErrorCode.AI_SERVER_UNAVAILABLE;
++  }
++
++  private String abbreviate(String value, int maxLength) {
++    if (value == null) {
++      return null;
++    }
++    String normalized = value.replaceAll("[\\r\\n\\t]+", " ").trim();
++    if (normalized.length() <= maxLength) {
++      return normalized;
++    }
++    return normalized.substring(0, maxLength) + "...";
++  }
++
++  private boolean hasCause(Throwable throwable, Class<? extends Throwable> causeType) {
++    Throwable current = throwable;
++    while (current != null) {
++      if (causeType.isInstance(current)) {
++        return true;
++      }
++      current = current.getCause();
++    }
++    return false;
++  }
+ }
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/child/service/ChildOwnershipServiceTest.java b/backend/src/test/java/com/ssafy/backend/domain/child/service/ChildOwnershipServiceTest.java
+--- a/backend/src/test/java/com/ssafy/backend/domain/child/service/ChildOwnershipServiceTest.java
++++ b/backend/src/test/java/com/ssafy/backend/domain/child/service/ChildOwnershipServiceTest.java
+@@ -117,7 +117,7 @@ class ChildOwnershipServiceTest {
+     assertChildNotFoundAndVerifyOwnership(
+         () ->
+             childProfileService.updateChild(
+-                USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto("수정", null)));
++                USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto("수정", null, null)));
+   }
+ 
+   @Test
+@@ -272,7 +272,8 @@ class ChildOwnershipServiceTest {
+     return ChildProfile.create(
+         User.create("guardian@example.com", "encoded-password", "보호자"),
+         "민준",
+-        LocalDate.now().minusYears(6));
++        LocalDate.now().minusYears(6),
++        "purple_diamond");
+   }
+ 
+   private void assertChildNotFound(ThrowingCall call) {
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/child/service/ChildProfileServiceValidationTest.java b/backend/src/test/java/com/ssafy/backend/domain/child/service/ChildProfileServiceValidationTest.java
+--- a/backend/src/test/java/com/ssafy/backend/domain/child/service/ChildProfileServiceValidationTest.java
++++ b/backend/src/test/java/com/ssafy/backend/domain/child/service/ChildProfileServiceValidationTest.java
+@@ -33,6 +33,7 @@ class ChildProfileServiceValidationTest {
+ 
+   private static final Long USER_ID = 1L;
+   private static final Long CHILD_ID = 10L;
++  private static final String DEFAULT_AVATAR_KEY = "purple_diamond";
+ 
+   @Mock private ChildProfileRepository childProfileRepository;
+   @Mock private UserRepository userRepository;
+@@ -168,7 +169,7 @@ class ChildProfileServiceValidationTest {
+     assertBusinessError(
+         () ->
+             childProfileService.updateChild(
+-                USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto(null, null)),
++                USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto(null, null, null)),
+         ValidationErrorCode.INVALID_INPUT);
+     verifyNoInteractions(childProfileRepository, userRepository);
+   }
+@@ -182,7 +183,7 @@ class ChildProfileServiceValidationTest {
+     assertBusinessError(
+         () ->
+             childProfileService.updateChild(
+-                USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto("   ", null)),
++                USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto("   ", null, null)),
+         ChildProfileErrorCode.INVALID_NAME);
+     verify(childProfileRepository, never()).flush();
+   }
+@@ -199,7 +200,7 @@ class ChildProfileServiceValidationTest {
+     assertBusinessError(
+         () ->
+             childProfileService.updateChild(
+-                USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto(" 서연 ", null)),
++                USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto(" 서연 ", null, null)),
+         ChildProfileErrorCode.DUPLICATE_NAME);
+     verify(childProfileRepository)
+         .existsByUserIdAndNameIgnoreCaseAndActiveTrueAndIdNot(USER_ID, "서연", CHILD_ID);
+@@ -217,7 +218,7 @@ class ChildProfileServiceValidationTest {
+             childProfileService.updateChild(
+                 USER_ID,
+                 CHILD_ID,
+-                new ChildProfileUpdateRequestDto(null, LocalDate.now().plusDays(1))),
++                new ChildProfileUpdateRequestDto(null, LocalDate.now().plusDays(1), null)),
+         ChildProfileErrorCode.INVALID_BIRTH_DATE);
+     verify(childProfileRepository, never()).flush();
+   }
+@@ -233,7 +234,7 @@ class ChildProfileServiceValidationTest {
+             childProfileService.updateChild(
+                 USER_ID,
+                 CHILD_ID,
+-                new ChildProfileUpdateRequestDto(null, LocalDate.now().minusYears(19))),
++                new ChildProfileUpdateRequestDto(null, LocalDate.now().minusYears(19), null)),
+         ChildProfileErrorCode.INVALID_BIRTH_DATE);
+     verify(childProfileRepository, never()).flush();
+   }
+@@ -251,7 +252,7 @@ class ChildProfileServiceValidationTest {
+ 
+     ChildProfileUpdateResponseDto response =
+         childProfileService.updateChild(
+-            USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto(" 서연 ", newBirthDate));
++            USER_ID, CHILD_ID, new ChildProfileUpdateRequestDto(" 서연 ", newBirthDate, null));
+ 
+     assertThat(child.getName()).isEqualTo("서연");
+     assertThat(child.getBirthDate()).isEqualTo(newBirthDate);
+@@ -275,12 +276,15 @@ class ChildProfileServiceValidationTest {
+   }
+ 
+   private ChildProfileCreateRequestDto newCreateRequest(String name, LocalDate birthDate) {
+-    return new ChildProfileCreateRequestDto(name, birthDate);
++    return new ChildProfileCreateRequestDto(name, birthDate, DEFAULT_AVATAR_KEY);
+   }
+ 
+   private ChildProfile activeChild() {
+     return ChildProfile.create(
+-        User.create("guardian@example.com", "encoded-password", "보호자"), "민준", validBirthDate());
++        User.create("guardian@example.com", "encoded-password", "보호자"),
++        "민준",
++        validBirthDate(),
++        DEFAULT_AVATAR_KEY);
+   }
+ 
+   private LocalDate validBirthDate() {
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/learn/quiz/service/QuizServiceFlowTest.java b/backend/src/test/java/com/ssafy/backend/domain/learn/quiz/service/QuizServiceFlowTest.java
+--- a/backend/src/test/java/com/ssafy/backend/domain/learn/quiz/service/QuizServiceFlowTest.java
++++ b/backend/src/test/java/com/ssafy/backend/domain/learn/quiz/service/QuizServiceFlowTest.java
+@@ -428,7 +428,8 @@ class QuizServiceFlowTest {
+     return ChildProfile.create(
+         User.create("guardian@example.com", "encoded-password", "보호자"),
+         "민준",
+-        LocalDate.now().minusYears(6));
++        LocalDate.now().minusYears(6),
++        "purple_diamond");
+   }
+ 
+   private MockMultipartFile audioFile() {
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/report/repository/ReportQuizSessionQueryRepositoryTest.java b/backend/src/test/java/com/ssafy/backend/domain/report/repository/ReportQuizSessionQueryRepositoryTest.java
+--- a/backend/src/test/java/com/ssafy/backend/domain/report/repository/ReportQuizSessionQueryRepositoryTest.java
++++ b/backend/src/test/java/com/ssafy/backend/domain/report/repository/ReportQuizSessionQueryRepositoryTest.java
+@@ -118,7 +118,8 @@ class ReportQuizSessionQueryRepositoryTest {
+   private TestFixture persistFixture() {
+     User user = User.create("report-" + UUID.randomUUID() + "@example.com", "password", "guardian");
+     entityManager.persist(user);
+-    ChildProfile child = ChildProfile.create(user, "child", LocalDate.of(2020, 1, 1));
++    ChildProfile child =
++        ChildProfile.create(user, "child", LocalDate.of(2020, 1, 1), "purple_diamond");
+     entityManager.persist(child);
+     LearnCategory category = newEntity(LearnCategory.class);
+     ReflectionTestUtils.setField(category, "name", "words");
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/report/service/ReportServiceQueryValidationTest.java b/backend/src/test/java/com/ssafy/backend/domain/report/service/ReportServiceQueryValidationTest.java
+--- a/backend/src/test/java/com/ssafy/backend/domain/report/service/ReportServiceQueryValidationTest.java
++++ b/backend/src/test/java/com/ssafy/backend/domain/report/service/ReportServiceQueryValidationTest.java
+@@ -254,7 +254,8 @@ class ReportServiceQueryValidationTest {
+     return ChildProfile.create(
+         User.create("guardian@example.com", "encoded-password", "보호자"),
+         "민준",
+-        LocalDate.now().minusYears(6));
++        LocalDate.now().minusYears(6),
++        "purple_diamond");
+   }
+ 
+   private void verifyWeakWordsPageRequest(int expectedPage, int expectedSize) {
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/sign/controller/SignInferenceControllerTest.java b/backend/src/test/java/com/ssafy/backend/domain/sign/controller/SignInferenceControllerTest.java
+--- /dev/null
++++ b/backend/src/test/java/com/ssafy/backend/domain/sign/controller/SignInferenceControllerTest.java
+@@ -0,0 +1,102 @@
++package com.ssafy.backend.domain.sign.controller;
++
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.verifyNoInteractions;
++import static org.mockito.Mockito.when;
++import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
++import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
++import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
++
++import com.fasterxml.jackson.databind.ObjectMapper;
++import com.ssafy.backend.domain.sign.dto.SignInferenceRequestDto;
++import com.ssafy.backend.domain.sign.dto.SignInferenceResponseDto;
++import com.ssafy.backend.domain.sign.exception.SignInferenceErrorCode;
++import com.ssafy.backend.domain.sign.service.SignInferenceService;
++import com.ssafy.backend.global.exception.BusinessException;
++import com.ssafy.backend.global.exception.GlobalExceptionHandler;
++import java.util.Collections;
++import java.util.List;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.extension.ExtendWith;
++import org.mockito.Mock;
++import org.mockito.junit.jupiter.MockitoExtension;
++import org.springframework.http.MediaType;
++import org.springframework.test.web.servlet.MockMvc;
++import org.springframework.test.web.servlet.setup.MockMvcBuilders;
++
++@ExtendWith(MockitoExtension.class)
++class SignInferenceControllerTest {
++
++  @Mock private SignInferenceService signInferenceService;
++
++  private MockMvc mockMvc;
++  private ObjectMapper objectMapper;
++
++  @BeforeEach
++  void setUp() {
++    mockMvc =
++        MockMvcBuilders.standaloneSetup(new SignInferenceController(signInferenceService))
++            .setControllerAdvice(new GlobalExceptionHandler())
++            .build();
++    objectMapper = new ObjectMapper();
++  }
++
++  @Test
++  @DisplayName("수어 인식 API가 정상 응답을 반환한다")
++  void predictReturnsSignInferenceResponse() throws Exception {
++    when(signInferenceService.predict(any(SignInferenceRequestDto.class))).thenReturn(response());
++
++    mockMvc
++        .perform(
++            post("/api/v1/sign/inference")
++                .contentType(MediaType.APPLICATION_JSON)
++                .content(objectMapper.writeValueAsString(validRequest())))
++        .andExpect(status().isOk())
++        .andExpect(jsonPath("$.gloss").value("병원"))
++        .andExpect(jsonPath("$.accepted").value(true))
++        .andExpect(jsonPath("$.modelVersion").value("v6_24words_tcn"));
++  }
++
++  @Test
++  @DisplayName("features가 비어 있으면 요청 검증 오류를 반환한다")
++  void predictRejectsEmptyFeatures() throws Exception {
++    SignInferenceRequestDto request =
++        new SignInferenceRequestDto(null, 30, 332, List.of(), null, 3);
++
++    mockMvc
++        .perform(
++            post("/api/v1/sign/inference")
++                .contentType(MediaType.APPLICATION_JSON)
++                .content(objectMapper.writeValueAsString(request)))
++        .andExpect(status().isBadRequest())
++        .andExpect(jsonPath("$.code").value("VALIDATION_REQUIRED_FIELD"));
++
++    verifyNoInteractions(signInferenceService);
++  }
++
++  @Test
++  @DisplayName("AI 서버 timeout은 504 ProblemDetail로 반환한다")
++  void predictMapsAiServerTimeout() throws Exception {
++    when(signInferenceService.predict(any(SignInferenceRequestDto.class)))
++        .thenThrow(new BusinessException(SignInferenceErrorCode.AI_SERVER_TIMEOUT));
++
++    mockMvc
++        .perform(
++            post("/api/v1/sign/inference")
++                .contentType(MediaType.APPLICATION_JSON)
++                .content(objectMapper.writeValueAsString(validRequest())))
++        .andExpect(status().isGatewayTimeout())
++        .andExpect(jsonPath("$.code").value("SIGN_INFERENCE_AI_SERVER_TIMEOUT"));
++  }
++
++  private SignInferenceRequestDto validRequest() {
++    return new SignInferenceRequestDto(null, 30, 332, Collections.nCopies(30 * 332, 0.0f), null, 3);
++  }
++
++  private SignInferenceResponseDto response() {
++    return new SignInferenceResponseDto(
++        "병원", 0.92f, 0.2f, 19, "병원", true, null, List.of(), "v6_24words_tcn", 18L);
++  }
++}
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/sign/service/SignAiClientTest.java b/backend/src/test/java/com/ssafy/backend/domain/sign/service/SignAiClientTest.java
+--- /dev/null
++++ b/backend/src/test/java/com/ssafy/backend/domain/sign/service/SignAiClientTest.java
+@@ -0,0 +1,157 @@
++package com.ssafy.backend.domain.sign.service;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
++import static org.springframework.test.web.client.ExpectedCount.once;
++import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
++import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
++import static org.springframework.test.web.client.response.MockRestResponseCreators.withNoContent;
++import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
++import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
++import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
++
++import com.ssafy.backend.domain.sign.config.SignAiProperties;
++import com.ssafy.backend.domain.sign.dto.SignInferenceRequestDto;
++import com.ssafy.backend.domain.sign.dto.SignInferenceResponseDto;
++import com.ssafy.backend.domain.sign.exception.SignInferenceErrorCode;
++import com.ssafy.backend.global.exception.BusinessException;
++import java.net.SocketTimeoutException;
++import java.net.URI;
++import java.time.Duration;
++import java.util.Collections;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.springframework.http.HttpMethod;
++import org.springframework.http.HttpStatus;
++import org.springframework.http.MediaType;
++import org.springframework.test.web.client.MockRestServiceServer;
++import org.springframework.web.client.RestClient;
++
++class SignAiClientTest {
++
++  private static final String PREDICT_URL = "http://sign-ai.test/internal/sign/predict";
++
++  private MockRestServiceServer server;
++  private SignAiClient signAiClient;
++
++  @BeforeEach
++  void setUp() {
++    RestClient.Builder builder = RestClient.builder();
++    server = MockRestServiceServer.bindTo(builder).build();
++    signAiClient =
++        new SignAiClient(
++            builder.build(),
++            new SignAiProperties(
++                URI.create("http://sign-ai.test"),
++                new SignAiProperties.Timeout(Duration.ofSeconds(1), Duration.ofSeconds(1))));
++  }
++
++  @Test
++  @DisplayName("AI 서버 응답을 수어 인식 응답으로 반환한다")
++  void predictReturnsAiServerResponse() {
++    server
++        .expect(once(), requestTo(PREDICT_URL))
++        .andExpect(method(HttpMethod.POST))
++        .andRespond(
++            withSuccess(
++                """
++                {
++                  "gloss": "병원",
++                  "confidence": 0.92,
++                  "margin": 0.2,
++                  "classIndex": 19,
++                  "rawGloss": "병원",
++                  "accepted": true,
++                  "rejectionReason": null,
++                  "topCandidates": [],
++                  "modelVersion": "v6_24words_tcn",
++                  "inferenceMs": 18
++                }
++                """,
++                MediaType.APPLICATION_JSON));
++
++    SignInferenceResponseDto response = signAiClient.predict(request());
++
++    assertThat(response.gloss()).isEqualTo("병원");
++    assertThat(response.accepted()).isTrue();
++    assertThat(response.modelVersion()).isEqualTo("v6_24words_tcn");
++    server.verify();
++  }
++
++  @Test
++  @DisplayName("AI 서버 503 응답은 AI 서버 사용 불가 오류로 변환한다")
++  void predictMapsAiServerUnavailable() {
++    server
++        .expect(once(), requestTo(PREDICT_URL))
++        .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE).body("{\"detail\":\"loading\"}"));
++
++    assertSignAiError(SignInferenceErrorCode.AI_SERVER_UNAVAILABLE);
++    server.verify();
++  }
++
++  @Test
++  @DisplayName("AI 서버 422 응답은 AI 서버 요청 거부 오류로 변환한다")
++  void predictMapsAiServerRejectedRequest() {
++    server
++        .expect(once(), requestTo(PREDICT_URL))
++        .andRespond(withStatus(HttpStatus.UNPROCESSABLE_ENTITY).body("{\"detail\":\"invalid\"}"));
++
++    assertSignAiError(SignInferenceErrorCode.AI_SERVER_REJECTED_REQUEST);
++    server.verify();
++  }
++
++  @Test
++  @DisplayName("AI 서버 504 응답은 timeout 오류로 변환한다")
++  void predictMapsGatewayTimeout() {
++    server
++        .expect(once(), requestTo(PREDICT_URL))
++        .andRespond(withStatus(HttpStatus.GATEWAY_TIMEOUT));
++
++    assertSignAiError(SignInferenceErrorCode.AI_SERVER_TIMEOUT);
++    server.verify();
++  }
++
++  @Test
++  @DisplayName("AI 서버 5xx 응답은 AI 서버 사용 불가 오류로 변환한다")
++  void predictMapsAiServerError() {
++    server.expect(once(), requestTo(PREDICT_URL)).andRespond(withServerError());
++
++    assertSignAiError(SignInferenceErrorCode.AI_SERVER_UNAVAILABLE);
++    server.verify();
++  }
++
++  @Test
++  @DisplayName("AI 서버 empty body 응답은 잘못된 응답 오류로 변환한다")
++  void predictMapsEmptyResponseBody() {
++    server.expect(once(), requestTo(PREDICT_URL)).andRespond(withNoContent());
++
++    assertSignAiError(SignInferenceErrorCode.AI_SERVER_INVALID_RESPONSE);
++    server.verify();
++  }
++
++  @Test
++  @DisplayName("AI 서버 socket timeout은 timeout 오류로 변환한다")
++  void predictMapsSocketTimeout() {
++    server
++        .expect(once(), requestTo(PREDICT_URL))
++        .andRespond(
++            request -> {
++              throw new SocketTimeoutException("read timed out");
++            });
++
++    assertSignAiError(SignInferenceErrorCode.AI_SERVER_TIMEOUT);
++    server.verify();
++  }
++
++  private void assertSignAiError(SignInferenceErrorCode expectedErrorCode) {
++    assertThatThrownBy(() -> signAiClient.predict(request()))
++        .isInstanceOfSatisfying(
++            BusinessException.class,
++            exception -> assertThat(exception.getErrorCode()).isEqualTo(expectedErrorCode));
++  }
++
++  private SignInferenceRequestDto request() {
++    return new SignInferenceRequestDto(null, 30, 332, Collections.nCopies(30 * 332, 0.0f), null, 3);
++  }
++}
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/sign/service/SignInferenceServiceTest.java b/backend/src/test/java/com/ssafy/backend/domain/sign/service/SignInferenceServiceTest.java
+--- /dev/null
++++ b/backend/src/test/java/com/ssafy/backend/domain/sign/service/SignInferenceServiceTest.java
+@@ -0,0 +1,107 @@
++package com.ssafy.backend.domain.sign.service;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.verifyNoInteractions;
++import static org.mockito.Mockito.when;
++
++import com.ssafy.backend.domain.sign.dto.SignInferenceRequestDto;
++import com.ssafy.backend.domain.sign.dto.SignInferenceResponseDto;
++import com.ssafy.backend.domain.sign.exception.SignInferenceErrorCode;
++import com.ssafy.backend.global.exception.BusinessException;
++import java.util.Collections;
++import java.util.List;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.extension.ExtendWith;
++import org.mockito.ArgumentCaptor;
++import org.mockito.Mock;
++import org.mockito.junit.jupiter.MockitoExtension;
++
++@ExtendWith(MockitoExtension.class)
++class SignInferenceServiceTest {
++
++  private static final int SEQUENCE_LENGTH = 30;
++  private static final int FEATURE_DIMENSION = 332;
++
++  @Mock private SignAiClient signAiClient;
++
++  private SignInferenceService signInferenceService;
++
++  @BeforeEach
++  void setUp() {
++    signInferenceService = new SignInferenceService(signAiClient);
++  }
++
++  @Test
++  @DisplayName("기본 sequenceLength, featureDimension, topK를 채워 AI 서버에 요청한다")
++  void predictNormalizesDefaultRequestValues() {
++    SignInferenceResponseDto expectedResponse = response();
++    when(signAiClient.predict(any(SignInferenceRequestDto.class))).thenReturn(expectedResponse);
++
++    SignInferenceRequestDto request =
++        new SignInferenceRequestDto(null, null, null, features(), null, null);
++
++    SignInferenceResponseDto response = signInferenceService.predict(request);
++
++    assertThat(response).isEqualTo(expectedResponse);
++    ArgumentCaptor<SignInferenceRequestDto> captor =
++        ArgumentCaptor.forClass(SignInferenceRequestDto.class);
++    verify(signAiClient).predict(captor.capture());
++    assertThat(captor.getValue().sequenceLength()).isEqualTo(SEQUENCE_LENGTH);
++    assertThat(captor.getValue().featureDimension()).isEqualTo(FEATURE_DIMENSION);
++    assertThat(captor.getValue().topK()).isEqualTo(3);
++  }
++
++  @Test
++  @DisplayName("현재 모델 규격이 아닌 sequenceLength는 거부한다")
++  void predictRejectsUnsupportedSequenceLength() {
++    SignInferenceRequestDto request =
++        new SignInferenceRequestDto(null, 29, FEATURE_DIMENSION, features(), null, 3);
++
++    assertSignInferenceError(request, SignInferenceErrorCode.INVALID_FEATURE_SEQUENCE);
++    verifyNoInteractions(signAiClient);
++  }
++
++  @Test
++  @DisplayName("features 길이가 30 * 332와 다르면 거부한다")
++  void predictRejectsInvalidFeatureLength() {
++    SignInferenceRequestDto request =
++        new SignInferenceRequestDto(
++            null, SEQUENCE_LENGTH, FEATURE_DIMENSION, Collections.nCopies(10, 0.0f), null, 3);
++
++    assertSignInferenceError(request, SignInferenceErrorCode.INVALID_FEATURE_SEQUENCE);
++    verifyNoInteractions(signAiClient);
++  }
++
++  @Test
++  @DisplayName("timestampsMs 길이가 sequenceLength와 다르면 거부한다")
++  void predictRejectsInvalidTimestampLength() {
++    SignInferenceRequestDto request =
++        new SignInferenceRequestDto(
++            null, SEQUENCE_LENGTH, FEATURE_DIMENSION, features(), Collections.nCopies(10, 0L), 3);
++
++    assertSignInferenceError(request, SignInferenceErrorCode.INVALID_FEATURE_SEQUENCE);
++    verifyNoInteractions(signAiClient);
++  }
++
++  private void assertSignInferenceError(
++      SignInferenceRequestDto request, SignInferenceErrorCode expectedErrorCode) {
++    assertThatThrownBy(() -> signInferenceService.predict(request))
++        .isInstanceOfSatisfying(
++            BusinessException.class,
++            exception -> assertThat(exception.getErrorCode()).isEqualTo(expectedErrorCode));
++  }
++
++  private List<Float> features() {
++    return Collections.nCopies(SEQUENCE_LENGTH * FEATURE_DIMENSION, 0.0f);
++  }
++
++  private SignInferenceResponseDto response() {
++    return new SignInferenceResponseDto(
++        "병원", 0.92f, 0.2f, 19, "병원", true, null, List.of(), "v6_24words_tcn", 18L);
++  }
++}
+
+

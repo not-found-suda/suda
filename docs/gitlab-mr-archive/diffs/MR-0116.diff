@@ -1,0 +1,193 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/dto/ChildSpeechCorrectionResult.java b/backend/src/main/java/com/ssafy/backend/domain/comms/dto/ChildSpeechCorrectionResult.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/comms/dto/ChildSpeechCorrectionResult.java
++++ /dev/null
+@@ -1,3 +0,0 @@
+-package com.ssafy.backend.domain.comms.dto;
+-
+-public record ChildSpeechCorrectionResult(String originalText, String correctedText) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/service/ChildSpeechCorrectionClient.java b/backend/src/main/java/com/ssafy/backend/domain/comms/service/ChildSpeechCorrectionClient.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/comms/service/ChildSpeechCorrectionClient.java
++++ /dev/null
+@@ -1,46 +0,0 @@
+-package com.ssafy.backend.domain.comms.service;
+-
+-import com.ssafy.backend.domain.comms.dto.ChildSpeechCorrectionResult;
+-import org.springframework.stereotype.Component;
+-
+-@Component
+-public class ChildSpeechCorrectionClient {
+-
+-  private final OpenAiClient openAiClient;
+-
+-  public ChildSpeechCorrectionClient(OpenAiClient openAiClient) {
+-    this.openAiClient = openAiClient;
+-  }
+-
+-  public ChildSpeechCorrectionResult correct(String rawText) {
+-    if (rawText == null || rawText.isBlank()) {
+-      return new ChildSpeechCorrectionResult("", "");
+-    }
+-
+-    String systemInstruction =
+-        """
+-      너는 0~5세 아이의 부정확한 발화를 자연스러운 한국어로 보정하는 역할이다.
+-
+-      규칙:
+-      - 설명 없이 보정된 문장만 출력한다.
+-      - 존댓말로 바꾸지 마라.
+-      - 원래 의미를 과하게 바꾸지 않는다.
+-      - 아이가 말한 것처럼 짧고 자연스럽게 보정한다.
+-      - 감탄문이면 자연스럽게 느낌표를 붙여도 된다.
+-      - 확실하지 않으면 입력 문장을 최대한 유지한다.
+-
+-      예시:
+-      옴마 -> 엄마!
+-      압빠 -> 아빠!
+-      무 주 -> 물 줘!
+-      까까 조 -> 까까 줘!
+-      안아 조 -> 안아 줘!
+-      맘마 머거 -> 맘마 먹어!
+-      이거 모야 -> 이거 뭐야?
+-      """;
+-
+-    String correctedText = openAiClient.generateText(systemInstruction, rawText).trim();
+-
+-    return new ChildSpeechCorrectionResult(rawText, correctedText);
+-  }
+-}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/docs/TranslationApiDocs.java b/backend/src/main/java/com/ssafy/backend/domain/translation/docs/TranslationApiDocs.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/translation/docs/TranslationApiDocs.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/docs/TranslationApiDocs.java
+@@ -31,8 +31,13 @@ public interface TranslationApiDocs {
+   ResponseEntity<SignToSpeechResponseDto> translateSignToSpeech(
+       @Valid @RequestBody SignToSpeechRequestDto requestDto);
+ 
+-  @Operation(summary = "음성 텍스트 변환 및 보정", description = "자녀 음성 파일을 받아 STT 후 보정된 문장을 함께 반환합니다.")
+-  @ApiErrorCodes({"TRANSLATION_INVALID_AUDIO", "TRANSLATION_INVALID_LOCALE"})
++  @Operation(summary = "음성 텍스트 변환", description = "자녀 음성 파일을 받아 Clova STT로 인식한 텍스트를 그대로 반환합니다.")
++  @ApiErrorCodes({
++    "TRANSLATION_INVALID_AUDIO",
++    "TRANSLATION_INVALID_LOCALE",
++    "TRANSLATION_UNRECOGNIZABLE_AUDIO",
++    "TRANSLATION_SPEECH_RECOGNITION_FAILED"
++  })
+   @ApiResponse(
+       responseCode = "200",
+       description = "성공",
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/dto/SpeechToTextResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/translation/dto/SpeechToTextResponseDto.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/translation/dto/SpeechToTextResponseDto.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/dto/SpeechToTextResponseDto.java
+@@ -3,8 +3,11 @@ package com.ssafy.backend.domain.translation.dto;
+ import io.swagger.v3.oas.annotations.media.Schema;
+ 
+ public record SpeechToTextResponseDto(
+-    @Schema(description = "Clova STT가 1차 추출한 원문 텍스트", example = "옴마") String recognizedText,
+-    @Schema(description = "Gemini가 발음 및 문맥 보정한 최종 텍스트", example = "엄마!") String correctedText,
+-    @Schema(description = "STT 원문 대비 보정 여부", example = "true") boolean corrected,
+-    @Schema(description = "STT 신뢰도 값", example = "0.91") Double confidence,
++    @Schema(description = "Clova STT가 추출한 원문 텍스트", example = "원숭이") String recognizedText,
++    @Schema(description = "최종 표시 텍스트. 현재는 STT 결과를 그대로 반환합니다.", example = "원숭이")
++        String correctedText,
++    @Schema(description = "STT 원문 대비 보정 여부. 현재는 보정하지 않으므로 false입니다.", example = "false")
++        boolean corrected,
++    @Schema(description = "STT 신뢰도 값. 현재는 별도 신뢰도 값을 반환하지 않으므로 null입니다.", example = "null")
++        Double confidence,
+     @Schema(description = "실제 처리에 사용된 언어 정보", example = "ko-KR") String locale) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/exception/TranslationErrorCode.java b/backend/src/main/java/com/ssafy/backend/domain/translation/exception/TranslationErrorCode.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/translation/exception/TranslationErrorCode.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/exception/TranslationErrorCode.java
+@@ -25,12 +25,6 @@ public enum TranslationErrorCode implements ErrorCode {
+       "수어 문맥 보정 처리에 실패했습니다.",
+       "Gemini 수어 문맥 보정 실패"),
+ 
+-  CHILD_SPEECH_CORRECTION_FAILED(
+-      "TRANSLATION_CHILD_SPEECH_CORRECTION_FAILED",
+-      HttpStatus.BAD_GATEWAY,
+-      "아이 발화 문맥 보정 처리에 실패했습니다.",
+-      "Gemini 아이 발화 보정 실패"),
+-
+   SPEECH_RECOGNITION_FAILED(
+       "TRANSLATION_SPEECH_RECOGNITION_FAILED",
+       HttpStatus.BAD_GATEWAY,
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java b/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java
+@@ -1,7 +1,5 @@
+ package com.ssafy.backend.domain.translation.service;
+ 
+-import com.ssafy.backend.domain.comms.dto.ChildSpeechCorrectionResult;
+-import com.ssafy.backend.domain.comms.service.ChildSpeechCorrectionClient;
+ import com.ssafy.backend.domain.comms.service.ClovaSttClient;
+ import com.ssafy.backend.domain.comms.service.ClovaTtsClient;
+ import com.ssafy.backend.domain.comms.service.SignLanguageCorrectionClient;
+@@ -34,17 +32,14 @@ public class TranslationServiceImpl implements TranslationService {
+   private final SignLanguageCorrectionClient signLanguageCorrectionClient;
+   private final ClovaTtsClient clovaTtsClient;
+   private final ClovaSttClient clovaSttClient;
+-  private final ChildSpeechCorrectionClient childSpeechCorrectionClient;
+ 
+   public TranslationServiceImpl(
+       SignLanguageCorrectionClient signLanguageCorrectionClient,
+       ClovaTtsClient clovaTtsClient,
+-      ClovaSttClient clovaSttClient,
+-      ChildSpeechCorrectionClient childSpeechCorrectionClient) {
++      ClovaSttClient clovaSttClient) {
+     this.signLanguageCorrectionClient = signLanguageCorrectionClient;
+     this.clovaTtsClient = clovaTtsClient;
+     this.clovaSttClient = clovaSttClient;
+-    this.childSpeechCorrectionClient = childSpeechCorrectionClient;
+   }
+ 
+   @Override
+@@ -111,38 +106,7 @@ public class TranslationServiceImpl implements TranslationService {
+       throw new BusinessException(TranslationErrorCode.UNRECOGNIZABLE_AUDIO);
+     }
+ 
+-    ChildSpeechCorrectionResult correctionResult;
+-    try {
+-      correctionResult = childSpeechCorrectionClient.correct(recognizedText);
+-    } catch (Exception e) {
+-      log.warn(
+-          "[STT] Child speech correction failed. fallback to recognizedText. traceId={}, recognizedText={}, exceptionClass={}, message={}",
+-          getTraceId(),
+-          recognizedText,
+-          e.getClass().getName(),
+-          e.getMessage(),
+-          e);
+-
+-      return new SpeechToTextResponseDto(
+-          recognizedText, recognizedText, false, null, resolvedLocale);
+-    }
+-
+-    String correctedText = correctionResult.correctedText();
+-
+-    if (correctedText == null || correctedText.isBlank()) {
+-      log.warn(
+-          "[STT] Child speech correction returned empty text. fallback to recognizedText. traceId={}, recognizedText={}",
+-          getTraceId(),
+-          recognizedText);
+-
+-      return new SpeechToTextResponseDto(
+-          recognizedText, recognizedText, false, null, resolvedLocale);
+-    }
+-
+-    boolean corrected = !recognizedText.trim().equals(correctedText.trim());
+-
+-    return new SpeechToTextResponseDto(
+-        recognizedText, correctedText, corrected, null, resolvedLocale);
++    return new SpeechToTextResponseDto(recognizedText, recognizedText, false, null, resolvedLocale);
+   }
+ 
+   private void validateAudioFile(MultipartFile audioFile) {
+
+

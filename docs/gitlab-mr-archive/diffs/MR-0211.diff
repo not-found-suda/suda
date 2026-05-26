@@ -1,0 +1,166 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
+@@ -862,9 +862,7 @@ private fun ReportRecordGridItem(
+                 text = description,
+                 style = MaterialTheme.typography.bodySmall,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                maxLines = 2,
+-                overflow = TextOverflow.Ellipsis,
+-                modifier = Modifier.heightIn(min = 32.dp),
++                maxLines = 4,
+             )
+ 
+             Row(
+@@ -874,15 +872,14 @@ private fun ReportRecordGridItem(
+             ) {
+                 Text(
+                     text = valueText,
+-                    style = MaterialTheme.typography.titleLarge,
++                    style = MaterialTheme.typography.titleMedium,
+                     fontWeight = FontWeight.Bold,
+                     maxLines = 1,
+-                    overflow = TextOverflow.Ellipsis,
+                 )
+                 Spacer(modifier = Modifier.width(4.dp))
+                 Text(
+                     text = "›",
+-                    style = MaterialTheme.typography.titleLarge,
++                    style = MaterialTheme.typography.titleMedium,
+                     fontWeight = FontWeight.Bold,
+                     color = MaterialTheme.colorScheme.primary,
+                 )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionCard.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionCard.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionCard.kt
+@@ -68,25 +68,29 @@ fun ReportQuizSessionCard(
+                 tone = ReportVisualTone.Success,
+             )
+             Spacer(modifier = Modifier.height(10.dp))
+-            Row(
++            Column(
+                 modifier = Modifier.fillMaxWidth(),
+-                verticalAlignment = Alignment.CenterVertically,
++                horizontalAlignment = Alignment.Start,
+             ) {
+-                Text(
+-                    text = "평균 별점",
+-                    style = MaterialTheme.typography.bodySmall,
+-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                    maxLines = 1,
+-                )
+-                Spacer(modifier = Modifier.width(8.dp))
+-                ReportStarRating(rating = session.averageStar)
+-                Spacer(modifier = Modifier.weight(1f))
++                Row(
++                    modifier = Modifier.fillMaxWidth(),
++                    verticalAlignment = Alignment.CenterVertically,
++                ) {
++                    Text(
++                        text = "평균 별점",
++                        style = MaterialTheme.typography.bodySmall,
++                        color = MaterialTheme.colorScheme.onSurfaceVariant,
++                        maxLines = 1,
++                    )
++                    Spacer(modifier = Modifier.width(8.dp))
++                    ReportStarRating(rating = session.averageStar)
++                }
++                Spacer(modifier = Modifier.height(4.dp))
+                 Text(
+                     text = session.toDateLabel(),
+                     style = MaterialTheme.typography.bodySmall,
+                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                     maxLines = 1,
+-                    overflow = TextOverflow.Ellipsis,
+                 )
+             }
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportVisualComponents.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportVisualComponents.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportVisualComponents.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportVisualComponents.kt
+@@ -257,23 +257,27 @@ internal fun ReportStarRating(
+         )
+     val label = String.format(Locale.KOREA, "%.1f", safeRating)
+ 
+-    Row(
++    Column(
+         modifier = modifier,
+-        verticalAlignment = Alignment.CenterVertically,
+-        horizontalArrangement = Arrangement.spacedBy(4.dp),
++        horizontalAlignment = Alignment.Start,
+     ) {
+-        repeat(STAR_MAX) { index ->
+-            Text(
+-                text = "⭐",
+-                style = MaterialTheme.typography.headlineSmall,
+-                modifier = if (index < filledCount) Modifier else Modifier.alpha(0.3f),
+-            )
++        Row(
++            verticalAlignment = Alignment.CenterVertically,
++            horizontalArrangement = Arrangement.spacedBy(4.dp),
++        ) {
++            repeat(STAR_MAX) { index ->
++                Text(
++                    text = "⭐",
++                    style = MaterialTheme.typography.headlineSmall,
++                    modifier = if (index < filledCount) Modifier else Modifier.alpha(0.3f),
++                )
++            }
+         }
+         if (showValue) {
+-            Spacer(modifier = Modifier.width(6.dp))
++            Spacer(modifier = Modifier.height(2.dp))
+             Text(
+                 text = "$label/3",
+-                style = MaterialTheme.typography.titleMedium,
++                style = MaterialTheme.typography.labelLarge,
+                 fontWeight = FontWeight.Bold,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                 maxLines = 1,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordCard.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordCard.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordCard.kt
+@@ -109,19 +109,24 @@ fun ReportWeakWordCard(
+                 tone = ReportVisualTone.Primary,
+             )
+             Spacer(modifier = Modifier.height(12.dp))
+-            Row(
++            Column(
+                 modifier = Modifier.fillMaxWidth(),
+-                verticalAlignment = Alignment.CenterVertically,
++                horizontalAlignment = Alignment.Start,
+             ) {
+-                Text(
+-                    text = "평균 별점",
+-                    style = MaterialTheme.typography.bodySmall,
+-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                    maxLines = 1,
+-                )
+-                Spacer(modifier = Modifier.width(8.dp))
+-                ReportStarRating(rating = word.averageStar)
+-                Spacer(modifier = Modifier.weight(1f))
++                Row(
++                    modifier = Modifier.fillMaxWidth(),
++                    verticalAlignment = Alignment.CenterVertically,
++                ) {
++                    Text(
++                        text = "평균 별점",
++                        style = MaterialTheme.typography.bodySmall,
++                        color = MaterialTheme.colorScheme.onSurfaceVariant,
++                        maxLines = 1,
++                    )
++                    Spacer(modifier = Modifier.width(8.dp))
++                    ReportStarRating(rating = word.averageStar)
++                }
++                Spacer(modifier = Modifier.height(4.dp))
+                 Text(
+                     text = "📅 최근 ${word.lastAnsweredAt.toReportDateLabel()}",
+                     style = MaterialTheme.typography.bodySmall,
+
+

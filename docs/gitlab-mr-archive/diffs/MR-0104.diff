@@ -1,0 +1,325 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/controller/AuthController.java b/backend/src/main/java/com/ssafy/backend/domain/auth/controller/AuthController.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/auth/controller/AuthController.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/controller/AuthController.java
+@@ -3,14 +3,13 @@ package com.ssafy.backend.domain.auth.controller;
+ import com.ssafy.backend.domain.auth.docs.AuthApiDocs;
+ import com.ssafy.backend.domain.auth.dto.LoginRequestDto;
+ import com.ssafy.backend.domain.auth.dto.LoginResponseDto;
++import com.ssafy.backend.domain.auth.dto.RefreshTokenRequestDto;
+ import com.ssafy.backend.domain.auth.dto.RefreshTokenResponseDto;
+ import com.ssafy.backend.domain.auth.dto.SignupRequestDto;
+ import com.ssafy.backend.domain.auth.dto.SignupResponseDto;
+ import com.ssafy.backend.domain.auth.service.AuthService;
+-import com.ssafy.backend.domain.auth.service.RefreshTokenCookieManager;
+ import jakarta.servlet.http.HttpServletRequest;
+ import jakarta.validation.Valid;
+-import org.springframework.http.HttpHeaders;
+ import org.springframework.http.HttpStatus;
+ import org.springframework.http.ResponseEntity;
+ import org.springframework.web.bind.annotation.PostMapping;
+@@ -26,12 +25,9 @@ public class AuthController implements AuthApiDocs {
+   private static final String BEARER_PREFIX = "Bearer ";
+ 
+   private final AuthService authService;
+-  private final RefreshTokenCookieManager refreshTokenCookieManager;
+ 
+-  public AuthController(
+-      AuthService authService, RefreshTokenCookieManager refreshTokenCookieManager) {
++  public AuthController(AuthService authService) {
+     this.authService = authService;
+-    this.refreshTokenCookieManager = refreshTokenCookieManager;
+   }
+ 
+   @PostMapping("/signup")
+@@ -45,32 +41,24 @@ public class AuthController implements AuthApiDocs {
+   @Override
+   public ResponseEntity<LoginResponseDto> login(@Valid @RequestBody LoginRequestDto requestDto) {
+     AuthService.LoginResult loginResult = authService.login(requestDto);
+-    HttpHeaders headers = new HttpHeaders();
+-    refreshTokenCookieManager.addRefreshTokenCookie(headers, loginResult.refreshToken());
+-    return ResponseEntity.ok().headers(headers).body(loginResult.response());
++    return ResponseEntity.ok(loginResult.response());
+   }
+ 
+   @PostMapping("/refresh")
+   @Override
+-  public ResponseEntity<RefreshTokenResponseDto> refresh(HttpServletRequest request) {
+-    String refreshToken = refreshTokenCookieManager.resolveRefreshToken(request);
+-    AuthService.RefreshTokenResult refreshResult = authService.refresh(refreshToken);
+-
+-    HttpHeaders headers = new HttpHeaders();
+-    refreshTokenCookieManager.addRefreshTokenCookie(headers, refreshResult.refreshToken());
+-    return ResponseEntity.ok().headers(headers).body(refreshResult.response());
++  public ResponseEntity<RefreshTokenResponseDto> refresh(
++      @RequestBody RefreshTokenRequestDto requestDto) {
++    AuthService.RefreshTokenResult refreshResult = authService.refresh(requestDto.refreshToken());
++    return ResponseEntity.ok(refreshResult.response());
+   }
+ 
+   @PostMapping("/logout")
+   @Override
+-  public ResponseEntity<Void> logout(HttpServletRequest request) {
+-    String refreshToken = refreshTokenCookieManager.resolveRefreshToken(request);
++  public ResponseEntity<Void> logout(
++      @RequestBody RefreshTokenRequestDto requestDto, HttpServletRequest request) {
+     String accessToken = resolveAccessToken(request);
+-    authService.logout(refreshToken, accessToken);
+-
+-    HttpHeaders headers = new HttpHeaders();
+-    refreshTokenCookieManager.expireRefreshTokenCookie(headers);
+-    return ResponseEntity.noContent().headers(headers).build();
++    authService.logout(requestDto.refreshToken(), accessToken);
++    return ResponseEntity.noContent().build();
+   }
+ 
+   private String resolveAccessToken(HttpServletRequest request) {
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthApiDocs.java b/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthApiDocs.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthApiDocs.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthApiDocs.java
+@@ -2,6 +2,7 @@ package com.ssafy.backend.domain.auth.docs;
+ 
+ import com.ssafy.backend.domain.auth.dto.LoginRequestDto;
+ import com.ssafy.backend.domain.auth.dto.LoginResponseDto;
++import com.ssafy.backend.domain.auth.dto.RefreshTokenRequestDto;
+ import com.ssafy.backend.domain.auth.dto.RefreshTokenResponseDto;
+ import com.ssafy.backend.domain.auth.dto.SignupRequestDto;
+ import com.ssafy.backend.domain.auth.dto.SignupResponseDto;
+@@ -34,13 +35,13 @@ public interface AuthApiDocs {
+       content = @Content(schema = @Schema(implementation = LoginResponseDto.class)))
+   ResponseEntity<LoginResponseDto> login(LoginRequestDto request);
+ 
+-  @Operation(summary = "토큰 재발급", description = "리프레시 토큰 쿠키를 사용해 액세스 토큰을 재발급합니다.")
++  @Operation(summary = "토큰 재발급", description = "Request Body의 리프레시 토큰으로 액세스 토큰을 재발급합니다.")
+   @ApiErrorCodes({"AUTH_INVALID_REFRESH_TOKEN", "AUTH_INACTIVE_ACCOUNT"})
+   @ApiResponse(
+       responseCode = "200",
+       description = "성공",
+       content = @Content(schema = @Schema(implementation = RefreshTokenResponseDto.class)))
+-  ResponseEntity<RefreshTokenResponseDto> refresh(HttpServletRequest request);
++  ResponseEntity<RefreshTokenResponseDto> refresh(RefreshTokenRequestDto request);
+ 
+   @Operation(
+       summary = "로그아웃",
+@@ -48,5 +49,5 @@ public interface AuthApiDocs {
+       security = {@SecurityRequirement(name = "bearerAuth")})
+   @ApiErrorCodes({"COMMON_UNAUTHORIZED"})
+   @ApiResponse(responseCode = "204", description = "콘텐츠 없음")
+-  ResponseEntity<Void> logout(HttpServletRequest request);
++  ResponseEntity<Void> logout(RefreshTokenRequestDto requestDto, HttpServletRequest request);
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/dto/LoginResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/LoginResponseDto.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/auth/dto/LoginResponseDto.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/LoginResponseDto.java
+@@ -4,5 +4,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
+ 
+ public record LoginResponseDto(
+     @Schema(description = "액세스 토큰", example = "<JWT>") String accessToken,
++    @Schema(description = "리프레시 토큰", example = "<JWT>") String refreshToken,
+     @Schema(description = "토큰 타입", example = "Bearer") String tokenType,
+     @Schema(description = "만료 시간(초)", example = "900") long expiresIn) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/dto/RefreshTokenRequestDto.java b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/RefreshTokenRequestDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/RefreshTokenRequestDto.java
+@@ -0,0 +1,7 @@
++package com.ssafy.backend.domain.auth.dto;
++
++import io.swagger.v3.oas.annotations.media.Schema;
++
++public record RefreshTokenRequestDto(
++    @Schema(description = "리프레시 토큰", example = "<JWT>", requiredMode = Schema.RequiredMode.REQUIRED)
++        String refreshToken) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/dto/RefreshTokenResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/RefreshTokenResponseDto.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/auth/dto/RefreshTokenResponseDto.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/RefreshTokenResponseDto.java
+@@ -4,5 +4,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
+ 
+ public record RefreshTokenResponseDto(
+     @Schema(description = "새 액세스 토큰", example = "<JWT>") String accessToken,
++    @Schema(description = "새 리프레시 토큰", example = "<JWT>") String refreshToken,
+     @Schema(description = "토큰 타입", example = "Bearer") String tokenType,
+     @Schema(description = "만료 시간(초)", example = "900") long expiresIn) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/AuthService.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/AuthService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/auth/service/AuthService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/AuthService.java
+@@ -72,7 +72,10 @@ public class AuthService {
+ 
+     LoginResponseDto response =
+         new LoginResponseDto(
+-            tokenPair.accessToken(), "Bearer", jwtProperties.getAccessTokenTtlSeconds());
++            tokenPair.accessToken(),
++            tokenPair.refreshToken(),
++            "Bearer",
++            jwtProperties.getAccessTokenTtlSeconds());
+     return new LoginResult(response, tokenPair.refreshToken());
+   }
+ 
+@@ -107,7 +110,10 @@ public class AuthService {
+ 
+     RefreshTokenResponseDto response =
+         new RefreshTokenResponseDto(
+-            tokenPair.accessToken(), "Bearer", jwtProperties.getAccessTokenTtlSeconds());
++            tokenPair.accessToken(),
++            tokenPair.refreshToken(),
++            "Bearer",
++            jwtProperties.getAccessTokenTtlSeconds());
+     return new RefreshTokenResult(response, tokenPair.refreshToken());
+   }
+ 
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/RefreshTokenCookieManager.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/RefreshTokenCookieManager.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/auth/service/RefreshTokenCookieManager.java
++++ /dev/null
+@@ -1,57 +0,0 @@
+-package com.ssafy.backend.domain.auth.service;
+-
+-import com.ssafy.backend.global.security.jwt.JwtProperties;
+-import jakarta.servlet.http.Cookie;
+-import jakarta.servlet.http.HttpServletRequest;
+-import org.springframework.http.HttpHeaders;
+-import org.springframework.http.ResponseCookie;
+-import org.springframework.stereotype.Component;
+-
+-@Component
+-public class RefreshTokenCookieManager {
+-
+-  private final JwtProperties jwtProperties;
+-
+-  public RefreshTokenCookieManager(JwtProperties jwtProperties) {
+-    this.jwtProperties = jwtProperties;
+-  }
+-
+-  public void addRefreshTokenCookie(HttpHeaders headers, String refreshToken) {
+-    ResponseCookie cookie =
+-        ResponseCookie.from(jwtProperties.getRefreshTokenCookieName(), refreshToken)
+-            .httpOnly(true)
+-            .secure(jwtProperties.isRefreshTokenCookieSecure())
+-            .path(jwtProperties.getRefreshTokenCookiePath())
+-            .maxAge(jwtProperties.getRefreshTokenTtlSeconds())
+-            .sameSite(jwtProperties.getRefreshTokenCookieSameSite())
+-            .build();
+-    headers.add(HttpHeaders.SET_COOKIE, cookie.toString());
+-  }
+-
+-  public void expireRefreshTokenCookie(HttpHeaders headers) {
+-    ResponseCookie cookie =
+-        ResponseCookie.from(jwtProperties.getRefreshTokenCookieName(), "")
+-            .httpOnly(true)
+-            .secure(jwtProperties.isRefreshTokenCookieSecure())
+-            .path(jwtProperties.getRefreshTokenCookiePath())
+-            .maxAge(0)
+-            .sameSite(jwtProperties.getRefreshTokenCookieSameSite())
+-            .build();
+-    headers.add(HttpHeaders.SET_COOKIE, cookie.toString());
+-  }
+-
+-  public String resolveRefreshToken(HttpServletRequest request) {
+-    Cookie[] cookies = request.getCookies();
+-    if (cookies == null || cookies.length == 0) {
+-      return null;
+-    }
+-
+-    String cookieName = jwtProperties.getRefreshTokenCookieName();
+-    for (Cookie cookie : cookies) {
+-      if (cookieName.equals(cookie.getName())) {
+-        return cookie.getValue();
+-      }
+-    }
+-    return null;
+-  }
+-}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtProperties.java b/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtProperties.java
+--- a/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtProperties.java
++++ b/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtProperties.java
+@@ -17,14 +17,6 @@ public class JwtProperties {
+ 
+   @Positive private long refreshTokenTtlSeconds;
+ 
+-  @NotBlank private String refreshTokenCookieName;
+-
+-  private boolean refreshTokenCookieSecure;
+-
+-  @NotBlank private String refreshTokenCookieSameSite;
+-
+-  @NotBlank private String refreshTokenCookiePath;
+-
+   public String getSecret() {
+     return secret;
+   }
+@@ -56,36 +48,4 @@ public class JwtProperties {
+   public void setRefreshTokenTtlSeconds(long refreshTokenTtlSeconds) {
+     this.refreshTokenTtlSeconds = refreshTokenTtlSeconds;
+   }
+-
+-  public String getRefreshTokenCookieName() {
+-    return refreshTokenCookieName;
+-  }
+-
+-  public void setRefreshTokenCookieName(String refreshTokenCookieName) {
+-    this.refreshTokenCookieName = refreshTokenCookieName;
+-  }
+-
+-  public boolean isRefreshTokenCookieSecure() {
+-    return refreshTokenCookieSecure;
+-  }
+-
+-  public void setRefreshTokenCookieSecure(boolean refreshTokenCookieSecure) {
+-    this.refreshTokenCookieSecure = refreshTokenCookieSecure;
+-  }
+-
+-  public String getRefreshTokenCookieSameSite() {
+-    return refreshTokenCookieSameSite;
+-  }
+-
+-  public void setRefreshTokenCookieSameSite(String refreshTokenCookieSameSite) {
+-    this.refreshTokenCookieSameSite = refreshTokenCookieSameSite;
+-  }
+-
+-  public String getRefreshTokenCookiePath() {
+-    return refreshTokenCookiePath;
+-  }
+-
+-  public void setRefreshTokenCookiePath(String refreshTokenCookiePath) {
+-    this.refreshTokenCookiePath = refreshTokenCookiePath;
+-  }
+ }
+
+
+diff --git a/backend/src/main/resources/application-dev.yml b/backend/src/main/resources/application-dev.yml
+--- a/backend/src/main/resources/application-dev.yml
++++ b/backend/src/main/resources/application-dev.yml
+@@ -21,7 +21,3 @@ auth:
+     issuer: "${AUTH_JWT_ISSUER}"
+     access-token-ttl-seconds: "${AUTH_ACCESS_TOKEN_TTL_SECONDS}"
+     refresh-token-ttl-seconds: "${AUTH_REFRESH_TOKEN_TTL_SECONDS}"
+-    refresh-token-cookie-name: "${AUTH_REFRESH_COOKIE_NAME}"
+-    refresh-token-cookie-secure: "${AUTH_REFRESH_COOKIE_SECURE}"
+-    refresh-token-cookie-same-site: "${AUTH_REFRESH_COOKIE_SAME_SITE}"
+-    refresh-token-cookie-path: "${AUTH_REFRESH_COOKIE_PATH}"
+
+
+diff --git a/backend/src/main/resources/application-prod.yml b/backend/src/main/resources/application-prod.yml
+--- a/backend/src/main/resources/application-prod.yml
++++ b/backend/src/main/resources/application-prod.yml
+@@ -8,7 +8,3 @@ auth:
+     issuer: "${AUTH_JWT_ISSUER}"
+     access-token-ttl-seconds: "${AUTH_ACCESS_TOKEN_TTL_SECONDS}"
+     refresh-token-ttl-seconds: "${AUTH_REFRESH_TOKEN_TTL_SECONDS}"
+-    refresh-token-cookie-name: "${AUTH_REFRESH_COOKIE_NAME}"
+-    refresh-token-cookie-secure: "${AUTH_REFRESH_COOKIE_SECURE}"
+-    refresh-token-cookie-same-site: "${AUTH_REFRESH_COOKIE_SAME_SITE}"
+-    refresh-token-cookie-path: "${AUTH_REFRESH_COOKIE_PATH}"
+
+

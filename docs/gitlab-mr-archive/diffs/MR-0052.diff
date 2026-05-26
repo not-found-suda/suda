@@ -1,0 +1,97 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/stt/LocalSttEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/stt/LocalSttEngine.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/stt/LocalSttEngine.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/stt/LocalSttEngine.kt
+@@ -87,7 +87,7 @@ class LocalSttEngine
+                 }
+ 
+                 override fun onEndOfSpeech() {
+-                    // 음성 종료 시점 처리 필요 시 구현
++                    _events.tryEmit(SttEvent.Stopped)
+                 }
+ 
+                 override fun onError(error: Int) {
+@@ -110,6 +110,7 @@ class LocalSttEngine
+                     val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                     if (!matches.isNullOrEmpty()) {
+                         _events.tryEmit(SttEvent.Results(matches[0]))
++                        _events.tryEmit(SttEvent.Stopped)
+                     }
+                 }
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -58,6 +58,8 @@ class ConversationViewModel
+         private val _sttText = MutableStateFlow("")
+         val sttText: StateFlow<String> = _sttText.asStateFlow()
+ 
++        private var isTtsPlaying = false
++
+         private val _micVolume = MutableStateFlow(0f)
+         val micVolume: StateFlow<Float> = _micVolume.asStateFlow()
+ 
+@@ -130,16 +132,19 @@ class ConversationViewModel
+                                 senderType = SenderType.PARENT,
+                             )
+ 
+-                            response.audioBase64?.let { base64Data ->
++                            response.audioBase64?.let { base64Audio ->
+                                 sttEngine.stopListening()
++                                isTtsPlaying = true
+                                 audioPlayer.playBase64(
+-                                    base64Data = base64Data,
++                                    base64Data = base64Audio,
+                                     onComplete = {
++                                        isTtsPlaying = false
+                                         if (_sessionState.value == SessionState.Active) {
+                                             sttEngine.startListening()
+                                         }
+                                     },
+                                     onError = {
++                                        isTtsPlaying = false
+                                         if (_sessionState.value == SessionState.Active) {
+                                             sttEngine.startListening()
+                                         }
+@@ -178,14 +183,17 @@ class ConversationViewModel
+ 
+             // 시스템 TTS로 재생
+             sttEngine.stopListening()
++            isTtsPlaying = true
+             ttsPlayer.speak(
+                 text = fallbackText,
+                 onComplete = {
++                    isTtsPlaying = false
+                     if (_sessionState.value == SessionState.Active) {
+                         sttEngine.startListening()
+                     }
+                 },
+                 onError = {
++                    isTtsPlaying = false
+                     if (_sessionState.value == SessionState.Active) {
+                         sttEngine.startListening()
+                     }
+@@ -217,6 +225,13 @@ class ConversationViewModel
+                                     event.text,
+                                     isFinal = true,
+                                 )
++                            is SttEvent.Stopped -> {
++                                if (_sessionState.value == SessionState.Active && !isTtsPlaying) {
++                                    // 잦은 재시작으로 인한 BUSY 에러 방지를 위해 약간의 딜레이 부여
++                                    kotlinx.coroutines.delay(STT_RESTART_DELAY_MS)
++                                    sttEngine.startListening()
++                                }
++                            }
+                             is SttEvent.VolumeChanged -> _micVolume.value = event.db
+                             is SttEvent.Error -> {
+                                 // 에러 처리 (필요시 UI 알림 추가)
+@@ -304,5 +319,6 @@ class ConversationViewModel
+ 
+         companion object {
+             private const val COMPLETION_THRESHOLD_MS = 2000L
++            private const val STT_RESTART_DELAY_MS = 100L
+         }
+     }
+
+

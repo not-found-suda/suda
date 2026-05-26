@@ -1,0 +1,457 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -82,8 +82,17 @@ fun MobileNavHost(
+             ChildProfileSelectRoute(
+                 navController = navController,
+                 onNavigateToHome = {
+-                    navController.navigate(Screen.Home.route) {
+-                        popUpTo(Screen.ChildSelect.route) { inclusive = true }
++                    val poppedToHome =
++                        navController.popBackStack(
++                            route = Screen.Home.route,
++                            inclusive = false,
++                        )
++
++                    if (!poppedToHome) {
++                        navController.navigate(Screen.Home.route) {
++                            popUpTo(Screen.ChildSelect.route) { inclusive = true }
++                            launchSingleTop = true
++                        }
+                     }
+                 },
+                 onNavigateToCreate = {
+@@ -119,6 +128,9 @@ fun MobileNavHost(
+                         launchSingleTop = true
+                     }
+                 },
++                onNavigateToChildSelect = {
++                    navController.navigate(Screen.ChildSelect.route)
++                },
+                 modifier = Modifier.fillMaxSize(),
+             )
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/ActiveChildProfileManager.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/ActiveChildProfileManager.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/domain/ActiveChildProfileManager.kt
+@@ -0,0 +1,65 @@
++package com.ssafy.mobile.feature.childprofile.domain
++
++import android.util.Log
++import com.ssafy.mobile.core.session.ActiveChildStorage
++import com.ssafy.mobile.feature.childprofile.domain.model.ChildProfile
++import com.ssafy.mobile.feature.childprofile.domain.repository.ChildProfileRepository
++import java.io.IOException
++import javax.inject.Inject
++import javax.inject.Singleton
++import kotlin.coroutines.cancellation.CancellationException
++
++sealed interface ActiveChildProfileState {
++    data object Loading : ActiveChildProfileState
++
++    data object Missing : ActiveChildProfileState
++
++    data object NotFound : ActiveChildProfileState
++
++    data class Selected(
++        val profile: ChildProfile,
++    ) : ActiveChildProfileState
++
++    data class Error(
++        val message: String,
++    ) : ActiveChildProfileState
++}
++
++@Singleton
++class ActiveChildProfileManager
++    @Inject
++    constructor(
++        private val activeChildStorage: ActiveChildStorage,
++        private val childProfileRepository: ChildProfileRepository,
++    ) {
++        companion object {
++            private const val TAG = "ActiveChildProfileManager"
++        }
++
++        @Suppress("TooGenericExceptionCaught")
++        suspend fun getActiveChildProfile(): ActiveChildProfileState {
++            return try {
++                val activeChildId =
++                    activeChildStorage.getActiveChildId()
++                        ?: return ActiveChildProfileState.Missing
++
++                val profiles = childProfileRepository.getChildProfiles()
++                val activeProfile = profiles.find { it.childId == activeChildId }
++
++                if (activeProfile != null) {
++                    ActiveChildProfileState.Selected(activeProfile)
++                } else {
++                    ActiveChildProfileState.NotFound
++                }
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: IOException) {
++                Log.e(TAG, "Network error while fetching active child profile", e)
++                ActiveChildProfileState.Error("네트워크 오류가 발생했습니다.")
++            } catch (e: Exception) {
++                // 알 수 없는 다양한 런타임 예외를 UI 상태로 변환하여 크래시 방지
++                Log.e(TAG, "Unknown error while fetching active child profile", e)
++                ActiveChildProfileState.Error("아이 정보를 불러오지 못했습니다.")
++            }
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectRoute.kt
+@@ -30,6 +30,7 @@ import androidx.compose.runtime.mutableStateOf
+ import androidx.compose.runtime.remember
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
+@@ -121,6 +122,7 @@ private fun ChildProfileSelectScreen(
+             is ChildProfileSelectUiState.Success -> {
+                 ProfileList(
+                     profiles = uiState.profiles,
++                    activeChildId = uiState.activeChildId,
+                     isSelecting = isSelecting,
+                     onProfileSelect = onProfileSelect,
+                     onNavigateToCreate = onNavigateToCreate,
+@@ -155,6 +157,7 @@ private fun LoadingContent() {
+ @Composable
+ private fun ProfileList(
+     profiles: List<ChildProfile>,
++    activeChildId: Long?,
+     isSelecting: Boolean,
+     onProfileSelect: (Long) -> Unit,
+     onNavigateToCreate: () -> Unit,
+@@ -167,6 +170,7 @@ private fun ProfileList(
+         items(profiles) { profile ->
+             ProfileItem(
+                 profile = profile,
++                isSelected = profile.childId == activeChildId,
+                 enabled = !isSelecting,
+                 onClick = { onProfileSelect(profile.childId) },
+             )
+@@ -188,6 +192,7 @@ private fun ProfileList(
+ @Composable
+ private fun ProfileItem(
+     profile: ChildProfile,
++    isSelected: Boolean,
+     enabled: Boolean,
+     onClick: () -> Unit,
+ ) {
+@@ -201,7 +206,12 @@ private fun ProfileItem(
+                 ),
+         colors =
+             CardDefaults.cardColors(
+-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
++                containerColor =
++                    if (isSelected) {
++                        MaterialTheme.colorScheme.primaryContainer
++                    } else {
++                        MaterialTheme.colorScheme.surfaceVariant
++                    },
+             ),
+     ) {
+         Row(
+@@ -231,7 +241,7 @@ private fun ProfileItem(
+ 
+             Spacer(modifier = Modifier.width(16.dp))
+ 
+-            Column {
++            Column(modifier = Modifier.weight(1f)) {
+                 Text(
+                     text = profile.name,
+                     style = MaterialTheme.typography.titleMedium,
+@@ -244,6 +254,15 @@ private fun ProfileItem(
+                     )
+                 }
+             }
++
++            if (isSelected) {
++                Text(
++                    text = "현재 선택됨",
++                    style = MaterialTheme.typography.labelMedium,
++                    color = MaterialTheme.colorScheme.primary,
++                    fontWeight = FontWeight.Bold,
++                )
++            }
+         }
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectUiState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectUiState.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectUiState.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectUiState.kt
+@@ -7,6 +7,7 @@ sealed interface ChildProfileSelectUiState {
+ 
+     data class Success(
+         val profiles: List<ChildProfile>,
++        val activeChildId: Long? = null,
+     ) : ChildProfileSelectUiState
+ 
+     data object Empty : ChildProfileSelectUiState
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/childprofile/presentation/ChildProfileSelectViewModel.kt
+@@ -55,12 +55,19 @@ class ChildProfileSelectViewModel
+                         withContext(Dispatchers.IO) {
+                             childProfileRepository.getChildProfiles()
+                         }
++                    val activeChildId =
++                        withContext(Dispatchers.IO) {
++                            activeChildStorage.getActiveChildId()
++                        }
+ 
+                     _uiState.value =
+                         if (profiles.isEmpty()) {
+                             ChildProfileSelectUiState.Empty
+                         } else {
+-                            ChildProfileSelectUiState.Success(profiles)
++                            ChildProfileSelectUiState.Success(
++                                profiles = profiles,
++                                activeChildId = activeChildId,
++                            )
+                         }
+                 } catch (e: CancellationException) {
+                     throw e
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt
+@@ -2,29 +2,58 @@ package com.ssafy.mobile.feature.home.presentation
+ 
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.width
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.DisposableEffect
++import androidx.compose.runtime.getValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
++import androidx.hilt.navigation.compose.hiltViewModel
++import androidx.lifecycle.Lifecycle
++import androidx.lifecycle.LifecycleEventObserver
++import androidx.lifecycle.compose.LocalLifecycleOwner
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
+ 
+ @Composable
+ fun HomeRoute(
+     onStartLearning: () -> Unit,
+     onStartConversation: () -> Unit,
++    onNavigateToChildSelect: () -> Unit,
+     modifier: Modifier = Modifier,
++    viewModel: HomeViewModel = hiltViewModel(),
+ ) {
++    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
++
++    // 화면이 다시 보일 때마다 활성 아이 정보 갱신 (예: 전환 후 돌아왔을 때)
++    val lifecycleOwner = LocalLifecycleOwner.current
++    DisposableEffect(lifecycleOwner) {
++        val observer =
++            LifecycleEventObserver { _, event ->
++                if (event == Lifecycle.Event.ON_RESUME) {
++                    viewModel.loadActiveChildProfile()
++                }
++            }
++        lifecycleOwner.lifecycle.addObserver(observer)
++        onDispose {
++            lifecycleOwner.lifecycle.removeObserver(observer)
++        }
++    }
++
+     Surface(
+         modifier = modifier.fillMaxSize(),
+         color = MaterialTheme.colorScheme.background,
+@@ -37,6 +66,14 @@ fun HomeRoute(
+             horizontalAlignment = Alignment.CenterHorizontally,
+             verticalArrangement = Arrangement.Center,
+         ) {
++            ActiveChildSection(
++                state = uiState.activeChildState,
++                onSwitchClick = onNavigateToChildSelect,
++                onRetryClick = viewModel::loadActiveChildProfile,
++            )
++
++            Spacer(modifier = Modifier.weight(1f))
++
+             Text(
+                 text = "SUDA",
+                 style = MaterialTheme.typography.displayMedium,
+@@ -63,6 +100,93 @@ fun HomeRoute(
+                 onClick = onStartConversation,
+                 modifier = Modifier.fillMaxWidth(),
+             )
++
++            Spacer(modifier = Modifier.weight(1f))
++        }
++    }
++}
++
++@Composable
++private fun ActiveChildSection(
++    state: ActiveChildProfileState,
++    onSwitchClick: () -> Unit,
++    onRetryClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Column(
++        modifier = modifier.fillMaxWidth(),
++        horizontalAlignment = Alignment.CenterHorizontally,
++    ) {
++        when (state) {
++            is ActiveChildProfileState.Loading -> {
++                Text(
++                    text = "아이 정보를 불러오는 중...",
++                    style = MaterialTheme.typography.bodyMedium,
++                )
++            }
++
++            is ActiveChildProfileState.Selected -> {
++                val childDescription =
++                    state.profile.age?.let { age ->
++                        "${state.profile.name} (${age}세)"
++                    } ?: state.profile.name
++
++                Row(
++                    verticalAlignment = Alignment.CenterVertically,
++                    horizontalArrangement = Arrangement.Center,
++                ) {
++                    Text(
++                        text = childDescription,
++                        style = MaterialTheme.typography.titleLarge,
++                        fontWeight = FontWeight.Bold,
++                    )
++                    Spacer(modifier = Modifier.width(8.dp))
++                    Text(
++                        text = "아이와 함께하고 있어요",
++                        style = MaterialTheme.typography.bodyMedium,
++                        color = MaterialTheme.colorScheme.onSurfaceVariant,
++                    )
++                }
++                Spacer(modifier = Modifier.height(8.dp))
++                AppSecondaryButton(
++                    text = "아이 변경",
++                    onClick = onSwitchClick,
++                    modifier = Modifier.height(36.dp),
++                )
++            }
++
++            is ActiveChildProfileState.Missing, is ActiveChildProfileState.NotFound -> {
++                val message =
++                    if (state is ActiveChildProfileState.NotFound) {
++                        "선택된 아이 정보를 찾을 수 없습니다."
++                    } else {
++                        "선택된 아이가 없습니다."
++                    }
++                Text(
++                    text = "$message 다시 선택해 주세요.",
++                    style = MaterialTheme.typography.bodyMedium,
++                    color = MaterialTheme.colorScheme.error,
++                )
++                Spacer(modifier = Modifier.height(8.dp))
++                AppPrimaryButton(
++                    text = "아이 선택하러 가기",
++                    onClick = onSwitchClick,
++                    modifier = Modifier.height(40.dp),
++                )
++            }
++
++            is ActiveChildProfileState.Error -> {
++                Text(
++                    text = state.message,
++                    style = MaterialTheme.typography.bodyMedium,
++                    color = MaterialTheme.colorScheme.error,
++                )
++                Spacer(modifier = Modifier.height(8.dp))
++                AppSecondaryButton(
++                    text = "다시 시도",
++                    onClick = onRetryClick,
++                )
++            }
+         }
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeViewModel.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeViewModel.kt
+@@ -0,0 +1,49 @@
++package com.ssafy.mobile.feature.home.presentation
++
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileManager
++import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
++import dagger.hilt.android.lifecycle.HiltViewModel
++import javax.inject.Inject
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++
++data class HomeUiState(
++    val activeChildState: ActiveChildProfileState = ActiveChildProfileState.Loading,
++)
++
++@HiltViewModel
++class HomeViewModel
++    @Inject
++    constructor(
++        private val activeChildProfileManager: ActiveChildProfileManager,
++    ) : ViewModel() {
++        private val _uiState = MutableStateFlow(HomeUiState())
++        val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
++
++        init {
++            loadActiveChildProfile()
++        }
++
++        fun loadActiveChildProfile() {
++            viewModelScope.launch {
++                _uiState.value =
++                    _uiState.value.copy(
++                        activeChildState = ActiveChildProfileState.Loading,
++                    )
++                val state =
++                    withContext(Dispatchers.IO) {
++                        activeChildProfileManager.getActiveChildProfile()
++                    }
++                _uiState.value =
++                    _uiState.value.copy(
++                        activeChildState = state,
++                    )
++            }
++        }
++    }
+
+

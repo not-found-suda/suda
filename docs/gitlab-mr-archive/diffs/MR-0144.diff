@@ -1,0 +1,1016 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -23,6 +23,7 @@ import com.ssafy.mobile.feature.quiz.presentation.QuizResultRoute
+ import com.ssafy.mobile.feature.quiz.presentation.quizQuestionRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportHomeRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportPlaceholderRoute
++import com.ssafy.mobile.feature.report.presentation.ReportWeakWordsRoute
+ import com.ssafy.mobile.feature.sign.presentation.SignDebugRoute
+ import com.ssafy.mobile.feature.signup.presentation.SignupRoute
+ 
+@@ -354,9 +355,11 @@ fun MobileNavHost(
+         }
+ 
+         composable(Screen.ReportWeakWords.route) {
+-            ReportPlaceholderRoute(
+-                title = "자주 틀리는 단어",
++            ReportWeakWordsRoute(
+                 onNavigateBack = { navController.popBackStack() },
++                onSwitchChild = {
++                    navController.navigate(Screen.ChildSelect.route)
++                },
+                 modifier = Modifier.fillMaxSize(),
+             )
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
+@@ -1,13 +1,22 @@
+ package com.ssafy.mobile.feature.report.data.api
+ 
+ import com.ssafy.mobile.feature.report.data.dto.ReportSummaryResponseDto
++import com.ssafy.mobile.feature.report.data.dto.ReportWeakWordListResponseDto
+ import retrofit2.Response
+ import retrofit2.http.GET
+ import retrofit2.http.Path
++import retrofit2.http.Query
+ 
+ interface ReportApiService {
+     @GET("v1/children/{childId}/reports/summary")
+     suspend fun getSummary(
+         @Path("childId") childId: Long,
+     ): Response<ReportSummaryResponseDto>
++
++    @GET("v1/children/{childId}/reports/weak-words")
++    suspend fun getWeakWords(
++        @Path("childId") childId: Long,
++        @Query("page") page: Int,
++        @Query("size") size: Int,
++    ): Response<ReportWeakWordListResponseDto>
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportSummaryDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportSummaryDto.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportSummaryDto.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportSummaryDto.kt
+@@ -6,16 +6,17 @@ import com.ssafy.mobile.feature.report.domain.model.ReportParticipationSummary
+ import com.ssafy.mobile.feature.report.domain.model.ReportPerformanceSummary
+ import com.ssafy.mobile.feature.report.domain.model.ReportSummary
+ import com.ssafy.mobile.feature.report.domain.model.ReportWeakWord
++import com.ssafy.mobile.feature.report.domain.model.ReportWeakWordPage
+ 
+ data class ReportSummaryResponseDto(
+     @SerializedName("childId")
+     val childId: Long,
+     @SerializedName("completedSessionCount")
+-    val completedSessionCount: Int,
++    val completedSessionCount: Long,
+     @SerializedName("totalQuestionCount")
+-    val totalQuestionCount: Int,
++    val totalQuestionCount: Long,
+     @SerializedName("totalCorrectCount")
+-    val totalCorrectCount: Int,
++    val totalCorrectCount: Long,
+     @SerializedName("accuracyRate")
+     val accuracyRate: Double,
+     @SerializedName("averageStar")
+@@ -47,9 +48,9 @@ data class ReportWeakWordDto(
+     @SerializedName("categoryName")
+     val categoryName: String,
+     @SerializedName("attemptCount")
+-    val attemptCount: Int,
++    val attemptCount: Long,
+     @SerializedName("wrongCount")
+-    val wrongCount: Int,
++    val wrongCount: Long,
+     @SerializedName("accuracyRate")
+     val accuracyRate: Double,
+     @SerializedName("averageStar")
+@@ -58,6 +59,19 @@ data class ReportWeakWordDto(
+     val lastAnsweredAt: String? = null,
+ )
+ 
++data class ReportWeakWordListResponseDto(
++    @SerializedName("content")
++    val content: List<ReportWeakWordDto> = emptyList(),
++    @SerializedName("page")
++    val page: Int,
++    @SerializedName("size")
++    val size: Int,
++    @SerializedName("totalElements")
++    val totalElements: Long,
++    @SerializedName("totalPages")
++    val totalPages: Int,
++)
++
+ fun ReportSummaryResponseDto.toDomain(): ReportSummary =
+     ReportSummary(
+         childId = childId,
+@@ -83,7 +97,16 @@ fun ReportSummaryResponseDto.toDomain(): ReportSummary =
+         weakWords = weakWords.map { it.toDomain() },
+     )
+ 
+-private fun ReportWeakWordDto.toDomain(): ReportWeakWord =
++fun ReportWeakWordListResponseDto.toDomain(): ReportWeakWordPage =
++    ReportWeakWordPage(
++        words = content.map { it.toDomain() },
++        page = page,
++        size = size,
++        totalElements = totalElements,
++        totalPages = totalPages,
++    )
++
++fun ReportWeakWordDto.toDomain(): ReportWeakWord =
+     ReportWeakWord(
+         wordId = wordId,
+         word = word,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
+@@ -4,6 +4,7 @@ import android.util.Log
+ import com.ssafy.mobile.feature.report.data.api.ReportApiService
+ import com.ssafy.mobile.feature.report.data.dto.toDomain
+ import com.ssafy.mobile.feature.report.domain.model.ReportSummary
++import com.ssafy.mobile.feature.report.domain.model.ReportWeakWordPage
+ import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
+ import java.io.IOException
+ import javax.inject.Inject
+@@ -30,7 +31,14 @@ class RemoteReportRepository
+                             ?: return Result.failure(IllegalStateException("리포트 요약 응답이 비어 있습니다."))
+                     Result.success(body.toDomain())
+                 } else {
+-                    Result.failure(IllegalStateException(errorMessage(response.code())))
++                    Result.failure(
++                        IllegalStateException(
++                            errorMessage(
++                                statusCode = response.code(),
++                                defaultMessage = "리포트 요약을 불러오지 못했습니다.",
++                            ),
++                        ),
++                    )
+                 }
+             } catch (e: CancellationException) {
+                 throw e
+@@ -45,12 +53,56 @@ class RemoteReportRepository
+                 Result.failure(IllegalStateException("리포트 요약을 불러오는 중 오류가 발생했습니다."))
+             }
+ 
+-        private fun errorMessage(statusCode: Int): String =
++        override suspend fun getWeakWords(
++            childId: Long,
++            page: Int,
++            size: Int,
++        ): Result<ReportWeakWordPage> =
++            try {
++                val response =
++                    apiService.getWeakWords(
++                        childId = childId,
++                        page = page,
++                        size = size,
++                    )
++
++                if (response.isSuccessful) {
++                    val body =
++                        response.body()
++                            ?: return Result.failure(IllegalStateException("취약 단어 응답이 비어 있습니다."))
++                    Result.success(body.toDomain())
++                } else {
++                    Result.failure(
++                        IllegalStateException(
++                            errorMessage(
++                                statusCode = response.code(),
++                                defaultMessage = "취약 단어를 불러오지 못했습니다.",
++                            ),
++                        ),
++                    )
++                }
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: IOException) {
++                Log.e(TAG, "Report weak words network error", e)
++                Result.failure(IOException("네트워크 연결을 확인해 주세요."))
++            } catch (
++                @Suppress("TooGenericExceptionCaught")
++                e: Exception,
++            ) {
++                Log.e(TAG, "Report weak words unknown error", e)
++                Result.failure(IllegalStateException("취약 단어를 불러오는 중 오류가 발생했습니다."))
++            }
++
++        private fun errorMessage(
++            statusCode: Int,
++            defaultMessage: String,
++        ): String =
+             when (statusCode) {
+                 HTTP_STATUS_BAD_REQUEST -> "리포트 요청 값이 올바르지 않습니다."
+                 HTTP_STATUS_UNAUTHORIZED -> "세션이 만료되었습니다. 다시 로그인해 주세요."
+                 HTTP_STATUS_NOT_FOUND -> "아이 정보를 찾을 수 없습니다. 아이를 다시 선택해 주세요."
+                 HTTP_STATUS_INTERNAL_SERVER_ERROR -> "서버에서 리포트 정보를 불러오지 못했습니다."
+-                else -> "리포트 요약을 불러오지 못했습니다."
++                else -> defaultMessage
+             }
+     }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportSummary.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportSummary.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportSummary.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportSummary.kt
+@@ -12,12 +12,12 @@ data class ReportSummary(
+ }
+ 
+ data class ReportParticipationSummary(
+-    val completedSessionCount: Int,
+-    val totalQuestionCount: Int,
++    val completedSessionCount: Long,
++    val totalQuestionCount: Long,
+ )
+ 
+ data class ReportPerformanceSummary(
+-    val totalCorrectCount: Int,
++    val totalCorrectCount: Long,
+     val accuracyRate: Double,
+     val averageStar: Double,
+ )
+@@ -34,9 +34,20 @@ data class ReportWeakWord(
+     val displayText: String?,
+     val categoryId: Long,
+     val categoryName: String,
+-    val attemptCount: Int,
+-    val wrongCount: Int,
++    val attemptCount: Long,
++    val wrongCount: Long,
+     val accuracyRate: Double,
+     val averageStar: Double,
+     val lastAnsweredAt: String?,
+ )
++
++data class ReportWeakWordPage(
++    val words: List<ReportWeakWord>,
++    val page: Int,
++    val size: Int,
++    val totalElements: Long,
++    val totalPages: Int,
++) {
++    val hasWords: Boolean
++        get() = words.isNotEmpty()
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
+@@ -1,7 +1,14 @@
+ package com.ssafy.mobile.feature.report.domain.repository
+ 
+ import com.ssafy.mobile.feature.report.domain.model.ReportSummary
++import com.ssafy.mobile.feature.report.domain.model.ReportWeakWordPage
+ 
+ interface ReportRepository {
+     suspend fun getSummary(childId: Long): Result<ReportSummary>
++
++    suspend fun getWeakWords(
++        childId: Long,
++        page: Int,
++        size: Int,
++    ): Result<ReportWeakWordPage>
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordCard.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordCard.kt
+@@ -0,0 +1,133 @@
++package com.ssafy.mobile.feature.report.presentation
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.feature.report.domain.model.ReportWeakWord
++import java.util.Locale
++
++@Composable
++fun ReportWeakWordCard(word: ReportWeakWord) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = WEAK_WORD_CARD_ALPHA),
++    ) {
++        Column(modifier = Modifier.padding(18.dp)) {
++            Row(
++                modifier = Modifier.fillMaxWidth(),
++                verticalAlignment = Alignment.CenterVertically,
++            ) {
++                Column(modifier = Modifier.weight(1f)) {
++                    val wordLabel = word.displayText?.takeIf { it.isNotBlank() } ?: word.word
++                    Text(
++                        text = wordLabel,
++                        style = MaterialTheme.typography.titleMedium,
++                        fontWeight = FontWeight.Bold,
++                        maxLines = 1,
++                        overflow = TextOverflow.Ellipsis,
++                    )
++                    Text(
++                        text = word.categoryName,
++                        style = MaterialTheme.typography.bodySmall,
++                        color = MaterialTheme.colorScheme.onSurfaceVariant,
++                        maxLines = 1,
++                        overflow = TextOverflow.Ellipsis,
++                    )
++                }
++                Text(
++                    text = "${word.wrongCount}회 틀림",
++                    style = MaterialTheme.typography.labelLarge,
++                    color = MaterialTheme.colorScheme.error,
++                )
++            }
++
++            Spacer(modifier = Modifier.height(14.dp))
++            ReportWeakWordMetricRow(word = word)
++            Spacer(modifier = Modifier.height(10.dp))
++            Text(
++                text = "최근 답변 ${word.lastAnsweredAt.toReportDateLabel()}",
++                style = MaterialTheme.typography.bodySmall,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++            )
++        }
++    }
++}
++
++@Composable
++private fun ReportWeakWordMetricRow(word: ReportWeakWord) {
++    Row(
++        modifier = Modifier.fillMaxWidth(),
++        horizontalArrangement = Arrangement.spacedBy(8.dp),
++    ) {
++        ReportWeakWordMetric(
++            title = "시도",
++            value = "${word.attemptCount}회",
++            modifier = Modifier.weight(1f),
++        )
++        ReportWeakWordMetric(
++            title = "정답률",
++            value = String.format(Locale.KOREA, "%.1f%%", word.accuracyRate),
++            modifier = Modifier.weight(1f),
++        )
++        ReportWeakWordMetric(
++            title = "평균 별점",
++            value = String.format(Locale.KOREA, "%.1f/3", word.averageStar),
++            modifier = Modifier.weight(1f),
++        )
++    }
++}
++
++@Composable
++private fun ReportWeakWordMetric(
++    title: String,
++    value: String,
++    modifier: Modifier = Modifier,
++) {
++    Surface(
++        modifier = modifier,
++        shape = MaterialTheme.shapes.small,
++        color = MaterialTheme.colorScheme.surface,
++    ) {
++        Column(
++            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
++            horizontalAlignment = Alignment.CenterHorizontally,
++        ) {
++            Text(
++                text = title,
++                style = MaterialTheme.typography.labelSmall,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++                maxLines = 1,
++            )
++            Text(
++                text = value,
++                style = MaterialTheme.typography.labelMedium,
++                fontWeight = FontWeight.Bold,
++                maxLines = 1,
++            )
++        }
++    }
++}
++
++private fun String?.toReportDateLabel(): String =
++    if (isNullOrBlank()) {
++        "정보 없음"
++    } else {
++        take(ISO_DATE_LENGTH).replace("-", ".")
++    }
++
++private const val WEAK_WORD_CARD_ALPHA = 0.45f
++private const val ISO_DATE_LENGTH = 10
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsRoute.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsRoute.kt
+@@ -0,0 +1,361 @@
++package com.ssafy.mobile.feature.report.presentation
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.lazy.LazyColumn
++import androidx.compose.foundation.lazy.LazyListScope
++import androidx.compose.foundation.lazy.items
++import androidx.compose.material3.ExperimentalMaterial3Api
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Scaffold
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.material3.TextButton
++import androidx.compose.material3.TopAppBar
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.DisposableEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import androidx.hilt.navigation.compose.hiltViewModel
++import androidx.lifecycle.Lifecycle
++import androidx.lifecycle.LifecycleEventObserver
++import androidx.lifecycle.compose.LocalLifecycleOwner
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppPrimaryButton
++import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
++import com.ssafy.mobile.feature.report.domain.model.ReportWeakWordPage
++
++@OptIn(ExperimentalMaterial3Api::class)
++@Composable
++fun ReportWeakWordsRoute(
++    onNavigateBack: () -> Unit,
++    onSwitchChild: () -> Unit,
++    modifier: Modifier = Modifier,
++    viewModel: ReportWeakWordsViewModel = hiltViewModel(),
++) {
++    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
++    val lifecycleOwner = LocalLifecycleOwner.current
++
++    DisposableEffect(lifecycleOwner) {
++        val observer =
++            LifecycleEventObserver { _, event ->
++                if (event == Lifecycle.Event.ON_RESUME) {
++                    viewModel.loadActiveChildProfile()
++                }
++            }
++        lifecycleOwner.lifecycle.addObserver(observer)
++        onDispose {
++            lifecycleOwner.lifecycle.removeObserver(observer)
++        }
++    }
++
++    Scaffold(
++        modifier = modifier.fillMaxSize(),
++        topBar = {
++            TopAppBar(
++                title = {
++                    Text(
++                        text = "자주 틀리는 단어",
++                        style = MaterialTheme.typography.titleLarge,
++                        fontWeight = FontWeight.Bold,
++                    )
++                },
++                navigationIcon = {
++                    TextButton(onClick = onNavigateBack) {
++                        Text(
++                            text = "뒤로",
++                            style = MaterialTheme.typography.bodyLarge,
++                            color = MaterialTheme.colorScheme.primary,
++                        )
++                    }
++                },
++            )
++        },
++    ) { padding ->
++        ReportWeakWordsContent(
++            activeChildState = uiState.activeChildState,
++            weakWordsState = uiState.weakWordsState,
++            onRetryClick = viewModel::loadActiveChildProfile,
++            onLoadMoreClick = viewModel::loadMoreWeakWords,
++            onSwitchChild = onSwitchChild,
++            modifier =
++                Modifier
++                    .fillMaxSize()
++                    .padding(padding),
++        )
++    }
++}
++
++@Composable
++private fun ReportWeakWordsContent(
++    activeChildState: ActiveChildProfileState,
++    weakWordsState: ReportWeakWordsState,
++    onRetryClick: () -> Unit,
++    onLoadMoreClick: () -> Unit,
++    onSwitchChild: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    LazyColumn(
++        modifier = modifier,
++        contentPadding = PaddingValues(24.dp),
++        verticalArrangement = Arrangement.spacedBy(12.dp),
++    ) {
++        item {
++            ReportWeakWordsIntro(activeChildState = activeChildState)
++        }
++
++        when (activeChildState) {
++            ActiveChildProfileState.Loading ->
++                item {
++                    ReportWeakWordsStatusCard(message = "아이 정보를 불러오는 중...")
++                }
++
++            is ActiveChildProfileState.Selected ->
++                weakWordsItems(
++                    state = weakWordsState,
++                    onRetryClick = onRetryClick,
++                    onLoadMoreClick = onLoadMoreClick,
++                )
++
++            ActiveChildProfileState.Missing ->
++                item {
++                    ReportWeakWordsActionCard(
++                        message = "리포트를 보려면 아이를 먼저 선택해 주세요.",
++                        buttonText = "아이 선택하기",
++                        onClick = onSwitchChild,
++                    )
++                }
++
++            ActiveChildProfileState.NotFound ->
++                item {
++                    ReportWeakWordsActionCard(
++                        message = "선택된 아이 정보를 찾을 수 없습니다.",
++                        buttonText = "아이 다시 선택하기",
++                        onClick = onSwitchChild,
++                    )
++                }
++
++            is ActiveChildProfileState.Error ->
++                item {
++                    ReportWeakWordsErrorCard(
++                        message = activeChildState.message,
++                        onRetryClick = onRetryClick,
++                    )
++                }
++        }
++    }
++}
++
++private fun LazyListScope.weakWordsItems(
++    state: ReportWeakWordsState,
++    onRetryClick: () -> Unit,
++    onLoadMoreClick: () -> Unit,
++) {
++    when (state) {
++        ReportWeakWordsState.Idle ->
++            item {
++                ReportWeakWordsStatusCard(message = "취약 단어를 불러오는 중...")
++            }
++
++        ReportWeakWordsState.Loading ->
++            item {
++                ReportWeakWordsStatusCard(message = "취약 단어를 불러오는 중...")
++            }
++
++        ReportWeakWordsState.Empty ->
++            item {
++                ReportWeakWordsStatusCard(
++                    message = "아직 자주 틀리는 단어가 없어요.\n퀴즈를 더 풀면 어려워하는 단어를 모아볼 수 있어요.",
++                )
++            }
++
++        is ReportWeakWordsState.Error ->
++            item {
++                ReportWeakWordsErrorCard(
++                    message = state.message,
++                    onRetryClick = onRetryClick,
++                )
++            }
++
++        is ReportWeakWordsState.Success -> {
++            item {
++                ReportWeakWordsSummary(page = state.page)
++            }
++            items(
++                items = state.page.words,
++                key = { word -> word.wordId },
++            ) { word ->
++                ReportWeakWordCard(word = word)
++            }
++            item {
++                ReportWeakWordsMoreSection(
++                    state = state,
++                    onLoadMoreClick = onLoadMoreClick,
++                )
++            }
++        }
++    }
++}
++
++@Composable
++private fun ReportWeakWordsIntro(activeChildState: ActiveChildProfileState) {
++    val selectedProfile = (activeChildState as? ActiveChildProfileState.Selected)?.profile
++    Column(modifier = Modifier.fillMaxWidth()) {
++        Text(
++            text = selectedProfile?.let { "${it.name}의 취약 단어" } ?: "취약 단어 리포트",
++            style = MaterialTheme.typography.headlineSmall,
++            fontWeight = FontWeight.Bold,
++            maxLines = 1,
++            overflow = TextOverflow.Ellipsis,
++        )
++        Spacer(modifier = Modifier.height(6.dp))
++        Text(
++            text = "완료한 퀴즈를 기준으로 자주 틀린 단어를 정리했어요.",
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++        )
++    }
++}
++
++@Composable
++private fun ReportWeakWordsSummary(page: ReportWeakWordPage) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = WEAK_WORD_SUMMARY_ALPHA),
++    ) {
++        Text(
++            text = "총 ${page.totalElements}개의 취약 단어가 있어요.",
++            modifier = Modifier.padding(18.dp),
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSecondaryContainer,
++        )
++    }
++}
++
++@Composable
++private fun ReportWeakWordsMoreSection(
++    state: ReportWeakWordsState.Success,
++    onLoadMoreClick: () -> Unit,
++) {
++    val hasMore = state.page.page < state.page.totalPages
++
++    Column(
++        modifier = Modifier.fillMaxWidth(),
++        horizontalAlignment = Alignment.CenterHorizontally,
++    ) {
++        state.loadMoreErrorMessage?.let { message ->
++            Text(
++                text = message,
++                style = MaterialTheme.typography.bodySmall,
++                color = MaterialTheme.colorScheme.error,
++                textAlign = TextAlign.Center,
++            )
++            Spacer(modifier = Modifier.height(8.dp))
++        }
++
++        if (hasMore) {
++            AppSecondaryButton(
++                text = if (state.isLoadingMore) "불러오는 중..." else "더 보기",
++                onClick = onLoadMoreClick,
++                enabled = !state.isLoadingMore,
++                modifier = Modifier.height(40.dp),
++            )
++        }
++    }
++}
++
++@Composable
++private fun ReportWeakWordsStatusCard(message: String) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = WEAK_WORD_STATUS_ALPHA),
++    ) {
++        Text(
++            text = message,
++            modifier = Modifier.padding(20.dp),
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            textAlign = TextAlign.Center,
++        )
++    }
++}
++
++@Composable
++private fun ReportWeakWordsErrorCard(
++    message: String,
++    onRetryClick: () -> Unit,
++) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = WEAK_WORD_ERROR_ALPHA),
++    ) {
++        Column(
++            modifier = Modifier.padding(20.dp),
++            horizontalAlignment = Alignment.CenterHorizontally,
++        ) {
++            Text(
++                text = message,
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.error,
++                textAlign = TextAlign.Center,
++            )
++            Spacer(modifier = Modifier.height(12.dp))
++            AppSecondaryButton(
++                text = "다시 시도",
++                onClick = onRetryClick,
++                modifier = Modifier.height(36.dp),
++            )
++        }
++    }
++}
++
++@Composable
++private fun ReportWeakWordsActionCard(
++    message: String,
++    buttonText: String,
++    onClick: () -> Unit,
++) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = WEAK_WORD_ACTION_ALPHA),
++    ) {
++        Column(
++            modifier = Modifier.padding(20.dp),
++            horizontalAlignment = Alignment.CenterHorizontally,
++        ) {
++            Text(
++                text = message,
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.onPrimaryContainer,
++                textAlign = TextAlign.Center,
++            )
++            Spacer(modifier = Modifier.height(12.dp))
++            AppPrimaryButton(
++                text = buttonText,
++                onClick = onClick,
++                modifier = Modifier.height(40.dp),
++            )
++        }
++    }
++}
++
++private const val WEAK_WORD_SUMMARY_ALPHA = 0.35f
++private const val WEAK_WORD_STATUS_ALPHA = 0.5f
++private const val WEAK_WORD_ERROR_ALPHA = 0.4f
++private const val WEAK_WORD_ACTION_ALPHA = 0.35f
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsViewModel.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsViewModel.kt
+@@ -0,0 +1,221 @@
++package com.ssafy.mobile.feature.report.presentation
++
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileManager
++import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
++import com.ssafy.mobile.feature.report.domain.model.ReportWeakWordPage
++import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
++import dagger.hilt.android.lifecycle.HiltViewModel
++import javax.inject.Inject
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++
++data class ReportWeakWordsUiState(
++    val activeChildState: ActiveChildProfileState = ActiveChildProfileState.Loading,
++    val weakWordsState: ReportWeakWordsState = ReportWeakWordsState.Idle,
++)
++
++private data class WeakWordsLoadMoreRequest(
++    val childId: Long,
++    val weakWordsState: ReportWeakWordsState.Success,
++)
++
++sealed interface ReportWeakWordsState {
++    data object Idle : ReportWeakWordsState
++
++    data object Loading : ReportWeakWordsState
++
++    data object Empty : ReportWeakWordsState
++
++    data class Success(
++        val page: ReportWeakWordPage,
++        val isLoadingMore: Boolean = false,
++        val loadMoreErrorMessage: String? = null,
++    ) : ReportWeakWordsState
++
++    data class Error(
++        val message: String,
++    ) : ReportWeakWordsState
++}
++
++@HiltViewModel
++class ReportWeakWordsViewModel
++    @Inject
++    constructor(
++        private val activeChildProfileManager: ActiveChildProfileManager,
++        private val reportRepository: ReportRepository,
++    ) : ViewModel() {
++        private val _uiState = MutableStateFlow(ReportWeakWordsUiState())
++        val uiState: StateFlow<ReportWeakWordsUiState> = _uiState.asStateFlow()
++
++        private var loadJob: Job? = null
++        private var loadMoreJob: Job? = null
++
++        init {
++            loadActiveChildProfile()
++        }
++
++        fun loadActiveChildProfile() {
++            loadJob?.cancel()
++            loadMoreJob?.cancel()
++            loadJob =
++                viewModelScope.launch {
++                    _uiState.value =
++                        _uiState.value.copy(
++                            activeChildState = ActiveChildProfileState.Loading,
++                            weakWordsState = ReportWeakWordsState.Idle,
++                        )
++
++                    val state =
++                        withContext(Dispatchers.IO) {
++                            activeChildProfileManager.getActiveChildProfile()
++                        }
++
++                    _uiState.value =
++                        _uiState.value.copy(
++                            activeChildState = state,
++                            weakWordsState =
++                                if (state is ActiveChildProfileState.Selected) {
++                                    ReportWeakWordsState.Loading
++                                } else {
++                                    ReportWeakWordsState.Idle
++                                },
++                        )
++
++                    if (state is ActiveChildProfileState.Selected) {
++                        loadWeakWords(childId = state.profile.childId)
++                    }
++                }
++        }
++
++        fun loadMoreWeakWords() {
++            val request = createLoadMoreRequest(state = _uiState.value) ?: return
++            val childId = request.childId
++            val weakWordsState = request.weakWordsState
++
++            loadMoreJob?.cancel()
++            loadMoreJob =
++                viewModelScope.launch {
++                    _uiState.value =
++                        _uiState.value.copy(
++                            weakWordsState =
++                                weakWordsState.copy(
++                                    isLoadingMore = true,
++                                    loadMoreErrorMessage = null,
++                                ),
++                        )
++
++                    val nextPage = weakWordsState.page.page + 1
++                    val result =
++                        withContext(Dispatchers.IO) {
++                            reportRepository.getWeakWords(
++                                childId = childId,
++                                page = nextPage,
++                                size = DEFAULT_WEAK_WORDS_PAGE_SIZE,
++                            )
++                        }
++
++                    if (!isSameActiveChild(childId = childId)) {
++                        return@launch
++                    }
++
++                    _uiState.value =
++                        result.fold(
++                            onSuccess = { page ->
++                                _uiState.value.copy(
++                                    weakWordsState =
++                                        weakWordsState.copy(
++                                            page =
++                                                page.copy(
++                                                    words = weakWordsState.page.words + page.words,
++                                                ),
++                                            isLoadingMore = false,
++                                        ),
++                                )
++                            },
++                            onFailure = { throwable ->
++                                _uiState.value.copy(
++                                    weakWordsState =
++                                        weakWordsState.copy(
++                                            isLoadingMore = false,
++                                            loadMoreErrorMessage =
++                                                throwable.message ?: "취약 단어를 더 불러오지 못했습니다.",
++                                        ),
++                                )
++                            },
++                        )
++                }
++        }
++
++        private suspend fun loadWeakWords(childId: Long) {
++            val result =
++                withContext(Dispatchers.IO) {
++                    reportRepository.getWeakWords(
++                        childId = childId,
++                        page = FIRST_PAGE,
++                        size = DEFAULT_WEAK_WORDS_PAGE_SIZE,
++                    )
++                }
++
++            if (!isSameActiveChild(childId = childId)) {
++                return
++            }
++
++            _uiState.value =
++                result.fold(
++                    onSuccess = { page ->
++                        _uiState.value.copy(
++                            weakWordsState =
++                                if (page.hasWords) {
++                                    ReportWeakWordsState.Success(page)
++                                } else {
++                                    ReportWeakWordsState.Empty
++                                },
++                        )
++                    },
++                    onFailure = { throwable ->
++                        _uiState.value.copy(
++                            weakWordsState =
++                                ReportWeakWordsState.Error(
++                                    throwable.message ?: "취약 단어를 불러오지 못했습니다.",
++                                ),
++                        )
++                    },
++                )
++        }
++
++        private fun isSameActiveChild(childId: Long): Boolean {
++            val activeChildState = _uiState.value.activeChildState
++            return activeChildState is ActiveChildProfileState.Selected &&
++                activeChildState.profile.childId == childId
++        }
++
++        private fun createLoadMoreRequest(
++            state: ReportWeakWordsUiState,
++        ): WeakWordsLoadMoreRequest? {
++            val childState = state.activeChildState as? ActiveChildProfileState.Selected
++            val weakWordsState = state.weakWordsState as? ReportWeakWordsState.Success
++            if (childState == null || weakWordsState == null) {
++                return null
++            }
++
++            val hasMore = weakWordsState.page.page < weakWordsState.page.totalPages
++            return if (!weakWordsState.isLoadingMore && hasMore) {
++                WeakWordsLoadMoreRequest(
++                    childId = childState.profile.childId,
++                    weakWordsState = weakWordsState,
++                )
++            } else {
++                null
++            }
++        }
++    }
++
++private const val FIRST_PAGE = 1
++private const val DEFAULT_WEAK_WORDS_PAGE_SIZE = 20
+
+

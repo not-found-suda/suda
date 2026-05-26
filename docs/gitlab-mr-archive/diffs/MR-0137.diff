@@ -1,0 +1,810 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
+@@ -0,0 +1,13 @@
++package com.ssafy.mobile.feature.report.data.api
++
++import com.ssafy.mobile.feature.report.data.dto.ReportSummaryResponseDto
++import retrofit2.Response
++import retrofit2.http.GET
++import retrofit2.http.Path
++
++interface ReportApiService {
++    @GET("v1/children/{childId}/reports/summary")
++    suspend fun getSummary(
++        @Path("childId") childId: Long,
++    ): Response<ReportSummaryResponseDto>
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportSummaryDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportSummaryDto.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportSummaryDto.kt
+@@ -0,0 +1,98 @@
++package com.ssafy.mobile.feature.report.data.dto
++
++import com.google.gson.annotations.SerializedName
++import com.ssafy.mobile.feature.report.domain.model.ReportLatestActivity
++import com.ssafy.mobile.feature.report.domain.model.ReportParticipationSummary
++import com.ssafy.mobile.feature.report.domain.model.ReportPerformanceSummary
++import com.ssafy.mobile.feature.report.domain.model.ReportSummary
++import com.ssafy.mobile.feature.report.domain.model.ReportWeakWord
++
++data class ReportSummaryResponseDto(
++    @SerializedName("childId")
++    val childId: Long,
++    @SerializedName("completedSessionCount")
++    val completedSessionCount: Int,
++    @SerializedName("totalQuestionCount")
++    val totalQuestionCount: Int,
++    @SerializedName("totalCorrectCount")
++    val totalCorrectCount: Int,
++    @SerializedName("accuracyRate")
++    val accuracyRate: Double,
++    @SerializedName("averageStar")
++    val averageStar: Double,
++    @SerializedName("latestSessionAt")
++    val latestSessionAt: String? = null,
++    @SerializedName("latestCategory")
++    val latestCategory: ReportLatestCategoryDto? = null,
++    @SerializedName("weakWords")
++    val weakWords: List<ReportWeakWordDto> = emptyList(),
++)
++
++data class ReportLatestCategoryDto(
++    @SerializedName("categoryId")
++    val categoryId: Long,
++    @SerializedName("name")
++    val name: String,
++)
++
++data class ReportWeakWordDto(
++    @SerializedName("wordId")
++    val wordId: Long,
++    @SerializedName("word")
++    val word: String,
++    @SerializedName("displayText")
++    val displayText: String? = null,
++    @SerializedName("categoryId")
++    val categoryId: Long,
++    @SerializedName("categoryName")
++    val categoryName: String,
++    @SerializedName("attemptCount")
++    val attemptCount: Int,
++    @SerializedName("wrongCount")
++    val wrongCount: Int,
++    @SerializedName("accuracyRate")
++    val accuracyRate: Double,
++    @SerializedName("averageStar")
++    val averageStar: Double,
++    @SerializedName("lastAnsweredAt")
++    val lastAnsweredAt: String? = null,
++)
++
++fun ReportSummaryResponseDto.toDomain(): ReportSummary =
++    ReportSummary(
++        childId = childId,
++        participation =
++            ReportParticipationSummary(
++                completedSessionCount = completedSessionCount,
++                totalQuestionCount = totalQuestionCount,
++            ),
++        performance =
++            ReportPerformanceSummary(
++                totalCorrectCount = totalCorrectCount,
++                accuracyRate = accuracyRate,
++                averageStar = averageStar,
++            ),
++        latestActivity =
++            latestCategory?.let { category ->
++                ReportLatestActivity(
++                    categoryId = category.categoryId,
++                    categoryName = category.name,
++                    latestSessionAt = latestSessionAt,
++                )
++            },
++        weakWords = weakWords.map { it.toDomain() },
++    )
++
++private fun ReportWeakWordDto.toDomain(): ReportWeakWord =
++    ReportWeakWord(
++        wordId = wordId,
++        word = word,
++        displayText = displayText,
++        categoryId = categoryId,
++        categoryName = categoryName,
++        attemptCount = attemptCount,
++        wrongCount = wrongCount,
++        accuracyRate = accuracyRate,
++        averageStar = averageStar,
++        lastAnsweredAt = lastAnsweredAt,
++    )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
+@@ -0,0 +1,56 @@
++package com.ssafy.mobile.feature.report.data.repository
++
++import android.util.Log
++import com.ssafy.mobile.feature.report.data.api.ReportApiService
++import com.ssafy.mobile.feature.report.data.dto.toDomain
++import com.ssafy.mobile.feature.report.domain.model.ReportSummary
++import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
++import java.io.IOException
++import javax.inject.Inject
++import kotlin.coroutines.cancellation.CancellationException
++
++private const val TAG = "RemoteReportRepository"
++private const val HTTP_STATUS_BAD_REQUEST = 400
++private const val HTTP_STATUS_UNAUTHORIZED = 401
++private const val HTTP_STATUS_NOT_FOUND = 404
++private const val HTTP_STATUS_INTERNAL_SERVER_ERROR = 500
++
++class RemoteReportRepository
++    @Inject
++    constructor(
++        private val apiService: ReportApiService,
++    ) : ReportRepository {
++        override suspend fun getSummary(childId: Long): Result<ReportSummary> =
++            try {
++                val response = apiService.getSummary(childId)
++
++                if (response.isSuccessful) {
++                    val body =
++                        response.body()
++                            ?: return Result.failure(IllegalStateException("리포트 요약 응답이 비어 있습니다."))
++                    Result.success(body.toDomain())
++                } else {
++                    Result.failure(IllegalStateException(errorMessage(response.code())))
++                }
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: IOException) {
++                Log.e(TAG, "Report summary network error", e)
++                Result.failure(IOException("네트워크 연결을 확인해 주세요."))
++            } catch (
++                @Suppress("TooGenericExceptionCaught")
++                e: Exception,
++            ) {
++                Log.e(TAG, "Report summary unknown error", e)
++                Result.failure(IllegalStateException("리포트 요약을 불러오는 중 오류가 발생했습니다."))
++            }
++
++        private fun errorMessage(statusCode: Int): String =
++            when (statusCode) {
++                HTTP_STATUS_BAD_REQUEST -> "리포트 요청 값이 올바르지 않습니다."
++                HTTP_STATUS_UNAUTHORIZED -> "세션이 만료되었습니다. 다시 로그인해 주세요."
++                HTTP_STATUS_NOT_FOUND -> "아이 정보를 찾을 수 없습니다. 아이를 다시 선택해 주세요."
++                HTTP_STATUS_INTERNAL_SERVER_ERROR -> "서버에서 리포트 정보를 불러오지 못했습니다."
++                else -> "리포트 요약을 불러오지 못했습니다."
++            }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/di/ReportModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/di/ReportModule.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/di/ReportModule.kt
+@@ -0,0 +1,27 @@
++package com.ssafy.mobile.feature.report.di
++
++import com.ssafy.mobile.feature.report.data.api.ReportApiService
++import com.ssafy.mobile.feature.report.data.repository.RemoteReportRepository
++import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
++import dagger.Binds
++import dagger.Module
++import dagger.Provides
++import dagger.hilt.InstallIn
++import dagger.hilt.components.SingletonComponent
++import javax.inject.Singleton
++import retrofit2.Retrofit
++
++@Module
++@InstallIn(SingletonComponent::class)
++internal abstract class ReportModule {
++    @Binds
++    @Singleton
++    abstract fun bindReportRepository(repository: RemoteReportRepository): ReportRepository
++
++    companion object {
++        @Provides
++        @Singleton
++        fun provideReportApiService(retrofit: Retrofit): ReportApiService =
++            retrofit.create(ReportApiService::class.java)
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportSummary.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportSummary.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportSummary.kt
+@@ -0,0 +1,42 @@
++package com.ssafy.mobile.feature.report.domain.model
++
++data class ReportSummary(
++    val childId: Long,
++    val participation: ReportParticipationSummary,
++    val performance: ReportPerformanceSummary,
++    val latestActivity: ReportLatestActivity?,
++    val weakWords: List<ReportWeakWord>,
++) {
++    val hasCompletedRecords: Boolean
++        get() = participation.completedSessionCount > 0
++}
++
++data class ReportParticipationSummary(
++    val completedSessionCount: Int,
++    val totalQuestionCount: Int,
++)
++
++data class ReportPerformanceSummary(
++    val totalCorrectCount: Int,
++    val accuracyRate: Double,
++    val averageStar: Double,
++)
++
++data class ReportLatestActivity(
++    val categoryId: Long,
++    val categoryName: String,
++    val latestSessionAt: String?,
++)
++
++data class ReportWeakWord(
++    val wordId: Long,
++    val word: String,
++    val displayText: String?,
++    val categoryId: Long,
++    val categoryName: String,
++    val attemptCount: Int,
++    val wrongCount: Int,
++    val accuracyRate: Double,
++    val averageStar: Double,
++    val lastAnsweredAt: String?,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
+@@ -0,0 +1,7 @@
++package com.ssafy.mobile.feature.report.domain.repository
++
++import com.ssafy.mobile.feature.report.domain.model.ReportSummary
++
++interface ReportRepository {
++    suspend fun getSummary(childId: Long): Result<ReportSummary>
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
+@@ -66,23 +66,32 @@ fun ReportHomeRoute(
+ 
+     ReportHomeScreen(
+         activeChildState = uiState.activeChildState,
+-        onNavigateToSummary = onNavigateToSummary,
+-        onNavigateToWeakWords = onNavigateToWeakWords,
+-        onNavigateToCategoryProgress = onNavigateToCategoryProgress,
+-        onSwitchChild = onSwitchChild,
+-        onRetryClick = viewModel::loadActiveChildProfile,
++        summaryState = uiState.summaryState,
++        actions =
++            ReportHomeActions(
++                onNavigateToSummary = onNavigateToSummary,
++                onNavigateToWeakWords = onNavigateToWeakWords,
++                onNavigateToCategoryProgress = onNavigateToCategoryProgress,
++                onSwitchChild = onSwitchChild,
++                onRetryClick = viewModel::loadActiveChildProfile,
++            ),
+         modifier = modifier,
+     )
+ }
+ 
++private data class ReportHomeActions(
++    val onNavigateToSummary: () -> Unit,
++    val onNavigateToWeakWords: () -> Unit,
++    val onNavigateToCategoryProgress: () -> Unit,
++    val onSwitchChild: () -> Unit,
++    val onRetryClick: () -> Unit,
++)
++
+ @Composable
+ private fun ReportHomeScreen(
+     activeChildState: ActiveChildProfileState,
+-    onNavigateToSummary: () -> Unit,
+-    onNavigateToWeakWords: () -> Unit,
+-    onNavigateToCategoryProgress: () -> Unit,
+-    onSwitchChild: () -> Unit,
+-    onRetryClick: () -> Unit,
++    summaryState: ReportSummaryUiState,
++    actions: ReportHomeActions,
+     modifier: Modifier = Modifier,
+ ) {
+     Scaffold(
+@@ -101,14 +110,23 @@ private fun ReportHomeScreen(
+         ) {
+             ReportActiveChildSection(
+                 state = activeChildState,
+-                onSwitchClick = onSwitchChild,
+-                onRetryClick = onRetryClick,
++                onSwitchClick = actions.onSwitchChild,
++                onRetryClick = actions.onRetryClick,
+             )
+ 
+             Spacer(modifier = Modifier.height(32.dp))
+ 
+             val isMenuEnabled = activeChildState is ActiveChildProfileState.Selected
+ 
++            if (isMenuEnabled) {
++                ReportSummarySection(
++                    summaryState = summaryState,
++                    onRetryClick = actions.onRetryClick,
++                )
++
++                Spacer(modifier = Modifier.height(32.dp))
++            }
++
+             Text(
+                 text = "리포트 목록",
+                 style = MaterialTheme.typography.titleLarge,
+@@ -122,7 +140,7 @@ private fun ReportHomeScreen(
+                 title = "학습 요약 리포트",
+                 description = "최근 아이의 학습 성과를 한눈에 보여드려요.",
+                 iconEmoji = "📝",
+-                onClick = onNavigateToSummary,
++                onClick = actions.onNavigateToSummary,
+                 enabled = isMenuEnabled,
+             )
+ 
+@@ -132,7 +150,7 @@ private fun ReportHomeScreen(
+                 title = "자주 틀리는 단어",
+                 description = "아이가 어려워하는 단어들을 모아봤어요.",
+                 iconEmoji = "⚠️",
+-                onClick = onNavigateToWeakWords,
++                onClick = actions.onNavigateToWeakWords,
+                 enabled = isMenuEnabled,
+             )
+ 
+@@ -142,7 +160,7 @@ private fun ReportHomeScreen(
+                 title = "카테고리별 학습 진행도",
+                 description = "카테고리별 학습 흐름을 정리해드릴게요.",
+                 iconEmoji = "📊",
+-                onClick = onNavigateToCategoryProgress,
++                onClick = actions.onNavigateToCategoryProgress,
+                 enabled = isMenuEnabled,
+             )
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeViewModel.kt
+@@ -4,9 +4,12 @@ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
+ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileManager
+ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
++import com.ssafy.mobile.feature.report.domain.model.ReportSummary
++import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import javax.inject.Inject
+ import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.StateFlow
+ import kotlinx.coroutines.flow.asStateFlow
+@@ -15,35 +18,104 @@ import kotlinx.coroutines.withContext
+ 
+ data class ReportHomeUiState(
+     val activeChildState: ActiveChildProfileState = ActiveChildProfileState.Loading,
++    val summaryState: ReportSummaryUiState = ReportSummaryUiState.Idle,
+ )
+ 
++sealed interface ReportSummaryUiState {
++    data object Idle : ReportSummaryUiState
++
++    data object Loading : ReportSummaryUiState
++
++    data object Empty : ReportSummaryUiState
++
++    data class Success(
++        val summary: ReportSummary,
++    ) : ReportSummaryUiState
++
++    data class Error(
++        val message: String,
++    ) : ReportSummaryUiState
++}
++
+ @HiltViewModel
+ class ReportHomeViewModel
+     @Inject
+     constructor(
+         private val activeChildProfileManager: ActiveChildProfileManager,
++        private val reportRepository: ReportRepository,
+     ) : ViewModel() {
+         private val _uiState = MutableStateFlow(ReportHomeUiState())
+         val uiState: StateFlow<ReportHomeUiState> = _uiState.asStateFlow()
++        private var loadJob: Job? = null
+ 
+         init {
+             loadActiveChildProfile()
+         }
+ 
+         fun loadActiveChildProfile() {
+-            viewModelScope.launch {
+-                _uiState.value =
+-                    _uiState.value.copy(
+-                        activeChildState = ActiveChildProfileState.Loading,
+-                    )
+-                val state =
+-                    withContext(Dispatchers.IO) {
+-                        activeChildProfileManager.getActiveChildProfile()
++            loadJob?.cancel()
++            loadJob =
++                viewModelScope.launch {
++                    _uiState.value =
++                        _uiState.value.copy(
++                            activeChildState = ActiveChildProfileState.Loading,
++                            summaryState = ReportSummaryUiState.Idle,
++                        )
++                    val state =
++                        withContext(Dispatchers.IO) {
++                            activeChildProfileManager.getActiveChildProfile()
++                        }
++                    _uiState.value =
++                        _uiState.value.copy(
++                            activeChildState = state,
++                            summaryState =
++                                if (state is ActiveChildProfileState.Selected) {
++                                    ReportSummaryUiState.Loading
++                                } else {
++                                    ReportSummaryUiState.Idle
++                                },
++                        )
++
++                    if (state is ActiveChildProfileState.Selected) {
++                        loadReportSummary(state.profile.childId)
+                     }
+-                _uiState.value =
+-                    _uiState.value.copy(
+-                        activeChildState = state,
+-                    )
++                }
++        }
++
++        private suspend fun loadReportSummary(childId: Long) {
++            val result =
++                withContext(Dispatchers.IO) {
++                    reportRepository.getSummary(childId)
++                }
++
++            val currentActiveChildState = _uiState.value.activeChildState
++            if (
++                currentActiveChildState !is ActiveChildProfileState.Selected ||
++                currentActiveChildState.profile.childId != childId
++            ) {
++                return
+             }
++
++            _uiState.value =
++                result.fold(
++                    onSuccess = { summary ->
++                        _uiState.value.copy(
++                            summaryState =
++                                if (summary.hasCompletedRecords) {
++                                    ReportSummaryUiState.Success(summary)
++                                } else {
++                                    ReportSummaryUiState.Empty
++                                },
++                        )
++                    },
++                    onFailure = { throwable ->
++                        _uiState.value.copy(
++                            summaryState =
++                                ReportSummaryUiState.Error(
++                                    throwable.message ?: "리포트 요약을 불러오지 못했습니다.",
++                                ),
++                        )
++                    },
++                )
+         }
+     }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportSummarySection.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportSummarySection.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportSummarySection.kt
+@@ -0,0 +1,289 @@
++package com.ssafy.mobile.feature.report.presentation
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.feature.report.domain.model.ReportSummary
++import com.ssafy.mobile.feature.report.domain.model.ReportWeakWord
++import java.util.Locale
++
++@Composable
++fun ReportSummarySection(
++    summaryState: ReportSummaryUiState,
++    onRetryClick: () -> Unit,
++) {
++    Column(modifier = Modifier.fillMaxWidth()) {
++        Text(
++            text = "요약",
++            style = MaterialTheme.typography.titleLarge,
++            fontWeight = FontWeight.Bold,
++        )
++        Spacer(modifier = Modifier.height(16.dp))
++
++        when (summaryState) {
++            ReportSummaryUiState.Idle,
++            ReportSummaryUiState.Loading,
++            -> ReportSummaryStatusCard(message = "리포트 요약을 불러오는 중...")
++
++            ReportSummaryUiState.Empty ->
++                ReportSummaryStatusCard(
++                    message = "아직 완료된 퀴즈 기록이 없어요.\n퀴즈를 마치면 이곳에 리포트가 쌓입니다.",
++                )
++
++            is ReportSummaryUiState.Error ->
++                ReportSummaryErrorCard(
++                    message = summaryState.message,
++                    onRetryClick = onRetryClick,
++                )
++
++            is ReportSummaryUiState.Success ->
++                ReportSummaryContent(summary = summaryState.summary)
++        }
++    }
++}
++
++@Composable
++private fun ReportSummaryStatusCard(message: String) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = SUMMARY_STATUS_ALPHA),
++    ) {
++        Text(
++            text = message,
++            modifier = Modifier.padding(20.dp),
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++        )
++    }
++}
++
++@Composable
++private fun ReportSummaryErrorCard(
++    message: String,
++    onRetryClick: () -> Unit,
++) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = SUMMARY_ERROR_ALPHA),
++    ) {
++        Column(
++            modifier = Modifier.padding(20.dp),
++            horizontalAlignment = Alignment.CenterHorizontally,
++        ) {
++            Text(
++                text = message,
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.error,
++            )
++            Spacer(modifier = Modifier.height(12.dp))
++            AppSecondaryButton(
++                text = "다시 시도",
++                onClick = onRetryClick,
++                modifier = Modifier.height(36.dp),
++            )
++        }
++    }
++}
++
++@Composable
++private fun ReportSummaryContent(summary: ReportSummary) {
++    Column(modifier = Modifier.fillMaxWidth()) {
++        SummaryMetricGrid(summary = summary)
++        Spacer(modifier = Modifier.height(12.dp))
++        LatestActivityCard(summary = summary)
++        Spacer(modifier = Modifier.height(12.dp))
++        WeakWordsPreviewCard(weakWords = summary.weakWords)
++    }
++}
++
++@Composable
++private fun SummaryMetricGrid(summary: ReportSummary) {
++    val accuracyRateLabel =
++        summary.performance.accuracyRate
++            .coerceIn(
++                PERCENT_MIN,
++                PERCENT_MAX,
++            ).toInt()
++            .toString()
++
++    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
++        Row(
++            modifier = Modifier.fillMaxWidth(),
++            horizontalArrangement = Arrangement.spacedBy(12.dp),
++        ) {
++            SummaryMetricCard(
++                title = "완료 퀴즈",
++                value = "${summary.participation.completedSessionCount}회",
++                modifier = Modifier.weight(1f),
++            )
++            SummaryMetricCard(
++                title = "정답률",
++                value = "$accuracyRateLabel%",
++                modifier = Modifier.weight(1f),
++            )
++        }
++        Row(
++            modifier = Modifier.fillMaxWidth(),
++            horizontalArrangement = Arrangement.spacedBy(12.dp),
++        ) {
++            SummaryMetricCard(
++                title = "푼 문제",
++                value = "${summary.participation.totalQuestionCount}문제",
++                modifier = Modifier.weight(1f),
++            )
++            SummaryMetricCard(
++                title = "평균 별점",
++                value = String.format(Locale.KOREA, "%.1f/3", summary.performance.averageStar),
++                modifier = Modifier.weight(1f),
++            )
++        }
++    }
++}
++
++@Composable
++private fun SummaryMetricCard(
++    title: String,
++    value: String,
++    modifier: Modifier = Modifier,
++) {
++    Surface(
++        modifier = modifier,
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = SUMMARY_METRIC_ALPHA),
++    ) {
++        Column(modifier = Modifier.padding(16.dp)) {
++            Text(
++                text = title,
++                style = MaterialTheme.typography.labelMedium,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++            )
++            Spacer(modifier = Modifier.height(6.dp))
++            Text(
++                text = value,
++                style = MaterialTheme.typography.titleMedium,
++                fontWeight = FontWeight.Bold,
++                color = MaterialTheme.colorScheme.onSurface,
++            )
++        }
++    }
++}
++
++@Composable
++private fun LatestActivityCard(summary: ReportSummary) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = SUMMARY_LATEST_ALPHA),
++    ) {
++        Column(modifier = Modifier.padding(18.dp)) {
++            Text(
++                text = "최근 학습",
++                style = MaterialTheme.typography.titleSmall,
++                fontWeight = FontWeight.Bold,
++            )
++            Spacer(modifier = Modifier.height(8.dp))
++            Text(
++                text =
++                    summary.latestActivity?.let { activity ->
++                        "${activity.categoryName} · ${activity.latestSessionAt.toDateLabel()}"
++                    } ?: "최근 완료한 퀴즈 기록이 없어요.",
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++            )
++        }
++    }
++}
++
++@Composable
++private fun WeakWordsPreviewCard(weakWords: List<ReportWeakWord>) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = SUMMARY_PREVIEW_ALPHA),
++    ) {
++        Column(modifier = Modifier.padding(18.dp)) {
++            Text(
++                text = "자주 틀리는 단어",
++                style = MaterialTheme.typography.titleSmall,
++                fontWeight = FontWeight.Bold,
++            )
++            Spacer(modifier = Modifier.height(8.dp))
++
++            if (weakWords.isEmpty()) {
++                Text(
++                    text = "아직 자주 틀린 단어가 없어요.",
++                    style = MaterialTheme.typography.bodyMedium,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                )
++            } else {
++                weakWords.take(WEAK_WORD_PREVIEW_COUNT).forEach { word ->
++                    WeakWordRow(word = word)
++                }
++            }
++        }
++    }
++}
++
++@Composable
++private fun WeakWordRow(word: ReportWeakWord) {
++    Row(
++        modifier =
++            Modifier
++                .fillMaxWidth()
++                .padding(vertical = 6.dp),
++        verticalAlignment = Alignment.CenterVertically,
++    ) {
++        Column(modifier = Modifier.weight(1f)) {
++            Text(
++                text = word.displayText ?: word.word,
++                style = MaterialTheme.typography.bodyMedium,
++                fontWeight = FontWeight.Bold,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++            )
++            Text(
++                text = word.categoryName,
++                style = MaterialTheme.typography.bodySmall,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++            )
++        }
++        Text(
++            text = "${word.wrongCount}/${word.attemptCount}",
++            style = MaterialTheme.typography.labelMedium,
++            color = MaterialTheme.colorScheme.error,
++        )
++    }
++}
++
++private const val SUMMARY_STATUS_ALPHA = 0.5f
++private const val SUMMARY_ERROR_ALPHA = 0.4f
++private const val SUMMARY_METRIC_ALPHA = 0.35f
++private const val SUMMARY_LATEST_ALPHA = 0.25f
++private const val SUMMARY_PREVIEW_ALPHA = 0.35f
++private const val WEAK_WORD_PREVIEW_COUNT = 3
++private const val ISO_DATE_LENGTH = 10
++private const val PERCENT_MIN = 0.0
++private const val PERCENT_MAX = 100.0
++
++private fun String?.toDateLabel(): String =
++    if (isNullOrBlank()) "날짜 정보 없음" else take(ISO_DATE_LENGTH).replace("-", ".")
+
+

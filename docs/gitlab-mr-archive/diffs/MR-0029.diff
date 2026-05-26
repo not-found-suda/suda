@@ -1,0 +1,392 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt
+@@ -0,0 +1,38 @@
++package com.ssafy.mobile.core.vision.inference
++
++object SignModelContract {
++    const val SEQUENCE_LENGTH = 30
++    const val FEATURE_DIMENSION = 345
++    const val CLASS_COUNT = 110
++    const val CONFIDENCE_THRESHOLD = 0.85f
++    val outputActivation: ModelOutputActivation = ModelOutputActivation.SOFTMAX_PROBABILITY
++}
++
++enum class ModelOutputActivation {
++    SOFTMAX_PROBABILITY,
++}
++
++data class SignModelOutput(
++    val probabilities: List<Float>,
++) {
++    init {
++        require(probabilities.size == SignModelContract.CLASS_COUNT) {
++            "TFLite output must contain ${SignModelContract.CLASS_COUNT} softmax probabilities."
++        }
++    }
++
++    fun topPrediction(): SignModelPrediction? {
++        val indexedConfidence = probabilities.withIndex().maxByOrNull { it.value } ?: return null
++        return SignModelPrediction(
++            classIndex = indexedConfidence.index,
++            confidence = indexedConfidence.value,
++            isConfident = indexedConfidence.value >= SignModelContract.CONFIDENCE_THRESHOLD,
++        )
++    }
++}
++
++data class SignModelPrediction(
++    val classIndex: Int,
++    val confidence: Float,
++    val isConfident: Boolean,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/LandmarkFrameResult.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/LandmarkFrameResult.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/LandmarkFrameResult.kt
+@@ -0,0 +1,74 @@
++package com.ssafy.mobile.core.vision.landmark
++
++data class LandmarkFrameResult(
++    val timestampMs: Long,
++    val pose: LandmarkGroup,
++    val leftHand: HandLandmarks,
++    val rightHand: HandLandmarks,
++    val lips: LandmarkGroup,
++) {
++    val hasHands: Boolean = leftHand.hasLandmarks || rightHand.hasLandmarks
++    val isEmpty: Boolean =
++        !pose.hasLandmarks &&
++            !leftHand.hasLandmarks &&
++            !rightHand.hasLandmarks &&
++            !lips.hasLandmarks
++
++    companion object {
++        fun empty(timestampMs: Long): LandmarkFrameResult =
++            LandmarkFrameResult(
++                timestampMs = timestampMs,
++                pose = LandmarkGroup.empty(LandmarkGroupType.POSE),
++                leftHand = HandLandmarks.empty(HandSide.LEFT),
++                rightHand = HandLandmarks.empty(HandSide.RIGHT),
++                lips = LandmarkGroup.empty(LandmarkGroupType.LIPS),
++            )
++    }
++}
++
++data class LandmarkGroup(
++    val type: LandmarkGroupType,
++    val landmarks: List<LandmarkPoint>,
++) {
++    val hasLandmarks: Boolean = landmarks.isNotEmpty()
++
++    companion object {
++        fun empty(type: LandmarkGroupType): LandmarkGroup =
++            LandmarkGroup(
++                type = type,
++                landmarks = emptyList(),
++            )
++    }
++}
++
++data class HandLandmarks(
++    val side: HandSide,
++    val landmarks: List<LandmarkPoint>,
++) {
++    val hasLandmarks: Boolean = landmarks.isNotEmpty()
++
++    companion object {
++        fun empty(side: HandSide): HandLandmarks =
++            HandLandmarks(
++                side = side,
++                landmarks = emptyList(),
++            )
++    }
++}
++
++enum class LandmarkGroupType {
++    POSE,
++    LIPS,
++}
++
++enum class HandSide {
++    LEFT,
++    RIGHT,
++    UNKNOWN,
++}
++
++data class LandmarkPoint(
++    val x: Float,
++    val y: Float,
++    val z: Float,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/MediaPipeLandmarkMapper.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/MediaPipeLandmarkMapper.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/MediaPipeLandmarkMapper.kt
+@@ -0,0 +1,62 @@
++package com.ssafy.mobile.core.vision.landmark
++
++object MediaPipeLandmarkMapper {
++    fun map(result: MediaPipeLandmarkResult): LandmarkFrameResult {
++        if (result.isEmpty) {
++            return LandmarkFrameResult.empty(timestampMs = result.timestampMs)
++        }
++
++        return LandmarkFrameResult(
++            timestampMs = result.timestampMs,
++            pose =
++                LandmarkGroup(
++                    type = LandmarkGroupType.POSE,
++                    landmarks = result.pose.mapToLandmarkPoints(),
++                ),
++            leftHand =
++                HandLandmarks(
++                    side = HandSide.LEFT,
++                    landmarks = result.leftHand.mapToLandmarkPoints(),
++                ),
++            rightHand =
++                HandLandmarks(
++                    side = HandSide.RIGHT,
++                    landmarks = result.rightHand.mapToLandmarkPoints(),
++                ),
++            lips =
++                LandmarkGroup(
++                    type = LandmarkGroupType.LIPS,
++                    landmarks = result.lips.mapToLandmarkPoints(),
++                ),
++        )
++    }
++}
++
++data class MediaPipeLandmarkResult(
++    val timestampMs: Long,
++    val pose: List<MediaPipeLandmarkPoint> = emptyList(),
++    val leftHand: List<MediaPipeLandmarkPoint> = emptyList(),
++    val rightHand: List<MediaPipeLandmarkPoint> = emptyList(),
++    val lips: List<MediaPipeLandmarkPoint> = emptyList(),
++) {
++    val isEmpty: Boolean =
++        pose.isEmpty() &&
++            leftHand.isEmpty() &&
++            rightHand.isEmpty() &&
++            lips.isEmpty()
++}
++
++data class MediaPipeLandmarkPoint(
++    val x: Float,
++    val y: Float,
++    val z: Float,
++)
++
++private fun List<MediaPipeLandmarkPoint>.mapToLandmarkPoints(): List<LandmarkPoint> =
++    map { landmark ->
++        LandmarkPoint(
++            x = landmark.x,
++            y = landmark.y,
++            z = landmark.z,
++        )
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/CameraAnalysisPipeline.kt
+@@ -20,7 +20,8 @@ data class YuvAnalysisFrame(
+ )
+ 
+ /**
+- * Plane buffers are valid only while the analyzer callback is running.
++ * Plane 버퍼는 분석 콜백이 실행되는 동안에만 유효한 읽기 전용 view입니다.
++ * MediaPipe/TFLite 어댑터에서 mutable/direct 버퍼가 필요하면 별도로 복사해서 사용해야 합니다.
+  */
+ data class YuvPlane(
+     val buffer: ByteBuffer,
+@@ -113,9 +114,11 @@ private fun ImageProxy.toYuvAnalysisFrame(): YuvAnalysisFrame =
+         planes =
+             planes.map { plane ->
+                 YuvPlane(
+-                    buffer = plane.buffer.asReadOnlyBuffer(),
++                    buffer = plane.buffer.asAnalyzerReadOnlyBuffer(),
+                     rowStride = plane.rowStride,
+                     pixelStride = plane.pixelStride,
+                 )
+             },
+     )
++
++private fun ByteBuffer.asAnalyzerReadOnlyBuffer(): ByteBuffer = asReadOnlyBuffer()
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignModelOutputTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignModelOutputTest.kt
+--- /dev/null
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignModelOutputTest.kt
+@@ -0,0 +1,44 @@
++package com.ssafy.mobile.core.vision.inference
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class SignModelOutputTest {
++    @Test
++    fun treatsTfliteOutputAsSoftmaxProbabilities() {
++        val probabilities =
++            MutableList(SignModelContract.CLASS_COUNT) { LOW_CONFIDENCE }.also {
++                it[EXPECTED_CLASS_INDEX] = HIGH_CONFIDENCE
++            }
++
++        val prediction = SignModelOutput(probabilities).topPrediction()
++
++        assertEquals(ModelOutputActivation.SOFTMAX_PROBABILITY, SignModelContract.outputActivation)
++        assertEquals(EXPECTED_CLASS_INDEX, prediction?.classIndex)
++        assertEquals(HIGH_CONFIDENCE, prediction?.confidence ?: 0f, FLOAT_DELTA)
++        assertTrue(prediction?.isConfident == true)
++    }
++
++    @Test
++    fun marksLowTopProbabilityAsNotConfident() {
++        val probabilities =
++            MutableList(SignModelContract.CLASS_COUNT) { LOW_CONFIDENCE }.also {
++                it[EXPECTED_CLASS_INDEX] = BELOW_THRESHOLD_CONFIDENCE
++            }
++
++        val prediction = SignModelOutput(probabilities).topPrediction()
++
++        assertEquals(EXPECTED_CLASS_INDEX, prediction?.classIndex)
++        assertFalse(prediction?.isConfident == true)
++    }
++
++    private companion object {
++        const val EXPECTED_CLASS_INDEX = 7
++        const val LOW_CONFIDENCE = 0.001f
++        const val HIGH_CONFIDENCE = 0.9f
++        const val BELOW_THRESHOLD_CONFIDENCE = 0.5f
++        const val FLOAT_DELTA = 0.0001f
++    }
++}
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/landmark/MediaPipeLandmarkMapperTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/landmark/MediaPipeLandmarkMapperTest.kt
+--- /dev/null
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/landmark/MediaPipeLandmarkMapperTest.kt
+@@ -0,0 +1,116 @@
++package com.ssafy.mobile.core.vision.landmark
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class MediaPipeLandmarkMapperTest {
++    @Test
++    fun mapsMediaPipeLandmarksToAppFrameModel() {
++        val result =
++            MediaPipeLandmarkMapper.map(
++                MediaPipeLandmarkResult(
++                    timestampMs = TIMESTAMP_MS,
++                    pose =
++                        listOf(
++                            MediaPipeLandmarkPoint(
++                                x = POSE_X,
++                                y = POSE_Y,
++                                z = POSE_Z,
++                            ),
++                        ),
++                    leftHand =
++                        listOf(
++                            MediaPipeLandmarkPoint(
++                                x = LEFT_HAND_X,
++                                y = LEFT_HAND_Y,
++                                z = LEFT_HAND_Z,
++                            ),
++                        ),
++                    rightHand =
++                        listOf(
++                            MediaPipeLandmarkPoint(
++                                x = RIGHT_HAND_X,
++                                y = RIGHT_HAND_Y,
++                                z = RIGHT_HAND_Z,
++                            ),
++                        ),
++                    lips =
++                        listOf(
++                            MediaPipeLandmarkPoint(
++                                x = LIPS_X,
++                                y = LIPS_Y,
++                                z = LIPS_Z,
++                            ),
++                        ),
++                ),
++            )
++
++        assertEquals(TIMESTAMP_MS, result.timestampMs)
++        assertTrue(result.hasHands)
++        assertFalse(result.isEmpty)
++        assertEquals(LandmarkGroupType.POSE, result.pose.type)
++        assertEquals(HandSide.LEFT, result.leftHand.side)
++        assertEquals(HandSide.RIGHT, result.rightHand.side)
++        assertEquals(LandmarkGroupType.LIPS, result.lips.type)
++        val poseLandmark = result.pose.landmarks.first()
++        val leftHandLandmark = result.leftHand.landmarks.first()
++        val rightHandLandmark = result.rightHand.landmarks.first()
++        val lipLandmark = result.lips.landmarks.first()
++
++        assertEquals(
++            POSE_X,
++            poseLandmark.x,
++            FLOAT_DELTA,
++        )
++        assertEquals(
++            LEFT_HAND_Y,
++            leftHandLandmark.y,
++            FLOAT_DELTA,
++        )
++        assertEquals(
++            RIGHT_HAND_Z,
++            rightHandLandmark.z,
++            FLOAT_DELTA,
++        )
++        assertEquals(
++            LIPS_X,
++            lipLandmark.x,
++            FLOAT_DELTA,
++        )
++    }
++
++    @Test
++    fun mapsEmptyMediaPipeResultToEmptyFrameModel() {
++        val result =
++            MediaPipeLandmarkMapper.map(
++                MediaPipeLandmarkResult(timestampMs = TIMESTAMP_MS),
++            )
++
++        assertEquals(TIMESTAMP_MS, result.timestampMs)
++        assertFalse(result.hasHands)
++        assertTrue(result.isEmpty)
++        assertTrue(result.pose.landmarks.isEmpty())
++        assertTrue(result.leftHand.landmarks.isEmpty())
++        assertTrue(result.rightHand.landmarks.isEmpty())
++        assertTrue(result.lips.landmarks.isEmpty())
++    }
++
++    private companion object {
++        const val TIMESTAMP_MS = 1_234L
++        const val FLOAT_DELTA = 0.0001f
++        const val POSE_X = 0.1f
++        const val POSE_Y = 0.2f
++        const val POSE_Z = 0.3f
++        const val LEFT_HAND_X = 0.4f
++        const val LEFT_HAND_Y = 0.5f
++        const val LEFT_HAND_Z = 0.6f
++        const val RIGHT_HAND_X = 0.7f
++        const val RIGHT_HAND_Y = 0.8f
++        const val RIGHT_HAND_Z = 0.9f
++        const val LIPS_X = 0.11f
++        const val LIPS_Y = 0.12f
++        const val LIPS_Z = 0.13f
++    }
++}
+
+

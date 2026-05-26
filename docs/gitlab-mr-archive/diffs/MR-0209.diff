@@ -1,0 +1,1730 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppBadge.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppBadge.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppBadge.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppBadge.kt
+@@ -21,14 +21,16 @@ fun AppBadge(
+     modifier: Modifier = Modifier,
+     tone: AppBadgeTone = AppBadgeTone.Neutral,
+     contentPadding: PaddingValues = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
++    containerColor: Color? = null,
++    contentColor: Color? = null,
+ ) {
+     val colors = tone.colors()
+ 
+     Surface(
+         modifier = modifier,
+         shape = RoundedCornerShape(999.dp),
+-        color = colors.container,
+-        contentColor = colors.content,
++        color = containerColor ?: colors.container,
++        contentColor = contentColor ?: colors.content,
+     ) {
+         Text(
+             text = text,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressCard.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressCard.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressCard.kt
+@@ -1,98 +1,280 @@
++@file:Suppress("CyclomaticComplexMethod", "LongMethod", "MagicNumber")
++
+ package com.ssafy.mobile.feature.report.presentation
+ 
++import androidx.compose.animation.AnimatedVisibility
++import androidx.compose.animation.core.animateFloatAsState
++import androidx.compose.animation.expandVertically
++import androidx.compose.animation.shrinkVertically
++import androidx.compose.foundation.background
++import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.layout.width
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.CircularProgressIndicator
++import androidx.compose.material3.HorizontalDivider
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.setValue
++import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.rotate
++import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
+-import com.ssafy.mobile.core.ui.components.AppBadge
+-import com.ssafy.mobile.core.ui.components.AppBadgeTone
+ import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgress
++import java.util.Locale
+ 
+ @Composable
+ fun ReportCategoryProgressCard(category: ReportCategoryProgress) {
++    var isExpanded by remember { mutableStateOf(false) }
++    val rotationState by animateFloatAsState(targetValue = if (isExpanded) 180f else 0f)
++
+     ReportGlassCard(
+         modifier = Modifier.fillMaxWidth(),
+     ) {
+-        Column {
+-            ReportCategoryProgressHeader(category = category)
+-            Spacer(modifier = Modifier.height(14.dp))
+-            ReportCategoryMetricRow(category = category)
+-            Spacer(modifier = Modifier.height(14.dp))
+-            ReportRateProgress(
+-                title = "출제 단어 비율",
+-                value = category.quizCoverageRate,
+-                detail = "${category.quizzedWordCount}/${category.totalWordCount}개",
+-                tone = ReportVisualTone.Primary,
+-            )
+-            Spacer(modifier = Modifier.height(10.dp))
+-            ReportRateProgress(
+-                title = "정답 경험 단어 비율",
+-                value = category.correctWordRate,
+-                detail = "${category.correctWordCount}/${category.totalWordCount}개",
+-                tone = ReportVisualTone.Success,
+-            )
+-            Spacer(modifier = Modifier.height(10.dp))
+-            ReportRateProgress(
+-                title = "문제 정답률",
+-                value = category.accuracyRate,
+-                detail = "${category.correctCount}/${category.totalQuestionCount}문제",
+-                tone = ReportVisualTone.Tertiary,
+-            )
++        Column(
++            modifier =
++                Modifier
++                    .fillMaxWidth()
++                    .clickable { isExpanded = !isExpanded },
++        ) {
++            // 접혀있을 때 보이는 헤더 영역 (카테고리명, 최근 퀴즈일, 토글 버튼)
++            Row(
++                modifier = Modifier.fillMaxWidth(),
++                verticalAlignment = Alignment.CenterVertically,
++            ) {
++                // 카테고리별 귀여운 이모지 박스
++                val categoryEmoji = getCategoryEmoji(category.categoryName)
++                val categoryIconColor =
++                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
++                Box(
++                    contentAlignment = Alignment.Center,
++                    modifier =
++                        Modifier
++                            .size(46.dp)
++                            .background(
++                                color = categoryIconColor,
++                                shape = RoundedCornerShape(14.dp),
++                            ),
++                ) {
++                    Text(
++                        text = categoryEmoji,
++                        style = MaterialTheme.typography.titleLarge,
++                    )
++                }
++
++                Spacer(modifier = Modifier.width(12.dp))
++
++                Column(modifier = Modifier.weight(1f)) {
++                    Text(
++                        text = category.categoryName,
++                        style = MaterialTheme.typography.titleMedium,
++                        fontWeight = FontWeight.Bold,
++                        color = MaterialTheme.colorScheme.onSurface,
++                        maxLines = 1,
++                        overflow = TextOverflow.Ellipsis,
++                    )
++                    Spacer(modifier = Modifier.height(2.dp))
++                    Text(
++                        text = "최근 퀴즈: ${category.latestSessionAt.toReportDateLabel()}",
++                        style = MaterialTheme.typography.bodySmall,
++                        color = MaterialTheme.colorScheme.onSurfaceVariant,
++                    )
++                }
++
++                // 동글동글한 회전하는 화살표 버튼
++                Box(
++                    contentAlignment = Alignment.Center,
++                    modifier =
++                        Modifier
++                            .size(32.dp)
++                            .background(
++                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
++                                shape = RoundedCornerShape(10.dp),
++                            ),
++                ) {
++                    Text(
++                        text = "▼",
++                        style = MaterialTheme.typography.bodyMedium,
++                        color = MaterialTheme.colorScheme.onSurfaceVariant,
++                        modifier = Modifier.rotate(rotationState),
++                    )
++                }
++            }
++
++            // 토글 펼쳤을 때 나타나는 상세 영역
++            AnimatedVisibility(
++                visible = isExpanded,
++                enter = expandVertically(),
++                exit = shrinkVertically(),
++            ) {
++                Column(
++                    modifier =
++                        Modifier
++                            .fillMaxWidth()
++                            .padding(top = 16.dp),
++                ) {
++                    HorizontalDivider(
++                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
++                        thickness = 1.dp,
++                    )
++                    Spacer(modifier = Modifier.height(16.dp))
++
++                    // 수치 박스 2개 (완료 퀴즈, 문제 수 - 둘 다 파란색으로 통일!)
++                    Row(
++                        modifier = Modifier.fillMaxWidth(),
++                        horizontalArrangement = Arrangement.spacedBy(8.dp),
++                    ) {
++                        ReportCategoryMetric(
++                            title = "완료 퀴즈",
++                            value = "${category.completedSessionCount}회",
++                            tone = ReportVisualTone.Primary,
++                            modifier = Modifier.weight(1f),
++                        )
++                        ReportCategoryMetric(
++                            title = "문제 수",
++                            value = "${category.totalQuestionCount}",
++                            tone = ReportVisualTone.Primary, // 파란색으로 통일!
++                            modifier = Modifier.weight(1f),
++                        )
++                    }
++
++                    Spacer(modifier = Modifier.height(14.dp))
++
++                    // 평균 별점 (별 이모지 처리)
++                    ReportInlineStarMetric(
++                        title = "평균 별점",
++                        rating = category.averageStar,
++                        modifier = Modifier.fillMaxWidth(),
++                    )
++
++                    Spacer(modifier = Modifier.height(20.dp))
++
++                    // 대망의 원형 그래프 대시보드 UI! (3개 배치)
++                    Text(
++                        text = "카테고리 학습 상세 분석",
++                        style = MaterialTheme.typography.labelLarge,
++                        fontWeight = FontWeight.Bold,
++                        color = MaterialTheme.colorScheme.onSurfaceVariant,
++                        modifier = Modifier.padding(bottom = 12.dp),
++                    )
++
++                    Row(
++                        modifier = Modifier.fillMaxWidth(),
++                        horizontalArrangement = Arrangement.SpaceBetween,
++                        verticalAlignment = Alignment.CenterVertically,
++                    ) {
++                        // 1. 출제 비율 원형 게이지
++                        CircularProgressGauge(
++                            title = "출제 단어",
++                            rate = category.quizCoverageRate,
++                            detail = "${category.quizzedWordCount}/${category.totalWordCount}개",
++                            color = MaterialTheme.colorScheme.primary,
++                            modifier = Modifier.weight(1f),
++                        )
++
++                        // 2. 정답 경험 원형 게이지
++                        CircularProgressGauge(
++                            title = "정답 경험",
++                            rate = category.correctWordRate,
++                            detail = "${category.correctWordCount}/${category.totalWordCount}개",
++                            color = MaterialTheme.colorScheme.secondary,
++                            modifier = Modifier.weight(1f),
++                        )
++
++                        // 3. 문제 정답률 원형 게이지
++                        CircularProgressGauge(
++                            title = "문제 정답률",
++                            rate = category.accuracyRate,
++                            detail = "${category.correctCount}/${category.totalQuestionCount}문제",
++                            color = MaterialTheme.colorScheme.tertiary,
++                            modifier = Modifier.weight(1f),
++                        )
++                    }
++                }
++            }
+         }
+     }
+ }
+ 
++/**
++ * 대시보드 스타일의 귀엽고 정돈된 원형 게이지 컴포넌트
++ */
+ @Composable
+-private fun ReportCategoryProgressHeader(category: ReportCategoryProgress) {
+-    Column(modifier = Modifier.fillMaxWidth()) {
+-        Text(
+-            text = category.categoryName,
+-            style = MaterialTheme.typography.titleMedium,
+-            fontWeight = FontWeight.Bold,
+-            maxLines = 1,
+-            overflow = TextOverflow.Ellipsis,
+-        )
+-        Spacer(modifier = Modifier.height(4.dp))
+-        AppBadge(
+-            text = "최근 퀴즈 ${category.latestSessionAt.toReportDateLabel()}",
+-            tone = AppBadgeTone.Neutral,
+-        )
+-    }
+-}
++private fun CircularProgressGauge(
++    title: String,
++    rate: Double,
++    detail: String,
++    color: Color,
++    modifier: Modifier = Modifier,
++) {
++    val progress = (rate / 100.0).toFloat().coerceIn(0f, 1f)
+ 
+-@Composable
+-private fun ReportCategoryMetricRow(category: ReportCategoryProgress) {
+-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+-        Row(
+-            modifier = Modifier.fillMaxWidth(),
+-            horizontalArrangement = Arrangement.spacedBy(8.dp),
++    Column(
++        horizontalAlignment = Alignment.CenterHorizontally,
++        modifier = modifier.padding(horizontal = 4.dp),
++    ) {
++        // 원형 그래프 + 내부에 퍼센트 텍스트 배치
++        Box(
++            contentAlignment = Alignment.Center,
++            modifier = Modifier.size(68.dp),
+         ) {
+-            ReportCategoryMetric(
+-                title = "완료 퀴즈",
+-                value = "${category.completedSessionCount}회",
+-                tone = ReportVisualTone.Primary,
+-                modifier = Modifier.weight(1f),
++            // 배경 회색 트랙
++            CircularProgressIndicator(
++                progress = { 1f },
++                color = color.copy(alpha = 0.12f),
++                strokeWidth = 6.dp,
++                modifier = Modifier.fillMaxSize(),
+             )
+-            ReportCategoryMetric(
+-                title = "문제 수",
+-                value = "${category.totalQuestionCount}",
+-                tone = ReportVisualTone.Tertiary,
+-                modifier = Modifier.weight(1f),
++            // 활성 게이지
++            CircularProgressIndicator(
++                progress = { progress },
++                color = color,
++                strokeWidth = 6.dp,
++                modifier = Modifier.fillMaxSize(),
++            )
++            // 퍼센트 텍스트
++            Text(
++                text = String.format(Locale.KOREA, "%.0f%%", rate),
++                style = MaterialTheme.typography.labelLarge,
++                fontWeight = FontWeight.ExtraBold,
++                color = MaterialTheme.colorScheme.onSurface,
+             )
+         }
+-        ReportInlineStarMetric(
+-            title = "평균 별점",
+-            rating = category.averageStar,
+-            modifier = Modifier.fillMaxWidth(),
++
++        Spacer(modifier = Modifier.height(8.dp))
++
++        // 소제목
++        Text(
++            text = title,
++            style = MaterialTheme.typography.labelSmall,
++            fontWeight = FontWeight.Bold,
++            color = MaterialTheme.colorScheme.onSurface,
++            textAlign = TextAlign.Center,
++        )
++
++        // 수치 디테일
++        Text(
++            text = detail,
++            style = MaterialTheme.typography.bodySmall,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            textAlign = TextAlign.Center,
+         )
+     }
+ }
+@@ -112,20 +294,29 @@ private fun ReportCategoryMetric(
+     )
+ }
+ 
+-@Composable
+-private fun ReportRateProgress(
+-    title: String,
+-    value: Double,
+-    detail: String,
+-    tone: ReportVisualTone,
+-) {
+-    ReportPercentMeter(
+-        title = title,
+-        value = value,
+-        detail = detail,
+-        tone = tone,
+-    )
+-}
++/**
++ * 카테고리 이름에 맞는 알맞고 직관적인 이모지를 매핑해주는 헬퍼
++ */
++private fun getCategoryEmoji(categoryName: String): String =
++    when {
++        categoryName.contains(
++            "음식",
++        ) ||
++            categoryName.contains("과일") ||
++            categoryName.contains("식") -> "🍎"
++        categoryName.contains("동물") || categoryName.contains("곤충") -> "🦁"
++        categoryName.contains(
++            "가족",
++        ) ||
++            categoryName.contains("사람") ||
++            categoryName.contains("인물") -> "👨‍👩‍👧"
++        categoryName.contains("탈것") || categoryName.contains("교통") -> "🚗"
++        categoryName.contains("색깔") || categoryName.contains("색상") -> "🎨"
++        categoryName.contains("자연") || categoryName.contains("날씨") -> "☀️"
++        categoryName.contains("물건") || categoryName.contains("사물") -> "🧸"
++        categoryName.contains("신체") || categoryName.contains("몸") -> "🖐️"
++        else -> "💡"
++    }
+ 
+ private fun String?.toReportDateLabel(): String =
+     if (isNullOrBlank()) {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressRoute.kt
+@@ -1,13 +1,17 @@
+ package com.ssafy.mobile.feature.report.presentation
+ 
++import androidx.compose.foundation.Image
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.LazyListScope
+ import androidx.compose.foundation.lazy.items
+@@ -20,7 +24,9 @@ import androidx.compose.material3.TopAppBar
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.DisposableEffect
+ import androidx.compose.runtime.getValue
++import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.res.painterResource
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
+@@ -29,8 +35,6 @@ import androidx.lifecycle.Lifecycle
+ import androidx.lifecycle.LifecycleEventObserver
+ import androidx.lifecycle.compose.LocalLifecycleOwner
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+-import com.ssafy.mobile.core.ui.components.AppBadge
+-import com.ssafy.mobile.core.ui.components.AppBadgeTone
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ import com.ssafy.mobile.core.ui.components.SudaMascot
+@@ -201,13 +205,23 @@ private fun LazyListScope.categoryProgressItems(
+ private fun ReportCategoryProgressIntro(activeChildState: ActiveChildProfileState) {
+     val selectedProfile = (activeChildState as? ActiveChildProfileState.Selected)?.profile
+     Column(modifier = Modifier.fillMaxWidth()) {
+-        Text(
+-            text = selectedProfile?.let { "${it.name}의 카테고리 진행도" } ?: "카테고리 진행도",
+-            style = MaterialTheme.typography.headlineSmall,
+-            fontWeight = FontWeight.Bold,
+-            maxLines = 1,
+-            overflow = TextOverflow.Ellipsis,
+-        )
++        Row(verticalAlignment = Alignment.CenterVertically) {
++            Text(
++                text = selectedProfile?.let { "${it.name}의 카테고리 진행도" } ?: "카테고리 진행도",
++                style = MaterialTheme.typography.headlineSmall,
++                fontWeight = FontWeight.Bold,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++            )
++            if (selectedProfile != null) {
++                Spacer(modifier = Modifier.width(8.dp))
++                Image(
++                    painter = painterResource(id = com.ssafy.mobile.R.drawable.ic_report_boy),
++                    contentDescription = "아이 아이콘",
++                    modifier = Modifier.size(36.dp),
++                )
++            }
++        }
+         Spacer(modifier = Modifier.height(6.dp))
+         Text(
+             text = "완료한 퀴즈를 기준으로 카테고리별 출제 범위와 정답 흐름을 정리했어요.",
+@@ -222,11 +236,13 @@ private fun ReportCategoryProgressSummary(page: ReportCategoryProgressPage) {
+     ReportGlassCard(
+         modifier = Modifier.fillMaxWidth(),
+     ) {
+-        AppBadge(
++        Text(
+             text = "카테고리",
+-            tone = AppBadgeTone.Secondary,
++            style = MaterialTheme.typography.titleMedium,
++            fontWeight = FontWeight.Bold,
++            color = MaterialTheme.colorScheme.primary,
+         )
+-        Spacer(modifier = Modifier.height(8.dp))
++        Spacer(modifier = Modifier.height(6.dp))
+         Text(
+             text = "완료된 퀴즈 기록이 있는 ${page.categories.size}개 카테고리를 보여드려요.",
+             style = MaterialTheme.typography.bodyMedium,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterComponents.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterComponents.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterComponents.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterComponents.kt
+@@ -1,4 +1,4 @@
+-@file:Suppress("ComplexCondition", "MagicNumber", "TooManyFunctions")
++@file:Suppress("ComplexCondition", "MagicNumber", "MaxLineLength", "TooManyFunctions")
+ 
+ package com.ssafy.mobile.feature.report.presentation
+ 
+@@ -85,6 +85,15 @@ internal fun ReportFilterPanel(
+ 
+ @Composable
+ private fun ReportFilterHeader(state: ReportFilterUiState) {
++    val currentRange = state.input.selectedQuickDateRange()
++    val badgeText =
++        when (currentRange) {
++            ReportQuickDateRange.CurrentWeek -> "이번주"
++            ReportQuickDateRange.Recent30Days -> "이번달"
++            ReportQuickDateRange.All -> "전체"
++            null -> "직접 설정"
++        }
++
+     Row(
+         modifier = Modifier.fillMaxWidth(),
+         horizontalArrangement = Arrangement.SpaceBetween,
+@@ -95,7 +104,7 @@ private fun ReportFilterHeader(state: ReportFilterUiState) {
+             verticalArrangement = Arrangement.spacedBy(2.dp),
+         ) {
+             Text(
+-                text = "조회 조건",
++                text = "조회 기간",
+                 style = MaterialTheme.typography.titleMedium,
+                 fontWeight = FontWeight.Bold,
+                 maxLines = 1,
+@@ -111,8 +120,15 @@ private fun ReportFilterHeader(state: ReportFilterUiState) {
+         }
+         Spacer(modifier = Modifier.width(12.dp))
+         AppBadge(
+-            text = if (state.hasAppliedFilter) "적용됨" else "전체",
+-            tone = if (state.hasAppliedFilter) AppBadgeTone.Primary else AppBadgeTone.Neutral,
++            text = badgeText,
++            tone =
++                if (state.hasAppliedFilter ||
++                    currentRange != ReportQuickDateRange.All
++                ) {
++                    AppBadgeTone.Primary
++                } else {
++                    AppBadgeTone.Neutral
++                },
+         )
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionCard.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionCard.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionCard.kt
+@@ -43,9 +43,11 @@ fun ReportQuizSessionCard(
+                     )
+                     Spacer(modifier = Modifier.height(6.dp))
+                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
++                        val diffColors = session.difficulty.toReportDifficultyBadgeColors()
+                         AppBadge(
+                             text = session.difficulty.toReportDifficultyLabel(),
+-                            tone = AppBadgeTone.Primary,
++                            containerColor = diffColors.containerColor,
++                            contentColor = diffColors.contentColor,
+                         )
+                         AppBadge(
+                             text = session.status.toReportSessionStatusLabel(),
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionDetailCards.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionDetailCards.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionDetailCards.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionDetailCards.kt
+@@ -1,16 +1,23 @@
++@file:Suppress("MagicNumber", "TooManyFunctions")
++
+ package com.ssafy.mobile.feature.report.presentation
+ 
++import androidx.compose.foundation.BorderStroke
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
+@@ -34,9 +41,11 @@ internal fun ReportQuizSessionSummaryCard(detail: ReportQuizSessionDetail) {
+             )
+             Spacer(modifier = Modifier.height(4.dp))
+             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
++                val diffColors = detail.difficulty.toReportDifficultyBadgeColors()
+                 AppBadge(
+                     text = detail.difficulty.toReportDifficultyLabel(),
+-                    tone = AppBadgeTone.Primary,
++                    containerColor = diffColors.containerColor,
++                    contentColor = diffColors.contentColor,
+                 )
+                 AppBadge(
+                     text = detail.status.toReportSessionStatusLabel(),
+@@ -72,22 +81,11 @@ private fun ReportQuizSessionSummaryMetricGrid(detail: ReportQuizSessionDetail)
+                 tone = ReportVisualTone.Success,
+                 modifier = Modifier.weight(1f),
+             )
+-            ReportQuizSessionDetailMetric(
+-                title = "문제 수",
+-                value = "${detail.totalQuestionCount}문제",
+-                tone = ReportVisualTone.Tertiary,
+-                modifier = Modifier.weight(1f),
+-            )
+-        }
+-        Row(
+-            modifier = Modifier.fillMaxWidth(),
+-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+-        ) {
+             ReportQuizSessionDetailMetric(
+                 title = "총 별점",
+                 value = detail.totalStar?.let { "${it}점" } ?: "정보 없음",
+                 tone = ReportVisualTone.Warning,
+-                modifier = Modifier.fillMaxWidth(),
++                modifier = Modifier.weight(1f),
+             )
+         }
+         ReportInlineStarMetric(
+@@ -100,17 +98,36 @@ private fun ReportQuizSessionSummaryMetricGrid(detail: ReportQuizSessionDetail)
+ 
+ @Composable
+ private fun ReportQuizSessionDateSection(detail: ReportQuizSessionDetail) {
+-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+-        Text(
+-            text = "시작 ${detail.startedAt.toReportQuizSessionDateTimeLabel()}",
+-            style = MaterialTheme.typography.bodySmall,
+-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+-        )
+-        Text(
+-            text = "완료 ${detail.endedAt.toReportQuizSessionDateTimeLabel()}",
+-            style = MaterialTheme.typography.bodySmall,
+-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+-        )
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = RoundedCornerShape(16.dp),
++        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
++        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)),
++    ) {
++        Row(
++            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
++            verticalAlignment = Alignment.CenterVertically,
++        ) {
++            Text(
++                text = "⏱️",
++                style = MaterialTheme.typography.titleMedium,
++                modifier = Modifier.padding(end = 12.dp),
++            )
++            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
++                Text(
++                    text = "시작: ${detail.startedAt.toReportQuizSessionDateTimeLabel()}",
++                    style = MaterialTheme.typography.bodySmall,
++                    fontWeight = FontWeight.Medium,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                )
++                Text(
++                    text = "완료: ${detail.endedAt.toReportQuizSessionDateTimeLabel()}",
++                    style = MaterialTheme.typography.bodySmall,
++                    fontWeight = FontWeight.Medium,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                )
++            }
++        }
+     }
+ }
+ 
+@@ -144,21 +161,72 @@ internal fun ReportQuizAnswerCard(answer: ReportQuizAnswer) {
+                 )
+             }
+ 
+-            Spacer(modifier = Modifier.height(12.dp))
++            Spacer(modifier = Modifier.height(14.dp))
+             ReportQuizAnswerMetricRow(answer = answer)
+-            Spacer(modifier = Modifier.height(12.dp))
+-            ReportQuizAnswerTextRow(
++
++            Spacer(modifier = Modifier.height(14.dp))
++            ReportAnswerDetailBox(
++                icon = "🎙️",
+                 title = "인식 결과",
+                 value = answer.recognizedText.toDisplayText("인식 결과가 없어요."),
++                backgroundColor = Color(0xFFE8F5E9).copy(alpha = 0.8f),
+             )
+-            ReportQuizAnswerTextRow(
++
++            Spacer(modifier = Modifier.height(8.dp))
++            ReportAnswerDetailBox(
++                icon = "✨",
+                 title = "피드백",
+                 value = answer.feedback.toDisplayText("피드백이 없어요."),
++                backgroundColor = Color(0xFFE8F5E9).copy(alpha = 0.8f),
+             )
++
++            Spacer(modifier = Modifier.height(8.dp))
++            ReportAnswerDetailBox(
++                icon = "📅",
++                title = "답변 시각",
++                value = answer.answeredAt.toReportQuizSessionDateTimeLabel(),
++                backgroundColor = Color(0xFFE8F5E9).copy(alpha = 0.8f),
++                valueStyle = MaterialTheme.typography.bodySmall,
++            )
++        }
++    }
++}
++
++@Composable
++private fun ReportAnswerDetailBox(
++    icon: String,
++    title: String,
++    value: String,
++    backgroundColor: Color,
++    modifier: Modifier = Modifier,
++    valueStyle: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyMedium,
++) {
++    Surface(
++        modifier = modifier.fillMaxWidth(),
++        shape = RoundedCornerShape(12.dp),
++        color = backgroundColor,
++        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f)),
++    ) {
++        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
++            Row(verticalAlignment = Alignment.CenterVertically) {
++                Text(
++                    text = icon,
++                    style = MaterialTheme.typography.bodyMedium,
++                    modifier = Modifier.padding(end = 6.dp),
++                )
++                Text(
++                    text = title,
++                    style = MaterialTheme.typography.labelMedium,
++                    fontWeight = FontWeight.Bold,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                )
++            }
++            Spacer(modifier = Modifier.height(4.dp))
+             Text(
+-                text = "답변 ${answer.answeredAt.toReportQuizSessionDateTimeLabel()}",
+-                style = MaterialTheme.typography.bodySmall,
+-                color = MaterialTheme.colorScheme.onSurfaceVariant,
++                text = value,
++                style = valueStyle,
++                color = MaterialTheme.colorScheme.onSurface,
++                fontWeight = FontWeight.Medium,
+             )
+         }
+     }
+@@ -181,18 +249,6 @@ private fun ReportQuizAnswerMetricRow(answer: ReportQuizAnswer) {
+     }
+ }
+ 
+-@Composable
+-private fun ReportQuizAnswerTextRow(
+-    title: String,
+-    value: String,
+-) {
+-    Text(
+-        text = "$title: $value",
+-        style = MaterialTheme.typography.bodySmall,
+-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+-    )
+-}
+-
+ @Composable
+ private fun ReportQuizSessionDetailMetric(
+     title: String,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionDetailRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionDetailRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionDetailRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionDetailRoute.kt
+@@ -1,13 +1,17 @@
+ package com.ssafy.mobile.feature.report.presentation
+ 
++import androidx.compose.foundation.Image
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.LazyListScope
+ import androidx.compose.foundation.lazy.items
+@@ -20,7 +24,9 @@ import androidx.compose.material3.TopAppBar
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.DisposableEffect
+ import androidx.compose.runtime.getValue
++import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.res.painterResource
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
+@@ -203,13 +209,23 @@ private fun LazyListScope.detailItems(
+ private fun ReportQuizSessionDetailIntro(activeChildState: ActiveChildProfileState) {
+     val selectedProfile = (activeChildState as? ActiveChildProfileState.Selected)?.profile
+     Column(modifier = Modifier.fillMaxWidth()) {
+-        Text(
+-            text = selectedProfile?.let { "${it.name}의 퀴즈 상세" } ?: "퀴즈 기록 상세",
+-            style = MaterialTheme.typography.headlineSmall,
+-            fontWeight = FontWeight.Bold,
+-            maxLines = 1,
+-            overflow = TextOverflow.Ellipsis,
+-        )
++        Row(verticalAlignment = Alignment.CenterVertically) {
++            Text(
++                text = selectedProfile?.let { "${it.name}의 퀴즈 상세" } ?: "퀴즈 기록 상세",
++                style = MaterialTheme.typography.headlineSmall,
++                fontWeight = FontWeight.Bold,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++            )
++            if (selectedProfile != null) {
++                Spacer(modifier = Modifier.width(8.dp))
++                Image(
++                    painter = painterResource(id = com.ssafy.mobile.R.drawable.ic_report_boy),
++                    contentDescription = "아이 아이콘",
++                    modifier = Modifier.size(36.dp),
++                )
++            }
++        }
+         Spacer(modifier = Modifier.height(6.dp))
+         Text(
+             text = "퀴즈 결과와 문제별 답변을 자세히 확인할 수 있어요.",
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionFormatters.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionFormatters.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionFormatters.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionFormatters.kt
+@@ -1,8 +1,40 @@
++@file:Suppress("MagicNumber", "MatchingDeclarationName")
++
+ package com.ssafy.mobile.feature.report.presentation
+ 
++import androidx.compose.ui.graphics.Color
+ import com.ssafy.mobile.core.ui.components.AppBadgeTone
+ import com.ssafy.mobile.feature.report.domain.model.ReportQuizAnswer
+ 
++data class ReportDifficultyBadgeColors(
++    val containerColor: Color,
++    val contentColor: Color,
++)
++
++internal fun String.toReportDifficultyBadgeColors(): ReportDifficultyBadgeColors =
++    when (this) {
++        "EASY" ->
++            ReportDifficultyBadgeColors(
++                containerColor = Color(0xFFE3F2FD), // soft blue
++                contentColor = Color(0xFF1E88E5),
++            )
++        "NORMAL" ->
++            ReportDifficultyBadgeColors(
++                containerColor = Color(0xFFFFF9C4), // soft yellow
++                contentColor = Color(0xFFF57F17),
++            )
++        "HARD" ->
++            ReportDifficultyBadgeColors(
++                containerColor = Color(0xFFFFE0B2), // soft orange
++                contentColor = Color(0xFFE65100),
++            )
++        else ->
++            ReportDifficultyBadgeColors(
++                containerColor = Color(0xFFF5F5F5),
++                contentColor = Color(0xFF616161),
++            )
++    }
++
+ internal fun String.toReportDifficultyLabel(): String =
+     when (this) {
+         "EASY" -> "쉬움"
+@@ -13,10 +45,10 @@ internal fun String.toReportDifficultyLabel(): String =
+ 
+ internal fun String.toReportSessionStatusLabel(): String =
+     when (this) {
+-        "COMPLETED" -> "완료"
+-        "IN_PROGRESS" -> "진행 중"
+-        "STARTED" -> "진행 중"
+-        "ABANDONED" -> "중단"
++        "COMPLETED" -> "✅ 완료"
++        "IN_PROGRESS" -> "⏳ 진행 중"
++        "STARTED" -> "⏳ 진행 중"
++        "ABANDONED" -> "🛑 중단"
+         else -> this
+     }
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsRoute.kt
+@@ -1,13 +1,17 @@
+ package com.ssafy.mobile.feature.report.presentation
+ 
++import androidx.compose.foundation.Image
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.LazyListScope
+ import androidx.compose.foundation.lazy.items
+@@ -22,6 +26,7 @@ import androidx.compose.runtime.DisposableEffect
+ import androidx.compose.runtime.getValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.res.painterResource
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.text.style.TextOverflow
+@@ -243,24 +248,34 @@ private fun ReportQuizSessionsIntro(
+ ) {
+     val selectedProfile = (activeChildState as? ActiveChildProfileState.Selected)?.profile
+     Column(modifier = Modifier.fillMaxWidth()) {
+-        Text(
+-            text =
+-                selectedProfile?.let { profile ->
+-                    if (isResumeOnly) {
+-                        "${profile.name}의 이어하기"
++        Row(verticalAlignment = Alignment.CenterVertically) {
++            Text(
++                text =
++                    selectedProfile?.let { profile ->
++                        if (isResumeOnly) {
++                            "${profile.name}의 이어하기"
++                        } else {
++                            "${profile.name}의 퀴즈 기록"
++                        }
++                    } ?: if (isResumeOnly) {
++                        "이어하기"
+                     } else {
+-                        "${profile.name}의 퀴즈 기록"
+-                    }
+-                } ?: if (isResumeOnly) {
+-                    "이어하기"
+-                } else {
+-                    "퀴즈 기록"
+-                },
+-            style = MaterialTheme.typography.headlineSmall,
+-            fontWeight = FontWeight.Bold,
+-            maxLines = 1,
+-            overflow = TextOverflow.Ellipsis,
+-        )
++                        "퀴즈 기록"
++                    },
++                style = MaterialTheme.typography.headlineSmall,
++                fontWeight = FontWeight.Bold,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++            )
++            if (selectedProfile != null) {
++                Spacer(modifier = Modifier.width(8.dp))
++                Image(
++                    painter = painterResource(id = com.ssafy.mobile.R.drawable.ic_report_boy),
++                    contentDescription = "아이 아이콘",
++                    modifier = Modifier.size(36.dp),
++                )
++            }
++        }
+         Spacer(modifier = Modifier.height(6.dp))
+         Text(
+             text =
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportSummaryRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportSummaryRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportSummaryRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportSummaryRoute.kt
+@@ -1,13 +1,17 @@
+ package com.ssafy.mobile.feature.report.presentation
+ 
++import androidx.compose.foundation.Image
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.material3.ExperimentalMaterial3Api
+ import androidx.compose.material3.MaterialTheme
+@@ -18,7 +22,9 @@ import androidx.compose.material3.TopAppBar
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.DisposableEffect
+ import androidx.compose.runtime.getValue
++import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.res.painterResource
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
+@@ -165,13 +171,23 @@ private data class ReportSummaryActions(
+ private fun ReportSummaryIntro(activeChildState: ActiveChildProfileState) {
+     val selectedProfile = (activeChildState as? ActiveChildProfileState.Selected)?.profile
+     Column(modifier = Modifier.fillMaxWidth()) {
+-        Text(
+-            text = selectedProfile?.let { "${it.name}의 학습 요약" } ?: "학습 요약 리포트",
+-            style = MaterialTheme.typography.headlineSmall,
+-            fontWeight = FontWeight.Bold,
+-            maxLines = 1,
+-            overflow = TextOverflow.Ellipsis,
+-        )
++        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
++            Text(
++                text = selectedProfile?.let { "${it.name}의 학습 요약" } ?: "학습 요약 리포트",
++                style = MaterialTheme.typography.headlineSmall,
++                fontWeight = FontWeight.Bold,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++            )
++            if (selectedProfile != null) {
++                Spacer(modifier = Modifier.width(8.dp))
++                Image(
++                    painter = painterResource(id = com.ssafy.mobile.R.drawable.ic_report_boy),
++                    contentDescription = "아이 아이콘",
++                    modifier = Modifier.size(36.dp),
++                )
++            }
++        }
+         Spacer(modifier = Modifier.height(6.dp))
+         Text(
+             text = "완료한 퀴즈를 기준으로 참여도와 정답률을 정리했어요.",
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportSummarySection.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportSummarySection.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportSummarySection.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportSummarySection.kt
+@@ -1,12 +1,21 @@
++@file:Suppress("MaxLineLength")
++
+ package com.ssafy.mobile.feature.report.presentation
+ 
++import androidx.compose.foundation.background
+ import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.layout.width
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.CircularProgressIndicator
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+@@ -125,27 +134,46 @@ private fun SummaryMetricGrid(summary: ReportSummary) {
+             modifier = Modifier.fillMaxWidth(),
+             horizontalArrangement = Arrangement.spacedBy(12.dp),
+         ) {
+-            SummaryMetricCard(
++            CleanMetricCard(
+                 title = "완료 퀴즈",
+                 value = "${summary.participation.completedSessionCount}회",
+-                tone = ReportVisualTone.Primary,
+                 modifier = Modifier.weight(1f),
+             )
+-            SummaryMetricCard(
++            CleanMetricCard(
+                 title = "정답률",
+                 value = "$accuracyRateLabel%",
+-                tone = ReportVisualTone.Success,
+                 modifier = Modifier.weight(1f),
++                content = {
++                    Box(
++                        contentAlignment = Alignment.Center,
++                        modifier = Modifier.height(36.dp).width(36.dp),
++                    ) {
++                        CircularProgressIndicator(
++                            progress = {
++                                (
++                                    summary.performance.accuracyRate.coerceIn(
++                                        PERCENT_MIN,
++                                        PERCENT_MAX,
++                                    ) /
++                                        100.0
++                                ).toFloat()
++                            },
++                            modifier = Modifier.fillMaxSize(),
++                            color = MaterialTheme.colorScheme.primary,
++                            trackColor = MaterialTheme.colorScheme.primaryContainer,
++                            strokeWidth = 4.dp,
++                        )
++                    }
++                },
+             )
+         }
+         Row(
+             modifier = Modifier.fillMaxWidth(),
+             horizontalArrangement = Arrangement.spacedBy(12.dp),
+         ) {
+-            SummaryMetricCard(
++            CleanMetricCard(
+                 title = "푼 문제",
+                 value = "${summary.participation.totalQuestionCount}문제",
+-                tone = ReportVisualTone.Tertiary,
+                 modifier = Modifier.fillMaxWidth(),
+             )
+         }
+@@ -158,20 +186,44 @@ private fun SummaryMetricGrid(summary: ReportSummary) {
+ }
+ 
+ @Composable
+-private fun SummaryMetricCard(
++private fun CleanMetricCard(
+     title: String,
+     value: String,
+     modifier: Modifier = Modifier,
+-    detail: String? = null,
+-    tone: ReportVisualTone = ReportVisualTone.Primary,
++    content: (@Composable () -> Unit)? = null,
+ ) {
+-    ReportMetricTile(
+-        title = title,
+-        value = value,
++    ReportGlassCard(
+         modifier = modifier,
+-        detail = detail,
+-        tone = tone,
+-    )
++        contentPadding =
++            androidx.compose.foundation.layout
++                .PaddingValues(16.dp),
++    ) {
++        Column(
++            modifier = Modifier.fillMaxWidth(),
++            verticalArrangement = Arrangement.spacedBy(8.dp),
++        ) {
++            Text(
++                text = title,
++                style = MaterialTheme.typography.labelMedium,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++            )
++            Row(
++                modifier = Modifier.fillMaxWidth(),
++                horizontalArrangement = Arrangement.SpaceBetween,
++                verticalAlignment = Alignment.CenterVertically,
++            ) {
++                Text(
++                    text = value,
++                    style = MaterialTheme.typography.titleLarge,
++                    fontWeight = FontWeight.Bold,
++                    color = MaterialTheme.colorScheme.onSurface,
++                )
++                if (content != null) {
++                    content()
++                }
++            }
++        }
++    }
+ }
+ 
+ @Composable
+@@ -181,8 +233,8 @@ private fun LatestActivityCard(summary: ReportSummary) {
+     ) {
+         Column {
+             AppBadge(
+-                text = "최근 학습",
+-                tone = AppBadgeTone.Secondary,
++                text = "최근 학습 📅",
++                tone = AppBadgeTone.Primary,
+             )
+             Spacer(modifier = Modifier.height(8.dp))
+             Text(
+@@ -211,14 +263,14 @@ private fun WeakWordsPreviewCard(weakWords: List<ReportWeakWord>) {
+                 tone = AppBadgeTone.Error,
+             )
+             Spacer(modifier = Modifier.height(8.dp))
+-            Text(
+-                text = if (weakWords.isEmpty()) "아직 자주 틀린 단어가 없어요." else "상위 단어",
+-                style = MaterialTheme.typography.titleSmall,
+-                fontWeight = FontWeight.Bold,
+-            )
+-            Spacer(modifier = Modifier.height(8.dp))
+ 
+             if (weakWords.isEmpty()) {
++                Text(
++                    text = "아직 자주 틀린 단어가 없어요.",
++                    style = MaterialTheme.typography.titleSmall,
++                    fontWeight = FontWeight.Bold,
++                )
++                Spacer(modifier = Modifier.height(8.dp))
+                 Text(
+                     text = "퀴즈를 더 풀면 이곳에 어려워하는 단어가 쌓여요.",
+                     style = MaterialTheme.typography.bodyMedium,
+@@ -239,20 +291,37 @@ private fun WeakWordRow(word: ReportWeakWord) {
+         modifier =
+             Modifier
+                 .fillMaxWidth()
+-                .padding(vertical = 6.dp),
++                .padding(vertical = 8.dp),
+         verticalAlignment = Alignment.CenterVertically,
+     ) {
++        Box(
++            contentAlignment = Alignment.Center,
++            modifier =
++                Modifier
++                    .size(40.dp)
++                    .background(
++                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
++                        shape = RoundedCornerShape(12.dp),
++                    ),
++        ) {
++            Text(
++                text = getWordEmoji(word.displayText ?: word.word, word.categoryName),
++                style = MaterialTheme.typography.titleLarge,
++            )
++        }
++        Spacer(modifier = Modifier.width(12.dp))
+         Column(modifier = Modifier.weight(1f)) {
+             Text(
+                 text = word.displayText ?: word.word,
+-                style = MaterialTheme.typography.bodyMedium,
++                style = MaterialTheme.typography.bodyLarge,
+                 fontWeight = FontWeight.Bold,
+                 maxLines = 1,
+                 overflow = TextOverflow.Ellipsis,
+             )
++            Spacer(modifier = Modifier.height(2.dp))
+             Text(
+                 text = word.categoryName,
+-                style = MaterialTheme.typography.bodySmall,
++                style = MaterialTheme.typography.labelMedium,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                 maxLines = 1,
+                 overflow = TextOverflow.Ellipsis,
+@@ -260,7 +329,7 @@ private fun WeakWordRow(word: ReportWeakWord) {
+         }
+         Text(
+             text = "${word.wrongCount}/${word.attemptCount}",
+-            style = MaterialTheme.typography.labelMedium,
++            style = MaterialTheme.typography.titleMedium,
+             color = MaterialTheme.colorScheme.error,
+         )
+     }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportVisualComponents.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportVisualComponents.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportVisualComponents.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportVisualComponents.kt
+@@ -1,4 +1,4 @@
+-@file:Suppress("MagicNumber", "TooManyFunctions")
++@file:Suppress("CyclomaticComplexMethod", "MagicNumber", "MaxLineLength", "TooManyFunctions")
+ 
+ package com.ssafy.mobile.feature.report.presentation
+ 
+@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.alpha
+ import androidx.compose.ui.draw.clip
+ import androidx.compose.ui.graphics.Brush
+ import androidx.compose.ui.graphics.Color
+@@ -34,7 +35,6 @@ import com.ssafy.mobile.core.ui.theme.SudaHomeAccent
+ import com.ssafy.mobile.core.ui.theme.SudaInfo
+ import com.ssafy.mobile.core.ui.theme.SudaReportAccent
+ import com.ssafy.mobile.core.ui.theme.SudaSuccess
+-import com.ssafy.mobile.core.ui.theme.SudaWarning
+ import java.util.Locale
+ import kotlin.math.roundToInt
+ 
+@@ -99,7 +99,7 @@ internal fun ReportSectionTitle(
+         modifier = modifier.fillMaxWidth(),
+         verticalAlignment = Alignment.Top,
+     ) {
+-        ReportSectionMarker()
++        ReportSectionMarker(title = title)
+         Spacer(modifier = Modifier.width(10.dp))
+         Column(modifier = Modifier.weight(1f)) {
+             Text(
+@@ -121,20 +121,23 @@ internal fun ReportSectionTitle(
+ }
+ 
+ @Composable
+-private fun ReportSectionMarker() {
++private fun ReportSectionMarker(title: String) {
++    val (iconText, bgColor) =
++        when (title) {
++            "기록" -> "📝" to MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.58f)
++            "이번 기간 요약" -> "📊" to MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.58f)
++            else -> "✨" to MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.58f)
++        }
++
+     Surface(
+-        modifier = Modifier.size(28.dp),
+-        shape = RoundedCornerShape(8.dp),
+-        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.58f),
+-        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
++        modifier = Modifier.size(36.dp),
++        shape = RoundedCornerShape(12.dp),
++        color = bgColor,
+     ) {
+         Box(contentAlignment = Alignment.Center) {
+-            Box(
+-                modifier =
+-                    Modifier
+-                        .size(9.dp)
+-                        .clip(RoundedCornerShape(999.dp))
+-                        .background(SudaReportAccent),
++            Text(
++                text = iconText,
++                style = MaterialTheme.typography.titleMedium,
+             )
+         }
+     }
+@@ -257,25 +260,20 @@ internal fun ReportStarRating(
+     Row(
+         modifier = modifier,
+         verticalAlignment = Alignment.CenterVertically,
+-        horizontalArrangement = Arrangement.spacedBy(2.dp),
++        horizontalArrangement = Arrangement.spacedBy(4.dp),
+     ) {
+         repeat(STAR_MAX) { index ->
+             Text(
+-                text = if (index < filledCount) "★" else "☆",
+-                style = MaterialTheme.typography.titleSmall,
+-                color =
+-                    if (index < filledCount) {
+-                        SudaWarning
+-                    } else {
+-                        MaterialTheme.colorScheme.outline
+-                    },
++                text = "⭐",
++                style = MaterialTheme.typography.headlineSmall,
++                modifier = if (index < filledCount) Modifier else Modifier.alpha(0.3f),
+             )
+         }
+         if (showValue) {
+-            Spacer(modifier = Modifier.width(4.dp))
++            Spacer(modifier = Modifier.width(6.dp))
+             Text(
+                 text = "$label/3",
+-                style = MaterialTheme.typography.labelMedium,
++                style = MaterialTheme.typography.titleMedium,
+                 fontWeight = FontWeight.Bold,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                 maxLines = 1,
+@@ -471,3 +469,95 @@ private const val STAR_MIN = 0
+ private const val STAR_MAX = 3
+ private const val PERCENT_MIN = 0.0
+ private const val PERCENT_MAX = 100.0
++
++internal fun getWordEmoji(
++    word: String,
++    categoryName: String,
++): String {
++    val cleanWord = word.trim()
++    return when {
++        // --- 1. 동물/새 ---
++        cleanWord.contains("강아지") -> "🐶"
++        cleanWord.contains("기린") -> "🦒"
++        cleanWord.contains("곰") -> "🐻"
++        cleanWord.contains("소") && !cleanWord.contains("소방차") && !cleanWord.contains("코뿔소") -> "🐮"
++        cleanWord.contains("말") -> "🐴"
++        cleanWord.contains("새") && !cleanWord.contains("우주선") -> "🐦"
++        cleanWord.contains("토끼") -> "🐰"
++        cleanWord.contains("사자") -> "🦁"
++        cleanWord.contains("악어") -> "🐊"
++        cleanWord.contains("오리") -> "🦆"
++        cleanWord.contains("하마") -> "🦛"
++        cleanWord.contains("코뿔소") -> "🦏"
++        cleanWord.contains("원숭이") -> "🐵"
++        cleanWord.contains("다람쥐") -> "🐿️"
++        cleanWord.contains("캥거루") -> "🦘"
++
++        // --- 2. 음식 ---
++        cleanWord.contains("사과") -> "🍎"
++        cleanWord.contains("우유") -> "🥛"
++        cleanWord.contains("밥") -> "🍚"
++        cleanWord.contains("빵") -> "🍞"
++        cleanWord.contains("딸기") -> "🍓"
++        cleanWord.contains("옥수수") -> "🌽"
++        cleanWord.contains("요구르트") -> "🧃"
++        cleanWord.contains("샌드위치") -> "🥪"
++        cleanWord.contains("스파게티") -> "🍝"
++        cleanWord.contains("브로콜리") -> "🥦"
++        cleanWord.contains("당근") -> "🥕"
++        cleanWord.contains("치즈") -> "🧀"
++        cleanWord.contains("계란") -> "🥚"
++        cleanWord.contains("고기") -> "🥩"
++        cleanWord.contains("포도") -> "🍇"
++
++        // --- 3. 가족/인물 ---
++        cleanWord.contains("할아버지") -> "👴"
++        cleanWord.contains("할머니") -> "👵"
++        cleanWord.contains("나") && (cleanWord.length == 1 || cleanWord == "나") -> "👶"
++        cleanWord.contains("엄마") -> "👩"
++        cleanWord.contains("아빠") -> "👨"
++
++        // --- 4. 색깔 ---
++        cleanWord.contains("검정") -> "⚫"
++        cleanWord.contains("하양") -> "⚪"
++        cleanWord.contains("하늘색") -> "🩵"
++        cleanWord.contains("남색") -> "🔵"
++        cleanWord.contains("파랑") -> "🔵"
++        cleanWord.contains("노랑") -> "🟡"
++        cleanWord.contains("빨강") -> "🔴"
++        cleanWord.contains("금색") -> "✨"
++        cleanWord.contains("연두색") -> "🌱"
++        cleanWord.contains("무지개색") -> "🌈"
++        cleanWord.contains("갈색") -> "🤎"
++        cleanWord.contains("회색") -> "🩶"
++        cleanWord.contains("주황") -> "🟠"
++        cleanWord.contains("초록") -> "🟢"
++        cleanWord.contains("보라") -> "🟣"
++
++        // --- 5. 탈것 ---
++        cleanWord.contains("경찰차") -> "🚓"
++        cleanWord.contains("구급차") -> "🚑"
++        cleanWord.contains("소방차") -> "🚒"
++        cleanWord.contains("자동차") -> "🚗"
++        cleanWord.contains("택시") -> "🚕"
++        cleanWord.contains("버스") -> "🚌"
++        cleanWord.contains("기차") -> "🚂"
++        cleanWord.contains("배") &&
++            (cleanWord == "배" || categoryName.contains("탈것") || categoryName.contains("교통")) -> "🚢"
++        cleanWord.contains("포크레인") -> "🚜"
++        cleanWord.contains("우주선") -> "🚀"
++        cleanWord.contains("잠수함") -> "⚓"
++        cleanWord.contains("헬리콥터") -> "🚁"
++        cleanWord.contains("오토바이") -> "🏍️"
++        cleanWord.contains("비행기") -> "✈️"
++        cleanWord.contains("자전거") -> "🚲"
++
++        // --- 6. 카테고리 폴백 ---
++        categoryName.contains("음식") || categoryName.contains("과일") -> "🍽️"
++        categoryName.contains("동물") || categoryName.contains("곤충") -> "🐾"
++        categoryName.contains("가족") || categoryName.contains("사람") -> "👨‍👩‍👧"
++        categoryName.contains("탈것") || categoryName.contains("교통") -> "🚗"
++        categoryName.contains("색깔") || categoryName.contains("색상") -> "🎨"
++        else -> "💡"
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordCard.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordCard.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordCard.kt
+@@ -1,16 +1,25 @@
++@file:Suppress("LongMethod")
++
+ package com.ssafy.mobile.feature.report.presentation
+ 
++import androidx.compose.foundation.background
++import androidx.compose.foundation.clickable
++import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.width
++import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.clip
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
+@@ -22,49 +31,84 @@ fun ReportWeakWordCard(
+     onLearnClick: () -> Unit,
+ ) {
+     val correctCount = (word.attemptCount - word.wrongCount).coerceAtLeast(0)
++    val wordLabel = word.displayText?.takeIf { it.isNotBlank() } ?: word.word
+ 
+     ReportGlassCard(
+         modifier = Modifier.fillMaxWidth(),
+         onClick = onLearnClick,
+     ) {
+         Column {
++            val wordIconColor =
++                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+             Row(
+                 modifier = Modifier.fillMaxWidth(),
+                 verticalAlignment = Alignment.CenterVertically,
+             ) {
++                // 단어별 귀여운 이모지 동그라미 아바타
++                Box(
++                    contentAlignment = Alignment.Center,
++                    modifier =
++                        Modifier
++                            .size(46.dp)
++                            .background(
++                                color = wordIconColor,
++                                shape = RoundedCornerShape(14.dp),
++                            ),
++                ) {
++                    Text(
++                        text = getWordEmoji(wordLabel, word.categoryName),
++                        style = MaterialTheme.typography.titleLarge,
++                    )
++                }
++
++                Spacer(modifier = Modifier.width(12.dp))
++
+                 Column(modifier = Modifier.weight(1f)) {
+-                    val wordLabel = word.displayText?.takeIf { it.isNotBlank() } ?: word.word
+                     Text(
+                         text = wordLabel,
+-                        style = MaterialTheme.typography.titleMedium,
++                        style = MaterialTheme.typography.titleLarge,
+                         fontWeight = FontWeight.Bold,
++                        color = MaterialTheme.colorScheme.onSurface,
+                         maxLines = 1,
+                         overflow = TextOverflow.Ellipsis,
+                     )
++                    Spacer(modifier = Modifier.height(2.dp))
+                     Text(
+                         text = word.categoryName,
+-                        style = MaterialTheme.typography.bodySmall,
++                        style = MaterialTheme.typography.labelMedium,
+                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                         maxLines = 1,
+                         overflow = TextOverflow.Ellipsis,
+                     )
+                 }
+-                Text(
+-                    text = "학습하기",
+-                    style = MaterialTheme.typography.labelMedium,
+-                    fontWeight = FontWeight.Bold,
+-                    color = MaterialTheme.colorScheme.primary,
+-                    maxLines = 1,
+-                )
++
++                // 귀여운 학습하기 알약 버튼
++                Box(
++                    modifier =
++                        Modifier
++                            .clip(RoundedCornerShape(16.dp))
++                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
++                            .clickable { onLearnClick() }
++                            .padding(horizontal = 14.dp, vertical = 6.dp),
++                    contentAlignment = Alignment.Center,
++                ) {
++                    Text(
++                        text = "학습하기 ✏️",
++                        style = MaterialTheme.typography.labelLarge,
++                        fontWeight = FontWeight.Bold,
++                        color = MaterialTheme.colorScheme.primary,
++                        maxLines = 1,
++                    )
++                }
+             }
+ 
+-            Spacer(modifier = Modifier.height(12.dp))
++            Spacer(modifier = Modifier.height(14.dp))
+             ReportPercentMeter(
+                 title = "정답률 ($correctCount/${word.attemptCount})",
+                 value = word.accuracyRate,
+-                tone = ReportVisualTone.Warning,
++                tone = ReportVisualTone.Primary,
+             )
+-            Spacer(modifier = Modifier.height(10.dp))
++            Spacer(modifier = Modifier.height(12.dp))
+             Row(
+                 modifier = Modifier.fillMaxWidth(),
+                 verticalAlignment = Alignment.CenterVertically,
+@@ -79,7 +123,7 @@ fun ReportWeakWordCard(
+                 ReportStarRating(rating = word.averageStar)
+                 Spacer(modifier = Modifier.weight(1f))
+                 Text(
+-                    text = "최근 ${word.lastAnsweredAt.toReportDateLabel()}",
++                    text = "📅 최근 ${word.lastAnsweredAt.toReportDateLabel()}",
+                     style = MaterialTheme.typography.bodySmall,
+                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                     maxLines = 1,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsRoute.kt
+@@ -1,13 +1,17 @@
+ package com.ssafy.mobile.feature.report.presentation
+ 
++import androidx.compose.foundation.Image
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.LazyListScope
+ import androidx.compose.foundation.lazy.items
+@@ -22,6 +26,7 @@ import androidx.compose.runtime.DisposableEffect
+ import androidx.compose.runtime.getValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.res.painterResource
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.text.style.TextOverflow
+@@ -72,7 +77,7 @@ fun ReportWeakWordsRoute(
+             TopAppBar(
+                 title = {
+                     Text(
+-                        text = "자주 틀리는 단어",
++                        text = "자주 틀리는 단어 반복 학습하기",
+                         style = MaterialTheme.typography.titleLarge,
+                         fontWeight = FontWeight.Bold,
+                     )
+@@ -241,13 +246,23 @@ private data class ReportWeakWordsActions(
+ private fun ReportWeakWordsIntro(activeChildState: ActiveChildProfileState) {
+     val selectedProfile = (activeChildState as? ActiveChildProfileState.Selected)?.profile
+     Column(modifier = Modifier.fillMaxWidth()) {
+-        Text(
+-            text = selectedProfile?.let { "${it.name}의 취약 단어" } ?: "취약 단어 리포트",
+-            style = MaterialTheme.typography.headlineSmall,
+-            fontWeight = FontWeight.Bold,
+-            maxLines = 1,
+-            overflow = TextOverflow.Ellipsis,
+-        )
++        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
++            Text(
++                text = selectedProfile?.let { "${it.name}의 취약 단어 반복 학습하기" } ?: "취약 단어 반복 학습하기",
++                style = MaterialTheme.typography.headlineSmall,
++                fontWeight = FontWeight.Bold,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++            )
++            if (selectedProfile != null) {
++                Spacer(modifier = Modifier.width(8.dp))
++                Image(
++                    painter = painterResource(id = com.ssafy.mobile.R.drawable.ic_report_boy),
++                    contentDescription = "아이 아이콘",
++                    modifier = Modifier.size(36.dp),
++                )
++            }
++        }
+         Spacer(modifier = Modifier.height(6.dp))
+         Text(
+             text = "완료한 퀴즈를 기준으로 자주 틀린 단어를 정리했어요.",
+
+
+diff --git a/mobile/app/src/main/res/drawable/ic_report_boy.png b/mobile/app/src/main/res/drawable/ic_report_boy.png
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable/ic_report_boy.png
+Binary files /dev/null and b/mobile/app/src/main/res/drawable/ic_report_boy.png differ
+
+
+diff --git a/mobile/app/src/main/res/drawable/ic_report_reading_boy.png b/mobile/app/src/main/res/drawable/ic_report_reading_boy.png
+--- /dev/null
++++ b/mobile/app/src/main/res/drawable/ic_report_reading_boy.png
+Binary files /dev/null and b/mobile/app/src/main/res/drawable/ic_report_reading_boy.png differ
+
+
+diff --git a/mobile/app/build.gradle.kts b/mobile/app/build.gradle.kts
+--- a/mobile/app/build.gradle.kts
++++ b/mobile/app/build.gradle.kts
+@@ -44,6 +44,12 @@ val sllmModelDownloadUrl: String =
+         gradlePropertyKey = "sllm.model.download.url",
+         defaultValue = defaultSllmModelDownloadUrl,
+     )
++val reportUseFakeData: Boolean =
++    configValue(
++        key = "REPORT_USE_FAKE_DATA",
++        gradlePropertyKey = "report.use.fake.data",
++        defaultValue = "false",
++    ).toBooleanStrictOrNull() ?: false
+ val qwenModelFileName =
+     "Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm"
+ val qwenDebugModelLocalPath: String =
+@@ -86,6 +92,7 @@ android {
+         buildConfigField("String", "NAVER_CLIENT_ID", "\"$naverClientId\"")
+         buildConfigField("String", "NAVER_CLIENT_SECRET", "\"$naverClientSecret\"")
+         buildConfigField("String", "NAVER_CLIENT_NAME", "\"$naverClientName\"")
++        buildConfigField("boolean", "REPORT_USE_FAKE_DATA", reportUseFakeData.toString())
+         buildConfigField(
+             "String",
+             "SLLM_MODEL_DOWNLOAD_URL",
+
+

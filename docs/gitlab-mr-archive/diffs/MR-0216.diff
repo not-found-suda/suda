@@ -1,0 +1,660 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/report/controller/ReportController.java b/backend/src/main/java/com/ssafy/backend/domain/report/controller/ReportController.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/report/controller/ReportController.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/report/controller/ReportController.java
+@@ -50,9 +50,11 @@ public class ReportController implements ReportApiDocs {
+       Authentication authentication,
+       @PathVariable Long childId,
+       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) String from,
+-      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) String to) {
++      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) String to,
++      @RequestParam(defaultValue = "5") int sessionLimit) {
+     return ResponseEntity.ok(
+-        reportService.getCommunicationSummary(resolveUserId(authentication), childId, from, to));
++        reportService.getCommunicationSummary(
++            resolveUserId(authentication), childId, from, to, sessionLimit));
+   }
+ 
+   @Override
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/report/docs/ReportApiDocs.java b/backend/src/main/java/com/ssafy/backend/domain/report/docs/ReportApiDocs.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/report/docs/ReportApiDocs.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/report/docs/ReportApiDocs.java
+@@ -51,7 +51,8 @@ public interface ReportApiDocs {
+       @Parameter(hidden = true) Authentication authentication,
+       @Parameter(description = "아이 프로필 ID", example = "1") Long childId,
+       @Parameter(description = "조회 시작일", example = "2026-05-01") String from,
+-      @Parameter(description = "조회 종료일", example = "2026-05-31") String to);
++      @Parameter(description = "조회 종료일", example = "2026-05-31") String to,
++      @Parameter(description = "최근 소통 세션 반환 개수", example = "5") int sessionLimit);
+ 
+   @Operation(
+       summary = "카테고리별 리포트 요약 조회",
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/report/service/ReportService.java b/backend/src/main/java/com/ssafy/backend/domain/report/service/ReportService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/report/service/ReportService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/report/service/ReportService.java
+@@ -53,7 +53,7 @@ public class ReportService {
+   private static final int DEFAULT_PAGE = 1;
+   private static final int DEFAULT_MIN_ATTEMPT_COUNT = 1;
+   private static final int SUMMARY_WEAK_WORD_LIMIT = 5;
+-  private static final int RECENT_COMMUNICATION_SESSION_LIMIT = 5;
++  private static final int MAX_COMMUNICATION_SESSION_LIMIT = 50;
+   private static final int REPORT_GUIDE_LIMIT = 5;
+   private static final int MAX_SIZE = 100;
+ 
+@@ -112,9 +112,10 @@ public class ReportService {
+   }
+ 
+   public ReportCommunicationSummaryResponse getCommunicationSummary(
+-      Long userId, Long childId, String from, String to) {
++      Long userId, Long childId, String from, String to, int sessionLimit) {
+     validatePositiveId(childId, "childId");
+     validateChildProfileOwner(childId, userId);
++    int resolvedSessionLimit = resolveCommunicationSessionLimit(sessionLimit);
+ 
+     LocalDateTime fromDateTime = parseFrom(from);
+     LocalDateTime toDateTime = parseToExclusive(to);
+@@ -237,7 +238,7 @@ public class ReportService {
+             recommendedActivities, sessionRecommendedActivities, REPORT_GUIDE_LIMIT);
+       }
+ 
+-      if (recentSessions.size() < RECENT_COMMUNICATION_SESSION_LIMIT) {
++      if (recentSessions.size() < resolvedSessionLimit) {
+         recentSessions.add(
+             new ReportCommunicationSessionSummaryResponse(
+                 row.sessionId(),
+@@ -732,6 +733,14 @@ public class ReportService {
+     return size;
+   }
+ 
++  private int resolveCommunicationSessionLimit(int sessionLimit) {
++    if (sessionLimit < 1 || sessionLimit > MAX_COMMUNICATION_SESSION_LIMIT) {
++      throw new BusinessException(
++          ValidationErrorCode.INVALID_INPUT, "sessionLimit은 1 이상 50 이하여야 합니다.");
++    }
++    return sessionLimit;
++  }
++
+   private int resolveMinAttemptCount(Integer minAttemptCount) {
+     if (minAttemptCount == null) {
+       return DEFAULT_MIN_ATTEMPT_COUNT;
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeViewModel.kt
+@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
+ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileManager
+ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
++import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationAnalysisStatus
++import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationSummary
+ import com.ssafy.mobile.feature.report.domain.model.ReportFilterState
+ import com.ssafy.mobile.feature.report.domain.model.ReportQuizSession
+ import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionPage
+@@ -23,6 +25,11 @@ import kotlinx.coroutines.withContext
+ data class HomeUiState(
+     val activeChildState: ActiveChildProfileState = ActiveChildProfileState.Loading,
+     val weeklyActivityState: HomeWeeklyActivityState = HomeWeeklyActivityState.Idle,
++    val selectedCommunicationDate: LocalDate = LocalDate.now(),
++    val hasManualCommunicationDateSelection: Boolean = false,
++    val communicationInsightToggleResetKey: Int = 0,
++    val communicationInsightState: HomeCommunicationInsightState =
++        HomeCommunicationInsightState.Idle,
+     val resumeQuizState: HomeResumeQuizState = HomeResumeQuizState.Idle,
+ )
+ 
+@@ -38,6 +45,24 @@ sealed interface HomeWeeklyActivityState {
+     data object Error : HomeWeeklyActivityState
+ }
+ 
++sealed interface HomeCommunicationInsightState {
++    data object Idle : HomeCommunicationInsightState
++
++    data object Loading : HomeCommunicationInsightState
++
++    data object Empty : HomeCommunicationInsightState
++
++    data object Processing : HomeCommunicationInsightState
++
++    data class Success(
++        val summary: ReportCommunicationSummary,
++    ) : HomeCommunicationInsightState
++
++    data class Error(
++        val message: String,
++    ) : HomeCommunicationInsightState
++}
++
+ sealed interface HomeResumeQuizState {
+     data object Idle : HomeResumeQuizState
+ 
+@@ -69,6 +94,29 @@ class HomeViewModel
+             loadActiveChildProfile()
+         }
+ 
++        fun selectCommunicationDate(date: LocalDate) {
++            if (_uiState.value.selectedCommunicationDate == date) {
++                return
++            }
++
++            _uiState.value =
++                _uiState.value.copy(
++                    selectedCommunicationDate = date,
++                    hasManualCommunicationDateSelection = true,
++                    communicationInsightToggleResetKey =
++                        _uiState.value.communicationInsightToggleResetKey + 1,
++                    communicationInsightState = HomeCommunicationInsightState.Loading,
++                )
++
++            val childState =
++                _uiState.value.activeChildState as? ActiveChildProfileState.Selected
++                    ?: return
++            loadCommunicationInsight(
++                childId = childState.profile.childId,
++                selectedDate = date,
++            )
++        }
++
+         fun loadActiveChildProfile(showLoading: Boolean = true) {
+             viewModelScope.launch {
+                 if (showLoading) {
+@@ -76,6 +124,9 @@ class HomeViewModel
+                         _uiState.value.copy(
+                             activeChildState = ActiveChildProfileState.Loading,
+                             weeklyActivityState = HomeWeeklyActivityState.Idle,
++                            communicationInsightToggleResetKey =
++                                _uiState.value.communicationInsightToggleResetKey + 1,
++                            communicationInsightState = HomeCommunicationInsightState.Idle,
+                             resumeQuizState = HomeResumeQuizState.Idle,
+                         )
+                 }
+@@ -83,9 +134,12 @@ class HomeViewModel
+                     withContext(Dispatchers.IO) {
+                         activeChildProfileManager.getActiveChildProfile()
+                     }
++                val shouldLoadCommunication =
++                    _uiState.value.communicationInsightState is HomeCommunicationInsightState.Idle
+                 val shouldShowLearningLoading =
+                     showLoading ||
+                         _uiState.value.weeklyActivityState is HomeWeeklyActivityState.Idle ||
++                        shouldLoadCommunication ||
+                         _uiState.value.resumeQuizState is HomeResumeQuizState.Idle
+                 _uiState.value =
+                     _uiState.value.copy(
+@@ -100,6 +154,16 @@ class HomeViewModel
+                             } else {
+                                 HomeWeeklyActivityState.Idle
+                             },
++                        communicationInsightState =
++                            if (state is ActiveChildProfileState.Selected) {
++                                if (shouldShowLearningLoading) {
++                                    HomeCommunicationInsightState.Loading
++                                } else {
++                                    _uiState.value.communicationInsightState
++                                }
++                            } else {
++                                HomeCommunicationInsightState.Idle
++                            },
+                         resumeQuizState =
+                             if (state is ActiveChildProfileState.Selected) {
+                                 if (shouldShowLearningLoading) {
+@@ -127,6 +191,25 @@ class HomeViewModel
+                             size = WEEKLY_ACTIVITY_PAGE_SIZE,
+                             filter = currentWeekReportFilter(),
+                         )
++                    val latestCommunicationDate =
++                        if (_uiState.value.hasManualCommunicationDateSelection) {
++                            null
++                        } else {
++                            reportRepository
++                                .getCommunicationSummary(
++                                    childId = childId,
++                                    sessionLimit = LATEST_COMMUNICATION_SESSION_LIMIT,
++                                ).getOrNull()
++                                ?.preferredInitialCommunicationDateOrNull()
++                        }
++                    val selectedDate =
++                        latestCommunicationDate ?: _uiState.value.selectedCommunicationDate
++                    val communicationInsightResult =
++                        reportRepository.getCommunicationSummary(
++                            childId = childId,
++                            filter = selectedDate.toSingleDateReportFilter(),
++                            sessionLimit = HOME_COMMUNICATION_SESSION_LIMIT,
++                        )
+                     val resumeQuizResult =
+                         reportRepository.getQuizSessions(
+                             childId = childId,
+@@ -134,7 +217,12 @@ class HomeViewModel
+                             size = RESUME_QUIZ_PAGE_SIZE,
+                             filter = ReportFilterState(status = QUIZ_STATUS_IN_PROGRESS),
+                         )
+-                    weeklyActivityResult to resumeQuizResult
++                    HomeLearningResult(
++                        weeklyActivityResult = weeklyActivityResult,
++                        selectedCommunicationDate = selectedDate,
++                        communicationInsightResult = communicationInsightResult,
++                        resumeQuizResult = resumeQuizResult,
++                    )
+                 }
+ 
+             val currentActiveChildState = _uiState.value.activeChildState
+@@ -147,12 +235,54 @@ class HomeViewModel
+ 
+             _uiState.value =
+                 _uiState.value.copy(
+-                    weeklyActivityState = result.first.toWeeklyActivityState(),
+-                    resumeQuizState = result.second.toResumeQuizState(),
++                    weeklyActivityState = result.weeklyActivityResult.toWeeklyActivityState(),
++                    selectedCommunicationDate = result.selectedCommunicationDate,
++                    communicationInsightToggleResetKey =
++                        _uiState.value.communicationInsightToggleResetKey + 1,
++                    communicationInsightState =
++                        result.communicationInsightResult.toCommunicationInsightState(),
++                    resumeQuizState = result.resumeQuizResult.toResumeQuizState(),
+                 )
+         }
++
++        private fun loadCommunicationInsight(
++            childId: Long,
++            selectedDate: LocalDate,
++        ) {
++            viewModelScope.launch {
++                val result =
++                    withContext(Dispatchers.IO) {
++                        reportRepository.getCommunicationSummary(
++                            childId = childId,
++                            filter = selectedDate.toSingleDateReportFilter(),
++                            sessionLimit = HOME_COMMUNICATION_SESSION_LIMIT,
++                        )
++                    }
++
++                val currentState = _uiState.value.activeChildState
++                if (
++                    currentState !is ActiveChildProfileState.Selected ||
++                    currentState.profile.childId != childId ||
++                    _uiState.value.selectedCommunicationDate != selectedDate
++                ) {
++                    return@launch
++                }
++
++                _uiState.value =
++                    _uiState.value.copy(
++                        communicationInsightState = result.toCommunicationInsightState(),
++                    )
++            }
++        }
+     }
+ 
++private data class HomeLearningResult(
++    val weeklyActivityResult: Result<ReportQuizSessionPage>,
++    val selectedCommunicationDate: LocalDate,
++    val communicationInsightResult: Result<ReportCommunicationSummary>,
++    val resumeQuizResult: Result<ReportQuizSessionPage>,
++)
++
+ private fun Result<ReportQuizSessionPage>.toWeeklyActivityState(): HomeWeeklyActivityState =
+     fold(
+         onSuccess = { page ->
+@@ -171,6 +301,60 @@ private fun Result<ReportQuizSessionPage>.toWeeklyActivityState(): HomeWeeklyAct
+         },
+     )
+ 
++private fun Result<ReportCommunicationSummary>.toCommunicationInsightState():
++    HomeCommunicationInsightState =
++    fold(
++        onSuccess = { summary ->
++            when (summary.analysisStatus) {
++                ReportCommunicationAnalysisStatus.Pending,
++                ReportCommunicationAnalysisStatus.Processing,
++                ->
++                    if (summary.hasCompletedCommunicationInsight()) {
++                        HomeCommunicationInsightState.Success(summary)
++                    } else {
++                        HomeCommunicationInsightState.Processing
++                    }
++
++                ReportCommunicationAnalysisStatus.Failed ->
++                    HomeCommunicationInsightState.Error("소통 분석을 완료하지 못했어요.")
++
++                ReportCommunicationAnalysisStatus.Empty ->
++                    HomeCommunicationInsightState.Empty
++
++                ReportCommunicationAnalysisStatus.Completed,
++                ReportCommunicationAnalysisStatus.Unknown,
++                ->
++                    if (summary.hasCommunicationData) {
++                        HomeCommunicationInsightState.Success(summary)
++                    } else {
++                        HomeCommunicationInsightState.Empty
++                    }
++            }
++        },
++        onFailure = { throwable ->
++            HomeCommunicationInsightState.Error(
++                throwable.message ?: "소통 분석을 불러오지 못했습니다.",
++            )
++        },
++    )
++
++private fun ReportCommunicationSummary.hasCompletedCommunicationInsight(): Boolean =
++    totalUtteranceCount > 0 ||
++        frequentWords.isNotEmpty() ||
++        strengths.isNotEmpty() ||
++        developmentReference.isNotBlank() ||
++        recentSessions.any { session -> session.summary.isNotBlank() }
++
++private fun ReportCommunicationSummary.preferredInitialCommunicationDateOrNull(): LocalDate? =
++    recentSessions
++        .firstOrNull()
++        ?.startedAt
++        ?.take(REPORT_DATE_LENGTH)
++        ?.toReportDateOrNull()
++        ?: generatedAt
++            ?.take(REPORT_DATE_LENGTH)
++            ?.toReportDateOrNull()
++
+ private fun Result<ReportQuizSessionPage>.toResumeQuizState(): HomeResumeQuizState =
+     fold(
+         onSuccess = { page ->
+@@ -198,6 +382,12 @@ private fun currentWeekReportFilter(): ReportFilterState {
+     )
+ }
+ 
++private fun LocalDate.toSingleDateReportFilter(): ReportFilterState =
++    ReportFilterState(
++        from = toString(),
++        to = toString(),
++    )
++
+ private fun String.toReportDateOrNull(): LocalDate? =
+     runCatching {
+         trim()
+@@ -208,5 +398,7 @@ private fun String.toReportDateOrNull(): LocalDate? =
+ private const val FIRST_PAGE = 1
+ private const val WEEKLY_ACTIVITY_PAGE_SIZE = 100
+ private const val RESUME_QUIZ_PAGE_SIZE = 3
++private const val LATEST_COMMUNICATION_SESSION_LIMIT = 1
++private const val HOME_COMMUNICATION_SESSION_LIMIT = 20
+ private const val REPORT_DATE_LENGTH = 10
+ private const val QUIZ_STATUS_IN_PROGRESS = "IN_PROGRESS"
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
+@@ -22,6 +22,7 @@ interface ReportApiService {
+     @GET("v1/children/{childId}/reports/communication-summary")
+     suspend fun getCommunicationSummary(
+         @Path("childId") childId: Long,
++        @Query("sessionLimit") sessionLimit: Int? = null,
+         @QueryMap filters: Map<String, String> = emptyMap(),
+     ): Response<ReportCommunicationSummaryResponseDto>
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportCommunicationSummaryDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportCommunicationSummaryDto.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportCommunicationSummaryDto.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportCommunicationSummaryDto.kt
+@@ -23,6 +23,26 @@ data class ReportCommunicationSummaryResponseDto(
+     val frequentWords: List<ReportCommunicationWordCountDto> = emptyList(),
+     @SerializedName("expressionTypeCounts")
+     val expressionTypeCounts: ReportExpressionTypeCountsDto? = null,
++    @SerializedName("communicationLevel")
++    val communicationLevel: String? = null,
++    @SerializedName("vocabularyDiversityLevel")
++    val vocabularyDiversityLevel: String? = null,
++    @SerializedName("sentenceExpansionLevel")
++    val sentenceExpansionLevel: String? = null,
++    @SerializedName("strengths")
++    val strengths: List<String> = emptyList(),
++    @SerializedName("improvementPoints")
++    val improvementPoints: List<String> = emptyList(),
++    @SerializedName("parentGuide")
++    val parentGuide: List<String> = emptyList(),
++    @SerializedName("recommendedActivities")
++    val recommendedActivities: List<String> = emptyList(),
++    @SerializedName("developmentReference")
++    val developmentReference: String? = null,
++    @SerializedName("cautionLevel")
++    val cautionLevel: String? = null,
++    @SerializedName("consultationGuide")
++    val consultationGuide: String? = null,
+     @SerializedName("recentSessions")
+     val recentSessions: List<ReportCommunicationSessionSummaryDto> = emptyList(),
+     @SerializedName("generatedAt")
+@@ -38,8 +58,32 @@ data class ReportCommunicationSessionSummaryDto(
+     val endedAt: String? = null,
+     @SerializedName("utteranceCount")
+     val utteranceCount: Int = 0,
++    @SerializedName("averageSentenceLength")
++    val averageSentenceLength: Double = 0.0,
+     @SerializedName("frequentWords")
+     val frequentWords: List<ReportCommunicationWordCountDto> = emptyList(),
++    @SerializedName("expressionTypeCounts")
++    val expressionTypeCounts: ReportExpressionTypeCountsDto? = null,
++    @SerializedName("communicationLevel")
++    val communicationLevel: String? = null,
++    @SerializedName("vocabularyDiversityLevel")
++    val vocabularyDiversityLevel: String? = null,
++    @SerializedName("sentenceExpansionLevel")
++    val sentenceExpansionLevel: String? = null,
++    @SerializedName("strengths")
++    val strengths: List<String> = emptyList(),
++    @SerializedName("improvementPoints")
++    val improvementPoints: List<String> = emptyList(),
++    @SerializedName("parentGuide")
++    val parentGuide: List<String> = emptyList(),
++    @SerializedName("recommendedActivities")
++    val recommendedActivities: List<String> = emptyList(),
++    @SerializedName("developmentReference")
++    val developmentReference: String? = null,
++    @SerializedName("cautionLevel")
++    val cautionLevel: String? = null,
++    @SerializedName("consultationGuide")
++    val consultationGuide: String? = null,
+     @SerializedName("summary")
+     val summary: String? = null,
+     @SerializedName("analysisStatus")
+@@ -64,6 +108,8 @@ data class ReportExpressionTypeCountsDto(
+     val response: Int = 0,
+     @SerializedName("play")
+     val play: Int = 0,
++    @SerializedName("question")
++    val question: Int = 0,
+     @SerializedName("other")
+     val other: Int = 0,
+ )
+@@ -83,8 +129,19 @@ fun ReportCommunicationSummaryResponseDto.toDomain(): ReportCommunicationSummary
+                     emotion = 0,
+                     response = 0,
+                     play = 0,
++                    question = 0,
+                     other = 0,
+                 ),
++        communicationLevel = communicationLevel.orUnknownLevel(),
++        vocabularyDiversityLevel = vocabularyDiversityLevel.orUnknownLevel(),
++        sentenceExpansionLevel = sentenceExpansionLevel.orUnknownLevel(),
++        strengths = strengths.filterNotBlank(),
++        improvementPoints = improvementPoints.filterNotBlank(),
++        parentGuide = parentGuide.filterNotBlank(),
++        recommendedActivities = recommendedActivities.filterNotBlank(),
++        developmentReference = developmentReference.orEmpty(),
++        cautionLevel = cautionLevel.orNoneCautionLevel(),
++        consultationGuide = consultationGuide.orEmpty(),
+         recentSessions = recentSessions.map { it.toDomain() },
+         generatedAt = generatedAt,
+     )
+@@ -95,7 +152,28 @@ fun ReportCommunicationSessionSummaryDto.toDomain(): ReportCommunicationSessionS
+         startedAt = startedAt,
+         endedAt = endedAt,
+         utteranceCount = utteranceCount,
++        averageSentenceLength = averageSentenceLength,
+         frequentWords = frequentWords.mapNotNull { it.toDomainOrNull() },
++        expressionTypeCounts =
++            expressionTypeCounts?.toDomain()
++                ?: ReportExpressionTypeCounts(
++                    request = 0,
++                    emotion = 0,
++                    response = 0,
++                    play = 0,
++                    question = 0,
++                    other = 0,
++                ),
++        communicationLevel = communicationLevel.orUnknownLevel(),
++        vocabularyDiversityLevel = vocabularyDiversityLevel.orUnknownLevel(),
++        sentenceExpansionLevel = sentenceExpansionLevel.orUnknownLevel(),
++        strengths = strengths.filterNotBlank(),
++        improvementPoints = improvementPoints.filterNotBlank(),
++        parentGuide = parentGuide.filterNotBlank(),
++        recommendedActivities = recommendedActivities.filterNotBlank(),
++        developmentReference = developmentReference.orEmpty(),
++        cautionLevel = cautionLevel.orNoneCautionLevel(),
++        consultationGuide = consultationGuide.orEmpty(),
+         summary = summary.orEmpty(),
+         analysisStatus = analysisStatus.toCommunicationAnalysisStatus(),
+         analyzedAt = analyzedAt,
+@@ -107,6 +185,7 @@ fun ReportExpressionTypeCountsDto.toDomain(): ReportExpressionTypeCounts =
+         emotion = emotion,
+         response = response,
+         play = play,
++        question = question,
+         other = other,
+     )
+ 
+@@ -130,3 +209,22 @@ private fun String?.toCommunicationAnalysisStatus(): ReportCommunicationAnalysis
+         "EMPTY" -> ReportCommunicationAnalysisStatus.Empty
+         else -> ReportCommunicationAnalysisStatus.Unknown
+     }
++
++private fun String?.orUnknownLevel(): String =
++    when (this?.uppercase(Locale.ROOT)) {
++        "LOW" -> "LOW"
++        "NORMAL" -> "NORMAL"
++        "HIGH" -> "HIGH"
++        else -> "UNKNOWN"
++    }
++
++private fun String?.orNoneCautionLevel(): String =
++    when (this?.uppercase(Locale.ROOT)) {
++        "WATCH" -> "WATCH"
++        "CONSULT" -> "CONSULT"
++        else -> "NONE"
++    }
++
++private fun List<String>.filterNotBlank(): List<String> =
++    map { it.trim() }
++        .filter { it.isNotBlank() }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
+@@ -70,11 +70,13 @@ class RemoteReportRepository
+         override suspend fun getCommunicationSummary(
+             childId: Long,
+             filter: ReportFilterState,
++            sessionLimit: Int?,
+         ): Result<ReportCommunicationSummary> =
+             try {
+                 val response =
+                     apiService.getCommunicationSummary(
+                         childId = childId,
++                        sessionLimit = sessionLimit,
+                         filters = filter.toDateQueryMap(),
+                     )
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportCommunicationSummary.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportCommunicationSummary.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportCommunicationSummary.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportCommunicationSummary.kt
+@@ -8,6 +8,16 @@ data class ReportCommunicationSummary(
+     val averageSentenceLength: Double,
+     val frequentWords: List<ReportCommunicationWordCount>,
+     val expressionTypeCounts: ReportExpressionTypeCounts,
++    val communicationLevel: String,
++    val vocabularyDiversityLevel: String,
++    val sentenceExpansionLevel: String,
++    val strengths: List<String>,
++    val improvementPoints: List<String>,
++    val parentGuide: List<String>,
++    val recommendedActivities: List<String>,
++    val developmentReference: String,
++    val cautionLevel: String,
++    val consultationGuide: String,
+     val recentSessions: List<ReportCommunicationSessionSummary>,
+     val generatedAt: String?,
+ ) {
+@@ -25,10 +35,11 @@ data class ReportExpressionTypeCounts(
+     val emotion: Int,
+     val response: Int,
+     val play: Int,
++    val question: Int,
+     val other: Int,
+ ) {
+     val total: Int
+-        get() = request + emotion + response + play + other
++        get() = request + emotion + response + play + question + other
+ }
+ 
+ data class ReportCommunicationSessionSummary(
+@@ -36,7 +47,19 @@ data class ReportCommunicationSessionSummary(
+     val startedAt: String?,
+     val endedAt: String?,
+     val utteranceCount: Int,
++    val averageSentenceLength: Double,
+     val frequentWords: List<ReportCommunicationWordCount>,
++    val expressionTypeCounts: ReportExpressionTypeCounts,
++    val communicationLevel: String,
++    val vocabularyDiversityLevel: String,
++    val sentenceExpansionLevel: String,
++    val strengths: List<String>,
++    val improvementPoints: List<String>,
++    val parentGuide: List<String>,
++    val recommendedActivities: List<String>,
++    val developmentReference: String,
++    val cautionLevel: String,
++    val consultationGuide: String,
+     val summary: String,
+     val analysisStatus: ReportCommunicationAnalysisStatus,
+     val analyzedAt: String?,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
+@@ -17,6 +17,7 @@ interface ReportRepository {
+     suspend fun getCommunicationSummary(
+         childId: Long,
+         filter: ReportFilterState = ReportFilterState(),
++        sessionLimit: Int? = null,
+     ): Result<ReportCommunicationSummary>
+ 
+     suspend fun getWeakWords(
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCommunicationSummaryRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCommunicationSummaryRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCommunicationSummaryRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCommunicationSummaryRoute.kt
+@@ -460,6 +460,12 @@ private fun ReportCommunicationExpressionCard(counts: ReportExpressionTypeCounts
+                     total = counts.total,
+                     tone = ReportVisualTone.Success,
+                 )
++                ReportExpressionMeter(
++                    title = "질문 표현",
++                    count = counts.question,
++                    total = counts.total,
++                    tone = ReportVisualTone.Secondary,
++                )
+                 ReportExpressionMeter(
+                     title = "기타",
+                     count = counts.other,
+
+

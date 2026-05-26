@@ -1,0 +1,546 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizActionUiState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizActionUiState.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizActionUiState.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizActionUiState.kt
+@@ -106,7 +106,9 @@ internal fun quizActionUiState(
+                 recognizedText = answer?.sttText,
+             ),
+         answerSubmitState = answerSubmitState,
+-        isAwaitingNextQuestion = answerSubmitState is QuizAnswerSubmitState.TimedOut,
++        isAwaitingNextQuestion =
++            answerSubmitState is QuizAnswerSubmitState.TimedOut &&
++                !canMoveNext,
+     )
+ 
+ @Composable
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+@@ -9,20 +9,19 @@ package com.ssafy.mobile.feature.quiz.presentation
+ 
+ import androidx.compose.animation.AnimatedContent
+ import androidx.compose.animation.animateContentSize
++import androidx.compose.animation.core.animateDpAsState
+ import androidx.compose.animation.core.animateFloatAsState
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+-import androidx.compose.foundation.layout.aspectRatio
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.offset
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.size
+-import androidx.compose.foundation.rememberScrollState
+ import androidx.compose.foundation.shape.RoundedCornerShape
+-import androidx.compose.foundation.verticalScroll
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+@@ -34,6 +33,8 @@ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.clip
+ import androidx.compose.ui.graphics.Brush
+ import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.graphics.TransformOrigin
++import androidx.compose.ui.graphics.graphicsLayer
+ import androidx.compose.ui.layout.ContentScale
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+@@ -226,9 +227,16 @@ private fun QuizQuestionContent(
+     onNextClick: () -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
++    val currentAnswer =
++        state.answers.firstOrNull {
++            it.questionId == question.id
++        }
++    val shouldCollapseQuestionCard = currentAnswer != null
++
+     Column(
+         modifier =
+             modifier
++                .fillMaxSize()
+                 .background(
+                     Brush.verticalGradient(
+                         colors =
+@@ -238,10 +246,9 @@ private fun QuizQuestionContent(
+                                 Color(0xFFFDFDF9),
+                             ),
+                     ),
+-                ).verticalScroll(rememberScrollState())
+-                .padding(horizontal = 28.dp, vertical = 22.dp),
++                ).padding(horizontal = 28.dp, vertical = 18.dp),
+         horizontalAlignment = Alignment.CenterHorizontally,
+-        verticalArrangement = Arrangement.spacedBy(20.dp),
++        verticalArrangement = Arrangement.spacedBy(16.dp),
+     ) {
+         QuizProgressHeader(
+             currentQuestionNumber = state.currentQuestionNumber,
+@@ -254,17 +261,17 @@ private fun QuizQuestionContent(
+             label = "quizQuestionContent",
+             modifier = Modifier.fillMaxWidth(),
+         ) { currentQuestion ->
+-            QuizQuestionCard(question = currentQuestion)
++            QuizQuestionCard(
++                question = currentQuestion,
++                isCollapsed = shouldCollapseQuestionCard,
++            )
+         }
+ 
+         QuizActionArea(
+             isLastQuestion = state.isLastQuestion,
+             recordingStatus = recordingStatus,
+             answerSubmitState = answerSubmitState,
+-            answer =
+-                state.answers.firstOrNull {
+-                    it.questionId == question.id
+-                },
++            answer = currentAnswer,
+             onAnswerClick = onAnswerClick,
+             onNextClick = onNextClick,
+         )
+@@ -286,7 +293,7 @@ private fun QuizProgressHeader(
+     Column(
+         modifier = modifier.fillMaxWidth(),
+         horizontalAlignment = Alignment.CenterHorizontally,
+-        verticalArrangement = Arrangement.spacedBy(8.dp),
++        verticalArrangement = Arrangement.spacedBy(6.dp),
+     ) {
+         Text(
+             text = "$currentQuestionNumber / $totalQuestionCount",
+@@ -318,10 +325,35 @@ private fun QuizProgressHeader(
+ @Composable
+ private fun QuizQuestionCard(
+     question: QuizQuestion,
++    isCollapsed: Boolean,
+     modifier: Modifier = Modifier,
+ ) {
++    val animatedCardOffsetY by animateDpAsState(
++        targetValue = if (isCollapsed) (-12).dp else 0.dp,
++        label = "quizQuestionCardOffset",
++    )
++    val animatedVerticalPadding by animateDpAsState(
++        targetValue = if (isCollapsed) 18.dp else 22.dp,
++        label = "quizQuestionCardPadding",
++    )
++    val animatedContentSpacing by animateDpAsState(
++        targetValue = if (isCollapsed) 12.dp else 16.dp,
++        label = "quizQuestionCardSpacing",
++    )
++    val animatedImageHeight by animateDpAsState(
++        targetValue = if (isCollapsed) 170.dp else 252.dp,
++        label = "quizQuestionImageHeight",
++    )
++    val animatedFoldRotation by animateFloatAsState(
++        targetValue = if (isCollapsed) 6f else 0f,
++        label = "quizQuestionFoldRotation",
++    )
++
+     Surface(
+-        modifier = modifier.fillMaxWidth(),
++        modifier =
++            modifier
++                .fillMaxWidth()
++                .offset(y = animatedCardOffsetY),
+         shape = RoundedCornerShape(32.dp),
+         color = Color.White.copy(alpha = 0.98f),
+         contentColor = MaterialTheme.colorScheme.onSurface,
+@@ -331,17 +363,20 @@ private fun QuizQuestionCard(
+             modifier =
+                 Modifier
+                     .fillMaxWidth()
+-                    .padding(horizontal = 24.dp, vertical = 28.dp),
++                    .padding(horizontal = 22.dp, vertical = animatedVerticalPadding),
+             horizontalAlignment = Alignment.CenterHorizontally,
+-            verticalArrangement = Arrangement.spacedBy(20.dp),
++            verticalArrangement = Arrangement.spacedBy(animatedContentSpacing),
+         ) {
+             Box(
+                 modifier =
+                     Modifier
+                         .fillMaxWidth()
+-                        .aspectRatio(1.06f)
++                        .height(animatedImageHeight)
+                         .clip(RoundedCornerShape(24.dp))
+-                        .background(Color(0xFFF8FFFC)),
++                        .graphicsLayer {
++                            rotationX = animatedFoldRotation
++                            transformOrigin = TransformOrigin(0.5f, 0f)
++                        }.background(Color(0xFFF8FFFC)),
+                 contentAlignment = Alignment.Center,
+             ) {
+                 AppNetworkImage(
+@@ -472,7 +507,7 @@ private fun QuizActionArea(
+                 .fillMaxWidth()
+                 .animateContentSize(),
+         horizontalAlignment = Alignment.CenterHorizontally,
+-        verticalArrangement = Arrangement.spacedBy(14.dp),
++        verticalArrangement = Arrangement.spacedBy(10.dp),
+     ) {
+         if (answer != null) {
+             QuizStarResultCard(
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionViewModel.kt
+@@ -209,11 +209,6 @@ class QuizQuestionViewModel
+                     question = question,
+                 )
+             }
+-            scheduleAutoAdvanceAfterIncorrectAnswer(
+-                sessionId = sessionId,
+-                questionId = question.id,
+-                expectedSubmitState = QuizAnswerSubmitState.TimedOut::class.java,
+-            )
+         }
+ 
+         fun moveToNextQuestion() {
+@@ -670,7 +665,6 @@ class QuizQuestionViewModel
+                 val submitResult =
+                     result ?: run {
+                         handleTimedOutSubmission(
+-                            sessionId = sessionId,
+                             question = question,
+                             answer = answer,
+                             audioFile = audioFile,
+@@ -686,12 +680,6 @@ class QuizQuestionViewModel
+                         audioFile?.delete()
+                         applyAnswerResult(answerResult)
+                         _answerSubmitState.value = QuizAnswerSubmitState.Success
+-                        if (!answerResult.isCorrect) {
+-                            scheduleAutoAdvanceAfterIncorrectAnswer(
+-                                sessionId = sessionId,
+-                                questionId = answerResult.questionId,
+-                            )
+-                        }
+                     }.onFailure { throwable ->
+                         transitionToFailedAnswer(
+                             answer = answer,
+@@ -702,11 +690,6 @@ class QuizQuestionViewModel
+                             sessionId = sessionId,
+                             question = question,
+                         )
+-                        scheduleAutoAdvanceAfterIncorrectAnswer(
+-                            sessionId = sessionId,
+-                            questionId = question.id,
+-                            expectedSubmitState = QuizAnswerSubmitState.TimedOut::class.java,
+-                        )
+                     }
+             }
+         }
+@@ -727,15 +710,22 @@ class QuizQuestionViewModel
+ 
+             fallbackResult.onSuccess { answerResult ->
+                 applyAnswerResult(answerResult)
+-                _answerSubmitState.value =
+-                    QuizAnswerSubmitState.TimedOut(
+-                        QUIZ_SUBMIT_FAILED_MESSAGE,
+-                    )
++                val state = _quizState.value
++                val isStillShowingFailedQuestion =
++                    state.sessionId == sessionId &&
++                        state.currentQuestion?.id == question.id &&
++                        _answerSubmitState.value is QuizAnswerSubmitState.TimedOut
++
++                if (isStillShowingFailedQuestion) {
++                    _answerSubmitState.value =
++                        QuizAnswerSubmitState.TimedOut(
++                            QUIZ_SUBMIT_FAILED_MESSAGE,
++                        )
++                }
+             }
+         }
+ 
+         private fun handleTimedOutSubmission(
+-            sessionId: Long,
+             question: QuizQuestion,
+             answer: QuizAnswer,
+             audioFile: File?,
+@@ -750,7 +740,6 @@ class QuizQuestionViewModel
+             )
+ 
+             awaitLateSubmitResult(
+-                sessionId = sessionId,
+                 questionId = question.id,
+                 attemptCount = answer.attemptCount,
+                 audioFile = audioFile,
+@@ -773,53 +762,7 @@ class QuizQuestionViewModel
+             _answerSubmitState.value = QuizAnswerSubmitState.TimedOut(message)
+         }
+ 
+-        @Suppress("ComplexCondition")
+-        private fun scheduleAutoAdvanceAfterIncorrectAnswer(
+-            sessionId: Long,
+-            questionId: Long,
+-            expectedSubmitState:
+-                Class<out QuizAnswerSubmitState> = QuizAnswerSubmitState.Success::class.java,
+-        ) {
+-            viewModelScope.launch {
+-                delay(QUIZ_FAILED_ANSWER_DISPLAY_MS)
+-
+-                val state = _quizState.value
+-                val currentAnswer =
+-                    state.answers.firstOrNull { answer ->
+-                        answer.questionId == questionId
+-                    }
+-
+-                val canAutoAdvance =
+-                    state.sessionId == sessionId &&
+-                        !state.isLoading &&
+-                        state.currentQuestion?.id == questionId &&
+-                        currentAnswer?.isCorrect == false &&
+-                        expectedSubmitState.isInstance(_answerSubmitState.value)
+-                if (!canAutoAdvance) {
+-                    return@launch
+-                }
+-
+-                if (state.shouldCompleteAfter(currentAnswer)) {
+-                    _answerSubmitState.value = QuizAnswerSubmitState.Submitting
+-                    isCompletionPending = true
+-                    completeSession(sessionId)
+-                    return@launch
+-                }
+-
+-                val nextQuestionNumber =
+-                    currentAnswer.nextQuestionNumber
+-                        ?: state.localNextQuestionNumber(questionId)
+-                        ?: state.currentQuestionNumber + 1
+-                advanceToNextQuestion(
+-                    sessionId = sessionId,
+-                    currentQuestionId = questionId,
+-                    nextQuestionNumber = nextQuestionNumber,
+-                )
+-            }
+-        }
+-
+         private fun awaitLateSubmitResult(
+-            sessionId: Long,
+             questionId: Long,
+             attemptCount: Int,
+             audioFile: File?,
+@@ -845,23 +788,7 @@ class QuizQuestionViewModel
+                     .onSuccess { answerResult ->
+                         audioFile?.delete()
+                         applyAnswerResult(answerResult)
+-
+-                        if (answerResult.hasNext) {
+-                            val state = _quizState.value
+-                            val nextQuestionNumber =
+-                                answerResult.nextQuestionNumber
+-                                    ?: state.localNextQuestionNumber(questionId)
+-                                    ?: state.currentQuestionNumber + 1
+-                            advanceToNextQuestion(
+-                                sessionId = sessionId,
+-                                currentQuestionId = questionId,
+-                                nextQuestionNumber = nextQuestionNumber,
+-                            )
+-                        } else {
+-                            _answerSubmitState.value = QuizAnswerSubmitState.Submitting
+-                            isCompletionPending = true
+-                            completeSession(sessionId)
+-                        }
++                        _answerSubmitState.value = QuizAnswerSubmitState.Success
+                     }.onFailure {
+                         audioFile?.delete()
+                         _answerSubmitState.value =
+@@ -1066,7 +993,6 @@ private fun QuizSessionState.resolveNextQuestionIndex(
+ private const val RESUME_SESSION_ID_NONE = -1L
+ private const val UNKNOWN_QUIZ_WORD_ID = -1L
+ private const val QUIZ_SUBMIT_TIMEOUT_MS = 5_000L
+-private const val QUIZ_FAILED_ANSWER_DISPLAY_MS = 700L
+ private const val QUIZ_NEXT_QUESTION_POLL_DELAY_MS = 350L
+ private const val QUIZ_NEXT_QUESTION_POLL_ATTEMPTS = 18
+ private const val QUIZ_NEXT_QUESTION_LOAD_FAILED_MESSAGE =
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
+@@ -57,20 +57,25 @@ internal fun QuizStarResultCard(
+         modifier = modifier.fillMaxWidth(),
+     ) {
+         val eventKey = answer.feedbackEventKey()
++        val isFailure = answer.isCorrect == false
+ 
+         Column(
+             modifier = Modifier.fillMaxWidth(),
+             horizontalAlignment = Alignment.CenterHorizontally,
+-            verticalArrangement = Arrangement.spacedBy(10.dp),
++            verticalArrangement = Arrangement.spacedBy(8.dp),
+         ) {
+-            StarRewardBurst(
+-                eventKey = eventKey,
+-                isCorrect = answer.isCorrect == true,
+-                star = answer.star,
+-            )
++            if (isFailure) {
++                FailureRewardBurst()
++            } else {
++                StarRewardBurst(
++                    eventKey = eventKey,
++                    isCorrect = answer.isCorrect == true,
++                    star = answer.star,
++                )
++            }
+             QuizFeedbackMascotMessage(
+-                mascot = answer.toFeedbackMascot(remainingRetryCount),
+-                title = answer.toRewardTitle(remainingRetryCount),
++                mascot = answer.toFeedbackMascot(),
++                title = answer.toRewardTitle(),
+                 description = answer.toRewardDescription(remainingRetryCount),
+             )
+         }
+@@ -91,11 +96,11 @@ private fun QuizFeedbackMascotMessage(
+         SudaMascotImage(
+             mascot = mascot,
+             contentDescription = null,
+-            modifier = Modifier.size(70.dp),
++            modifier = Modifier.size(58.dp),
+         )
+         Column(
+             horizontalAlignment = Alignment.Start,
+-            verticalArrangement = Arrangement.spacedBy(3.dp),
++            verticalArrangement = Arrangement.spacedBy(2.dp),
+         ) {
+             Text(
+                 text = title,
+@@ -133,7 +138,7 @@ private fun StarScoreIndicator(
+                 contentDescription = null,
+                 modifier =
+                     Modifier
+-                        .size(28.dp)
++                        .size(24.dp)
+                         .alpha(if (index < starCount) 1f else EMPTY_STAR_ALPHA),
+             )
+         }
+@@ -145,6 +150,32 @@ private fun StarScoreIndicator(
+     }
+ }
+ 
++@Composable
++private fun FailureRewardBurst(modifier: Modifier = Modifier) {
++    Box(
++        modifier =
++            modifier
++                .fillMaxWidth()
++                .size(REWARD_BURST_SIZE.dp),
++        contentAlignment = Alignment.Center,
++    ) {
++        SudaMascotImage(
++            mascot = SudaMascot.ErrorNetwork,
++            contentDescription = null,
++            modifier =
++                Modifier
++                    .size(FAILURE_MASCOT_SIZE.dp)
++                    .offset(y = (-8).dp),
++        )
++        AppBadge(
++            text = "실패",
++            tone = AppBadgeTone.Error,
++            modifier = Modifier.align(Alignment.BottomCenter),
++            contentPadding = PaddingValues(horizontal = 22.dp, vertical = 10.dp),
++        )
++    }
++}
++
+ @Composable
+ private fun StarRewardBurst(
+     eventKey: String?,
+@@ -234,15 +265,15 @@ private fun StarRewardBurstContent(
+         modifier =
+             modifier
+                 .fillMaxWidth()
+-                .size(184.dp),
++                .size(REWARD_BURST_SIZE.dp),
+         contentAlignment = Alignment.Center,
+     ) {
+         RewardSparkle(
+             modifier =
+                 Modifier
+                     .align(Alignment.TopStart)
+-                    .offset(x = 30.dp, y = 12.dp),
+-            size = 44,
++                    .offset(x = 26.dp, y = 10.dp),
++            size = 34,
+             scale = sparkleScale,
+             alpha = sparkleAlpha,
+         )
+@@ -250,8 +281,8 @@ private fun StarRewardBurstContent(
+             modifier =
+                 Modifier
+                     .align(Alignment.BottomEnd)
+-                    .offset(x = (-24).dp, y = (-8).dp),
+-            size = 38,
++                    .offset(x = (-20).dp, y = (-6).dp),
++            size = 30,
+             scale = sparkleScale * 0.92f,
+             alpha = sparkleAlpha,
+         )
+@@ -267,7 +298,7 @@ private fun StarRewardBurstContent(
+             contentDescription = null,
+             modifier =
+                 Modifier
+-                    .size(164.dp)
++                    .size(STAR_REWARD_IMAGE_SIZE.dp)
+                     .graphicsLayer {
+                         scaleX = starScale
+                         scaleY = starScale
+@@ -279,7 +310,7 @@ private fun StarRewardBurstContent(
+             modifier =
+                 Modifier
+                     .align(Alignment.BottomCenter)
+-                    .offset(y = (-4).dp),
++                    .offset(y = (-2).dp),
+         )
+     }
+ }
+@@ -302,28 +333,27 @@ private fun RewardSparkle(
+     )
+ }
+ 
+-private fun QuizAnswer.toRewardTitle(remainingRetryCount: Int): String =
++private fun QuizAnswer.toRewardTitle(): String =
+     when {
+         star == null -> "확인하고 있어요"
+         isCorrect == true -> "잘했어요!"
+-        remainingRetryCount > 0 -> "한 번 더 해볼까요?"
+-        else -> "괜찮아요!"
++        else -> "실패했어요"
+     }
+ 
+ private fun QuizAnswer.toRewardDescription(remainingRetryCount: Int): String =
+     when {
+         star == null -> "목소리를 듣고 별을 세고 있어요."
+         isCorrect == true -> "별을 멋지게 모았어요."
+-        remainingRetryCount > 0 -> "천천히 다시 말하면 돼요."
+-        else -> "다음 문제에서 또 해봐요."
++        remainingRetryCount > 0 ->
++            "다시 말해보거나 다음 문제로 넘어갈 수 있어요."
++        else -> "다음 문제에서 다시 해봐요."
+     }
+ 
+-private fun QuizAnswer.toFeedbackMascot(remainingRetryCount: Int): SudaMascot =
++private fun QuizAnswer.toFeedbackMascot(): SudaMascot =
+     when {
+         star == null -> SudaMascot.Loading
+         isCorrect == true -> SudaMascot.Success3Star
+-        remainingRetryCount > 0 -> SudaMascot.Retry1Star
+-        else -> SudaMascot.Good2Star
++        else -> SudaMascot.ErrorNetwork
+     }
+ 
+ private fun Int?.toStarBadgeText(): String =
+@@ -353,4 +383,7 @@ private fun QuizAnswer.toFeedbackCue(): QuizFeedbackCue? =
+ private const val MIN_STAR = 0
+ private const val PASSING_STAR = 2
+ private const val MAX_STAR = 3
++private const val REWARD_BURST_SIZE = 152
++private const val STAR_REWARD_IMAGE_SIZE = 132
++private const val FAILURE_MASCOT_SIZE = 112
+ private const val EMPTY_STAR_ALPHA = 0.24f
+
+

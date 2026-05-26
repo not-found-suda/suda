@@ -1,0 +1,261 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppNetworkImage.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppNetworkImage.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/components/AppNetworkImage.kt
+@@ -0,0 +1,67 @@
++package com.ssafy.mobile.core.ui.components
++
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.layout.ContentScale
++import androidx.compose.ui.text.font.FontWeight
++import coil.compose.SubcomposeAsyncImage
++
++/**
++ * 네트워크 이미지를 로딩하고 실패 시 대체 UI를 표시하는 공통 컴포넌트입니다.
++ */
++@Composable
++fun AppNetworkImage(
++    imageUrl: String?,
++    contentDescription: String?,
++    fallbackText: String,
++    modifier: Modifier = Modifier,
++    contentScale: ContentScale = ContentScale.Crop,
++    placeholder: (@Composable () -> Unit)? = null,
++) {
++    val fallback =
++        placeholder ?: {
++            DefaultFallback(fallbackText = fallbackText)
++        }
++
++    if (imageUrl.isNullOrBlank()) {
++        Box(modifier = modifier) {
++            fallback()
++        }
++    } else {
++        SubcomposeAsyncImage(
++            model = imageUrl,
++            contentDescription = contentDescription,
++            modifier = modifier,
++            contentScale = contentScale,
++            loading = { fallback() },
++            error = { fallback() },
++        )
++    }
++}
++
++@Composable
++private fun DefaultFallback(
++    fallbackText: String,
++    modifier: Modifier = Modifier,
++) {
++    Box(
++        modifier =
++            modifier
++                .fillMaxSize()
++                .background(MaterialTheme.colorScheme.primaryContainer),
++        contentAlignment = Alignment.Center,
++    ) {
++        Text(
++            text = fallbackText.firstOrNull()?.toString() ?: "",
++            style = MaterialTheme.typography.displaySmall,
++            color = MaterialTheme.colorScheme.onPrimaryContainer,
++            fontWeight = FontWeight.Bold,
++        )
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt
+@@ -34,6 +34,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import com.ssafy.mobile.core.ui.components.AppErrorText
+ import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
++import com.ssafy.mobile.core.ui.components.AppNetworkImage
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.feature.learning.domain.model.LearningCategory
+ 
+@@ -211,23 +212,16 @@ private fun CategoryCard(
+             modifier = Modifier.fillMaxWidth().padding(CARD_PADDING),
+             horizontalAlignment = Alignment.CenterHorizontally,
+         ) {
+-            // Placeholder for image (S14P31A404-239 티켓에서 고도화 예정)
+-            Box(
++            AppNetworkImage(
++                imageUrl = category.thumbnailUrl,
++                contentDescription = category.name,
++                fallbackText = category.name,
+                 modifier =
+                     Modifier
+                         .fillMaxWidth()
+                         .aspectRatio(ASPECT_RATIO_SQUARE)
+-                        .clip(RoundedCornerShape(12.dp))
+-                        .background(MaterialTheme.colorScheme.primaryContainer),
+-                contentAlignment = Alignment.Center,
+-            ) {
+-                Text(
+-                    text = category.name.firstOrNull()?.toString() ?: "",
+-                    style = MaterialTheme.typography.displaySmall,
+-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+-                    fontWeight = FontWeight.Bold,
+-                )
+-            }
++                        .clip(RoundedCornerShape(12.dp)),
++            )
+ 
+             Spacer(modifier = Modifier.height(12.dp))
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt
+@@ -39,6 +39,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import com.ssafy.mobile.core.ui.components.AppErrorText
+ import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
++import com.ssafy.mobile.core.ui.components.AppNetworkImage
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.feature.learning.domain.model.LearningWord
+ 
+@@ -220,43 +221,19 @@ private fun WordCard(
+             modifier = Modifier.fillMaxWidth().padding(12.dp),
+             horizontalAlignment = Alignment.CenterHorizontally,
+         ) {
+-            // Placeholder for image
+-            Box(
++            AppNetworkImage(
++                imageUrl = word.imageUrl,
++                contentDescription = word.word,
++                fallbackText = word.word,
+                 modifier =
+                     Modifier
+                         .fillMaxWidth()
+                         .aspectRatio(1f)
+-                        .clip(RoundedCornerShape(16.dp))
+-                        .background(
+-                            Brush.linearGradient(
+-                                colors =
+-                                    listOf(
+-                                        MaterialTheme.colorScheme.primaryContainer,
+-                                        MaterialTheme.colorScheme.secondaryContainer.copy(
+-                                            alpha = 0.5f,
+-                                        ),
+-                                    ),
+-                            ),
+-                        ),
+-                contentAlignment = Alignment.Center,
+-            ) {
+-                // Placeholder icon/text
+-                Box(
+-                    modifier =
+-                        Modifier
+-                            .size(48.dp)
+-                            .clip(CircleShape)
+-                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.3f)),
+-                    contentAlignment = Alignment.Center,
+-                ) {
+-                    Text(
+-                        text = word.word.firstOrNull()?.toString() ?: "",
+-                        style = MaterialTheme.typography.titleLarge,
+-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+-                        fontWeight = FontWeight.Black,
+-                    )
+-                }
+-            }
++                        .clip(RoundedCornerShape(16.dp)),
++                placeholder = {
++                    WordFallback(word = word.word)
++                },
++            )
+ 
+             Spacer(modifier = Modifier.height(12.dp))
+ 
+@@ -283,3 +260,45 @@ private fun WordCard(
+         }
+     }
+ }
++
++@Composable
++private fun WordFallback(
++    word: String,
++    modifier: Modifier = Modifier,
++) {
++    Box(
++        modifier =
++            modifier
++                .fillMaxSize()
++                .background(
++                    Brush.linearGradient(
++                        colors =
++                            listOf(
++                                MaterialTheme.colorScheme.primaryContainer,
++                                MaterialTheme.colorScheme.secondaryContainer.copy(
++                                    alpha = 0.5f,
++                                ),
++                            ),
++                    ),
++                ),
++        contentAlignment = Alignment.Center,
++    ) {
++        Box(
++            modifier =
++                Modifier
++                    .size(48.dp)
++                    .clip(CircleShape)
++                    .background(
++                        MaterialTheme.colorScheme.surface.copy(alpha = 0.3f),
++                    ),
++            contentAlignment = Alignment.Center,
++        ) {
++            Text(
++                text = word.firstOrNull()?.toString() ?: "",
++                style = MaterialTheme.typography.titleLarge,
++                color = MaterialTheme.colorScheme.onPrimaryContainer,
++                fontWeight = FontWeight.Black,
++            )
++        }
++    }
++}
+
+
+diff --git a/mobile/app/build.gradle.kts b/mobile/app/build.gradle.kts
+--- a/mobile/app/build.gradle.kts
++++ b/mobile/app/build.gradle.kts
+@@ -122,5 +122,6 @@ dependencies {
+     debugImplementation(libs.androidx.compose.ui.tooling)
+     debugImplementation(libs.androidx.compose.ui.test.manifest)
+     implementation(libs.hilt.android)
++    implementation(libs.coil.compose)
+     ksp(libs.hilt.compiler)
+ }
+
+
+diff --git a/mobile/gradle/libs.versions.toml b/mobile/gradle/libs.versions.toml
+--- a/mobile/gradle/libs.versions.toml
++++ b/mobile/gradle/libs.versions.toml
+@@ -22,6 +22,7 @@ cameraX = "1.4.2"
+ mediaPipeTasksVision = "0.10.33"
+ tensorflowLite = "2.17.0"
+ protobuf = "4.26.1"
++coil = "2.7.0"
+ 
+ [libraries]
+ androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+@@ -60,6 +61,7 @@ androidx-camera-view = { group = "androidx.camera", name = "camera-view", versio
+ mediapipe-tasks-vision = { group = "com.google.mediapipe", name = "tasks-vision", version.ref = "mediaPipeTasksVision" }
+ tensorflow-lite = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tensorflowLite" }
+ protobuf-java = { group = "com.google.protobuf", name = "protobuf-java", version.ref = "protobuf" }
++coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+ 
+ [plugins]
+ android-application = { id = "com.android.application", version.ref = "agp" }
+
+

@@ -1,0 +1,980 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/AccessTokenInvalidationStore.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/AccessTokenInvalidationStore.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/AccessTokenInvalidationStore.java
+@@ -0,0 +1,48 @@
++package com.ssafy.backend.domain.auth.service;
++
++import java.time.Duration;
++import java.time.Instant;
++import org.springframework.data.redis.core.StringRedisTemplate;
++import org.springframework.stereotype.Component;
++
++@Component
++public class AccessTokenInvalidationStore {
++
++  private static final String TOKEN_INVALID_BEFORE_KEY_PREFIX = "user:token-invalid-before:";
++
++  private final StringRedisTemplate redisTemplate;
++
++  public AccessTokenInvalidationStore(StringRedisTemplate redisTemplate) {
++    this.redisTemplate = redisTemplate;
++  }
++
++  public void invalidateBefore(Long userId, Instant invalidBefore, Duration ttl) {
++    if (userId == null || invalidBefore == null || ttl.isZero() || ttl.isNegative()) {
++      return;
++    }
++    redisTemplate
++        .opsForValue()
++        .set(toKey(userId), String.valueOf(invalidBefore.toEpochMilli()), ttl);
++  }
++
++  public boolean isInvalidated(Long userId, Instant issuedAt) {
++    if (userId == null || issuedAt == null) {
++      return false;
++    }
++
++    String value = redisTemplate.opsForValue().get(toKey(userId));
++    if (value == null || value.isBlank()) {
++      return false;
++    }
++
++    try {
++      return issuedAt.toEpochMilli() < Long.parseLong(value);
++    } catch (NumberFormatException exception) {
++      return false;
++    }
++  }
++
++  private String toKey(Long userId) {
++    return TOKEN_INVALID_BEFORE_KEY_PREFIX + userId;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/AuthService.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/AuthService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/auth/service/AuthService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/AuthService.java
+@@ -63,7 +63,7 @@ public class AuthService {
+       throw new BusinessException(AuthErrorCode.INACTIVE_ACCOUNT);
+     }
+ 
+-    if (!isValidPassword(requestDto.password(), user.password())) {
++    if (!user.passwordLoginEnabled() || !isValidPassword(requestDto.password(), user.password())) {
+       throw new BusinessException(AuthErrorCode.INVALID_CREDENTIALS);
+     }
+ 
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/OAuthLoginProcessor.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/OAuthLoginProcessor.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/auth/service/OAuthLoginProcessor.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/OAuthLoginProcessor.java
+@@ -61,7 +61,7 @@ public class OAuthLoginProcessor {
+ 
+     String name = resolveName(profile);
+     String encodedPassword = passwordEncoder.encode("oauth:" + UUID.randomUUID());
+-    User user = userRepository.saveAndFlush(User.create(email, encodedPassword, name));
++    User user = userRepository.saveAndFlush(User.createOAuthUser(email, encodedPassword, name));
+     socialAccountRepository.saveAndFlush(
+         SocialAccount.create(user, SocialProvider.NAVER, profile.id(), email));
+     return user;
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/RefreshTokenStore.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/RefreshTokenStore.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/auth/service/RefreshTokenStore.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/RefreshTokenStore.java
+@@ -1,6 +1,7 @@
+ package com.ssafy.backend.domain.auth.service;
+ 
+ import java.time.Duration;
++import java.util.Set;
+ import org.springframework.data.redis.core.StringRedisTemplate;
+ import org.springframework.stereotype.Component;
+ 
+@@ -8,6 +9,7 @@ import org.springframework.stereotype.Component;
+ public class RefreshTokenStore {
+ 
+   private static final String REFRESH_TOKEN_KEY_PREFIX = "refresh:jti:";
++  private static final String USER_REFRESH_TOKEN_KEY_PREFIX = "user:refresh:";
+ 
+   private final StringRedisTemplate redisTemplate;
+ 
+@@ -17,6 +19,8 @@ public class RefreshTokenStore {
+ 
+   public void save(String jti, Long userId, Duration ttl) {
+     redisTemplate.opsForValue().set(toKey(jti), String.valueOf(userId), ttl);
++    redisTemplate.opsForSet().add(toUserKey(userId), jti);
++    redisTemplate.expire(toUserKey(userId), ttl);
+   }
+ 
+   public Long findUserIdByJti(String jti) {
+@@ -25,10 +29,27 @@ public class RefreshTokenStore {
+   }
+ 
+   public void delete(String jti) {
++    String value = redisTemplate.opsForValue().get(toKey(jti));
+     redisTemplate.delete(toKey(jti));
++    if (value != null) {
++      redisTemplate.opsForSet().remove(toUserKey(Long.parseLong(value)), jti);
++    }
++  }
++
++  public void deleteAllByUserId(Long userId) {
++    String userKey = toUserKey(userId);
++    Set<String> jtis = redisTemplate.opsForSet().members(userKey);
++    if (jtis != null && !jtis.isEmpty()) {
++      redisTemplate.delete(jtis.stream().map(this::toKey).toList());
++    }
++    redisTemplate.delete(userKey);
+   }
+ 
+   private String toKey(String jti) {
+     return REFRESH_TOKEN_KEY_PREFIX + jti;
+   }
++
++  private String toUserKey(Long userId) {
++    return USER_REFRESH_TOKEN_KEY_PREFIX + userId;
++  }
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/UserTokenInvalidationService.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/UserTokenInvalidationService.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/UserTokenInvalidationService.java
+@@ -0,0 +1,29 @@
++package com.ssafy.backend.domain.auth.service;
++
++import com.ssafy.backend.global.security.jwt.JwtProperties;
++import java.time.Duration;
++import java.time.Instant;
++import org.springframework.stereotype.Service;
++
++@Service
++public class UserTokenInvalidationService {
++
++  private final RefreshTokenStore refreshTokenStore;
++  private final AccessTokenInvalidationStore accessTokenInvalidationStore;
++  private final JwtProperties jwtProperties;
++
++  public UserTokenInvalidationService(
++      RefreshTokenStore refreshTokenStore,
++      AccessTokenInvalidationStore accessTokenInvalidationStore,
++      JwtProperties jwtProperties) {
++    this.refreshTokenStore = refreshTokenStore;
++    this.accessTokenInvalidationStore = accessTokenInvalidationStore;
++    this.jwtProperties = jwtProperties;
++  }
++
++  public void invalidateAll(Long userId) {
++    refreshTokenStore.deleteAllByUserId(userId);
++    accessTokenInvalidationStore.invalidateBefore(
++        userId, Instant.now(), Duration.ofSeconds(jwtProperties.getAccessTokenTtlSeconds()));
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/controller/UserController.java b/backend/src/main/java/com/ssafy/backend/domain/user/controller/UserController.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/user/controller/UserController.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/controller/UserController.java
+@@ -8,12 +8,14 @@ import com.ssafy.backend.domain.user.dto.UserPasswordChangeRequestDto;
+ import com.ssafy.backend.domain.user.dto.UserResponseDto;
+ import com.ssafy.backend.domain.user.dto.UserUpdateRequestDto;
+ import com.ssafy.backend.domain.user.dto.UserUpdateResponseDto;
++import com.ssafy.backend.domain.user.dto.UserWithdrawRequestDto;
+ import com.ssafy.backend.domain.user.service.UserService;
+ import com.ssafy.backend.global.exception.BusinessException;
+ import com.ssafy.backend.global.exception.CommonErrorCode;
+ import jakarta.validation.Valid;
+ import org.springframework.http.ResponseEntity;
+ import org.springframework.security.core.Authentication;
++import org.springframework.web.bind.annotation.DeleteMapping;
+ import org.springframework.web.bind.annotation.GetMapping;
+ import org.springframework.web.bind.annotation.PatchMapping;
+ import org.springframework.web.bind.annotation.RequestBody;
+@@ -59,6 +61,18 @@ public class UserController implements UserApiDocs {
+     return ResponseEntity.noContent().build();
+   }
+ 
++  @DeleteMapping("/me")
++  @Override
++  public ResponseEntity<Void> withdrawMe(
++      Authentication authentication,
++      @RequestBody(required = false) UserWithdrawRequestDto requestDto) {
++    Long userId = extractUserId(authentication);
++    String password = requestDto != null ? requestDto.password() : null;
++
++    userService.withdraw(userId, password);
++    return ResponseEntity.noContent().build();
++  }
++
+   @GetMapping("/me/tts-speakers")
+   @Override
+   public ResponseEntity<TtsSpeakerListResponseDto> getTtsSpeakers(Authentication authentication) {
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/docs/UserApiDocs.java b/backend/src/main/java/com/ssafy/backend/domain/user/docs/UserApiDocs.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/user/docs/UserApiDocs.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/docs/UserApiDocs.java
+@@ -7,6 +7,7 @@ import com.ssafy.backend.domain.user.dto.UserPasswordChangeRequestDto;
+ import com.ssafy.backend.domain.user.dto.UserResponseDto;
+ import com.ssafy.backend.domain.user.dto.UserUpdateRequestDto;
+ import com.ssafy.backend.domain.user.dto.UserUpdateResponseDto;
++import com.ssafy.backend.domain.user.dto.UserWithdrawRequestDto;
+ import com.ssafy.backend.global.docs.ApiErrorCodes;
+ import io.swagger.v3.oas.annotations.Operation;
+ import io.swagger.v3.oas.annotations.Parameter;
+@@ -57,6 +58,7 @@ public interface UserApiDocs {
+     "VALIDATION_PASSWORD_CHARSET",
+     "COMMON_UNAUTHORIZED",
+     "USER_NOT_FOUND",
++    "USER_PASSWORD_LOGIN_NOT_ENABLED",
+     "USER_CURRENT_PASSWORD_MISMATCH",
+     "USER_NEW_PASSWORD_SAME_AS_CURRENT"
+   })
+@@ -65,6 +67,22 @@ public interface UserApiDocs {
+       @Parameter(hidden = true) Authentication authentication,
+       @Valid @RequestBody UserPasswordChangeRequestDto request);
+ 
++  @Operation(
++      summary = "회원 탈퇴",
++      description =
++          "인증된 사용자의 계정을 비활성화합니다. 비밀번호 로그인 계정은 현재 비밀번호 확인이 필요하며, 소셜 전용 계정은 비밀번호 없이 탈퇴할 수 있습니다.",
++      security = {@SecurityRequirement(name = "bearerAuth")})
++  @ApiErrorCodes({
++    "COMMON_UNAUTHORIZED",
++    "USER_NOT_FOUND",
++    "USER_WITHDRAW_PASSWORD_REQUIRED",
++    "USER_CURRENT_PASSWORD_MISMATCH"
++  })
++  @ApiResponse(responseCode = "204", description = "성공")
++  ResponseEntity<Void> withdrawMe(
++      @Parameter(hidden = true) Authentication authentication,
++      @RequestBody(required = false) UserWithdrawRequestDto request);
++
+   @Operation(
+       summary = "TTS 목소리 후보 목록 조회",
+       description = "부모가 선택할 수 있는 TTS 목소리 후보 목록을 조회합니다.",
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserAuthResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserAuthResponseDto.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserAuthResponseDto.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserAuthResponseDto.java
+@@ -3,4 +3,9 @@ package com.ssafy.backend.domain.user.dto;
+ import com.ssafy.backend.global.security.Role;
+ 
+ public record UserAuthResponseDto(
+-    Long id, String email, String password, boolean active, Role role) {}
++    Long id,
++    String email,
++    String password,
++    boolean passwordLoginEnabled,
++    boolean active,
++    Role role) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserResponseDto.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserResponseDto.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserResponseDto.java
+@@ -7,6 +7,7 @@ public record UserResponseDto(
+     @Schema(description = "사용자 ID", example = "1") Long userId,
+     @Schema(description = "이메일", example = "user1@test.com") String email,
+     @Schema(description = "사용자 이름", example = "김보호") String name,
++    @Schema(description = "비밀번호 로그인 가능 여부", example = "true") boolean passwordLoginEnabled,
+     @Schema(description = "활성 여부", example = "true") boolean active,
+     @Schema(description = "권한", example = "USER") Role role,
+     @Schema(description = "선택된 TTS speaker 코드", example = "vara") String ttsSpeaker) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserWithdrawRequestDto.java b/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserWithdrawRequestDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserWithdrawRequestDto.java
+@@ -0,0 +1,6 @@
++package com.ssafy.backend.domain.user.dto;
++
++import io.swagger.v3.oas.annotations.media.Schema;
++
++public record UserWithdrawRequestDto(
++    @Schema(description = "현재 비밀번호. 비밀번호 로그인 계정인 경우 필수", example = "Password1!") String password) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/entity/User.java b/backend/src/main/java/com/ssafy/backend/domain/user/entity/User.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/user/entity/User.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/entity/User.java
+@@ -25,6 +25,9 @@ public class User extends BaseEntity {
+   @Column(nullable = false, length = 255)
+   private String password;
+ 
++  @Column(name = "password_login_enabled", nullable = false)
++  private boolean passwordLoginEnabled;
++
+   @Column(length = 50)
+   private String name;
+ 
+@@ -40,9 +43,10 @@ public class User extends BaseEntity {
+ 
+   protected User() {}
+ 
+-  private User(String email, String password, String name) {
++  private User(String email, String password, String name, boolean passwordLoginEnabled) {
+     this.email = email;
+     this.password = password;
++    this.passwordLoginEnabled = passwordLoginEnabled;
+     this.name = name;
+     this.active = true;
+     this.role = Role.USER;
+@@ -50,7 +54,11 @@ public class User extends BaseEntity {
+   }
+ 
+   public static User create(String email, String password, String name) {
+-    return new User(email, password, name);
++    return new User(email, password, name, true);
++  }
++
++  public static User createOAuthUser(String email, String password, String name) {
++    return new User(email, password, name, false);
+   }
+ 
+   public Long getId() {
+@@ -65,6 +73,10 @@ public class User extends BaseEntity {
+     return password;
+   }
+ 
++  public boolean isPasswordLoginEnabled() {
++    return passwordLoginEnabled;
++  }
++
+   public String getName() {
+     return name;
+   }
+@@ -89,6 +101,10 @@ public class User extends BaseEntity {
+     this.password = password;
+   }
+ 
++  public void withdraw() {
++    this.active = false;
++  }
++
+   public void updateTtsSpeaker(String ttsSpeaker) {
+     this.ttsSpeaker = ttsSpeaker;
+   }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/exception/UserErrorCode.java b/backend/src/main/java/com/ssafy/backend/domain/user/exception/UserErrorCode.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/user/exception/UserErrorCode.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/exception/UserErrorCode.java
+@@ -9,6 +9,10 @@ public enum UserErrorCode implements ErrorCode {
+       "USER_CURRENT_PASSWORD_MISMATCH", HttpStatus.BAD_REQUEST, "현재 비밀번호가 올바르지 않습니다."),
+   NEW_PASSWORD_SAME_AS_CURRENT(
+       "USER_NEW_PASSWORD_SAME_AS_CURRENT", HttpStatus.BAD_REQUEST, "새 비밀번호는 현재 비밀번호와 달라야 합니다."),
++  PASSWORD_LOGIN_NOT_ENABLED(
++      "USER_PASSWORD_LOGIN_NOT_ENABLED", HttpStatus.BAD_REQUEST, "비밀번호 로그인을 사용할 수 없는 계정입니다."),
++  WITHDRAW_PASSWORD_REQUIRED(
++      "USER_WITHDRAW_PASSWORD_REQUIRED", HttpStatus.BAD_REQUEST, "회원 탈퇴를 위해 현재 비밀번호가 필요합니다."),
+   UNSUPPORTED_TTS_SPEAKER(
+       "USER_UNSUPPORTED_TTS_SPEAKER", HttpStatus.BAD_REQUEST, "지원하지 않는 TTS 목소리입니다.");
+ 
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/service/UserService.java b/backend/src/main/java/com/ssafy/backend/domain/user/service/UserService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/user/service/UserService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/service/UserService.java
+@@ -1,5 +1,6 @@
+ package com.ssafy.backend.domain.user.service;
+ 
++import com.ssafy.backend.domain.auth.service.UserTokenInvalidationService;
+ import com.ssafy.backend.domain.user.dto.TtsSpeakerListResponseDto;
+ import com.ssafy.backend.domain.user.dto.TtsSpeakerResponseDto;
+ import com.ssafy.backend.domain.user.dto.TtsSpeakerUpdateResponseDto;
+@@ -23,10 +24,15 @@ public class UserService {
+ 
+   private final UserRepository userRepository;
+   private final PasswordEncoder passwordEncoder;
++  private final UserTokenInvalidationService userTokenInvalidationService;
+ 
+-  public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
++  public UserService(
++      UserRepository userRepository,
++      PasswordEncoder passwordEncoder,
++      UserTokenInvalidationService userTokenInvalidationService) {
+     this.userRepository = userRepository;
+     this.passwordEncoder = passwordEncoder;
++    this.userTokenInvalidationService = userTokenInvalidationService;
+   }
+ 
+   @Transactional(readOnly = true)
+@@ -37,7 +43,12 @@ public class UserService {
+             .findByEmailIgnoreCase(normalizedEmail)
+             .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+     return new UserAuthResponseDto(
+-        user.getId(), user.getEmail(), user.getPassword(), user.isActive(), user.getRole());
++        user.getId(),
++        user.getEmail(),
++        user.getPassword(),
++        user.isPasswordLoginEnabled(),
++        user.isActive(),
++        user.getRole());
+   }
+ 
+   @Transactional(readOnly = true)
+@@ -47,7 +58,12 @@ public class UserService {
+             .findById(userId)
+             .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+     return new UserAuthResponseDto(
+-        user.getId(), user.getEmail(), user.getPassword(), user.isActive(), user.getRole());
++        user.getId(),
++        user.getEmail(),
++        user.getPassword(),
++        user.isPasswordLoginEnabled(),
++        user.isActive(),
++        user.getRole());
+   }
+ 
+   @Transactional(readOnly = true)
+@@ -93,6 +109,9 @@ public class UserService {
+             .findById(userId)
+             .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+ 
++    if (!user.isPasswordLoginEnabled()) {
++      throw new BusinessException(UserErrorCode.PASSWORD_LOGIN_NOT_ENABLED);
++    }
+     if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
+       throw new BusinessException(UserErrorCode.CURRENT_PASSWORD_MISMATCH);
+     }
+@@ -104,6 +123,30 @@ public class UserService {
+     userRepository.flush();
+   }
+ 
++  public void withdraw(Long userId, String password) {
++    User user =
++        userRepository
++            .findById(userId)
++            .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
++
++    if (!user.isActive()) {
++      throw new BusinessException(UserErrorCode.USER_NOT_FOUND);
++    }
++
++    if (user.isPasswordLoginEnabled()) {
++      if (password == null || password.isBlank()) {
++        throw new BusinessException(UserErrorCode.WITHDRAW_PASSWORD_REQUIRED);
++      }
++      if (!passwordEncoder.matches(password, user.getPassword())) {
++        throw new BusinessException(UserErrorCode.CURRENT_PASSWORD_MISMATCH);
++      }
++    }
++
++    user.withdraw();
++    userRepository.flush();
++    userTokenInvalidationService.invalidateAll(userId);
++  }
++
+   @Transactional(readOnly = true)
+   public TtsSpeakerListResponseDto getTtsSpeakers() {
+     return new TtsSpeakerListResponseDto(
+@@ -156,6 +199,7 @@ public class UserService {
+         user.getId(),
+         user.getEmail(),
+         user.getName(),
++        user.isPasswordLoginEnabled(),
+         user.isActive(),
+         user.getRole(),
+         user.getTtsSpeaker());
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtAuthenticationFilter.java b/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtAuthenticationFilter.java
+--- a/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtAuthenticationFilter.java
++++ b/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtAuthenticationFilter.java
+@@ -1,12 +1,14 @@
+ package com.ssafy.backend.global.security.jwt;
+ 
+ import com.ssafy.backend.domain.auth.service.AccessTokenBlacklistStore;
++import com.ssafy.backend.domain.auth.service.AccessTokenInvalidationStore;
+ import com.ssafy.backend.global.security.Role;
+ import jakarta.servlet.FilterChain;
+ import jakarta.servlet.ServletException;
+ import jakarta.servlet.http.HttpServletRequest;
+ import jakarta.servlet.http.HttpServletResponse;
+ import java.io.IOException;
++import java.time.Instant;
+ import java.util.List;
+ import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+ import org.springframework.security.core.authority.SimpleGrantedAuthority;
+@@ -22,11 +24,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
+ 
+   private final JwtTokenProvider jwtTokenProvider;
+   private final AccessTokenBlacklistStore accessTokenBlacklistStore;
++  private final AccessTokenInvalidationStore accessTokenInvalidationStore;
+ 
+   public JwtAuthenticationFilter(
+-      JwtTokenProvider jwtTokenProvider, AccessTokenBlacklistStore accessTokenBlacklistStore) {
++      JwtTokenProvider jwtTokenProvider,
++      AccessTokenBlacklistStore accessTokenBlacklistStore,
++      AccessTokenInvalidationStore accessTokenInvalidationStore) {
+     this.jwtTokenProvider = jwtTokenProvider;
+     this.accessTokenBlacklistStore = accessTokenBlacklistStore;
++    this.accessTokenInvalidationStore = accessTokenInvalidationStore;
+   }
+ 
+   @Override
+@@ -46,6 +52,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
+       }
+ 
+       Long userId = jwtTokenProvider.getUserId(token);
++      Instant issuedAt = jwtTokenProvider.getIssuedAt(token);
++      if (accessTokenInvalidationStore.isInvalidated(userId, issuedAt)) {
++        filterChain.doFilter(request, response);
++        return;
++      }
++
+       Role role = jwtTokenProvider.getRole(token);
+ 
+       UsernamePasswordAuthenticationToken authenticationToken =
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtTokenProvider.java b/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtTokenProvider.java
+--- a/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtTokenProvider.java
++++ b/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtTokenProvider.java
+@@ -87,6 +87,11 @@ public class JwtTokenProvider {
+     return Role.valueOf(roleName);
+   }
+ 
++  public Instant getIssuedAt(String token) {
++    Claims claims = parseClaims(token);
++    return claims.getIssuedAt().toInstant();
++  }
++
+   public boolean isAccessToken(String token) {
+     Claims claims = parseClaims(token);
+     String tokenType = claims.get(TOKEN_TYPE_CLAIM, String.class);
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260517153000__add_password_login_enabled_to_users.sql b/backend/src/main/resources/db/migration/V20260517153000__add_password_login_enabled_to_users.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260517153000__add_password_login_enabled_to_users.sql
+@@ -0,0 +1,10 @@
++ALTER TABLE users
++  ADD COLUMN IF NOT EXISTS password_login_enabled BOOLEAN NOT NULL DEFAULT TRUE;
++
++UPDATE users u
++SET password_login_enabled = FALSE
++WHERE EXISTS (
++  SELECT 1
++  FROM social_accounts sa
++  WHERE sa.user_id = u.id
++);
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/auth/service/AuthServiceTokenFlowTest.java b/backend/src/test/java/com/ssafy/backend/domain/auth/service/AuthServiceTokenFlowTest.java
+--- a/backend/src/test/java/com/ssafy/backend/domain/auth/service/AuthServiceTokenFlowTest.java
++++ b/backend/src/test/java/com/ssafy/backend/domain/auth/service/AuthServiceTokenFlowTest.java
+@@ -97,6 +97,20 @@ class AuthServiceTokenFlowTest {
+     verify(refreshTokenStore, never()).save(Mockito.any(), Mockito.any(), Mockito.any());
+   }
+ 
++  @Test
++  @DisplayName("비밀번호 로그인을 사용할 수 없는 계정은 이메일 로그인 토큰을 발급하지 않는다")
++  void loginRejectsPasswordDisabledUser() {
++    when(userService.getAuthInfoByEmail(EMAIL)).thenReturn(passwordDisabledUser());
++
++    assertAuthError(
++        () -> authService.login(new LoginRequestDto(EMAIL, RAW_PASSWORD)),
++        AuthErrorCode.INVALID_CREDENTIALS);
++
++    verify(passwordEncoder, never()).matches(Mockito.any(), Mockito.any());
++    verifyTokenPairNotGenerated();
++    verify(refreshTokenStore, never()).save(Mockito.any(), Mockito.any(), Mockito.any());
++  }
++
+   @Test
+   @DisplayName("유효한 refreshToken이면 기존 토큰을 삭제하고 새 토큰 쌍을 발급한다")
+   void refreshRotatesRefreshToken() {
+@@ -205,11 +219,15 @@ class AuthServiceTokenFlowTest {
+   }
+ 
+   private UserAuthResponseDto activeUser() {
+-    return new UserAuthResponseDto(USER_ID, EMAIL, ENCODED_PASSWORD, true, Role.USER);
++    return new UserAuthResponseDto(USER_ID, EMAIL, ENCODED_PASSWORD, true, true, Role.USER);
+   }
+ 
+   private UserAuthResponseDto inactiveUser() {
+-    return new UserAuthResponseDto(USER_ID, EMAIL, ENCODED_PASSWORD, false, Role.USER);
++    return new UserAuthResponseDto(USER_ID, EMAIL, ENCODED_PASSWORD, true, false, Role.USER);
++  }
++
++  private UserAuthResponseDto passwordDisabledUser() {
++    return new UserAuthResponseDto(USER_ID, EMAIL, ENCODED_PASSWORD, false, true, Role.USER);
+   }
+ 
+   private void verifyTokenPairNotGenerated() {
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/auth/service/UserTokenInvalidationServiceTest.java b/backend/src/test/java/com/ssafy/backend/domain/auth/service/UserTokenInvalidationServiceTest.java
+--- /dev/null
++++ b/backend/src/test/java/com/ssafy/backend/domain/auth/service/UserTokenInvalidationServiceTest.java
+@@ -0,0 +1,48 @@
++package com.ssafy.backend.domain.auth.service;
++
++import static org.mockito.Mockito.any;
++import static org.mockito.Mockito.eq;
++import static org.mockito.Mockito.verify;
++
++import com.ssafy.backend.global.security.jwt.JwtProperties;
++import java.time.Duration;
++import java.time.Instant;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.extension.ExtendWith;
++import org.mockito.Mock;
++import org.mockito.junit.jupiter.MockitoExtension;
++
++@ExtendWith(MockitoExtension.class)
++class UserTokenInvalidationServiceTest {
++
++  private static final Long USER_ID = 1L;
++  private static final long ACCESS_TOKEN_TTL_SECONDS = 900L;
++
++  @Mock private RefreshTokenStore refreshTokenStore;
++  @Mock private AccessTokenInvalidationStore accessTokenInvalidationStore;
++
++  private UserTokenInvalidationService userTokenInvalidationService;
++
++  @BeforeEach
++  void setUp() {
++    JwtProperties jwtProperties = new JwtProperties();
++    jwtProperties.setAccessTokenTtlSeconds(ACCESS_TOKEN_TTL_SECONDS);
++
++    userTokenInvalidationService =
++        new UserTokenInvalidationService(
++            refreshTokenStore, accessTokenInvalidationStore, jwtProperties);
++  }
++
++  @Test
++  @DisplayName("사용자 토큰 무효화 시 refreshToken 전체 삭제와 accessToken 기준 시각 저장을 수행한다")
++  void invalidateAllDeletesRefreshTokensAndStoresAccessTokenInvalidBefore() {
++    userTokenInvalidationService.invalidateAll(USER_ID);
++
++    verify(refreshTokenStore).deleteAllByUserId(USER_ID);
++    verify(accessTokenInvalidationStore)
++        .invalidateBefore(
++            eq(USER_ID), any(Instant.class), eq(Duration.ofSeconds(ACCESS_TOKEN_TTL_SECONDS)));
++  }
++}
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/user/service/UserServicePasswordChangeTest.java b/backend/src/test/java/com/ssafy/backend/domain/user/service/UserServicePasswordChangeTest.java
+--- a/backend/src/test/java/com/ssafy/backend/domain/user/service/UserServicePasswordChangeTest.java
++++ b/backend/src/test/java/com/ssafy/backend/domain/user/service/UserServicePasswordChangeTest.java
+@@ -6,6 +6,7 @@ import static org.mockito.Mockito.never;
+ import static org.mockito.Mockito.verify;
+ import static org.mockito.Mockito.when;
+ 
++import com.ssafy.backend.domain.auth.service.UserTokenInvalidationService;
+ import com.ssafy.backend.domain.user.entity.User;
+ import com.ssafy.backend.domain.user.exception.UserErrorCode;
+ import com.ssafy.backend.domain.user.repository.UserRepository;
+@@ -31,12 +32,28 @@ class UserServicePasswordChangeTest {
+ 
+   @Mock private UserRepository userRepository;
+   @Mock private PasswordEncoder passwordEncoder;
++  @Mock private UserTokenInvalidationService userTokenInvalidationService;
+ 
+   private UserService userService;
+ 
+   @BeforeEach
+   void setUp() {
+-    userService = new UserService(userRepository, passwordEncoder);
++    userService = new UserService(userRepository, passwordEncoder, userTokenInvalidationService);
++  }
++
++  @Test
++  @DisplayName("비밀번호 로그인을 사용할 수 없는 계정은 비밀번호를 변경하지 않는다")
++  void changePasswordRejectsPasswordDisabledUser() {
++    User user = oauthOnlyUser();
++    when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
++
++    assertUserError(
++        () -> userService.changePassword(USER_ID, CURRENT_PASSWORD, NEW_PASSWORD),
++        UserErrorCode.PASSWORD_LOGIN_NOT_ENABLED);
++
++    verify(passwordEncoder, never()).matches(Mockito.any(), Mockito.any());
++    verify(passwordEncoder, never()).encode(Mockito.any());
++    verify(userRepository, never()).flush();
+   }
+ 
+   @Test
+@@ -105,6 +122,10 @@ class UserServicePasswordChangeTest {
+     return User.create("guardian@example.com", ENCODED_CURRENT_PASSWORD, "보호자");
+   }
+ 
++  private User oauthOnlyUser() {
++    return User.createOAuthUser("guardian@example.com", ENCODED_CURRENT_PASSWORD, "보호자");
++  }
++
+   private void assertUserError(ThrowingCall call, UserErrorCode expectedErrorCode) {
+     assertThatThrownBy(call::invoke)
+         .isInstanceOfSatisfying(
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/user/service/UserServiceWithdrawTest.java b/backend/src/test/java/com/ssafy/backend/domain/user/service/UserServiceWithdrawTest.java
+--- /dev/null
++++ b/backend/src/test/java/com/ssafy/backend/domain/user/service/UserServiceWithdrawTest.java
+@@ -0,0 +1,145 @@
++package com.ssafy.backend.domain.user.service;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
++import static org.mockito.Mockito.never;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.when;
++
++import com.ssafy.backend.domain.auth.service.UserTokenInvalidationService;
++import com.ssafy.backend.domain.user.entity.User;
++import com.ssafy.backend.domain.user.exception.UserErrorCode;
++import com.ssafy.backend.domain.user.repository.UserRepository;
++import com.ssafy.backend.global.exception.BusinessException;
++import java.util.Optional;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.extension.ExtendWith;
++import org.mockito.Mock;
++import org.mockito.Mockito;
++import org.mockito.junit.jupiter.MockitoExtension;
++import org.springframework.security.crypto.password.PasswordEncoder;
++
++@ExtendWith(MockitoExtension.class)
++class UserServiceWithdrawTest {
++
++  private static final Long USER_ID = 1L;
++  private static final String PASSWORD = "Password1!";
++  private static final String ENCODED_PASSWORD = "encoded-password";
++
++  @Mock private UserRepository userRepository;
++  @Mock private PasswordEncoder passwordEncoder;
++  @Mock private UserTokenInvalidationService userTokenInvalidationService;
++
++  private UserService userService;
++
++  @BeforeEach
++  void setUp() {
++    userService = new UserService(userRepository, passwordEncoder, userTokenInvalidationService);
++  }
++
++  @Test
++  @DisplayName("비밀번호 로그인 계정은 현재 비밀번호가 일치하면 탈퇴 처리하고 토큰을 무효화한다")
++  void withdrawPasswordUser() {
++    User user = passwordUser();
++    when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
++    when(passwordEncoder.matches(PASSWORD, ENCODED_PASSWORD)).thenReturn(true);
++
++    userService.withdraw(USER_ID, PASSWORD);
++
++    assertThat(user.isActive()).isFalse();
++    verify(userRepository).flush();
++    verify(userTokenInvalidationService).invalidateAll(USER_ID);
++  }
++
++  @Test
++  @DisplayName("비밀번호 로그인 계정은 탈퇴 시 현재 비밀번호가 필요하다")
++  void withdrawPasswordUserRequiresPassword() {
++    User user = passwordUser();
++    when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
++
++    assertUserError(
++        () -> userService.withdraw(USER_ID, null), UserErrorCode.WITHDRAW_PASSWORD_REQUIRED);
++
++    assertThat(user.isActive()).isTrue();
++    verify(passwordEncoder, never()).matches(Mockito.any(), Mockito.any());
++    verify(userRepository, never()).flush();
++    verify(userTokenInvalidationService, never()).invalidateAll(Mockito.any());
++  }
++
++  @Test
++  @DisplayName("비밀번호 로그인 계정은 현재 비밀번호가 틀리면 탈퇴 처리하지 않는다")
++  void withdrawPasswordUserRejectsPasswordMismatch() {
++    User user = passwordUser();
++    when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
++    when(passwordEncoder.matches(PASSWORD, ENCODED_PASSWORD)).thenReturn(false);
++
++    assertUserError(
++        () -> userService.withdraw(USER_ID, PASSWORD), UserErrorCode.CURRENT_PASSWORD_MISMATCH);
++
++    assertThat(user.isActive()).isTrue();
++    verify(userRepository, never()).flush();
++    verify(userTokenInvalidationService, never()).invalidateAll(Mockito.any());
++  }
++
++  @Test
++  @DisplayName("소셜 전용 계정은 비밀번호 없이 탈퇴 처리하고 토큰을 무효화한다")
++  void withdrawOAuthOnlyUserWithoutPassword() {
++    User user = oauthOnlyUser();
++    when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
++
++    userService.withdraw(USER_ID, null);
++
++    assertThat(user.isActive()).isFalse();
++    verify(passwordEncoder, never()).matches(Mockito.any(), Mockito.any());
++    verify(userRepository).flush();
++    verify(userTokenInvalidationService).invalidateAll(USER_ID);
++  }
++
++  @Test
++  @DisplayName("이미 탈퇴한 계정은 다시 탈퇴 처리하지 않는다")
++  void withdrawRejectsInactiveUser() {
++    User user = passwordUser();
++    user.withdraw();
++    when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
++
++    assertUserError(() -> userService.withdraw(USER_ID, PASSWORD), UserErrorCode.USER_NOT_FOUND);
++
++    verify(passwordEncoder, never()).matches(Mockito.any(), Mockito.any());
++    verify(userRepository, never()).flush();
++    verify(userTokenInvalidationService, never()).invalidateAll(Mockito.any());
++  }
++
++  @Test
++  @DisplayName("사용자를 찾을 수 없으면 탈퇴 처리하지 않는다")
++  void withdrawRejectsMissingUser() {
++    when(userRepository.findById(USER_ID)).thenReturn(Optional.empty());
++
++    assertUserError(() -> userService.withdraw(USER_ID, PASSWORD), UserErrorCode.USER_NOT_FOUND);
++
++    verify(passwordEncoder, never()).matches(Mockito.any(), Mockito.any());
++    verify(userRepository, never()).flush();
++    verify(userTokenInvalidationService, never()).invalidateAll(Mockito.any());
++  }
++
++  private User passwordUser() {
++    return User.create("guardian@example.com", ENCODED_PASSWORD, "보호자");
++  }
++
++  private User oauthOnlyUser() {
++    return User.createOAuthUser("guardian@example.com", ENCODED_PASSWORD, "보호자");
++  }
++
++  private void assertUserError(ThrowingCall call, UserErrorCode expectedErrorCode) {
++    assertThatThrownBy(call::invoke)
++        .isInstanceOfSatisfying(
++            BusinessException.class,
++            exception -> assertThat(exception.getErrorCode()).isEqualTo(expectedErrorCode));
++  }
++
++  @FunctionalInterface
++  private interface ThrowingCall {
++    void invoke();
++  }
++}
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/global/config/SecurityAccessPolicyTest.java b/backend/src/test/java/com/ssafy/backend/global/config/SecurityAccessPolicyTest.java
+--- a/backend/src/test/java/com/ssafy/backend/global/config/SecurityAccessPolicyTest.java
++++ b/backend/src/test/java/com/ssafy/backend/global/config/SecurityAccessPolicyTest.java
+@@ -1,6 +1,7 @@
+ package com.ssafy.backend.global.config;
+ 
+ import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
++import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+@@ -8,11 +9,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
+ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+ 
+ import com.ssafy.backend.domain.auth.service.AccessTokenBlacklistStore;
++import com.ssafy.backend.domain.auth.service.AccessTokenInvalidationStore;
+ import com.ssafy.backend.global.security.ProblemDetailAccessDeniedHandler;
+ import com.ssafy.backend.global.security.ProblemDetailAuthenticationEntryPoint;
+ import com.ssafy.backend.global.security.Role;
+ import com.ssafy.backend.global.security.jwt.JwtAuthenticationFilter;
+ import com.ssafy.backend.global.security.jwt.JwtTokenProvider;
++import java.time.Instant;
+ import org.junit.jupiter.api.BeforeEach;
+ import org.junit.jupiter.api.DisplayName;
+ import org.junit.jupiter.api.Test;
+@@ -28,6 +31,7 @@ import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
+ import org.springframework.test.context.web.WebAppConfiguration;
+ import org.springframework.test.web.servlet.MockMvc;
+ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
++import org.springframework.web.bind.annotation.DeleteMapping;
+ import org.springframework.web.bind.annotation.GetMapping;
+ import org.springframework.web.bind.annotation.PatchMapping;
+ import org.springframework.web.bind.annotation.PostMapping;
+@@ -48,20 +52,24 @@ import org.springframework.web.servlet.config.annotation.EnableWebMvc;
+ class SecurityAccessPolicyTest {
+ 
+   private static final String VALID_ACCESS_TOKEN = "valid-access-token";
++  private static final Instant VALID_ACCESS_TOKEN_ISSUED_AT = Instant.parse("2026-05-17T00:00:00Z");
+ 
+   @Autowired private WebApplicationContext context;
+   @Autowired private JwtTokenProvider jwtTokenProvider;
+   @Autowired private AccessTokenBlacklistStore accessTokenBlacklistStore;
++  @Autowired private AccessTokenInvalidationStore accessTokenInvalidationStore;
+ 
+   private MockMvc mockMvc;
+ 
+   @BeforeEach
+   void setUp() {
+-    Mockito.reset(jwtTokenProvider, accessTokenBlacklistStore);
++    Mockito.reset(jwtTokenProvider, accessTokenBlacklistStore, accessTokenInvalidationStore);
+     Mockito.when(jwtTokenProvider.validateToken(VALID_ACCESS_TOKEN)).thenReturn(true);
+     Mockito.when(jwtTokenProvider.isAccessToken(VALID_ACCESS_TOKEN)).thenReturn(true);
+     Mockito.when(jwtTokenProvider.getJti(VALID_ACCESS_TOKEN)).thenReturn("valid-access-jti");
+     Mockito.when(jwtTokenProvider.getUserId(VALID_ACCESS_TOKEN)).thenReturn(1L);
++    Mockito.when(jwtTokenProvider.getIssuedAt(VALID_ACCESS_TOKEN))
++        .thenReturn(VALID_ACCESS_TOKEN_ISSUED_AT);
+     Mockito.when(jwtTokenProvider.getRole(VALID_ACCESS_TOKEN)).thenReturn(Role.USER);
+     mockMvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
+   }
+@@ -104,6 +112,7 @@ class SecurityAccessPolicyTest {
+   void protectedDomainApisRequireAuthentication() throws Exception {
+     mockMvc.perform(get("/api/v1/users/me")).andExpect(status().isUnauthorized());
+     mockMvc.perform(patch("/api/v1/users/me")).andExpect(status().isUnauthorized());
++    mockMvc.perform(delete("/api/v1/users/me")).andExpect(status().isUnauthorized());
+     mockMvc.perform(get("/api/v1/children")).andExpect(status().isUnauthorized());
+     mockMvc.perform(post("/api/v1/children")).andExpect(status().isUnauthorized());
+     mockMvc.perform(get("/api/v1/learn/categories")).andExpect(status().isUnauthorized());
+@@ -118,6 +127,17 @@ class SecurityAccessPolicyTest {
+         .andExpect(status().isOk());
+   }
+ 
++  @Test
++  @DisplayName("무효화 기준 시각 이전에 발급된 액세스 토큰은 보호 API를 호출할 수 없다")
++  void protectedApiRejectsInvalidatedAccessToken() throws Exception {
++    Mockito.when(accessTokenInvalidationStore.isInvalidated(1L, VALID_ACCESS_TOKEN_ISSUED_AT))
++        .thenReturn(true);
++
++    mockMvc
++        .perform(get("/api/v1/users/me").header("Authorization", "Bearer " + VALID_ACCESS_TOKEN))
++        .andExpect(status().isUnauthorized());
++  }
++
+   @Test
+   @DisplayName("CORS preflight 요청은 로그인 없이 허용한다")
+   void optionsRequestsArePublic() throws Exception {
+@@ -145,6 +165,11 @@ class SecurityAccessPolicyTest {
+     AccessTokenBlacklistStore accessTokenBlacklistStore() {
+       return Mockito.mock(AccessTokenBlacklistStore.class);
+     }
++
++    @Bean
++    AccessTokenInvalidationStore accessTokenInvalidationStore() {
++      return Mockito.mock(AccessTokenInvalidationStore.class);
++    }
+   }
+ 
+   @RestController
+@@ -192,6 +217,11 @@ class SecurityAccessPolicyTest {
+       return ResponseEntity.ok().build();
+     }
+ 
++    @DeleteMapping("/api/v1/users/me")
++    ResponseEntity<Void> deleteEndpoint() {
++      return ResponseEntity.ok().build();
++    }
++
+     @RequestMapping("/api/v1/learn/categories")
+     ResponseEntity<Void> learnEndpoint() {
+       return ResponseEntity.ok().build();
+
+

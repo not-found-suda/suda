@@ -1,0 +1,457 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioRecorder.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioRecorder.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioRecorder.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioRecorder.kt
+@@ -151,16 +151,13 @@ class AndroidAudioRecorder
+                 isSuccess = false
+             }
+ 
+-            joinRecordingThread()
+-
+-            try {
+-                outputStream?.close()
+-            } catch (e: IOException) {
+-                Log.w(TAG, "Failed to close WAV output stream", e)
++            if (!joinRecordingThread()) {
+                 isSuccess = false
+-            } finally {
+-                activeRecorder.release()
+             }
++            if (!flushAndCloseOutputStream()) {
++                isSuccess = false
++            }
++            releaseRecorder(activeRecorder)
+ 
+             return handleOutputFile(isSuccess)
+         }
+@@ -219,13 +216,46 @@ class AndroidAudioRecorder
+             }
+         }
+ 
+-        private fun joinRecordingThread() {
++        private fun joinRecordingThread(): Boolean {
+             try {
+                 recordingThread?.join(RECORDING_THREAD_JOIN_TIMEOUT_MS)
+             } catch (e: InterruptedException) {
+                 Thread.currentThread().interrupt()
+                 Log.w(TAG, "Interrupted while waiting for WAV recording thread", e)
++                return false
+             }
++
++            val isStopped = recordingThread?.isAlive != true
++            if (!isStopped) {
++                Log.w(TAG, "WAV recording thread did not stop before output finalization")
++                isRecording = false
++            }
++            return isStopped
++        }
++
++        private fun flushAndCloseOutputStream(): Boolean {
++            val stream = outputStream ?: return true
++            var isSuccess = true
++
++            try {
++                stream.flush()
++            } catch (e: IOException) {
++                Log.w(TAG, "Failed to flush WAV output stream", e)
++                isSuccess = false
++            }
++
++            try {
++                stream.close()
++            } catch (e: IOException) {
++                Log.w(TAG, "Failed to close WAV output stream", e)
++                isSuccess = false
++            }
++
++            return isSuccess
++        }
++
++        private fun releaseRecorder(recorder: AudioRecord) {
++            recorder.release()
+         }
+ 
+         private fun handleOutputFile(isSuccess: Boolean): File? {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/model/TranslateDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/model/TranslateDto.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/model/TranslateDto.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/remote/model/TranslateDto.kt
+@@ -46,11 +46,11 @@ data class TranslationFeedbackRequest(
+  * RFC 9457 표준 에러 응답 DTO
+  */
+ data class ApiErrorResponse(
+-    @SerializedName("type") val type: String,
+-    @SerializedName("title") val title: String,
+-    @SerializedName("status") val status: Int,
+-    @SerializedName("detail") val detail: String,
+-    @SerializedName("instance") val instance: String,
+-    @SerializedName("code") val code: String,
+-    @SerializedName("traceId") val traceId: String?,
++    @SerializedName("type") val type: String? = null,
++    @SerializedName("title") val title: String? = null,
++    @SerializedName("status") val status: Int? = null,
++    @SerializedName("detail") val detail: String? = null,
++    @SerializedName("instance") val instance: String? = null,
++    @SerializedName("code") val code: String? = null,
++    @SerializedName("traceId") val traceId: String? = null,
+ )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DefaultTranslateRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DefaultTranslateRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DefaultTranslateRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/data/repository/DefaultTranslateRepository.kt
+@@ -1,6 +1,9 @@
+ package com.ssafy.mobile.feature.conversation.data.repository
+ 
++import com.google.gson.Gson
++import com.ssafy.mobile.core.audio.WavFileHeader
+ import com.ssafy.mobile.feature.conversation.data.remote.TranslateApiService
++import com.ssafy.mobile.feature.conversation.data.remote.model.ApiErrorResponse
+ import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechRequest
+ import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechResponse
+ import com.ssafy.mobile.feature.conversation.data.remote.model.SpeechToTextResponse
+@@ -15,6 +18,7 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
+ import okhttp3.MultipartBody
+ import okhttp3.RequestBody.Companion.asRequestBody
+ import okhttp3.RequestBody.Companion.toRequestBody
++import retrofit2.Response
+ 
+ /**
+  * TranslateRepository의 실제 구현체
+@@ -35,8 +39,7 @@ class DefaultTranslateRepository
+                 if (response.isSuccessful) {
+                     response.body() ?: throw IllegalStateException(ERROR_EMPTY_BODY)
+                 } else {
+-                    // 에러 응답 처리 (추후 ApiErrorResponse 파싱 로직 추가 가능)
+-                    throw IOException("$ERROR_API_PREFIX ${response.code()} ${response.message()}")
++                    throw response.toApiException()
+                 }
+             }
+ 
+@@ -45,6 +48,8 @@ class DefaultTranslateRepository
+             mimeType: String,
+         ): Result<SpeechToTextResponse> =
+             runCatching {
++                validateSpeechAudioFile(audioFile)
++
+                 val requestFile = audioFile.asRequestBody(mimeType.toMediaTypeOrNull())
+                 val body =
+                     MultipartBody.Part.createFormData(
+@@ -63,11 +68,7 @@ class DefaultTranslateRepository
+                 if (response.isSuccessful) {
+                     response.body() ?: throw IllegalStateException(ERROR_EMPTY_BODY)
+                 } else {
+-                    val errorBody = response.errorBody()?.string().orEmpty()
+-                    throw IOException(
+-                        "$ERROR_API_PREFIX ${response.code()} ${response.message()} " +
+-                            errorBody.take(ERROR_BODY_PREVIEW_LENGTH),
+-                    )
++                    throw response.toApiException()
+                 }
+             }
+ 
+@@ -87,19 +88,105 @@ class DefaultTranslateRepository
+                     )
+ 
+                 if (!response.isSuccessful) {
+-                    val errorBody = response.errorBody()?.string().orEmpty()
+-                    throw IOException(
+-                        "$ERROR_API_PREFIX ${response.code()} ${response.message()} " +
+-                            errorBody.take(ERROR_BODY_PREVIEW_LENGTH),
+-                    )
++                    throw response.toApiException()
+                 }
+             }
+ 
++        private fun validateSpeechAudioFile(audioFile: File) {
++            val validationError = audioFile.getSpeechAudioFileValidationError() ?: return
++
++            throw IOException(validationError)
++        }
++
++        private fun File.getSpeechAudioFileValidationError(): String? {
++            val fileSize = length()
++            return when {
++                !exists() || !isFile ->
++                    "Invalid STT audio file: path=$absolutePath, " +
++                        "exists=${exists()}, size=$fileSize"
++
++                fileSize <= WavFileHeader.HEADER_SIZE_BYTES ->
++                    "Invalid STT audio file: path=$absolutePath, " +
++                        "size=$fileSize, reason=wav_payload_empty"
++
++                !hasWavHeader() ->
++                    "Invalid STT audio file: path=$absolutePath, " +
++                        "size=$fileSize, reason=invalid_wav_header"
++
++                else -> null
++            }
++        }
++
++        private fun File.hasWavHeader(): Boolean =
++            inputStream().use { input ->
++                val header = ByteArray(WAV_MAGIC_HEADER_SIZE)
++                val bytesRead = input.read(header)
++                bytesRead >= WAV_MAGIC_HEADER_SIZE &&
++                    header.matchesMagicHeader(RIFF_HEADER, RIFF_HEADER_OFFSET) &&
++                    header.matchesMagicHeader(WAVE_HEADER, WAVE_HEADER_OFFSET)
++            }
++
++        private fun ByteArray.matchesMagicHeader(
++            magicHeader: ByteArray,
++            offset: Int,
++        ): Boolean = copyOfRange(offset, offset + magicHeader.size).contentEquals(magicHeader)
++
++        private fun Response<*>.toApiException(): IOException {
++            val errorBody = errorBody()?.string().orEmpty()
++            val problemDetails = errorBody.parseProblemDetails()
++            val diagnostic =
++                problemDetails
++                    ?.toDiagnosticMessage()
++                    ?.takeIf { it.isNotBlank() }
++                    ?: "body=${errorBody.take(ERROR_BODY_PREVIEW_LENGTH)}"
++
++            return IOException(
++                "$ERROR_API_PREFIX status=${code()}, message=${message()}, $diagnostic",
++            )
++        }
++
++        private fun String.parseProblemDetails(): ApiErrorResponse? {
++            if (isBlank()) return null
++
++            return runCatching {
++                gson.fromJson(this, ApiErrorResponse::class.java)
++            }.getOrNull()
++        }
++
++        private fun ApiErrorResponse.toDiagnosticMessage(): String =
++            listOfNotNull(
++                type?.let { "type=$it" },
++                title?.let { "title=$it" },
++                status?.let { "status=$it" },
++                detail?.let { "detail=$it" },
++                instance?.let { "instance=$it" },
++                code?.let { "code=$it" },
++                traceId?.let { "traceId=$it" },
++            ).joinToString()
++
+         companion object {
+             private const val ERROR_EMPTY_BODY = "Empty response body"
+             private const val ERROR_API_PREFIX = "API Error:"
+             private const val ERROR_BODY_PREVIEW_LENGTH = 300
+             private const val DEFAULT_LOCALE = "ko-KR"
++            private const val WAV_MAGIC_HEADER_SIZE = 12
++            private const val RIFF_HEADER_OFFSET = 0
++            private const val WAVE_HEADER_OFFSET = 8
++            private val RIFF_HEADER =
++                byteArrayOf(
++                    'R'.code.toByte(),
++                    'I'.code.toByte(),
++                    'F'.code.toByte(),
++                    'F'.code.toByte(),
++                )
++            private val WAVE_HEADER =
++                byteArrayOf(
++                    'W'.code.toByte(),
++                    'A'.code.toByte(),
++                    'V'.code.toByte(),
++                    'E'.code.toByte(),
++                )
++            private val gson = Gson()
+         }
+     }
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -1121,15 +1121,15 @@ class ConversationViewModel
+             private const val STT_RESTART_DELAY_MS = 500L
+             private const val CLOUD_STT_POLL_INTERVAL_MS = 150L
+             private const val CLOUD_STT_MIN_RECORDING_MS = 500L
+-            private const val CLOUD_STT_MIN_UPLOAD_RECORDING_MS = 1500L
+-            private const val CLOUD_STT_SILENCE_TIMEOUT_MS = 500L
+-            private const val CLOUD_STT_MAX_RECORDING_MS = 2800L
+-            private const val CLOUD_STT_NO_SPEECH_TIMEOUT_MS = 1200L
++            private const val CLOUD_STT_MIN_UPLOAD_RECORDING_MS = 800L
++            private const val CLOUD_STT_SILENCE_TIMEOUT_MS = 900L
++            private const val CLOUD_STT_MAX_RECORDING_MS = 6000L
++            private const val CLOUD_STT_NO_SPEECH_TIMEOUT_MS = 1800L
+             private const val CLOUD_STT_RETRY_DELAY_MS = 500L
+             private const val CLOUD_STT_FAILURE_RETRY_DELAY_MS = 1500L
+             private const val CLOUD_STT_MAX_FAILURE_RETRY_DELAY_MS = 5000L
+-            private const val CLOUD_STT_VOICE_THRESHOLD = 5000
+-            private const val CLOUD_STT_FALLBACK_VOICE_THRESHOLD = 5000
++            private const val CLOUD_STT_VOICE_THRESHOLD = 2000
++            private const val CLOUD_STT_FALLBACK_VOICE_THRESHOLD = 1500
+             private const val CLOUD_STT_MIN_VOICE_FRAME_COUNT = 2
+             private const val CLOUD_STT_MIN_FILE_BYTES = 1024L
+             private const val CLOUD_STT_STOP_REASON_SILENCE = "silence"
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/feature/conversation/data/repository/DefaultTranslateRepositoryTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/feature/conversation/data/repository/DefaultTranslateRepositoryTest.kt
+--- /dev/null
++++ b/mobile/app/src/test/java/com/ssafy/mobile/feature/conversation/data/repository/DefaultTranslateRepositoryTest.kt
+@@ -0,0 +1,159 @@
++package com.ssafy.mobile.feature.conversation.data.repository
++
++import com.ssafy.mobile.feature.conversation.data.remote.TranslateApiService
++import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechRequest
++import com.ssafy.mobile.feature.conversation.data.remote.model.SignToSpeechResponse
++import com.ssafy.mobile.feature.conversation.data.remote.model.SpeechToTextResponse
++import com.ssafy.mobile.feature.conversation.data.remote.model.TranslationFeedbackRequest
++import java.io.File
++import kotlinx.coroutines.runBlocking
++import okhttp3.MediaType.Companion.toMediaType
++import okhttp3.MultipartBody
++import okhttp3.RequestBody
++import okhttp3.ResponseBody.Companion.toResponseBody
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertTrue
++import org.junit.Rule
++import org.junit.Test
++import org.junit.rules.TemporaryFolder
++import retrofit2.Response
++
++class DefaultTranslateRepositoryTest {
++    @get:Rule
++    val temporaryFolder = TemporaryFolder()
++
++    @Test
++    fun `rejects missing speech audio file before api call`() =
++        runBlocking {
++            val apiService = FakeTranslateApiService()
++            val repository = DefaultTranslateRepository(apiService)
++            val missingFile = File(temporaryFolder.root, "missing.wav")
++
++            val result = repository.translateSpeechToText(missingFile, AUDIO_WAV)
++
++            assertTrue(result.isFailure)
++            assertEquals(0, apiService.speechToTextCallCount)
++        }
++
++    @Test
++    fun `rejects wav file without payload before api call`() =
++        runBlocking {
++            val apiService = FakeTranslateApiService()
++            val repository = DefaultTranslateRepository(apiService)
++            val audioFile = temporaryFolder.newFile("empty.wav")
++            audioFile.writeBytes(ByteArray(WAV_HEADER_SIZE))
++
++            val result = repository.translateSpeechToText(audioFile, AUDIO_WAV)
++
++            assertTrue(result.isFailure)
++            assertEquals(0, apiService.speechToTextCallCount)
++        }
++
++    @Test
++    fun `uploads valid wav file`() =
++        runBlocking {
++            val apiService = FakeTranslateApiService()
++            val repository = DefaultTranslateRepository(apiService)
++            val audioFile = temporaryFolder.newFile("speech.wav")
++            audioFile.writeBytes(validWavBytes())
++
++            val result = repository.translateSpeechToText(audioFile, AUDIO_WAV)
++
++            assertTrue(result.isSuccess)
++            assertEquals(1, apiService.speechToTextCallCount)
++            assertEquals(RECOGNIZED_TEXT, result.getOrThrow().recognizedText)
++        }
++
++    @Test
++    fun `includes problem details when speech api fails`() =
++        runBlocking {
++            val apiService =
++                FakeTranslateApiService(
++                    speechToTextResponse =
++                        Response.error(
++                            BAD_REQUEST,
++                            PROBLEM_DETAILS_JSON.toResponseBody(APPLICATION_JSON.toMediaType()),
++                        ),
++                )
++            val repository = DefaultTranslateRepository(apiService)
++            val audioFile = temporaryFolder.newFile("speech.wav")
++            audioFile.writeBytes(validWavBytes())
++
++            val result = repository.translateSpeechToText(audioFile, AUDIO_WAV)
++            val message = result.exceptionOrNull()?.message.orEmpty()
++
++            assertTrue(result.isFailure)
++            assertTrue(message.contains("code=INVALID_AUDIO"))
++            assertTrue(message.contains("traceId=trace-1"))
++        }
++
++    private class FakeTranslateApiService(
++        var speechToTextResponse: Response<SpeechToTextResponse> =
++            Response.success(
++                SpeechToTextResponse(
++                    recognizedText = RECOGNIZED_TEXT,
++                    correctedText = RECOGNIZED_TEXT,
++                    corrected = false,
++                    confidence = null,
++                    locale = "ko-KR",
++                ),
++            ),
++    ) : TranslateApiService {
++        var speechToTextCallCount = 0
++
++        override suspend fun translateSignToSpeech(
++            request: SignToSpeechRequest,
++            dryRun: Boolean,
++        ): Response<SignToSpeechResponse> =
++            Response.success(
++                SignToSpeechResponse(
++                    originalWords = request.words,
++                    correctedText = request.words.joinToString(" "),
++                    audioBase64 = null,
++                    audioMimeType = null,
++                    corrected = false,
++                ),
++            )
++
++        override suspend fun translateSpeechToText(
++            audioFile: MultipartBody.Part,
++            locale: RequestBody,
++            audioMimeType: RequestBody,
++            dryRun: Boolean,
++        ): Response<SpeechToTextResponse> {
++            speechToTextCallCount++
++            return speechToTextResponse
++        }
++
++        override suspend fun submitTranslationFeedback(
++            request: TranslationFeedbackRequest,
++        ): Response<Unit> = Response.success(Unit)
++    }
++
++    private companion object {
++        private const val AUDIO_WAV = "audio/wav"
++        private const val APPLICATION_JSON = "application/json"
++        private const val BAD_REQUEST = 400
++        private const val WAV_HEADER_SIZE = 44
++        private const val PCM_DATA_SIZE = 3200
++        private const val RECOGNIZED_TEXT = "안녕"
++        private const val PROBLEM_DETAILS_JSON =
++            """
++            {
++              "type": "about:blank",
++              "title": "Invalid audio",
++              "status": 400,
++              "detail": "Invalid WAV header",
++              "instance": "/api/v1/translation/speech-to-text",
++              "code": "INVALID_AUDIO",
++              "traceId": "trace-1"
++            }
++            """
++
++        private fun validWavBytes(): ByteArray =
++            ByteArray(WAV_HEADER_SIZE + PCM_DATA_SIZE).apply {
++                "RIFF".encodeToByteArray().copyInto(this, destinationOffset = 0)
++                "WAVE".encodeToByteArray().copyInto(this, destinationOffset = 8)
++            }
++    }
++}
+
+

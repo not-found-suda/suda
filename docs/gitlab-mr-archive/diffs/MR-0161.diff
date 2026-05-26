@@ -1,0 +1,554 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -23,9 +23,9 @@ import com.ssafy.mobile.feature.quiz.presentation.QuizResultRoute
+ import com.ssafy.mobile.feature.quiz.presentation.quizQuestionRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportCategoryProgressRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportHomeRoute
+-import com.ssafy.mobile.feature.report.presentation.ReportPlaceholderRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportQuizSessionDetailRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportQuizSessionsRoute
++import com.ssafy.mobile.feature.report.presentation.ReportSummaryRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportWeakWordsRoute
+ import com.ssafy.mobile.feature.sign.presentation.SignDebugRoute
+ import com.ssafy.mobile.feature.signup.presentation.SignupRoute
+@@ -353,9 +353,11 @@ fun MobileNavHost(
+         }
+ 
+         composable(Screen.ReportSummary.route) {
+-            ReportPlaceholderRoute(
+-                title = "학습 요약",
++            ReportSummaryRoute(
+                 onNavigateBack = { navController.popBackStack() },
++                onSwitchChild = {
++                    navController.navigate(Screen.ChildSelect.route)
++                },
+                 modifier = Modifier.fillMaxSize(),
+             )
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/network/di/NetworkModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/network/di/NetworkModule.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/network/di/NetworkModule.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/network/di/NetworkModule.kt
+@@ -19,7 +19,7 @@ import retrofit2.converter.gson.GsonConverterFactory
+ @Module
+ @InstallIn(SingletonComponent::class)
+ object NetworkModule {
+-    private const val NETWORK_TIMEOUT_SEC = 30L
++    private const val NETWORK_TIMEOUT_SEC = 60L
+ 
+     @Provides
+     @Singleton
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningQuizApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningQuizApiService.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningQuizApiService.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/api/LearningQuizApiService.kt
+@@ -5,10 +5,8 @@ import com.ssafy.mobile.feature.learning.data.dto.LearningQuizCurrentQuestionRes
+ import com.ssafy.mobile.feature.learning.data.dto.LearningQuizResultResponseDto
+ import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionRequestDto
+ import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionResponseDto
+-import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionStatusRequestDto
+ import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionStatusResponseDto
+ import okhttp3.MultipartBody
+-import okhttp3.RequestBody
+ import retrofit2.Response
+ import retrofit2.http.Body
+ import retrofit2.http.GET
+@@ -17,6 +15,7 @@ import retrofit2.http.PATCH
+ import retrofit2.http.POST
+ import retrofit2.http.Part
+ import retrofit2.http.Path
++import retrofit2.http.Query
+ 
+ interface LearningQuizApiService {
+     @POST("v1/learn/quizzes/sessions")
+@@ -33,14 +32,13 @@ interface LearningQuizApiService {
+     @POST("v1/learn/quizzes/sessions/{sessionId}/answers")
+     suspend fun submitAnswer(
+         @Path("sessionId") sessionId: Long,
+-        @Part("questionId") questionId: RequestBody,
++        @Query("questionId") questionId: Long,
+         @Part audioFile: MultipartBody.Part,
+     ): Response<LearningQuizAnswerResponseDto>
+ 
+     @PATCH("v1/learn/quizzes/sessions/{sessionId}")
+     suspend fun updateSessionStatus(
+         @Path("sessionId") sessionId: Long,
+-        @Body request: LearningQuizSessionStatusRequestDto,
+     ): Response<LearningQuizSessionStatusResponseDto>
+ 
+     @GET("v1/learn/quizzes/sessions/{sessionId}/result")
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningQuizRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningQuizRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningQuizRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/data/repository/RemoteLearningQuizRepository.kt
+@@ -3,7 +3,6 @@ package com.ssafy.mobile.feature.learning.data.repository
+ import android.util.Log
+ import com.ssafy.mobile.feature.learning.data.api.LearningQuizApiService
+ import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionRequestDto
+-import com.ssafy.mobile.feature.learning.data.dto.LearningQuizSessionStatusRequestDto
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizAnswerResult
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizQuestion
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizResult
+@@ -17,7 +16,6 @@ import kotlin.coroutines.cancellation.CancellationException
+ import okhttp3.MediaType.Companion.toMediaTypeOrNull
+ import okhttp3.MultipartBody
+ import okhttp3.RequestBody.Companion.asRequestBody
+-import okhttp3.RequestBody.Companion.toRequestBody
+ import retrofit2.Response
+ 
+ private const val QUIZ_TAG = "RemoteLearningQuizRepo"
+@@ -68,15 +66,19 @@ class RemoteLearningQuizRepository
+             audioFile: File,
+             audioMimeType: String,
+         ): Result<LearningQuizAnswerResult> =
+-            runCatchingNetwork("Failed to submit quiz answer") {
+-                apiService
+-                    .submitAnswer(
+-                        sessionId = sessionId,
+-                        questionId = questionId.toString().toTextRequestBody(),
+-                        audioFile = audioFile.toMultipartAudioPart(audioMimeType),
+-                    ).toResult { response ->
+-                        response.toDomain()
+-                    }
++            if (!audioFile.isUsableAudioFile()) {
++                Result.failure(IllegalStateException("녹음 파일이 비어 있습니다. 다시 말해 주세요."))
++            } else {
++                runCatchingNetwork("Failed to submit quiz answer") {
++                    apiService
++                        .submitAnswer(
++                            sessionId = sessionId,
++                            questionId = questionId,
++                            audioFile = audioFile.toMultipartAudioPart(audioMimeType),
++                        ).toResult { response ->
++                            response.toDomain()
++                        }
++                }
+             }
+ 
+         override suspend fun completeSession(sessionId: Long): Result<LearningQuizSessionStatus> =
+@@ -85,7 +87,6 @@ class RemoteLearningQuizRepository
+                     apiService
+                         .updateSessionStatus(
+                             sessionId = sessionId,
+-                            request = LearningQuizSessionStatusRequestDto(COMPLETED_STATUS),
+                         )
+ 
+                 if (response.code() == HTTP_STATUS_CONFLICT) {
+@@ -149,16 +150,16 @@ class RemoteLearningQuizRepository
+                 else -> "퀴즈 요청 처리 중 오류가 발생했습니다."
+             }
+ 
+-        private fun String.toTextRequestBody() =
+-            toRequestBody(TEXT_PLAIN_MEDIA_TYPE.toMediaTypeOrNull())
+-
+         private fun File.toMultipartAudioPart(audioMimeType: String): MultipartBody.Part =
+             MultipartBody.Part.createFormData(
+                 name = AUDIO_FILE_PART_NAME,
+                 filename = name,
+                 body = asRequestBody(audioMimeType.toMediaTypeOrNull()),
+             )
++
++        private fun File.isUsableAudioFile(): Boolean =
++            exists() && length() > MIN_VALID_WAV_FILE_BYTES
+     }
+ 
+-private const val TEXT_PLAIN_MEDIA_TYPE = "text/plain"
+ private const val AUDIO_FILE_PART_NAME = "audioFile"
++private const val MIN_VALID_WAV_FILE_BYTES = 44L
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizRetryPolicy.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizRetryPolicy.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizRetryPolicy.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/domain/model/QuizRetryPolicy.kt
+@@ -4,26 +4,22 @@ object QuizRetryPolicy {
+     fun hasSuccessfulAnswer(answer: QuizAnswer?): Boolean = answer?.isCorrect == true
+ 
+     fun remainingRetryCount(answer: QuizAnswer?): Int =
+-        if (answer == null) {
+-            MAX_ANSWER_ATTEMPTS - 1
+-        } else {
+-            (MAX_ANSWER_ATTEMPTS - answer.attemptCount).coerceAtLeast(0)
++        when {
++            answer == null -> MAX_ANSWER_ATTEMPTS - 1
++            answer.isScored -> 0
++            else -> (MAX_ANSWER_ATTEMPTS - answer.attemptCount).coerceAtLeast(0)
+         }
+ 
+     fun isRetryLimitReached(answer: QuizAnswer?): Boolean =
+         answer?.isScored == true &&
+-            !hasSuccessfulAnswer(answer) &&
+-            remainingRetryCount(answer) == 0
++            !hasSuccessfulAnswer(answer)
+ 
+     fun canMoveNext(
+         answer: QuizAnswer?,
+         canSkipQuestion: Boolean,
+     ): Boolean =
+         canSkipQuestion ||
+-            (
+-                answer?.isScored == true &&
+-                    (hasSuccessfulAnswer(answer) || isRetryLimitReached(answer))
+-            )
++            answer?.isScored == true
+ 
+     private const val MAX_ANSWER_ATTEMPTS = 3
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizActionUiState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizActionUiState.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizActionUiState.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizActionUiState.kt
+@@ -182,6 +182,7 @@ private fun quizRecordButtonText(
+         isSubmitting -> "답변 저장 중..."
+         isCompletionPending -> "답변 저장 완료"
+         isSaveFailed -> quizRetryButtonText(remainingRetryCount)
++        hasAnswered && remainingRetryCount == 0 -> "답변 저장 완료"
+         hasAnswered -> quizRetryButtonText(remainingRetryCount)
+         else -> "말하기"
+     }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRetryText.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRetryText.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRetryText.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRetryText.kt
+@@ -10,7 +10,7 @@ internal fun quizNextButtonText(
+     when {
+         canSkipQuestion -> "이번 문제 넘어가기"
+         retryLimitReached -> if (isLastQuestion) "결과 보기" else "다음 문제"
+-        hasAnswered && !hasSuccessfulAnswer -> "별 3개에 도전해요"
++        hasAnswered && !hasSuccessfulAnswer -> "답변 확인 중"
+         isLastQuestion -> "결과 보기"
+         else -> "다음 문제"
+     }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportSummaryRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportSummaryRoute.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportSummaryRoute.kt
+@@ -0,0 +1,285 @@
++package com.ssafy.mobile.feature.report.presentation
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.lazy.LazyColumn
++import androidx.compose.material3.ExperimentalMaterial3Api
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Scaffold
++import androidx.compose.material3.Text
++import androidx.compose.material3.TextButton
++import androidx.compose.material3.TopAppBar
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.DisposableEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import androidx.hilt.navigation.compose.hiltViewModel
++import androidx.lifecycle.Lifecycle
++import androidx.lifecycle.LifecycleEventObserver
++import androidx.lifecycle.compose.LocalLifecycleOwner
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
++import com.ssafy.mobile.core.ui.components.AppPrimaryButton
++import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
++
++@OptIn(ExperimentalMaterial3Api::class)
++@Composable
++fun ReportSummaryRoute(
++    onNavigateBack: () -> Unit,
++    onSwitchChild: () -> Unit,
++    modifier: Modifier = Modifier,
++    viewModel: ReportHomeViewModel = hiltViewModel(),
++) {
++    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
++    val lifecycleOwner = LocalLifecycleOwner.current
++
++    DisposableEffect(lifecycleOwner) {
++        val observer =
++            LifecycleEventObserver { _, event ->
++                if (event == Lifecycle.Event.ON_RESUME) {
++                    viewModel.loadActiveChildProfile()
++                }
++            }
++        lifecycleOwner.lifecycle.addObserver(observer)
++        onDispose {
++            lifecycleOwner.lifecycle.removeObserver(observer)
++        }
++    }
++
++    Scaffold(
++        modifier = modifier.fillMaxSize(),
++        topBar = {
++            TopAppBar(
++                title = {
++                    Text(
++                        text = "학습 요약",
++                        style = MaterialTheme.typography.titleLarge,
++                        fontWeight = FontWeight.Bold,
++                    )
++                },
++                navigationIcon = {
++                    TextButton(onClick = onNavigateBack) {
++                        Text(
++                            text = "뒤로",
++                            style = MaterialTheme.typography.bodyLarge,
++                            color = MaterialTheme.colorScheme.primary,
++                        )
++                    }
++                },
++            )
++        },
++    ) { padding ->
++        ReportSummaryContent(
++            activeChildState = uiState.activeChildState,
++            summaryState = uiState.summaryState,
++            filterUiState = uiState.filterUiState,
++            actions =
++                ReportSummaryActions(
++                    onRetryClick = viewModel::loadActiveChildProfile,
++                    onSwitchChild = onSwitchChild,
++                    filterActions =
++                        ReportFilterActions(
++                            onInputChange = viewModel::updateFilterInput,
++                            onApplyClick = viewModel::applyFilter,
++                            onResetClick = viewModel::resetFilter,
++                        ),
++                ),
++            modifier =
++                Modifier
++                    .fillMaxSize()
++                    .padding(padding),
++        )
++    }
++}
++
++@Composable
++private fun ReportSummaryContent(
++    activeChildState: ActiveChildProfileState,
++    summaryState: ReportSummaryUiState,
++    filterUiState: ReportFilterUiState,
++    actions: ReportSummaryActions,
++    modifier: Modifier = Modifier,
++) {
++    LazyColumn(
++        modifier = modifier,
++        contentPadding = PaddingValues(24.dp),
++        verticalArrangement = Arrangement.spacedBy(12.dp),
++    ) {
++        item {
++            ReportSummaryIntro(activeChildState = activeChildState)
++        }
++
++        when (activeChildState) {
++            ActiveChildProfileState.Loading ->
++                item {
++                    ReportSummaryStatusCard(message = "아이 정보를 불러오는 중...")
++                }
++
++            is ActiveChildProfileState.Selected -> {
++                item {
++                    ReportFilterPanel(
++                        state = filterUiState,
++                        config = ReportFilterPanelConfig(),
++                        actions = actions.filterActions,
++                    )
++                }
++                item {
++                    ReportSummarySection(
++                        summaryState = summaryState,
++                        onRetryClick = actions.onRetryClick,
++                    )
++                }
++            }
++
++            ActiveChildProfileState.Missing ->
++                item {
++                    ReportSummaryActionCard(
++                        message = "리포트를 보려면 아이를 먼저 선택해 주세요.",
++                        buttonText = "아이 선택하기",
++                        onClick = actions.onSwitchChild,
++                    )
++                }
++
++            ActiveChildProfileState.NotFound ->
++                item {
++                    ReportSummaryActionCard(
++                        message = "선택된 아이 정보를 찾을 수 없습니다.",
++                        buttonText = "아이 다시 선택하기",
++                        onClick = actions.onSwitchChild,
++                    )
++                }
++
++            is ActiveChildProfileState.Error ->
++                item {
++                    ReportSummaryErrorCard(
++                        message = activeChildState.message,
++                        onRetryClick = actions.onRetryClick,
++                    )
++                }
++        }
++    }
++}
++
++private data class ReportSummaryActions(
++    val onRetryClick: () -> Unit,
++    val onSwitchChild: () -> Unit,
++    val filterActions: ReportFilterActions,
++)
++
++@Composable
++private fun ReportSummaryIntro(activeChildState: ActiveChildProfileState) {
++    val selectedProfile = (activeChildState as? ActiveChildProfileState.Selected)?.profile
++    Column(modifier = Modifier.fillMaxWidth()) {
++        Text(
++            text = selectedProfile?.let { "${it.name}의 학습 요약" } ?: "학습 요약 리포트",
++            style = MaterialTheme.typography.headlineSmall,
++            fontWeight = FontWeight.Bold,
++            maxLines = 1,
++            overflow = TextOverflow.Ellipsis,
++        )
++        Spacer(modifier = Modifier.height(6.dp))
++        Text(
++            text = "완료한 퀴즈를 기준으로 참여도와 정답률을 정리했어요.",
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++        )
++    }
++}
++
++@Composable
++private fun ReportSummaryStatusCard(message: String) {
++    AppCard(
++        modifier = Modifier.fillMaxWidth(),
++    ) {
++        AppBadge(
++            text = "상태",
++            tone = AppBadgeTone.Neutral,
++        )
++        Spacer(modifier = Modifier.height(8.dp))
++        Text(
++            text = message,
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            textAlign = TextAlign.Center,
++        )
++    }
++}
++
++@Composable
++private fun ReportSummaryErrorCard(
++    message: String,
++    onRetryClick: () -> Unit,
++) {
++    AppCard(
++        modifier = Modifier.fillMaxWidth(),
++    ) {
++        Column(
++            horizontalAlignment = Alignment.CenterHorizontally,
++        ) {
++            AppBadge(
++                text = "불러오기 실패",
++                tone = AppBadgeTone.Error,
++            )
++            Spacer(modifier = Modifier.height(8.dp))
++            Text(
++                text = message,
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.error,
++                textAlign = TextAlign.Center,
++            )
++            Spacer(modifier = Modifier.height(12.dp))
++            AppSecondaryButton(
++                text = "다시 시도",
++                onClick = onRetryClick,
++                modifier = Modifier.height(36.dp),
++            )
++        }
++    }
++}
++
++@Composable
++private fun ReportSummaryActionCard(
++    message: String,
++    buttonText: String,
++    onClick: () -> Unit,
++) {
++    AppCard(
++        modifier = Modifier.fillMaxWidth(),
++    ) {
++        Column(
++            horizontalAlignment = Alignment.CenterHorizontally,
++        ) {
++            AppBadge(
++                text = "아이 선택",
++                tone = AppBadgeTone.Warning,
++            )
++            Spacer(modifier = Modifier.height(8.dp))
++            Text(
++                text = message,
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++                textAlign = TextAlign.Center,
++            )
++            Spacer(modifier = Modifier.height(12.dp))
++            AppPrimaryButton(
++                text = buttonText,
++                onClick = onClick,
++                modifier = Modifier.height(40.dp),
++            )
++        }
++    }
++}
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/feature/quiz/domain/model/QuizRetryPolicyTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/feature/quiz/domain/model/QuizRetryPolicyTest.kt
+--- a/mobile/app/src/test/java/com/ssafy/mobile/feature/quiz/domain/model/QuizRetryPolicyTest.kt
++++ b/mobile/app/src/test/java/com/ssafy/mobile/feature/quiz/domain/model/QuizRetryPolicyTest.kt
+@@ -7,16 +7,16 @@ import org.junit.Test
+ 
+ class QuizRetryPolicyTest {
+     @Test
+-    fun lowStarAnswerCanRetryBeforeLimit() {
++    fun scoredLowStarAnswerCanMoveNextWithoutRetry() {
+         val answer = answer(star = ONE_STAR, attemptCount = ONE_ATTEMPT)
+ 
+-        assertEquals(TWO_RETRIES_LEFT, QuizRetryPolicy.remainingRetryCount(answer))
+-        assertFalse(QuizRetryPolicy.isRetryLimitReached(answer))
+-        assertFalse(QuizRetryPolicy.canMoveNext(answer, canSkipQuestion = false))
++        assertEquals(NO_RETRY_LEFT, QuizRetryPolicy.remainingRetryCount(answer))
++        assertTrue(QuizRetryPolicy.isRetryLimitReached(answer))
++        assertTrue(QuizRetryPolicy.canMoveNext(answer, canSkipQuestion = false))
+     }
+ 
+     @Test
+-    fun lowStarAnswerCanMoveNextAfterRetryLimit() {
++    fun scoredLowStarAnswerCanMoveNextAfterMultipleLocalAttempts() {
+         val answer = answer(star = TWO_STARS, attemptCount = MAX_ATTEMPTS)
+ 
+         assertEquals(NO_RETRY_LEFT, QuizRetryPolicy.remainingRetryCount(answer))
+@@ -68,7 +68,6 @@ class QuizRetryPolicyTest {
+         const val ONE_ATTEMPT = 1
+         const val ONE_RETRY_LEFT = 1
+         const val TWO_ATTEMPTS = 2
+-        const val TWO_RETRIES_LEFT = 2
+         const val MAX_ATTEMPTS = 3
+         const val ONE_STAR = 1
+         const val TWO_STARS = 2
+
+

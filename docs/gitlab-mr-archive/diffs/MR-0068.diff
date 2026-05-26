@@ -1,0 +1,105 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/service/OpenAiClient.java b/backend/src/main/java/com/ssafy/backend/domain/comms/service/OpenAiClient.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/comms/service/OpenAiClient.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/service/OpenAiClient.java
+@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
+ import org.springframework.http.MediaType;
+ import org.springframework.stereotype.Component;
+ import org.springframework.web.client.RestClient;
++import org.springframework.web.client.RestClientResponseException;
+ 
+ @Component
+ public class OpenAiClient {
+@@ -34,8 +35,26 @@ public class OpenAiClient {
+       }
+ 
+       return clean(result);
++
++    } catch (RestClientResponseException e) {
++      log.warn(
++          "Gemini request failed. status={}, responseHeaders={}, responseBody={}, exceptionClass={}, message={}",
++          e.getStatusCode(),
++          e.getResponseHeaders(),
++          abbreviate(e.getResponseBodyAsString(), 1000),
++          e.getClass().getName(),
++          e.getMessage(),
++          e);
++
++      throw new IllegalStateException("Gemini 문장 보정 호출에 실패했습니다.", e);
++
+     } catch (Exception e) {
+-      log.warn("Gemini request failed. reason={}", e.getMessage());
++      log.warn(
++          "Gemini request failed. exceptionClass={}, message={}",
++          e.getClass().getName(),
++          e.getMessage(),
++          e);
++
+       throw new IllegalStateException("Gemini 문장 보정 호출에 실패했습니다.", e);
+     }
+   }
+@@ -65,6 +84,7 @@ public class OpenAiClient {
+             .uri(url)
+             .header("x-goog-api-key", gemini.apiKey())
+             .contentType(MediaType.APPLICATION_JSON)
++            .accept(MediaType.APPLICATION_JSON)
+             .body(request)
+             .retrieve()
+             .body(GeminiResponse.class);
+@@ -86,6 +106,18 @@ public class OpenAiClient {
+     return result.trim().replace("\"", "").replace("'", "").replace("`", "").split("\\n")[0].trim();
+   }
+ 
++  private String abbreviate(String value, int maxLength) {
++    if (value == null) {
++      return null;
++    }
++
++    if (value.length() <= maxLength) {
++      return value;
++    }
++
++    return value.substring(0, maxLength) + "...";
++  }
++
+   private record GeminiRequest(
+       GeminiContent systemInstruction,
+       List<GeminiContent> contents,
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java b/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java
+@@ -115,10 +115,30 @@ public class TranslationServiceImpl implements TranslationService {
+     try {
+       correctionResult = childSpeechCorrectionClient.correct(recognizedText);
+     } catch (Exception e) {
+-      throw new BusinessException(TranslationErrorCode.CHILD_SPEECH_CORRECTION_FAILED);
++      log.warn(
++          "[STT] Child speech correction failed. fallback to recognizedText. traceId={}, recognizedText={}, exceptionClass={}, message={}",
++          getTraceId(),
++          recognizedText,
++          e.getClass().getName(),
++          e.getMessage(),
++          e);
++
++      return new SpeechToTextResponseDto(
++          recognizedText, recognizedText, false, null, resolvedLocale);
+     }
+ 
+     String correctedText = correctionResult.correctedText();
++
++    if (correctedText == null || correctedText.isBlank()) {
++      log.warn(
++          "[STT] Child speech correction returned empty text. fallback to recognizedText. traceId={}, recognizedText={}",
++          getTraceId(),
++          recognizedText);
++
++      return new SpeechToTextResponseDto(
++          recognizedText, recognizedText, false, null, resolvedLocale);
++    }
++
+     boolean corrected = !recognizedText.trim().equals(correctedText.trim());
+ 
+     return new SpeechToTextResponseDto(
+
+

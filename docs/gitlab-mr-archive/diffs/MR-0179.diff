@@ -1,0 +1,967 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationAnalysisStatus.java b/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationAnalysisStatus.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationAnalysisStatus.java
+@@ -0,0 +1,9 @@
++package com.ssafy.backend.domain.comms.entity;
++
++public enum CommunicationAnalysisStatus {
++  PENDING,
++  PROCESSING,
++  COMPLETED,
++  FAILED,
++  EMPTY
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationSessionAnalysis.java b/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationSessionAnalysis.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationSessionAnalysis.java
+@@ -0,0 +1,115 @@
++package com.ssafy.backend.domain.comms.entity;
++
++import com.ssafy.backend.global.entity.BaseEntity;
++import jakarta.persistence.*;
++import java.time.LocalDateTime;
++
++@Entity
++@Table(name = "communication_session_analysis")
++public class CommunicationSessionAnalysis extends BaseEntity {
++
++  @Id
++  @GeneratedValue(strategy = GenerationType.IDENTITY)
++  private Long id;
++
++  @OneToOne(fetch = FetchType.LAZY, optional = false)
++  @JoinColumn(name = "session_id", nullable = false, unique = true)
++  private CommunicationSession session;
++
++  @Enumerated(EnumType.STRING)
++  @Column(name = "analysis_status", nullable = false, length = 20)
++  private CommunicationAnalysisStatus analysisStatus;
++
++  @Column(name = "summary_json", columnDefinition = "jsonb")
++  private String summaryJson;
++
++  @Column(name = "analyzed_at")
++  private LocalDateTime analyzedAt;
++
++  @Column(name = "analysis_version", nullable = false, length = 30)
++  private String analysisVersion;
++
++  @Column(name = "model_name", length = 100)
++  private String modelName;
++
++  @Column(name = "prompt_version", nullable = false, length = 30)
++  private String promptVersion;
++
++  @Column(name = "analysis_error_code", length = 100)
++  private String analysisErrorCode;
++
++  protected CommunicationSessionAnalysis() {}
++
++  private CommunicationSessionAnalysis(CommunicationSession session) {
++    this.session = session;
++    this.analysisStatus = CommunicationAnalysisStatus.PENDING;
++    this.analysisVersion = "v1";
++    this.promptVersion = "v1";
++  }
++
++  public static CommunicationSessionAnalysis pending(CommunicationSession session) {
++    return new CommunicationSessionAnalysis(session);
++  }
++
++  public void markProcessing() {
++    this.analysisStatus = CommunicationAnalysisStatus.PROCESSING;
++    this.analysisErrorCode = null;
++  }
++
++  public void complete(String summaryJson, String modelName) {
++    this.analysisStatus = CommunicationAnalysisStatus.COMPLETED;
++    this.summaryJson = summaryJson;
++    this.modelName = modelName;
++    this.analyzedAt = LocalDateTime.now();
++    this.analysisErrorCode = null;
++  }
++
++  public void empty() {
++    this.analysisStatus = CommunicationAnalysisStatus.EMPTY;
++    this.summaryJson = null;
++    this.analyzedAt = LocalDateTime.now();
++    this.analysisErrorCode = null;
++  }
++
++  public void fail(String errorCode) {
++    this.analysisStatus = CommunicationAnalysisStatus.FAILED;
++    this.analyzedAt = LocalDateTime.now();
++    this.analysisErrorCode = errorCode;
++  }
++
++  public Long getId() {
++    return id;
++  }
++
++  public CommunicationSession getSession() {
++    return session;
++  }
++
++  public CommunicationAnalysisStatus getAnalysisStatus() {
++    return analysisStatus;
++  }
++
++  public String getSummaryJson() {
++    return summaryJson;
++  }
++
++  public LocalDateTime getAnalyzedAt() {
++    return analyzedAt;
++  }
++
++  public String getAnalysisVersion() {
++    return analysisVersion;
++  }
++
++  public String getModelName() {
++    return modelName;
++  }
++
++  public String getPromptVersion() {
++    return promptVersion;
++  }
++
++  public String getAnalysisErrorCode() {
++    return analysisErrorCode;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/event/CommunicationSessionAnalysisEventListener.java b/backend/src/main/java/com/ssafy/backend/domain/comms/event/CommunicationSessionAnalysisEventListener.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/event/CommunicationSessionAnalysisEventListener.java
+@@ -0,0 +1,24 @@
++package com.ssafy.backend.domain.comms.event;
++
++import com.ssafy.backend.domain.comms.service.CommunicationSessionAnalysisService;
++import org.springframework.scheduling.annotation.Async;
++import org.springframework.stereotype.Component;
++import org.springframework.transaction.event.TransactionPhase;
++import org.springframework.transaction.event.TransactionalEventListener;
++
++@Component
++public class CommunicationSessionAnalysisEventListener {
++
++  private final CommunicationSessionAnalysisService analysisService;
++
++  public CommunicationSessionAnalysisEventListener(
++      CommunicationSessionAnalysisService analysisService) {
++    this.analysisService = analysisService;
++  }
++
++  @Async
++  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
++  public void handleCommunicationSessionEnded(CommunicationSessionEndedEvent event) {
++    analysisService.analyzeSession(event.sessionId());
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/event/CommunicationSessionEndedEvent.java b/backend/src/main/java/com/ssafy/backend/domain/comms/event/CommunicationSessionEndedEvent.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/event/CommunicationSessionEndedEvent.java
+@@ -0,0 +1,3 @@
++package com.ssafy.backend.domain.comms.event;
++
++public record CommunicationSessionEndedEvent(Long sessionId) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationSessionAnalysisRepository.java b/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationSessionAnalysisRepository.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationSessionAnalysisRepository.java
+@@ -0,0 +1,38 @@
++package com.ssafy.backend.domain.comms.repository;
++
++import com.ssafy.backend.domain.comms.entity.CommunicationSessionAnalysis;
++import com.ssafy.backend.domain.report.repository.ReportCommunicationAnalysisQueryRow;
++import java.time.LocalDateTime;
++import java.util.List;
++import java.util.Optional;
++import org.springframework.data.jpa.repository.JpaRepository;
++import org.springframework.data.jpa.repository.Query;
++
++public interface CommunicationSessionAnalysisRepository
++    extends JpaRepository<CommunicationSessionAnalysis, Long> {
++
++  Optional<CommunicationSessionAnalysis> findBySessionId(Long sessionId);
++
++  boolean existsBySessionId(Long sessionId);
++
++  @Query(
++      """
++    select new com.ssafy.backend.domain.report.repository.ReportCommunicationAnalysisQueryRow(
++      s.id,
++      s.startedAt,
++      s.endedAt,
++      s.messageCount,
++      a.analysisStatus,
++      a.summaryJson,
++      a.analyzedAt
++    )
++    from CommunicationSessionAnalysis a
++    join a.session s
++    where s.childProfile.id = :childId
++      and s.startedAt >= :from
++      and s.startedAt < :to
++    order by s.startedAt desc
++    """)
++  List<ReportCommunicationAnalysisQueryRow> findCommunicationAnalysisRows(
++      Long childId, LocalDateTime from, LocalDateTime to);
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/service/CommunicationSessionAnalysisService.java b/backend/src/main/java/com/ssafy/backend/domain/comms/service/CommunicationSessionAnalysisService.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/service/CommunicationSessionAnalysisService.java
+@@ -0,0 +1,116 @@
++package com.ssafy.backend.domain.comms.service;
++
++import com.fasterxml.jackson.databind.ObjectMapper;
++import com.ssafy.backend.domain.comms.entity.CommunicationMessage;
++import com.ssafy.backend.domain.comms.entity.CommunicationSessionAnalysis;
++import com.ssafy.backend.domain.comms.entity.SpeakerRole;
++import com.ssafy.backend.domain.comms.repository.CommunicationMessageRepository;
++import com.ssafy.backend.domain.comms.repository.CommunicationSessionAnalysisRepository;
++import java.util.List;
++import org.springframework.stereotype.Service;
++import org.springframework.transaction.annotation.Transactional;
++
++@Service
++@Transactional
++public class CommunicationSessionAnalysisService {
++
++  private static final String MODEL_NAME = "gemini";
++  private static final String ANALYSIS_FAILED = "COMMS_ANALYSIS_FAILED";
++
++  private final CommunicationSessionAnalysisRepository analysisRepository;
++  private final CommunicationMessageRepository messageRepository;
++  private final OpenAiClient openAiClient;
++  private final ObjectMapper objectMapper = new ObjectMapper();
++
++  public CommunicationSessionAnalysisService(
++      CommunicationSessionAnalysisRepository analysisRepository,
++      CommunicationMessageRepository messageRepository,
++      OpenAiClient openAiClient) {
++    this.analysisRepository = analysisRepository;
++    this.messageRepository = messageRepository;
++    this.openAiClient = openAiClient;
++  }
++
++  public void analyzeSession(Long sessionId) {
++    CommunicationSessionAnalysis analysis =
++        analysisRepository
++            .findBySessionId(sessionId)
++            .orElseThrow(() -> new IllegalStateException("분석 대상 세션이 없습니다. sessionId=" + sessionId));
++
++    try {
++      analysis.markProcessing();
++
++      List<String> childTexts =
++          messageRepository
++              .findBySessionIdAndSpeakerRoleOrderByMessageOrderAsc(sessionId, SpeakerRole.CHILD)
++              .stream()
++              .map(CommunicationMessage::getFinalText)
++              .filter(text -> text != null && !text.isBlank())
++              .toList();
++
++      if (childTexts.isEmpty()) {
++        analysis.empty();
++        return;
++      }
++
++      String userInput = buildUserInput(childTexts);
++      String summaryJson = openAiClient.generateJson(systemInstruction(), userInput);
++
++      objectMapper.readTree(summaryJson);
++
++      analysis.complete(summaryJson, MODEL_NAME);
++
++    } catch (Exception e) {
++      analysis.fail(ANALYSIS_FAILED);
++    }
++  }
++
++  private String buildUserInput(List<String> childTexts) {
++    StringBuilder sb = new StringBuilder();
++    sb.append("아래는 아이의 발화 목록입니다.\n");
++    sb.append("각 문장을 분석해서 지정된 JSON 형식으로만 응답하세요.\n\n");
++
++    for (int i = 0; i < childTexts.size(); i++) {
++      sb.append(i + 1).append(". ").append(childTexts.get(i)).append("\n");
++    }
++
++    return sb.toString();
++  }
++
++  private String systemInstruction() {
++    return """
++        당신은 아동 발화 데이터를 분석하는 언어 분석 도우미입니다.
++
++        반드시 아래 JSON 형식으로만 응답하세요.
++        설명 문장, 마크다운, 코드블록은 절대 포함하지 마세요.
++
++        {
++          "utteranceCount": 0,
++          "averageSentenceLength": 0.0,
++          "frequentWords": [
++            {
++              "word": "string",
++              "count": 0
++            }
++          ],
++          "utteranceWords": ["string"],
++          "expressionTypeCounts": {
++            "REQUEST": 0,
++            "EMOTION": 0,
++            "RESPONSE": 0,
++            "PLAY": 0,
++            "OTHER": 0
++          },
++          "summary": "string"
++        }
++
++        분석 기준:
++        - utteranceCount는 입력된 발화 문장 수입니다.
++        - averageSentenceLength는 문장별 평균 단어 수입니다.
++        - frequentWords는 자주 등장한 단어 상위 5개입니다.
++        - utteranceWords는 주요 단어 목록입니다.
++        - expressionTypeCounts는 발화 의도를 요구/감정/응답/놀이/기타로 분류한 개수입니다.
++        - summary는 보호자가 이해하기 쉬운 한국어 한두 문장으로 작성하세요.
++        """;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/service/CommunicationSessionService.java b/backend/src/main/java/com/ssafy/backend/domain/comms/service/CommunicationSessionService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/comms/service/CommunicationSessionService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/service/CommunicationSessionService.java
+@@ -6,14 +6,18 @@ import com.ssafy.backend.domain.child.repository.ChildProfileRepository;
+ import com.ssafy.backend.domain.comms.dto.CommunicationSessionCreateRequestDto;
+ import com.ssafy.backend.domain.comms.dto.CommunicationSessionResponseDto;
+ import com.ssafy.backend.domain.comms.entity.CommunicationSession;
++import com.ssafy.backend.domain.comms.entity.CommunicationSessionAnalysis;
+ import com.ssafy.backend.domain.comms.entity.CommunicationSessionStatus;
++import com.ssafy.backend.domain.comms.event.CommunicationSessionEndedEvent;
+ import com.ssafy.backend.domain.comms.exception.CommunicationSessionErrorCode;
++import com.ssafy.backend.domain.comms.repository.CommunicationSessionAnalysisRepository;
+ import com.ssafy.backend.domain.comms.repository.CommunicationSessionRepository;
+ import com.ssafy.backend.domain.user.entity.User;
+ import com.ssafy.backend.domain.user.exception.UserErrorCode;
+ import com.ssafy.backend.domain.user.repository.UserRepository;
+ import com.ssafy.backend.global.exception.BusinessException;
+ import com.ssafy.backend.global.exception.ValidationErrorCode;
++import org.springframework.context.ApplicationEventPublisher;
+ import org.springframework.stereotype.Service;
+ import org.springframework.transaction.annotation.Transactional;
+ 
+@@ -24,14 +28,20 @@ public class CommunicationSessionService {
+   private final CommunicationSessionRepository communicationSessionRepository;
+   private final ChildProfileRepository childProfileRepository;
+   private final UserRepository userRepository;
++  private final CommunicationSessionAnalysisRepository communicationSessionAnalysisRepository;
++  private final ApplicationEventPublisher eventPublisher;
+ 
+   public CommunicationSessionService(
+       CommunicationSessionRepository communicationSessionRepository,
+       ChildProfileRepository childProfileRepository,
+-      UserRepository userRepository) {
++      UserRepository userRepository,
++      CommunicationSessionAnalysisRepository communicationSessionAnalysisRepository,
++      ApplicationEventPublisher eventPublisher) {
+     this.communicationSessionRepository = communicationSessionRepository;
+     this.childProfileRepository = childProfileRepository;
+     this.userRepository = userRepository;
++    this.communicationSessionAnalysisRepository = communicationSessionAnalysisRepository;
++    this.eventPublisher = eventPublisher;
+   }
+ 
+   public CommunicationSessionResponseDto createSession(
+@@ -69,6 +79,12 @@ public class CommunicationSessionService {
+ 
+     session.end();
+ 
++    if (!communicationSessionAnalysisRepository.existsBySessionId(session.getId())) {
++      communicationSessionAnalysisRepository.save(CommunicationSessionAnalysis.pending(session));
++    }
++
++    eventPublisher.publishEvent(new CommunicationSessionEndedEvent(session.getId()));
++
+     return toResponse(session);
+   }
+ 
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/service/OpenAiClient.java b/backend/src/main/java/com/ssafy/backend/domain/comms/service/OpenAiClient.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/comms/service/OpenAiClient.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/service/OpenAiClient.java
+@@ -28,7 +28,7 @@ public class OpenAiClient {
+     }
+ 
+     try {
+-      String result = callGemini(systemInstruction, userInput);
++      String result = callGemini(systemInstruction, userInput, 0.1, 64);
+ 
+       if (result == null || result.isBlank()) {
+         throw new IllegalStateException("Gemini 응답 텍스트가 비어 있습니다.");
+@@ -59,7 +59,45 @@ public class OpenAiClient {
+     }
+   }
+ 
+-  private String callGemini(String systemInstruction, String userInput) {
++  public String generateJson(String systemInstruction, String userInput) {
++    if (userInput == null || userInput.isBlank()) {
++      return "{}";
++    }
++
++    try {
++      String result = callGemini(systemInstruction, userInput, 0.2, 1024);
++
++      if (result == null || result.isBlank()) {
++        throw new IllegalStateException("Gemini JSON 응답이 비어 있습니다.");
++      }
++
++      return cleanJson(result);
++
++    } catch (RestClientResponseException e) {
++      log.warn(
++          "Gemini analysis request failed. status={}, responseHeaders={}, responseBody={}, exceptionClass={}, message={}",
++          e.getStatusCode(),
++          e.getResponseHeaders(),
++          abbreviate(e.getResponseBodyAsString(), 1000),
++          e.getClass().getName(),
++          e.getMessage(),
++          e);
++
++      throw new IllegalStateException("Gemini 발화 분석 호출에 실패했습니다.", e);
++
++    } catch (Exception e) {
++      log.warn(
++          "Gemini analysis request failed. exceptionClass={}, message={}",
++          e.getClass().getName(),
++          e.getMessage(),
++          e);
++
++      throw new IllegalStateException("Gemini 발화 분석 호출에 실패했습니다.", e);
++    }
++  }
++
++  private String callGemini(
++      String systemInstruction, String userInput, double temperature, int maxOutputTokens) {
+     AiProperties.Gemini gemini = aiProperties.gemini();
+ 
+     if (gemini == null) {
+@@ -76,7 +114,7 @@ public class OpenAiClient {
+         new GeminiRequest(
+             new GeminiContent(List.of(new GeminiPart(systemInstruction))),
+             List.of(new GeminiContent(List.of(new GeminiPart(userInput)))),
+-            new GeminiGenerationConfig(0.1, 64, new GeminiThinkingConfig(0)));
++            new GeminiGenerationConfig(temperature, maxOutputTokens, new GeminiThinkingConfig(0)));
+ 
+     GeminiResponse response =
+         restClient
+@@ -106,6 +144,10 @@ public class OpenAiClient {
+     return result.trim().replace("\"", "").replace("'", "").replace("`", "").split("\\n")[0].trim();
+   }
+ 
++  private String cleanJson(String result) {
++    return result.trim().replace("```json", "").replace("```", "").trim();
++  }
++
+   private String abbreviate(String value, int maxLength) {
+     if (value == null) {
+       return null;
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/report/controller/ReportController.java b/backend/src/main/java/com/ssafy/backend/domain/report/controller/ReportController.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/report/controller/ReportController.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/report/controller/ReportController.java
+@@ -4,6 +4,7 @@ import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
+ import com.ssafy.backend.domain.learn.quiz.entity.QuizSessionStatus;
+ import com.ssafy.backend.domain.report.docs.ReportApiDocs;
+ import com.ssafy.backend.domain.report.dto.ReportCategoryListResponse;
++import com.ssafy.backend.domain.report.dto.ReportCommunicationSummaryResponse;
+ import com.ssafy.backend.domain.report.dto.ReportQuizSessionDetailResponse;
+ import com.ssafy.backend.domain.report.dto.ReportQuizSessionListResponse;
+ import com.ssafy.backend.domain.report.dto.ReportQuizSessionSearchCondition;
+@@ -43,6 +44,17 @@ public class ReportController implements ReportApiDocs {
+         reportService.getSummary(resolveUserId(authentication), childId, from, to));
+   }
+ 
++  @Override
++  @GetMapping("/communication-summary")
++  public ResponseEntity<ReportCommunicationSummaryResponse> getCommunicationSummary(
++      Authentication authentication,
++      @PathVariable Long childId,
++      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) String from,
++      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) String to) {
++    return ResponseEntity.ok(
++        reportService.getCommunicationSummary(resolveUserId(authentication), childId, from, to));
++  }
++
+   @Override
+   @GetMapping("/categories")
+   public ResponseEntity<ReportCategoryListResponse> getCategories(
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/report/docs/ReportApiDocs.java b/backend/src/main/java/com/ssafy/backend/domain/report/docs/ReportApiDocs.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/report/docs/ReportApiDocs.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/report/docs/ReportApiDocs.java
+@@ -3,6 +3,7 @@ package com.ssafy.backend.domain.report.docs;
+ import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
+ import com.ssafy.backend.domain.learn.quiz.entity.QuizSessionStatus;
+ import com.ssafy.backend.domain.report.dto.ReportCategoryListResponse;
++import com.ssafy.backend.domain.report.dto.ReportCommunicationSummaryResponse;
+ import com.ssafy.backend.domain.report.dto.ReportQuizSessionDetailResponse;
+ import com.ssafy.backend.domain.report.dto.ReportQuizSessionListResponse;
+ import com.ssafy.backend.domain.report.dto.ReportSummaryResponse;
+@@ -18,7 +19,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
+ import org.springframework.http.ResponseEntity;
+ import org.springframework.security.core.Authentication;
+ 
+-@Tag(name = "리포트 API", description = "아이별 퀴즈 기록 리포트 API")
++@Tag(name = "리포트 API", description = "아이별 퀴즈 및 소통 기록 리포트 API")
+ public interface ReportApiDocs {
+ 
+   @Operation(
+@@ -36,6 +37,22 @@ public interface ReportApiDocs {
+       @Parameter(description = "조회 시작일", example = "2026-05-01") String from,
+       @Parameter(description = "조회 종료일", example = "2026-05-31") String to);
+ 
++  @Operation(
++      summary = "소통 발화 분석 리포트 조회",
++      description = "특정 아이의 양방향 소통 세션에서 저장된 CHILD 발화 분석 결과를 조회합니다.",
++      security = {@SecurityRequirement(name = "bearerAuth")})
++  @ApiErrorCodes({"VALIDATION_INVALID_INPUT", "COMMON_UNAUTHORIZED", "CHILD_PROFILE_NOT_FOUND"})
++  @ApiResponse(
++      responseCode = "200",
++      description = "성공",
++      content =
++          @Content(schema = @Schema(implementation = ReportCommunicationSummaryResponse.class)))
++  ResponseEntity<ReportCommunicationSummaryResponse> getCommunicationSummary(
++      @Parameter(hidden = true) Authentication authentication,
++      @Parameter(description = "아이 프로필 ID", example = "1") Long childId,
++      @Parameter(description = "조회 시작일", example = "2026-05-01") String from,
++      @Parameter(description = "조회 종료일", example = "2026-05-31") String to);
++
+   @Operation(
+       summary = "카테고리별 리포트 요약 조회",
+       description = "특정 아이의 완료된 퀴즈 결과를 기준으로 카테고리별 진행도와 정답률을 조회합니다.",
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/report/dto/ReportCommunicationSessionSummaryResponse.java b/backend/src/main/java/com/ssafy/backend/domain/report/dto/ReportCommunicationSessionSummaryResponse.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/report/dto/ReportCommunicationSessionSummaryResponse.java
+@@ -0,0 +1,15 @@
++package com.ssafy.backend.domain.report.dto;
++
++import com.ssafy.backend.domain.comms.entity.CommunicationAnalysisStatus;
++import java.time.LocalDateTime;
++import java.util.List;
++
++public record ReportCommunicationSessionSummaryResponse(
++    Long sessionId,
++    LocalDateTime startedAt,
++    LocalDateTime endedAt,
++    int utteranceCount,
++    List<ReportWordCountResponse> frequentWords,
++    String summary,
++    CommunicationAnalysisStatus analysisStatus,
++    LocalDateTime analyzedAt) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/report/dto/ReportCommunicationSummaryResponse.java b/backend/src/main/java/com/ssafy/backend/domain/report/dto/ReportCommunicationSummaryResponse.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/report/dto/ReportCommunicationSummaryResponse.java
+@@ -0,0 +1,16 @@
++package com.ssafy.backend.domain.report.dto;
++
++import com.ssafy.backend.domain.comms.entity.CommunicationAnalysisStatus;
++import java.time.LocalDateTime;
++import java.util.List;
++
++public record ReportCommunicationSummaryResponse(
++    Long childId,
++    CommunicationAnalysisStatus analysisStatus,
++    long totalSessionCount,
++    long totalUtteranceCount,
++    double averageSentenceLength,
++    List<ReportWordCountResponse> frequentWords,
++    ReportExpressionTypeCountsResponse expressionTypeCounts,
++    List<ReportCommunicationSessionSummaryResponse> recentSessions,
++    LocalDateTime generatedAt) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/report/dto/ReportExpressionTypeCountsResponse.java b/backend/src/main/java/com/ssafy/backend/domain/report/dto/ReportExpressionTypeCountsResponse.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/report/dto/ReportExpressionTypeCountsResponse.java
+@@ -0,0 +1,4 @@
++package com.ssafy.backend.domain.report.dto;
++
++public record ReportExpressionTypeCountsResponse(
++    int request, int emotion, int response, int play, int other) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/report/dto/ReportWordCountResponse.java b/backend/src/main/java/com/ssafy/backend/domain/report/dto/ReportWordCountResponse.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/report/dto/ReportWordCountResponse.java
+@@ -0,0 +1,3 @@
++package com.ssafy.backend.domain.report.dto;
++
++public record ReportWordCountResponse(String word, int count) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/report/repository/ReportCommunicationAnalysisQueryRow.java b/backend/src/main/java/com/ssafy/backend/domain/report/repository/ReportCommunicationAnalysisQueryRow.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/report/repository/ReportCommunicationAnalysisQueryRow.java
+@@ -0,0 +1,13 @@
++package com.ssafy.backend.domain.report.repository;
++
++import com.ssafy.backend.domain.comms.entity.CommunicationAnalysisStatus;
++import java.time.LocalDateTime;
++
++public record ReportCommunicationAnalysisQueryRow(
++    Long sessionId,
++    LocalDateTime startedAt,
++    LocalDateTime endedAt,
++    int messageCount,
++    CommunicationAnalysisStatus analysisStatus,
++    String summaryJson,
++    LocalDateTime analyzedAt) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/report/service/ReportService.java b/backend/src/main/java/com/ssafy/backend/domain/report/service/ReportService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/report/service/ReportService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/report/service/ReportService.java
+@@ -1,9 +1,16 @@
+ package com.ssafy.backend.domain.report.service;
+ 
++import com.fasterxml.jackson.databind.JsonNode;
++import com.fasterxml.jackson.databind.ObjectMapper;
+ import com.ssafy.backend.domain.child.exception.ChildProfileErrorCode;
+ import com.ssafy.backend.domain.child.repository.ChildProfileRepository;
++import com.ssafy.backend.domain.comms.entity.CommunicationAnalysisStatus;
++import com.ssafy.backend.domain.comms.repository.CommunicationSessionAnalysisRepository;
+ import com.ssafy.backend.domain.report.dto.ReportCategoryListResponse;
+ import com.ssafy.backend.domain.report.dto.ReportCategoryResponse;
++import com.ssafy.backend.domain.report.dto.ReportCommunicationSessionSummaryResponse;
++import com.ssafy.backend.domain.report.dto.ReportCommunicationSummaryResponse;
++import com.ssafy.backend.domain.report.dto.ReportExpressionTypeCountsResponse;
+ import com.ssafy.backend.domain.report.dto.ReportLatestCategoryResponse;
+ import com.ssafy.backend.domain.report.dto.ReportQuizAnswerResponse;
+ import com.ssafy.backend.domain.report.dto.ReportQuizSessionDetailResponse;
+@@ -14,8 +21,10 @@ import com.ssafy.backend.domain.report.dto.ReportSummaryResponse;
+ import com.ssafy.backend.domain.report.dto.ReportWeakWordListResponse;
+ import com.ssafy.backend.domain.report.dto.ReportWeakWordResponse;
+ import com.ssafy.backend.domain.report.dto.ReportWeakWordSearchCondition;
++import com.ssafy.backend.domain.report.dto.ReportWordCountResponse;
+ import com.ssafy.backend.domain.report.exception.ReportErrorCode;
+ import com.ssafy.backend.domain.report.repository.ReportCategoryQueryRow;
++import com.ssafy.backend.domain.report.repository.ReportCommunicationAnalysisQueryRow;
+ import com.ssafy.backend.domain.report.repository.ReportLatestCategoryQueryRow;
+ import com.ssafy.backend.domain.report.repository.ReportQuizAnswerQueryRow;
+ import com.ssafy.backend.domain.report.repository.ReportQuizSessionQueryRepository;
+@@ -27,7 +36,11 @@ import com.ssafy.backend.global.exception.ValidationErrorCode;
+ import java.time.LocalDate;
+ import java.time.LocalDateTime;
+ import java.time.format.DateTimeParseException;
++import java.util.ArrayList;
++import java.util.Comparator;
++import java.util.LinkedHashMap;
+ import java.util.List;
++import java.util.Map;
+ import org.springframework.data.domain.Page;
+ import org.springframework.data.domain.PageRequest;
+ import org.springframework.stereotype.Service;
+@@ -40,16 +53,21 @@ public class ReportService {
+   private static final int DEFAULT_PAGE = 1;
+   private static final int DEFAULT_MIN_ATTEMPT_COUNT = 1;
+   private static final int SUMMARY_WEAK_WORD_LIMIT = 5;
++  private static final int RECENT_COMMUNICATION_SESSION_LIMIT = 5;
+   private static final int MAX_SIZE = 100;
+ 
+   private final ChildProfileRepository childProfileRepository;
+   private final ReportQuizSessionQueryRepository reportQuizSessionQueryRepository;
++  private final CommunicationSessionAnalysisRepository communicationSessionAnalysisRepository;
++  private final ObjectMapper objectMapper = new ObjectMapper();
+ 
+   public ReportService(
+       ChildProfileRepository childProfileRepository,
+-      ReportQuizSessionQueryRepository reportQuizSessionQueryRepository) {
++      ReportQuizSessionQueryRepository reportQuizSessionQueryRepository,
++      CommunicationSessionAnalysisRepository communicationSessionAnalysisRepository) {
+     this.childProfileRepository = childProfileRepository;
+     this.reportQuizSessionQueryRepository = reportQuizSessionQueryRepository;
++    this.communicationSessionAnalysisRepository = communicationSessionAnalysisRepository;
+   }
+ 
+   public ReportSummaryResponse getSummary(Long userId, Long childId, String from, String to) {
+@@ -91,6 +109,94 @@ public class ReportService {
+         weakWords);
+   }
+ 
++  public ReportCommunicationSummaryResponse getCommunicationSummary(
++      Long userId, Long childId, String from, String to) {
++    validatePositiveId(childId, "childId");
++    validateChildProfileOwner(childId, userId);
++
++    LocalDateTime fromDateTime = parseFrom(from);
++    LocalDateTime toDateTime = parseToExclusive(to);
++    validateDateRange(fromDateTime, toDateTime);
++
++    if (fromDateTime == null) {
++      fromDateTime = LocalDateTime.of(1900, 1, 1, 0, 0);
++    }
++
++    if (toDateTime == null) {
++      toDateTime = LocalDateTime.of(9999, 12, 31, 23, 59, 59);
++    }
++
++    List<ReportCommunicationAnalysisQueryRow> rows =
++        communicationSessionAnalysisRepository.findCommunicationAnalysisRows(
++            childId, fromDateTime, toDateTime);
++
++    long totalSessionCount = rows.size();
++    long totalUtteranceCount = 0;
++    double sentenceLengthSum = 0.0;
++    long completedCount = 0;
++
++    Map<String, Integer> wordCounts = new LinkedHashMap<>();
++    int requestCount = 0;
++    int emotionCount = 0;
++    int responseCount = 0;
++    int playCount = 0;
++    int otherCount = 0;
++
++    List<ReportCommunicationSessionSummaryResponse> recentSessions = new ArrayList<>();
++
++    for (ReportCommunicationAnalysisQueryRow row : rows) {
++      JsonNode summary = parseSummaryJson(row.summaryJson());
++
++      int utteranceCount = readInt(summary, "utteranceCount");
++      double averageSentenceLength = readDouble(summary, "averageSentenceLength");
++      String sessionSummary = readText(summary, "summary");
++
++      if (row.analysisStatus() == CommunicationAnalysisStatus.COMPLETED) {
++        completedCount++;
++        totalUtteranceCount += utteranceCount;
++        sentenceLengthSum += averageSentenceLength;
++
++        mergeFrequentWords(wordCounts, summary.path("frequentWords"));
++
++        JsonNode expressionTypeCounts = summary.path("expressionTypeCounts");
++        requestCount += readInt(expressionTypeCounts, "REQUEST");
++        emotionCount += readInt(expressionTypeCounts, "EMOTION");
++        responseCount += readInt(expressionTypeCounts, "RESPONSE");
++        playCount += readInt(expressionTypeCounts, "PLAY");
++        otherCount += readInt(expressionTypeCounts, "OTHER");
++      }
++
++      if (recentSessions.size() < RECENT_COMMUNICATION_SESSION_LIMIT) {
++        recentSessions.add(
++            new ReportCommunicationSessionSummaryResponse(
++                row.sessionId(),
++                row.startedAt(),
++                row.endedAt(),
++                utteranceCount,
++                toTopWordResponses(summary.path("frequentWords"), 5),
++                sessionSummary,
++                row.analysisStatus(),
++                row.analyzedAt()));
++      }
++    }
++
++    CommunicationAnalysisStatus status = resolveOverallAnalysisStatus(rows);
++    double averageSentenceLength =
++        completedCount == 0 ? 0.0 : roundOneDecimal(sentenceLengthSum / completedCount);
++
++    return new ReportCommunicationSummaryResponse(
++        childId,
++        status,
++        totalSessionCount,
++        totalUtteranceCount,
++        averageSentenceLength,
++        toTopWordResponses(wordCounts, 5),
++        new ReportExpressionTypeCountsResponse(
++            requestCount, emotionCount, responseCount, playCount, otherCount),
++        recentSessions,
++        LocalDateTime.now());
++  }
++
+   public ReportWeakWordListResponse getWeakWords(
+       Long userId, Long childId, ReportWeakWordSearchCondition condition) {
+     validatePositiveId(childId, "childId");
+@@ -272,6 +378,118 @@ public class ReportService {
+         row.latestSessionAt());
+   }
+ 
++  private CommunicationAnalysisStatus resolveOverallAnalysisStatus(
++      List<ReportCommunicationAnalysisQueryRow> rows) {
++    if (rows.isEmpty()) {
++      return CommunicationAnalysisStatus.EMPTY;
++    }
++
++    boolean hasProcessing =
++        rows.stream()
++            .anyMatch(
++                row ->
++                    row.analysisStatus() == CommunicationAnalysisStatus.PENDING
++                        || row.analysisStatus() == CommunicationAnalysisStatus.PROCESSING);
++
++    if (hasProcessing) {
++      return CommunicationAnalysisStatus.PROCESSING;
++    }
++
++    boolean hasCompleted =
++        rows.stream()
++            .anyMatch(row -> row.analysisStatus() == CommunicationAnalysisStatus.COMPLETED);
++
++    if (hasCompleted) {
++      return CommunicationAnalysisStatus.COMPLETED;
++    }
++
++    boolean allEmpty =
++        rows.stream().allMatch(row -> row.analysisStatus() == CommunicationAnalysisStatus.EMPTY);
++
++    if (allEmpty) {
++      return CommunicationAnalysisStatus.EMPTY;
++    }
++
++    return CommunicationAnalysisStatus.FAILED;
++  }
++
++  private JsonNode parseSummaryJson(String summaryJson) {
++    if (summaryJson == null || summaryJson.isBlank()) {
++      return objectMapper.createObjectNode();
++    }
++
++    try {
++      return objectMapper.readTree(summaryJson);
++    } catch (Exception e) {
++      return objectMapper.createObjectNode();
++    }
++  }
++
++  private int readInt(JsonNode node, String fieldName) {
++    JsonNode value = node.path(fieldName);
++    return value.isNumber() ? value.asInt() : 0;
++  }
++
++  private double readDouble(JsonNode node, String fieldName) {
++    JsonNode value = node.path(fieldName);
++    return value.isNumber() ? value.asDouble() : 0.0;
++  }
++
++  private String readText(JsonNode node, String fieldName) {
++    JsonNode value = node.path(fieldName);
++    return value.isTextual() ? value.asText() : "";
++  }
++
++  private void mergeFrequentWords(Map<String, Integer> wordCounts, JsonNode frequentWords) {
++    if (frequentWords == null || !frequentWords.isArray()) {
++      return;
++    }
++
++    for (JsonNode wordNode : frequentWords) {
++      String word = readText(wordNode, "word");
++      int count = readInt(wordNode, "count");
++
++      if (word == null || word.isBlank() || count <= 0) {
++        continue;
++      }
++
++      wordCounts.merge(word, count, Integer::sum);
++    }
++  }
++
++  private List<ReportWordCountResponse> toTopWordResponses(
++      Map<String, Integer> wordCounts, int limit) {
++    return wordCounts.entrySet().stream()
++        .sorted(Map.Entry.<String, Integer>comparingByValue(Comparator.reverseOrder()))
++        .limit(limit)
++        .map(entry -> new ReportWordCountResponse(entry.getKey(), entry.getValue()))
++        .toList();
++  }
++
++  private List<ReportWordCountResponse> toTopWordResponses(JsonNode frequentWords, int limit) {
++    if (frequentWords == null || !frequentWords.isArray()) {
++      return List.of();
++    }
++
++    List<ReportWordCountResponse> words = new ArrayList<>();
++
++    for (JsonNode wordNode : frequentWords) {
++      String word = readText(wordNode, "word");
++      int count = readInt(wordNode, "count");
++
++      if (word == null || word.isBlank() || count <= 0) {
++        continue;
++      }
++
++      words.add(new ReportWordCountResponse(word, count));
++    }
++
++    return words.stream()
++        .sorted(Comparator.comparingInt(ReportWordCountResponse::count).reversed())
++        .limit(limit)
++        .toList();
++  }
++
+   private LocalDateTime parseFrom(String value) {
+     if (value == null || value.isBlank()) {
+       return null;
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/config/AsyncConfig.java b/backend/src/main/java/com/ssafy/backend/global/config/AsyncConfig.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/config/AsyncConfig.java
+@@ -0,0 +1,8 @@
++package com.ssafy.backend.global.config;
++
++import org.springframework.context.annotation.Configuration;
++import org.springframework.scheduling.annotation.EnableAsync;
++
++@Configuration
++@EnableAsync
++public class AsyncConfig {}
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260515134000__create_communication_session_analysis.sql b/backend/src/main/resources/db/migration/V20260515134000__create_communication_session_analysis.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260515134000__create_communication_session_analysis.sql
+@@ -0,0 +1,27 @@
++CREATE TABLE communication_session_analysis (
++                                              id BIGSERIAL PRIMARY KEY,
++                                              session_id BIGINT NOT NULL UNIQUE,
++                                              analysis_status VARCHAR(20) NOT NULL,
++                                              summary_json TEXT,
++                                              analyzed_at TIMESTAMP,
++                                              analysis_version VARCHAR(30) NOT NULL DEFAULT 'v1',
++                                              model_name VARCHAR(100),
++                                              prompt_version VARCHAR(30) NOT NULL DEFAULT 'v1',
++                                              analysis_error_code VARCHAR(100),
++                                              created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
++                                              updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
++
++                                              CONSTRAINT fk_communication_session_analysis_session
++                                                FOREIGN KEY (session_id)
++                                                  REFERENCES communication_sessions(id)
++                                                  ON DELETE CASCADE,
++
++                                              CONSTRAINT chk_communication_session_analysis_status
++                                                CHECK (analysis_status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'EMPTY'))
++);
++
++CREATE INDEX idx_communication_session_analysis_status
++  ON communication_session_analysis (analysis_status);
++
++CREATE INDEX idx_communication_session_analysis_analyzed_at
++  ON communication_session_analysis (analyzed_at);
+
+

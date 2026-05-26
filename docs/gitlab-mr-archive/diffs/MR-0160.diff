@@ -1,0 +1,3370 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleBubble.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleBubble.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleBubble.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleBubble.kt
+@@ -1,8 +1,11 @@
+ package com.ssafy.mobile.feature.conversation.presentation.components
+ 
++import androidx.compose.animation.animateContentSize
+ import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.widthIn
+@@ -16,13 +19,14 @@ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.alpha
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.graphics.Shape
++import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.unit.dp
+-import androidx.compose.ui.unit.sp
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
+ import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
+ import com.ssafy.mobile.feature.conversation.domain.model.MessageStatus
+ import com.ssafy.mobile.feature.conversation.domain.model.SenderType
+ 
+-private const val SUDA_BG_COLOR = 0xFFF0F0F0
+ private const val PENDING_ALPHA = 0.6f
+ private const val MAX_BUBBLE_WIDTH = 280
+ 
+@@ -45,21 +49,38 @@ fun SubtitleBubble(
+         contentAlignment = style.boxAlignment,
+     ) {
+         Column(
++            modifier = Modifier.animateContentSize(),
+             horizontalAlignment = style.columnAlignment,
++            verticalArrangement = Arrangement.spacedBy(4.dp),
+         ) {
++            Row(
++                horizontalArrangement = Arrangement.spacedBy(6.dp),
++                verticalAlignment = Alignment.CenterVertically,
++            ) {
++                AppBadge(
++                    text = message.senderType.senderLabel(),
++                    tone = message.senderType.senderBadgeTone(),
++                )
++                if (message.status == MessageStatus.PENDING) {
++                    AppBadge(
++                        text = "처리 중",
++                        tone = AppBadgeTone.Warning,
++                    )
++                }
++            }
+             Box(
+                 modifier =
+                     Modifier
+                         .widthIn(max = MAX_BUBBLE_WIDTH.dp)
+                         .background(style.backgroundColor, style.shape)
+-                        .padding(horizontal = 16.dp, vertical = 10.dp)
++                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                         .alpha(if (message.status == MessageStatus.PENDING) PENDING_ALPHA else 1f),
+             ) {
+                 Text(
+                     text = message.text,
++                    style = MaterialTheme.typography.bodyLarge,
+                     color = style.contentColor,
+-                    fontSize = 16.sp,
+-                    lineHeight = 22.sp,
++                    fontWeight = FontWeight.Medium,
+                 )
+             }
+ 
+@@ -81,6 +102,20 @@ fun SubtitleBubble(
+ private fun ChatMessage.canReportTranslation(): Boolean =
+     isFeedbackAvailable && status == MessageStatus.COMPLETED
+ 
++private fun SenderType.senderLabel(): String =
++    when (this) {
++        SenderType.SYSTEM -> "안내"
++        SenderType.PARENT -> "부모"
++        SenderType.CHILD -> "아이"
++    }
++
++private fun SenderType.senderBadgeTone(): AppBadgeTone =
++    when (this) {
++        SenderType.SYSTEM -> AppBadgeTone.Neutral
++        SenderType.PARENT -> AppBadgeTone.Primary
++        SenderType.CHILD -> AppBadgeTone.Secondary
++    }
++
+ @Composable
+ private fun subtitleBubbleStyle(senderType: SenderType): SubtitleBubbleStyle =
+     when (senderType) {
+@@ -88,25 +123,25 @@ private fun subtitleBubbleStyle(senderType: SenderType): SubtitleBubbleStyle =
+             SubtitleBubbleStyle(
+                 boxAlignment = Alignment.Center,
+                 columnAlignment = Alignment.CenterHorizontally,
+-                backgroundColor = MaterialTheme.colorScheme.secondaryContainer,
+-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+-                shape = RoundedCornerShape(16.dp),
++                backgroundColor = MaterialTheme.colorScheme.surfaceVariant,
++                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
++                shape = RoundedCornerShape(8.dp),
+             )
+         SenderType.PARENT ->
+             SubtitleBubbleStyle(
+                 boxAlignment = Alignment.CenterStart,
+                 columnAlignment = Alignment.Start,
+-                backgroundColor = Color(SUDA_BG_COLOR),
+-                contentColor = Color.Black,
+-                shape = RoundedCornerShape(4.dp, 20.dp, 20.dp, 20.dp),
++                backgroundColor = MaterialTheme.colorScheme.primaryContainer,
++                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
++                shape = RoundedCornerShape(2.dp, 8.dp, 8.dp, 8.dp),
+             )
+         SenderType.CHILD ->
+             SubtitleBubbleStyle(
+                 boxAlignment = Alignment.CenterEnd,
+                 columnAlignment = Alignment.End,
+-                backgroundColor = MaterialTheme.colorScheme.primary,
+-                contentColor = Color.White,
+-                shape = RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp),
++                backgroundColor = MaterialTheme.colorScheme.secondaryContainer,
++                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
++                shape = RoundedCornerShape(8.dp, 2.dp, 8.dp, 8.dp),
+             )
+     }
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleList.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleList.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleList.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/components/SubtitleList.kt
+@@ -1,5 +1,9 @@
+ package com.ssafy.mobile.feature.conversation.presentation.components
+ 
++import androidx.compose.animation.AnimatedVisibility
++import androidx.compose.animation.animateContentSize
++import androidx.compose.animation.fadeIn
++import androidx.compose.animation.slideInVertically
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.PaddingValues
+@@ -9,17 +13,20 @@ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.items
+ import androidx.compose.foundation.lazy.rememberLazyListState
+-import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.material3.MaterialTheme
+-import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.feature.conversation.domain.model.ChatMessage
+ 
++private const val ENTER_SLIDE_DIVISOR = 5
++
+ @Composable
+ fun SubtitleList(
+     messages: List<ChatMessage>,
+@@ -38,7 +45,10 @@ fun SubtitleList(
+ 
+     LazyColumn(
+         state = listState,
+-        modifier = modifier.fillMaxSize(),
++        modifier =
++            modifier
++                .fillMaxSize()
++                .animateContentSize(),
+         contentPadding = PaddingValues(16.dp),
+         verticalArrangement = Arrangement.spacedBy(8.dp),
+     ) {
+@@ -66,18 +76,22 @@ private fun EmptySubtitle(
+         modifier = modifier.fillMaxWidth(),
+         contentAlignment = Alignment.Center,
+     ) {
+-        Surface(
+-            shape = RoundedCornerShape(16.dp),
+-            color = MaterialTheme.colorScheme.surface.copy(alpha = EMPTY_SUBTITLE_ALPHA),
++        AnimatedVisibility(
++            visible = true,
++            enter = fadeIn() + slideInVertically { it / ENTER_SLIDE_DIVISOR },
+         ) {
+-            Text(
+-                text = text,
+-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+-                style = MaterialTheme.typography.bodyMedium,
+-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+-            )
++            AppCard {
++                AppBadge(
++                    text = "대화 대기",
++                    tone = AppBadgeTone.Neutral,
++                )
++                Text(
++                    text = text,
++                    modifier = Modifier.padding(top = 10.dp),
++                    style = MaterialTheme.typography.bodyMedium,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                )
++            }
+         }
+     }
+ }
+-
+-private const val EMPTY_SUBTITLE_ALPHA = 0.9f
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+@@ -8,6 +8,10 @@ import android.content.ContextWrapper
+ import android.content.pm.ActivityInfo
+ import android.util.Log
+ import android.view.WindowManager
++import androidx.compose.animation.AnimatedVisibility
++import androidx.compose.animation.animateContentSize
++import androidx.compose.animation.fadeIn
++import androidx.compose.animation.slideInVertically
+ import androidx.compose.foundation.BorderStroke
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.clickable
+@@ -21,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.heightIn
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.sizeIn
+@@ -58,6 +63,9 @@ import androidx.compose.ui.window.Dialog
+ import androidx.compose.ui.window.DialogProperties
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ import com.ssafy.mobile.core.ui.feedback.AppNetworkStatusBanner
+@@ -74,6 +82,7 @@ private const val SUBTITLE_HEIGHT_FRACTION = 0.4f
+ private const val PHASE_CARD_ALPHA = 0.88f
+ private const val INPUT_LANE_LABEL_ALPHA = 0.14f
+ private const val CAMERA_PREVIEW_ASPECT_RATIO = 16f / 9f
++private const val NOTICE_ENTER_SLIDE_DIVISOR = 5
+ 
+ data class ConversationUiState(
+     val sessionState: SessionState,
+@@ -282,6 +291,23 @@ private fun ConversationScreen(
+                     lastGlosses = uiState.lastGlosses,
+                     signInputPhase = uiState.signInputPhase,
+                 )
++                ConversationTranscriptPanel(
++                    messages = uiState.messages,
++                    emptyText =
++                        subtitlePlaceholder(
++                            signInputPhase = uiState.signInputPhase,
++                            speechInputPhase = uiState.speechInputPhase,
++                        ),
++                    onFeedbackClick = { message ->
++                        feedbackTargetMessage = message
++                        selectedFeedbackReason = null
++                    },
++                    modifier =
++                        Modifier
++                            .fillMaxWidth()
++                            .weight(1f)
++                            .padding(horizontal = 16.dp, vertical = 10.dp),
++                )
+             }
+         }
+     }
+@@ -730,6 +756,55 @@ private fun TranslationFeedbackSubmitState.actionText(): String =
+         is TranslationFeedbackSubmitState.Error -> "다시 제출"
+     }
+ 
++@Composable
++private fun ConversationTranscriptPanel(
++    messages: List<ChatMessage>,
++    emptyText: String,
++    onFeedbackClick: (ChatMessage) -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    AppCard(
++        modifier =
++            modifier
++                .heightIn(min = 180.dp)
++                .animateContentSize(),
++    ) {
++        Row(
++            modifier = Modifier.fillMaxWidth(),
++            horizontalArrangement = Arrangement.SpaceBetween,
++            verticalAlignment = Alignment.CenterVertically,
++        ) {
++            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
++                Text(
++                    text = "대화 자막",
++                    style = MaterialTheme.typography.titleMedium,
++                    fontWeight = FontWeight.Bold,
++                    color = MaterialTheme.colorScheme.onSurface,
++                )
++                Text(
++                    text = "부모와 아이의 말을 실시간으로 구분해 보여줘요.",
++                    style = MaterialTheme.typography.bodySmall,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                )
++            }
++            AppBadge(
++                text = if (messages.isEmpty()) "대기" else "${messages.size}개",
++                tone = if (messages.isEmpty()) AppBadgeTone.Neutral else AppBadgeTone.Primary,
++            )
++        }
++
++        SubtitleList(
++            messages = messages,
++            emptyText = emptyText,
++            onFeedbackClick = onFeedbackClick,
++            modifier =
++                Modifier
++                    .fillMaxWidth()
++                    .weight(1f),
++        )
++    }
++}
++
+ @Composable
+ private fun TranslationFeedbackReasonRow(
+     reason: TranslationFeedbackReason,
+@@ -1045,23 +1120,26 @@ private fun TranslationModeSelector(
+ 
+ @Composable
+ private fun TranslationModeNotice(text: String?) {
+-    if (text.isNullOrBlank()) return
+-
+-    Surface(
+-        modifier =
+-            Modifier
+-                .fillMaxWidth()
+-                .padding(horizontal = 16.dp, vertical = 8.dp),
+-        shape = RoundedCornerShape(12.dp),
+-        color = MaterialTheme.colorScheme.secondaryContainer,
++    AnimatedVisibility(
++        visible = !text.isNullOrBlank(),
++        enter = fadeIn() + slideInVertically { it / NOTICE_ENTER_SLIDE_DIVISOR },
+     ) {
+-        Text(
+-            text = text,
+-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+-            style = MaterialTheme.typography.bodySmall,
+-            color = MaterialTheme.colorScheme.onSecondaryContainer,
+-            fontWeight = FontWeight.Bold,
+-        )
++        Surface(
++            modifier =
++                Modifier
++                    .fillMaxWidth()
++                    .padding(horizontal = 16.dp, vertical = 8.dp),
++            shape = RoundedCornerShape(8.dp),
++            color = MaterialTheme.colorScheme.secondaryContainer,
++        ) {
++            Text(
++                text = text.orEmpty(),
++                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
++                style = MaterialTheme.typography.bodySmall,
++                color = MaterialTheme.colorScheme.onSecondaryContainer,
++                fontWeight = FontWeight.Bold,
++            )
++        }
+     }
+ }
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/category/LearningCategoryRoute.kt
+@@ -1,5 +1,6 @@
+ package com.ssafy.mobile.feature.learning.presentation.category
+ 
++import androidx.compose.animation.animateContentSize
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+@@ -15,8 +16,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
+ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+ import androidx.compose.foundation.lazy.grid.items
+ import androidx.compose.foundation.shape.RoundedCornerShape
+-import androidx.compose.material3.Card
+-import androidx.compose.material3.CardDefaults
+ import androidx.compose.material3.FilterChip
+ import androidx.compose.material3.FilterChipDefaults
+ import androidx.compose.material3.MaterialTheme
+@@ -36,10 +35,15 @@ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.core.ui.components.AppErrorText
+ import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
+ import com.ssafy.mobile.core.ui.components.AppNetworkImage
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
++import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.core.ui.feedback.AppEmptyState
+ import com.ssafy.mobile.feature.learning.domain.model.DEFAULT_LEARNING_DIFFICULTY
+ import com.ssafy.mobile.feature.learning.domain.model.LearningCategory
+ 
+@@ -49,9 +53,7 @@ private val GRID_VERTICAL_PADDING = 8.dp
+ private val GRID_SPACING = 16.dp
+ private val HEADER_HORIZONTAL_PADDING = 24.dp
+ private val HEADER_VERTICAL_PADDING = 32.dp
+-private val CARD_CORNER_RADIUS = 16.dp
+-private val CARD_PADDING = 12.dp
+-private val CARD_ELEVATION = 2.dp
++private val CARD_PADDING = 14.dp
+ private const val ASPECT_RATIO_SQUARE = 1f
+ 
+ @Composable
+@@ -100,7 +102,7 @@ internal fun LearningCategoryScreen(
+                 modifier = Modifier.padding(horizontal = HEADER_HORIZONTAL_PADDING),
+             )
+ 
+-            Spacer(modifier = Modifier.height(16.dp))
++            Spacer(modifier = Modifier.height(12.dp))
+             Box(
+                 modifier = Modifier.weight(1f),
+             ) {
+@@ -110,7 +112,7 @@ internal fun LearningCategoryScreen(
+                             modifier = Modifier.fillMaxSize(),
+                             contentAlignment = Alignment.Center,
+                         ) {
+-                            AppLoadingIndicator()
++                            AppLoadingIndicator(message = "학습 주제를 불러오고 있어요.")
+                         }
+                     }
+ 
+@@ -124,16 +126,7 @@ internal fun LearningCategoryScreen(
+                     }
+ 
+                     is LearningCategoryUiState.Empty -> {
+-                        Box(
+-                            modifier = Modifier.fillMaxSize(),
+-                            contentAlignment = Alignment.Center,
+-                        ) {
+-                            Text(
+-                                text = "준비된 학습 주제가 없습니다.",
+-                                style = MaterialTheme.typography.bodyLarge,
+-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                            )
+-                        }
++                        AppEmptyState(message = "준비된 학습 주제가 없습니다.")
+                     }
+ 
+                     is LearningCategoryUiState.Error -> {
+@@ -165,11 +158,17 @@ private fun HeaderSection() {
+         modifier =
+             Modifier
+                 .fillMaxWidth()
++                .animateContentSize()
+                 .padding(
+                     horizontal = HEADER_HORIZONTAL_PADDING,
+                     vertical = HEADER_VERTICAL_PADDING,
+                 ),
+     ) {
++        AppBadge(
++            text = "학습",
++            tone = AppBadgeTone.Primary,
++        )
++        Spacer(modifier = Modifier.height(12.dp))
+         Text(
+             text = "어떤 주제로 배워볼까요?",
+             style = MaterialTheme.typography.headlineMedium,
+@@ -219,20 +218,15 @@ private fun CategoryCard(
+     onWordListClick: () -> Unit,
+     onQuizClick: () -> Unit,
+ ) {
+-    Card(
++    AppCard(
+         modifier =
+             Modifier
+                 .fillMaxWidth()
+-                .clip(RoundedCornerShape(CARD_CORNER_RADIUS)),
+-        shape = RoundedCornerShape(CARD_CORNER_RADIUS),
+-        colors =
+-            CardDefaults.cardColors(
+-                containerColor = MaterialTheme.colorScheme.surface,
+-            ),
+-        elevation = CardDefaults.cardElevation(defaultElevation = CARD_ELEVATION),
++                .animateContentSize(),
++        contentPadding = PaddingValues(CARD_PADDING),
+     ) {
+         Column(
+-            modifier = Modifier.fillMaxWidth().padding(CARD_PADDING),
++            modifier = Modifier.fillMaxWidth(),
+             horizontalAlignment = Alignment.CenterHorizontally,
+         ) {
+             AppNetworkImage(
+@@ -243,7 +237,7 @@ private fun CategoryCard(
+                     Modifier
+                         .fillMaxWidth()
+                         .aspectRatio(ASPECT_RATIO_SQUARE)
+-                        .clip(RoundedCornerShape(12.dp)),
++                        .clip(RoundedCornerShape(8.dp)),
+             )
+ 
+             Spacer(modifier = Modifier.height(12.dp))
+@@ -273,7 +267,7 @@ private fun CategoryCard(
+                 modifier = Modifier.fillMaxWidth(),
+                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+             ) {
+-                AppPrimaryButton(
++                AppSecondaryButton(
+                     text = "단어장",
+                     onClick = onWordListClick,
+                     modifier = Modifier.weight(1f),
+@@ -296,27 +290,46 @@ private fun DifficultySelectionSection(
+ ) {
+     val difficulties =
+         listOf(
+-            "EASY" to "쉬움",
+-            "NORMAL" to "보통",
+-            "HARD" to "어려움",
++            DifficultyOption("EASY", "쉬움", AppBadgeTone.Success),
++            DifficultyOption("NORMAL", "보통", AppBadgeTone.Primary),
++            DifficultyOption("HARD", "어려움", AppBadgeTone.Warning),
+         )
+ 
+-    Column(modifier = modifier) {
+-        Text(
+-            text = "난이도 선택",
+-            style = MaterialTheme.typography.titleSmall,
+-            fontWeight = FontWeight.Bold,
+-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+-        )
++    Column(
++        modifier =
++            modifier
++                .fillMaxWidth()
++                .animateContentSize(),
++    ) {
++        Row(
++            modifier = Modifier.fillMaxWidth(),
++            horizontalArrangement = Arrangement.SpaceBetween,
++            verticalAlignment = Alignment.CenterVertically,
++        ) {
++            Text(
++                text = "난이도 선택",
++                style = MaterialTheme.typography.titleSmall,
++                fontWeight = FontWeight.Bold,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++            )
++            difficulties
++                .firstOrNull { it.value == selectedDifficulty }
++                ?.let { selected ->
++                    AppBadge(
++                        text = selected.label,
++                        tone = selected.tone,
++                    )
++                }
++        }
+         Spacer(modifier = Modifier.height(8.dp))
+         Row(
+             horizontalArrangement = Arrangement.spacedBy(8.dp),
+         ) {
+-            difficulties.forEach { (value, label) ->
++            difficulties.forEach { option ->
+                 FilterChip(
+-                    selected = selectedDifficulty == value,
+-                    onClick = { onDifficultyChange(value) },
+-                    label = { Text(label) },
++                    selected = selectedDifficulty == option.value,
++                    onClick = { onDifficultyChange(option.value) },
++                    label = { Text(option.label) },
+                     colors =
+                         FilterChipDefaults.filterChipColors(
+                             selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+@@ -327,3 +340,9 @@ private fun DifficultySelectionSection(
+         }
+     }
+ }
++
++private data class DifficultyOption(
++    val value: String,
++    val label: String,
++    val tone: AppBadgeTone,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningAudioControl.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningAudioControl.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningAudioControl.kt
+@@ -0,0 +1,125 @@
++package com.ssafy.mobile.feature.learning.presentation.wordlist
++
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.shape.CircleShape
++import androidx.compose.material3.CircularProgressIndicator
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.sp
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++
++@Composable
++internal fun AudioControlButton(
++    audioState: AudioPlaybackState,
++    onPlayClick: () -> Unit,
++    onStopClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    val colors = audioControlColors(audioState)
++
++    Column(
++        modifier = modifier,
++        horizontalAlignment = Alignment.CenterHorizontally,
++    ) {
++        Surface(
++            onClick = {
++                if (audioState == AudioPlaybackState.Playing) {
++                    onStopClick()
++                } else {
++                    onPlayClick()
++                }
++            },
++            enabled = audioState != AudioPlaybackState.Loading,
++            shape = CircleShape,
++            color = colors.container,
++            contentColor = colors.content,
++            modifier = Modifier.size(72.dp),
++        ) {
++            Box(
++                modifier = Modifier.fillMaxSize(),
++                contentAlignment = Alignment.Center,
++            ) {
++                AudioControlIcon(audioState = audioState, contentColor = colors.content)
++            }
++        }
++
++        Spacer(modifier = Modifier.height(8.dp))
++
++        AppBadge(
++            text = audioState.toAudioLabel(),
++            tone = audioState.toAudioBadgeTone(),
++        )
++    }
++}
++
++@Composable
++private fun AudioControlIcon(
++    audioState: AudioPlaybackState,
++    contentColor: Color,
++) {
++    if (audioState == AudioPlaybackState.Loading) {
++        CircularProgressIndicator(
++            modifier = Modifier.size(32.dp),
++            color = contentColor,
++            strokeWidth = 3.dp,
++        )
++    } else {
++        Text(
++            text = if (audioState == AudioPlaybackState.Playing) "■" else "▶",
++            fontSize = 32.sp,
++            color = contentColor,
++        )
++    }
++}
++
++@Composable
++private fun audioControlColors(audioState: AudioPlaybackState): AudioControlColors =
++    when (audioState) {
++        AudioPlaybackState.Playing ->
++            AudioControlColors(
++                container = MaterialTheme.colorScheme.primary,
++                content = MaterialTheme.colorScheme.onPrimary,
++            )
++        AudioPlaybackState.Error ->
++            AudioControlColors(
++                container = MaterialTheme.colorScheme.errorContainer,
++                content = MaterialTheme.colorScheme.onErrorContainer,
++            )
++        else ->
++            AudioControlColors(
++                container = MaterialTheme.colorScheme.primaryContainer,
++                content = MaterialTheme.colorScheme.onPrimaryContainer,
++            )
++    }
++
++private fun AudioPlaybackState.toAudioLabel(): String =
++    when (this) {
++        AudioPlaybackState.Loading -> "준비 중"
++        AudioPlaybackState.Playing -> "재생 중"
++        AudioPlaybackState.Error -> "재생 실패"
++        else -> "소리 듣기"
++    }
++
++private fun AudioPlaybackState.toAudioBadgeTone(): AppBadgeTone =
++    when (this) {
++        AudioPlaybackState.Error -> AppBadgeTone.Error
++        AudioPlaybackState.Playing -> AppBadgeTone.Primary
++        else -> AppBadgeTone.Neutral
++    }
++
++private data class AudioControlColors(
++    val container: Color,
++    val content: Color,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt
+@@ -1,24 +1,18 @@
+ package com.ssafy.mobile.feature.learning.presentation.wordlist
+ 
++import androidx.compose.animation.animateContentSize
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.PaddingValues
+ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+-import androidx.compose.foundation.layout.size
+-import androidx.compose.foundation.layout.width
+-import androidx.compose.foundation.shape.CircleShape
+ import androidx.compose.foundation.shape.RoundedCornerShape
+-import androidx.compose.material3.Button
+-import androidx.compose.material3.Card
+-import androidx.compose.material3.CardDefaults
+-import androidx.compose.material3.CircularProgressIndicator
+-import androidx.compose.material3.IconButton
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+@@ -37,10 +31,15 @@ import androidx.compose.ui.unit.dp
+ import androidx.compose.ui.unit.sp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.core.ui.components.AppErrorText
+ import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
+ import com.ssafy.mobile.core.ui.components.AppNetworkImage
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
++import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.core.ui.feedback.AppEmptyState
+ import com.ssafy.mobile.feature.learning.domain.model.LearningWord
+ 
+ @Composable
+@@ -110,7 +109,7 @@ internal fun LearningWordListScreen(
+                             modifier = Modifier.fillMaxSize(),
+                             contentAlignment = Alignment.Center,
+                         ) {
+-                            AppLoadingIndicator()
++                            AppLoadingIndicator(message = "단어 카드를 준비하고 있어요.")
+                         }
+                     }
+ 
+@@ -123,16 +122,7 @@ internal fun LearningWordListScreen(
+                     }
+ 
+                     is LearningWordListUiState.Empty -> {
+-                        Box(
+-                            modifier = Modifier.fillMaxSize(),
+-                            contentAlignment = Alignment.Center,
+-                        ) {
+-                            Text(
+-                                text = "준비된 단어가 없습니다.",
+-                                style = MaterialTheme.typography.bodyLarge,
+-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                            )
+-                        }
++                        AppEmptyState(message = "준비된 단어가 없습니다.")
+                     }
+ 
+                     is LearningWordListUiState.Error -> {
+@@ -165,25 +155,35 @@ private fun WordListHeader(
+         modifier =
+             modifier
+                 .fillMaxWidth()
+-                .padding(top = 12.dp, bottom = 12.dp, start = 8.dp, end = 24.dp),
++                .animateContentSize()
++                .padding(horizontal = 24.dp, vertical = 20.dp),
+     ) {
+-        IconButton(onClick = onBackClick) {
+-            Text(
+-                text = "뒤로",
+-                style = MaterialTheme.typography.titleMedium,
+-                fontWeight = FontWeight.Bold,
+-                color = MaterialTheme.colorScheme.primary,
++        Row(
++            modifier = Modifier.fillMaxWidth(),
++            horizontalArrangement = Arrangement.SpaceBetween,
++            verticalAlignment = Alignment.CenterVertically,
++        ) {
++            TextButton(onClick = onBackClick) {
++                Text(
++                    text = "← 뒤로",
++                    style = MaterialTheme.typography.labelLarge,
++                    fontWeight = FontWeight.Bold,
++                    color = MaterialTheme.colorScheme.primary,
++                )
++            }
++            AppBadge(
++                text = "단어장",
++                tone = AppBadgeTone.Primary,
+             )
+         }
+ 
+-        Spacer(modifier = Modifier.height(8.dp))
++        Spacer(modifier = Modifier.height(12.dp))
+ 
+         Text(
+             text = categoryName,
+             style = MaterialTheme.typography.headlineMedium,
+             fontWeight = FontWeight.Bold,
+             color = MaterialTheme.colorScheme.onSurface,
+-            modifier = Modifier.padding(start = 16.dp),
+             maxLines = 1,
+             overflow = TextOverflow.Ellipsis,
+         )
+@@ -192,7 +192,7 @@ private fun WordListHeader(
+             text = "단어 카드를 넘기며 소리를 들어보세요.",
+             style = MaterialTheme.typography.bodyLarge,
+             color = MaterialTheme.colorScheme.onSurfaceVariant,
+-            modifier = Modifier.padding(start = 16.dp, top = 4.dp),
++            modifier = Modifier.padding(top = 4.dp),
+         )
+     }
+ }
+@@ -206,18 +206,15 @@ private fun WordLearningCard(
+     val word = state.currentWord ?: return
+ 
+     Column(
+-        modifier = modifier,
++        modifier = modifier.animateContentSize(),
+         horizontalAlignment = Alignment.CenterHorizontally,
+     ) {
+-        Card(
++        AppCard(
+             modifier =
+                 Modifier
+                     .weight(1f)
+-                    .fillMaxWidth()
+-                    .clip(RoundedCornerShape(32.dp)),
+-            shape = RoundedCornerShape(32.dp),
+-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
++                    .fillMaxWidth(),
++            contentPadding = PaddingValues(16.dp),
+         ) {
+             WordCardContent(
+                 word = word,
+@@ -227,7 +224,7 @@ private fun WordLearningCard(
+             )
+         }
+ 
+-        Spacer(modifier = Modifier.height(32.dp))
++        Spacer(modifier = Modifier.height(20.dp))
+ 
+         WordNavigationControls(
+             state = state,
+@@ -246,7 +243,7 @@ private fun WordCardContent(
+     onStopAudio: () -> Unit,
+ ) {
+     Column(
+-        modifier = Modifier.fillMaxSize().padding(20.dp),
++        modifier = Modifier.fillMaxSize(),
+         horizontalAlignment = Alignment.CenterHorizontally,
+         verticalArrangement = Arrangement.Center,
+     ) {
+@@ -258,7 +255,7 @@ private fun WordCardContent(
+                 Modifier
+                     .weight(1f)
+                     .fillMaxWidth()
+-                    .clip(RoundedCornerShape(24.dp)),
++                    .clip(RoundedCornerShape(8.dp)),
+             placeholder = { WordFallback(word = word.word) },
+         )
+ 
+@@ -304,130 +301,33 @@ private fun WordNavigationControls(
+     onNextClick: () -> Unit,
+     onStartQuiz: () -> Unit,
+ ) {
+-    Row(
++    Column(
+         modifier = Modifier.fillMaxWidth(),
+-        horizontalArrangement = Arrangement.SpaceBetween,
+-        verticalAlignment = Alignment.CenterVertically,
++        horizontalAlignment = Alignment.CenterHorizontally,
+     ) {
+-        TextButton(
+-            onClick = onPreviousClick,
+-            enabled = state.hasPrevious,
+-        ) {
+-            Text("◀", fontSize = 18.sp)
+-            Spacer(modifier = Modifier.width(8.dp))
+-            Text("이전 단어")
+-        }
+-
+-        Text(
++        AppBadge(
+             text = "${state.currentIndex + 1} / ${state.words.size}",
+-            style = MaterialTheme.typography.titleMedium,
+-            fontWeight = FontWeight.Bold,
+-            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            tone = AppBadgeTone.Neutral,
+         )
+ 
+-        if (state.hasNext) {
+-            Button(
+-                onClick = onNextClick,
+-                shape = RoundedCornerShape(16.dp),
+-            ) {
+-                Text("다음")
+-                Spacer(modifier = Modifier.width(8.dp))
+-                Text("▶", fontSize = 18.sp)
+-            }
+-        } else {
+-            AppPrimaryButton(
+-                text = "퀴즈 풀기",
+-                onClick = onStartQuiz,
+-                modifier = Modifier.width(140.dp),
+-            )
+-        }
+-    }
+-}
++        Spacer(modifier = Modifier.height(12.dp))
+ 
+-@Composable
+-private fun AudioControlButton(
+-    audioState: AudioPlaybackState,
+-    onPlayClick: () -> Unit,
+-    onStopClick: () -> Unit,
+-    modifier: Modifier = Modifier,
+-) {
+-    val containerColor =
+-        when (audioState) {
+-            AudioPlaybackState.Playing -> MaterialTheme.colorScheme.primary
+-            AudioPlaybackState.Error -> MaterialTheme.colorScheme.errorContainer
+-            else -> MaterialTheme.colorScheme.primaryContainer
+-        }
+-
+-    val contentColor =
+-        when (audioState) {
+-            AudioPlaybackState.Playing -> MaterialTheme.colorScheme.onPrimary
+-            AudioPlaybackState.Error -> MaterialTheme.colorScheme.onErrorContainer
+-            else -> MaterialTheme.colorScheme.onPrimaryContainer
+-        }
+-
+-    Column(
+-        modifier = modifier,
+-        horizontalAlignment = Alignment.CenterHorizontally,
+-    ) {
+-        IconButton(
+-            onClick = {
+-                if (audioState == AudioPlaybackState.Playing) {
+-                    onStopClick()
+-                } else {
+-                    onPlayClick()
+-                }
+-            },
+-            enabled = audioState != AudioPlaybackState.Loading,
+-            modifier =
+-                Modifier
+-                    .size(72.dp)
+-                    .clip(CircleShape)
+-                    .background(containerColor),
++        Row(
++            modifier = Modifier.fillMaxWidth(),
++            horizontalArrangement = Arrangement.spacedBy(12.dp),
+         ) {
+-            AudioControlIcon(audioState = audioState, contentColor = contentColor)
++            AppSecondaryButton(
++                text = "이전 단어",
++                onClick = onPreviousClick,
++                enabled = state.hasPrevious,
++                modifier = Modifier.weight(1f),
++            )
++            AppPrimaryButton(
++                text = if (state.hasNext) "다음 단어" else "퀴즈 풀기",
++                onClick = if (state.hasNext) onNextClick else onStartQuiz,
++                modifier = Modifier.weight(1f),
++            )
+         }
+-
+-        Spacer(modifier = Modifier.height(8.dp))
+-
+-        val labelColor =
+-            if (audioState == AudioPlaybackState.Error) {
+-                MaterialTheme.colorScheme.error
+-            } else {
+-                MaterialTheme.colorScheme.primary
+-            }
+-
+-        Text(
+-            text =
+-                when (audioState) {
+-                    AudioPlaybackState.Loading -> "준비 중..."
+-                    AudioPlaybackState.Playing -> "재생 중"
+-                    AudioPlaybackState.Error -> "재생 실패"
+-                    else -> "소리 듣기"
+-                },
+-            style = MaterialTheme.typography.labelLarge,
+-            color = labelColor,
+-            fontWeight = FontWeight.Bold,
+-        )
+-    }
+-}
+-
+-@Composable
+-private fun AudioControlIcon(
+-    audioState: AudioPlaybackState,
+-    contentColor: androidx.compose.ui.graphics.Color,
+-) {
+-    if (audioState == AudioPlaybackState.Loading) {
+-        CircularProgressIndicator(
+-            modifier = Modifier.size(32.dp),
+-            color = contentColor,
+-            strokeWidth = 3.dp,
+-        )
+-    } else {
+-        Text(
+-            text = if (audioState == AudioPlaybackState.Playing) "■" else "▶",
+-            fontSize = 32.sp,
+-            color = contentColor,
+-        )
+     }
+ }
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizActionUiState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizActionUiState.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizActionUiState.kt
+@@ -0,0 +1,209 @@
++package com.ssafy.mobile.feature.quiz.presentation
++
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
++import com.ssafy.mobile.core.ui.components.AppPrimaryButton
++import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
++
++internal data class QuizActionUiState(
++    val recordButton: QuizButtonUiState,
++    val nextButton: QuizButtonUiState,
++    val recording: QuizRecordingUiState,
++    val answerSubmitState: QuizAnswerSubmitState,
++)
++
++internal data class QuizButtonUiState(
++    val text: String,
++    val enabled: Boolean,
++)
++
++internal data class QuizRecordingUiState(
++    val status: QuizRecordingStatus,
++    val answerAttemptCount: Int?,
++    val recognizedText: String?,
++)
++
++@Suppress("LongParameterList")
++internal fun quizActionUiState(
++    answer: QuizAnswer?,
++    recordingStatus: QuizRecordingStatus,
++    answerSubmitState: QuizAnswerSubmitState,
++    isRecording: Boolean,
++    isProcessing: Boolean,
++    isSubmitting: Boolean,
++    isCompletionPending: Boolean,
++    isSaveFailed: Boolean,
++    canSkipQuestion: Boolean,
++    hasAnswered: Boolean,
++    hasSuccessfulAnswer: Boolean,
++    retryLimitReached: Boolean,
++    remainingRetryCount: Int,
++    canRecordAnswer: Boolean,
++    canMoveNext: Boolean,
++    isLastQuestion: Boolean,
++): QuizActionUiState =
++    QuizActionUiState(
++        recordButton =
++            QuizButtonUiState(
++                text =
++                    quizRecordButtonText(
++                        isRecording = isRecording,
++                        isProcessing = isProcessing,
++                        isSubmitting = isSubmitting,
++                        isCompletionPending = isCompletionPending,
++                        isSaveFailed = isSaveFailed,
++                        hasAnswered = hasAnswered,
++                        remainingRetryCount = remainingRetryCount,
++                    ),
++                enabled = canRecordAnswer,
++            ),
++        nextButton =
++            QuizButtonUiState(
++                text =
++                    quizNextActionText(
++                        isCompletionPending = isCompletionPending,
++                        isSaveFailed = isSaveFailed,
++                        canSkipQuestion = canSkipQuestion,
++                        hasAnswered = hasAnswered,
++                        hasSuccessfulAnswer = hasSuccessfulAnswer,
++                        retryLimitReached = retryLimitReached,
++                        isLastQuestion = isLastQuestion,
++                    ),
++                enabled = canMoveNext,
++            ),
++        recording =
++            QuizRecordingUiState(
++                status = recordingStatus,
++                answerAttemptCount = answer?.attemptCount,
++                recognizedText = answer?.sttText,
++            ),
++        answerSubmitState = answerSubmitState,
++    )
++
++@Composable
++internal fun QuizActionCard(
++    actionState: QuizActionUiState,
++    onAnswerClick: () -> Unit,
++    onNextClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    AppCard(modifier = modifier.fillMaxWidth()) {
++        QuizRecordingStatusText(
++            recordingStatus = actionState.recording.status,
++            answerAttemptCount = actionState.recording.answerAttemptCount,
++            recognizedText = actionState.recording.recognizedText,
++        )
++
++        Spacer(modifier = Modifier.height(12.dp))
++
++        AppPrimaryButton(
++            text = actionState.recordButton.text,
++            onClick = onAnswerClick,
++            enabled = actionState.recordButton.enabled,
++        )
++
++        Spacer(modifier = Modifier.height(10.dp))
++
++        AppSecondaryButton(
++            text = actionState.nextButton.text,
++            onClick = onNextClick,
++            enabled = actionState.nextButton.enabled,
++        )
++
++        AnswerSubmitStatusBadge(
++            state = actionState.answerSubmitState,
++            modifier = Modifier.padding(top = 10.dp),
++        )
++    }
++}
++
++@Composable
++private fun AnswerSubmitStatusBadge(
++    state: QuizAnswerSubmitState,
++    modifier: Modifier = Modifier,
++) {
++    val message = state.toStatusMessage() ?: return
++
++    Box(
++        modifier = modifier.fillMaxWidth(),
++        contentAlignment = Alignment.Center,
++    ) {
++        AppBadge(
++            text = message,
++            tone = state.toBadgeTone(),
++        )
++    }
++}
++
++private fun QuizAnswerSubmitState.toStatusMessage(): String? =
++    when (this) {
++        QuizAnswerSubmitState.Idle -> null
++        QuizAnswerSubmitState.Submitting -> "답변을 저장하고 있어요..."
++        QuizAnswerSubmitState.Success -> "답변을 저장했어요."
++        is QuizAnswerSubmitState.CompletionPending -> message
++        is QuizAnswerSubmitState.SaveFailed -> message
++        is QuizAnswerSubmitState.Error -> message
++    }
++
++private fun QuizAnswerSubmitState.toBadgeTone(): AppBadgeTone =
++    when (this) {
++        QuizAnswerSubmitState.Success -> AppBadgeTone.Success
++        QuizAnswerSubmitState.Submitting -> AppBadgeTone.Primary
++        QuizAnswerSubmitState.Idle -> AppBadgeTone.Neutral
++        is QuizAnswerSubmitState.CompletionPending,
++        is QuizAnswerSubmitState.SaveFailed,
++        is QuizAnswerSubmitState.Error,
++        -> AppBadgeTone.Error
++    }
++
++private fun quizRecordButtonText(
++    isRecording: Boolean,
++    isProcessing: Boolean,
++    isSubmitting: Boolean,
++    isCompletionPending: Boolean,
++    isSaveFailed: Boolean,
++    hasAnswered: Boolean,
++    remainingRetryCount: Int,
++): String =
++    when {
++        isRecording -> "말하기 완료"
++        isProcessing -> "답변 준비 중..."
++        isSubmitting -> "답변 저장 중..."
++        isCompletionPending -> "답변 저장 완료"
++        isSaveFailed -> quizRetryButtonText(remainingRetryCount)
++        hasAnswered -> quizRetryButtonText(remainingRetryCount)
++        else -> "말하기"
++    }
++
++private fun quizNextActionText(
++    isCompletionPending: Boolean,
++    isSaveFailed: Boolean,
++    canSkipQuestion: Boolean,
++    hasAnswered: Boolean,
++    hasSuccessfulAnswer: Boolean,
++    retryLimitReached: Boolean,
++    isLastQuestion: Boolean,
++): String =
++    when {
++        isCompletionPending -> "결과 보기 다시 시도"
++        isSaveFailed -> "답변 저장 다시 시도"
++        else ->
++            quizNextButtonText(
++                canSkipQuestion = canSkipQuestion,
++                hasAnswered = hasAnswered,
++                hasSuccessfulAnswer = hasSuccessfulAnswer,
++                retryLimitReached = retryLimitReached,
++                isLastQuestion = isLastQuestion,
++            )
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizMessageStates.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizMessageStates.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizMessageStates.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizMessageStates.kt
+@@ -1,13 +1,13 @@
+ package com.ssafy.mobile.feature.quiz.presentation
+ 
++import androidx.compose.animation.AnimatedVisibility
++import androidx.compose.animation.fadeIn
++import androidx.compose.animation.slideInVertically
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.padding
+-import androidx.compose.foundation.shape.RoundedCornerShape
+-import androidx.compose.material3.Card
+-import androidx.compose.material3.CardDefaults
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+@@ -16,8 +16,13 @@ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ 
++private const val ENTER_SLIDE_DIVISOR = 5
++
+ @Composable
+ internal fun QuizFinishedState(
+     solvedCount: Int,
+@@ -46,38 +51,41 @@ internal fun QuizMessageState(
+         modifier = modifier.padding(24.dp),
+         contentAlignment = Alignment.Center,
+     ) {
+-        Card(
+-            modifier = Modifier.fillMaxWidth(),
+-            shape = RoundedCornerShape(28.dp),
+-            colors =
+-                CardDefaults.cardColors(
+-                    containerColor = MaterialTheme.colorScheme.surface,
+-                ),
+-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
++        AnimatedVisibility(
++            visible = title.isNotBlank(),
++            enter = fadeIn() + slideInVertically { it / ENTER_SLIDE_DIVISOR },
+         ) {
+-            Column(
+-                modifier = Modifier.padding(28.dp),
+-                horizontalAlignment = Alignment.CenterHorizontally,
+-                verticalArrangement = Arrangement.spacedBy(14.dp),
++            AppCard(
++                modifier = Modifier.fillMaxWidth(),
+             ) {
+-                Text(
+-                    text = title,
+-                    style = MaterialTheme.typography.headlineSmall,
+-                    fontWeight = FontWeight.Bold,
+-                    textAlign = TextAlign.Center,
+-                )
+-                Text(
+-                    text = description,
+-                    style = MaterialTheme.typography.bodyMedium,
+-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                    textAlign = TextAlign.Center,
+-                )
+-
+-                if (actionText != null && onActionClick != null) {
+-                    AppPrimaryButton(
+-                        text = actionText,
+-                        onClick = onActionClick,
++                Column(
++                    modifier = Modifier.fillMaxWidth(),
++                    horizontalAlignment = Alignment.CenterHorizontally,
++                    verticalArrangement = Arrangement.spacedBy(14.dp),
++                ) {
++                    AppBadge(
++                        text = "퀴즈",
++                        tone = AppBadgeTone.Primary,
++                    )
++                    Text(
++                        text = title,
++                        style = MaterialTheme.typography.headlineSmall,
++                        fontWeight = FontWeight.Bold,
++                        textAlign = TextAlign.Center,
+                     )
++                    Text(
++                        text = description,
++                        style = MaterialTheme.typography.bodyMedium,
++                        color = MaterialTheme.colorScheme.onSurfaceVariant,
++                        textAlign = TextAlign.Center,
++                    )
++
++                    if (actionText != null && onActionClick != null) {
++                        AppPrimaryButton(
++                            text = actionText,
++                            onClick = onActionClick,
++                        )
++                    }
+                 }
+             }
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+@@ -7,10 +7,12 @@
+ 
+ package com.ssafy.mobile.feature.quiz.presentation
+ 
++import androidx.compose.animation.animateContentSize
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.PaddingValues
+ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.aspectRatio
+@@ -23,8 +25,6 @@ import androidx.compose.foundation.rememberScrollState
+ import androidx.compose.foundation.shape.CircleShape
+ import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.foundation.verticalScroll
+-import androidx.compose.material3.Card
+-import androidx.compose.material3.CardDefaults
+ import androidx.compose.material3.LinearProgressIndicator
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Surface
+@@ -42,9 +42,10 @@ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.core.ui.components.AppNetworkImage
+-import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+-import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizQuestion
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizRetryPolicy
+@@ -248,16 +249,13 @@ private fun QuizProgressHeader(
+             horizontalArrangement = Arrangement.SpaceBetween,
+             verticalAlignment = Alignment.CenterVertically,
+         ) {
+-            Text(
++            AppBadge(
+                 text = "문제 $currentQuestionNumber / $totalQuestionCount",
+-                style = MaterialTheme.typography.titleMedium,
+-                fontWeight = FontWeight.Bold,
++                tone = AppBadgeTone.Primary,
+             )
+-            Text(
++            AppBadge(
+                 text = "${(progress.coerceIn(0f, 1f) * PERCENT_MAX).roundToInt()}%",
+-                style = MaterialTheme.typography.labelLarge,
+-                color = MaterialTheme.colorScheme.primary,
+-                fontWeight = FontWeight.Bold,
++                tone = AppBadgeTone.Neutral,
+             )
+         }
+ 
+@@ -278,22 +276,16 @@ private fun QuizQuestionCard(
+     question: QuizQuestion,
+     modifier: Modifier = Modifier,
+ ) {
+-    Card(
++    AppCard(
+         modifier = modifier.fillMaxWidth(),
+-        shape = RoundedCornerShape(32.dp),
+-        colors =
+-            CardDefaults.cardColors(
+-                containerColor = MaterialTheme.colorScheme.surface,
+-            ),
+-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
++        contentPadding = PaddingValues(14.dp),
+     ) {
+         Box(
+             modifier =
+                 Modifier
+                     .fillMaxWidth()
+                     .aspectRatio(1.05f)
+-                    .padding(18.dp)
+-                    .clip(RoundedCornerShape(28.dp))
++                    .clip(RoundedCornerShape(8.dp))
+                     .background(
+                         Brush.linearGradient(
+                             colors =
+@@ -427,9 +419,31 @@ private fun QuizActionArea(
+             !isRecording &&
+             !isProcessing &&
+             !isSubmitting
++    val actionState =
++        quizActionUiState(
++            answer = answer,
++            recordingStatus = recordingStatus,
++            answerSubmitState = answerSubmitState,
++            isRecording = isRecording,
++            isProcessing = isProcessing,
++            isSubmitting = isSubmitting,
++            isCompletionPending = isCompletionPending,
++            isSaveFailed = isSaveFailed,
++            canSkipQuestion = canSkipQuestion,
++            hasAnswered = hasAnswered,
++            hasSuccessfulAnswer = hasSuccessfulAnswer,
++            retryLimitReached = retryLimitReached,
++            remainingRetryCount = remainingRetryCount,
++            canRecordAnswer = canRecordAnswer,
++            canMoveNext = canMoveNext,
++            isLastQuestion = isLastQuestion,
++        )
+ 
+     Column(
+-        modifier = modifier.fillMaxWidth(),
++        modifier =
++            modifier
++                .fillMaxWidth()
++                .animateContentSize(),
+         verticalArrangement = Arrangement.spacedBy(12.dp),
+     ) {
+         if (answer != null) {
+@@ -439,79 +453,10 @@ private fun QuizActionArea(
+             )
+         }
+ 
+-        AppPrimaryButton(
+-            text =
+-                when {
+-                    isRecording -> "말하기 완료"
+-                    isProcessing -> "답변 준비 중..."
+-                    isSubmitting -> "답변 저장 중..."
+-                    isCompletionPending -> "답변 저장 완료"
+-                    isSaveFailed -> quizRetryButtonText(remainingRetryCount)
+-                    hasAnswered -> quizRetryButtonText(remainingRetryCount)
+-                    else -> "말하기"
+-                },
+-            onClick = onAnswerClick,
+-            enabled = canRecordAnswer,
+-        )
+-
+-        AppSecondaryButton(
+-            text =
+-                when {
+-                    isCompletionPending -> "결과 보기 다시 시도"
+-                    isSaveFailed -> "답변 저장 다시 시도"
+-                    else ->
+-                        quizNextButtonText(
+-                            canSkipQuestion = canSkipQuestion,
+-                            hasAnswered = hasAnswered,
+-                            hasSuccessfulAnswer = hasSuccessfulAnswer,
+-                            retryLimitReached = retryLimitReached,
+-                            isLastQuestion = isLastQuestion,
+-                        )
+-                },
+-            onClick = onNextClick,
+-            enabled = canMoveNext,
+-        )
+-
+-        QuizRecordingStatusText(
+-            recordingStatus = recordingStatus,
+-            answerAttemptCount = answer?.attemptCount,
+-            recognizedText = answer?.sttText,
+-        )
+-
+-        AnswerSubmitStatusText(answerSubmitState)
+-    }
+-}
+-
+-@Composable
+-private fun AnswerSubmitStatusText(
+-    state: QuizAnswerSubmitState,
+-    modifier: Modifier = Modifier,
+-) {
+-    val message =
+-        when (state) {
+-            QuizAnswerSubmitState.Idle -> null
+-            QuizAnswerSubmitState.Submitting -> "답변을 저장하고 있어요..."
+-            QuizAnswerSubmitState.Success -> "답변을 저장했어요."
+-            is QuizAnswerSubmitState.CompletionPending -> state.message
+-            is QuizAnswerSubmitState.SaveFailed -> state.message
+-            is QuizAnswerSubmitState.Error -> state.message
+-        }
+-
+-    if (message != null) {
+-        Text(
+-            text = message,
+-            modifier = modifier.fillMaxWidth(),
+-            style = MaterialTheme.typography.bodySmall,
+-            color =
+-                if (state is QuizAnswerSubmitState.Error ||
+-                    state is QuizAnswerSubmitState.CompletionPending ||
+-                    state is QuizAnswerSubmitState.SaveFailed
+-                ) {
+-                    MaterialTheme.colorScheme.error
+-                } else {
+-                    MaterialTheme.colorScheme.primary
+-                },
+-            textAlign = TextAlign.Center,
++        QuizActionCard(
++            actionState = actionState,
++            onAnswerClick = onAnswerClick,
++            onNextClick = onNextClick,
+         )
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingState.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingState.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingState.kt
+@@ -1,11 +1,12 @@
+ package com.ssafy.mobile.feature.quiz.presentation
+ 
++import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.fillMaxWidth
+-import androidx.compose.material3.MaterialTheme
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+-import androidx.compose.ui.text.style.TextAlign
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
+ 
+ enum class QuizRecordingStatus {
+     Idle,
+@@ -38,24 +39,29 @@ internal fun QuizRecordingStatusText(
+     recognizedText: String?,
+     modifier: Modifier = Modifier,
+ ) {
+-    Text(
+-        text = recordingStatus.message(answerAttemptCount, recognizedText),
++    Box(
+         modifier = modifier.fillMaxWidth(),
+-        style = MaterialTheme.typography.bodySmall,
+-        color = recordingStatus.textColor(),
+-        textAlign = TextAlign.Center,
+-    )
++        contentAlignment = Alignment.Center,
++    ) {
++        AppBadge(
++            text = recordingStatus.message(answerAttemptCount, recognizedText),
++            tone = recordingStatus.badgeTone(),
++        )
++    }
+ }
+ 
+-@Composable
+-private fun QuizRecordingStatus.textColor() =
++private fun QuizRecordingStatus.badgeTone(): AppBadgeTone =
+     when (this) {
+-        QuizRecordingStatus.Completed -> MaterialTheme.colorScheme.primary
++        QuizRecordingStatus.Recording,
++        QuizRecordingStatus.FallbackRecording,
++        -> AppBadgeTone.Error
++        QuizRecordingStatus.Completed -> AppBadgeTone.Success
+         QuizRecordingStatus.NoSpeech,
+         QuizRecordingStatus.Timeout,
+         QuizRecordingStatus.PermissionError,
+-        -> MaterialTheme.colorScheme.error
+-        else -> MaterialTheme.colorScheme.onSurfaceVariant
++        -> AppBadgeTone.Error
++        QuizRecordingStatus.Processing -> AppBadgeTone.Primary
++        QuizRecordingStatus.Idle -> AppBadgeTone.Neutral
+     }
+ 
+ private fun QuizRecordingStatus.message(
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizResultRoute.kt
+@@ -11,14 +11,10 @@ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+-import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.items
+-import androidx.compose.foundation.shape.CircleShape
+ import androidx.compose.foundation.shape.RoundedCornerShape
+-import androidx.compose.material3.Card
+-import androidx.compose.material3.CardDefaults
+ import androidx.compose.material3.ExperimentalMaterial3Api
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Scaffold
+@@ -34,9 +30,11 @@ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
+-import androidx.compose.ui.unit.sp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ import com.ssafy.mobile.feature.learning.domain.model.LearningQuizResult
+@@ -193,23 +191,19 @@ private fun QuizResultHeaderCard(
+     totalCount: Int,
+     totalStar: Int,
+ ) {
+-    Card(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = RoundedCornerShape(24.dp),
+-        colors =
+-            CardDefaults.cardColors(
+-                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+-            ),
+     ) {
+         Row(
+-            modifier = Modifier.padding(24.dp),
++            modifier = Modifier.fillMaxWidth(),
+             verticalAlignment = Alignment.CenterVertically,
+             horizontalArrangement = Arrangement.SpaceEvenly,
+         ) {
+             ResultStatItem(
+                 label = "맞힌 문제",
+                 value = "$correctCount / $totalCount",
+-                iconEmoji = "✅",
++                badgeText = "정답",
++                tone = AppBadgeTone.Success,
+             )
+             Box(
+                 modifier =
+@@ -223,7 +217,8 @@ private fun QuizResultHeaderCard(
+             ResultStatItem(
+                 label = "획득한 별",
+                 value = "$totalStar",
+-                iconEmoji = "⭐",
++                badgeText = "별점",
++                tone = AppBadgeTone.Primary,
+             )
+         }
+     }
+@@ -233,12 +228,13 @@ private fun QuizResultHeaderCard(
+ private fun ResultStatItem(
+     label: String,
+     value: String,
+-    iconEmoji: String,
++    badgeText: String,
++    tone: AppBadgeTone,
+ ) {
+     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+-        Text(
+-            text = iconEmoji,
+-            fontSize = 24.sp,
++        AppBadge(
++            text = badgeText,
++            tone = tone,
+         )
+         Spacer(modifier = Modifier.height(4.dp))
+         Text(
+@@ -257,24 +253,20 @@ private fun ResultStatItem(
+ 
+ @Composable
+ private fun QuizAnswerResultItem(answer: LearningQuizResultAnswer) {
+-    Card(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = RoundedCornerShape(20.dp),
+-        colors =
+-            CardDefaults.cardColors(
+-                containerColor = MaterialTheme.colorScheme.surface,
+-            ),
+-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+     ) {
+         Column(
+-            modifier = Modifier.padding(18.dp),
+             verticalArrangement = Arrangement.spacedBy(10.dp),
+         ) {
+             Row(
+                 modifier = Modifier.fillMaxWidth(),
+                 verticalAlignment = Alignment.CenterVertically,
+             ) {
+-                QuizAnswerStatusIcon(isCorrect = answer.isCorrect)
++                AppBadge(
++                    text = if (answer.isCorrect) "정답" else "오답",
++                    tone = if (answer.isCorrect) AppBadgeTone.Success else AppBadgeTone.Error,
++                )
+ 
+                 Spacer(modifier = Modifier.width(12.dp))
+ 
+@@ -294,7 +286,7 @@ private fun QuizAnswerResultItem(answer: LearningQuizResultAnswer) {
+ 
+             if (!answer.feedback.isNullOrBlank()) {
+                 Text(
+-                    text = "💡 ${answer.feedback}",
++                    text = "피드백: ${answer.feedback}",
+                     style = MaterialTheme.typography.bodySmall,
+                     color = MaterialTheme.colorScheme.primary,
+                     modifier = Modifier.padding(horizontal = 4.dp),
+@@ -304,40 +296,19 @@ private fun QuizAnswerResultItem(answer: LearningQuizResultAnswer) {
+     }
+ }
+ 
+-@Composable
+-private fun QuizAnswerStatusIcon(isCorrect: Boolean) {
+-    Box(
+-        modifier =
+-            Modifier
+-                .size(36.dp)
+-                .clip(CircleShape)
+-                .background(
+-                    if (isCorrect) {
+-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+-                    } else {
+-                        MaterialTheme.colorScheme.error.copy(alpha = 0.1f)
+-                    },
+-                ),
+-        contentAlignment = Alignment.Center,
+-    ) {
+-        Text(
+-            text = if (isCorrect) "⭕" else "❌",
+-            fontSize = 16.sp,
+-        )
+-    }
+-}
+-
+ @Composable
+ private fun QuizAnswerStarRating(star: Int) {
+     val normalizedStar = star.coerceIn(0, MAX_STAR_COUNT)
+     Row(verticalAlignment = Alignment.CenterVertically) {
+         repeat(normalizedStar) {
+-            Text(text = "⭐", fontSize = 14.sp)
++            Text(
++                text = "★",
++                color = MaterialTheme.colorScheme.primary,
++            )
+         }
+         repeat(MAX_STAR_COUNT - normalizedStar) {
+             Text(
+-                text = "⭐",
+-                fontSize = 14.sp,
++                text = "☆",
+                 color = Color.Gray.copy(alpha = 0.3f),
+             )
+         }
+@@ -347,7 +318,7 @@ private fun QuizAnswerStarRating(star: Int) {
+ @Composable
+ private fun QuizAnswerRecognizedText(recognizedText: String?) {
+     val hasRecognizedText = !recognizedText.isNullOrBlank()
+-    val displayText = if (hasRecognizedText) recognizedText!! else "음성 인식 결과가 없어요"
++    val displayText = if (hasRecognizedText) recognizedText.orEmpty() else "음성 인식 결과가 없어요"
+ 
+     Column(
+         modifier =
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizStarResultCard.kt
+@@ -5,10 +5,6 @@ package com.ssafy.mobile.feature.quiz.presentation
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.fillMaxWidth
+-import androidx.compose.foundation.layout.padding
+-import androidx.compose.foundation.shape.RoundedCornerShape
+-import androidx.compose.material3.Card
+-import androidx.compose.material3.CardDefaults
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+@@ -18,6 +14,9 @@ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.feature.quiz.domain.model.QuizAnswer
+ 
+ @Composable
+@@ -27,22 +26,18 @@ internal fun QuizStarResultCard(
+     modifier: Modifier = Modifier,
+ ) {
+     val resultText = answer.toStarResultText(remainingRetryCount)
+-    Card(
++    AppCard(
+         modifier = modifier.fillMaxWidth(),
+-        shape = RoundedCornerShape(24.dp),
+-        colors =
+-            CardDefaults.cardColors(
+-                containerColor = answer.star.starResultContainerColor(),
+-            ),
+     ) {
+         Column(
+-            modifier =
+-                Modifier
+-                    .fillMaxWidth()
+-                    .padding(18.dp),
++            modifier = Modifier.fillMaxWidth(),
+             horizontalAlignment = Alignment.CenterHorizontally,
+             verticalArrangement = Arrangement.spacedBy(8.dp),
+         ) {
++            AppBadge(
++                text = answer.star.toResultBadgeText(),
++                tone = answer.star.toResultBadgeTone(),
++            )
+             Text(
+                 text = answer.star.toStarDisplay(),
+                 style = MaterialTheme.typography.headlineMedium,
+@@ -63,11 +58,9 @@ internal fun QuizStarResultCard(
+                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                 textAlign = TextAlign.Center,
+             )
+-            Text(
++            AppBadge(
+                 text = "인식 결과: ${answer.recognizedTextLabel()}",
+-                style = MaterialTheme.typography.labelLarge,
+-                color = MaterialTheme.colorScheme.primary,
+-                textAlign = TextAlign.Center,
++                tone = AppBadgeTone.Neutral,
+             )
+         }
+     }
+@@ -118,15 +111,6 @@ private fun QuizAnswer.recognizedTextLabel(): String =
+             "서버에서 음성을 확인하고 있어요"
+         }
+ 
+-@Composable
+-private fun Int?.starResultContainerColor(): Color =
+-    when (this?.coerceIn(MIN_STAR, MAX_STAR)) {
+-        null -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+-        MAX_STAR -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
+-        TWO_STARS -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.72f)
+-        else -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.42f)
+-    }
+-
+ @Composable
+ private fun Int?.starResultColor(): Color =
+     when (this?.coerceIn(MIN_STAR, MAX_STAR)) {
+@@ -136,6 +120,22 @@ private fun Int?.starResultColor(): Color =
+         else -> MaterialTheme.colorScheme.error
+     }
+ 
++private fun Int?.toResultBadgeText(): String =
++    when (this?.coerceIn(MIN_STAR, MAX_STAR)) {
++        null -> "채점 중"
++        MAX_STAR -> "훌륭해요"
++        TWO_STARS -> "거의 다 왔어요"
++        else -> "다시 도전"
++    }
++
++private fun Int?.toResultBadgeTone(): AppBadgeTone =
++    when (this?.coerceIn(MIN_STAR, MAX_STAR)) {
++        null -> AppBadgeTone.Neutral
++        MAX_STAR -> AppBadgeTone.Success
++        TWO_STARS -> AppBadgeTone.Primary
++        else -> AppBadgeTone.Error
++    }
++
+ private fun Int?.toStarDisplay(): String {
+     val filledCount = this?.coerceIn(MIN_STAR, MAX_STAR) ?: 0
+     return buildString {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressCard.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressCard.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressCard.kt
+@@ -19,17 +19,18 @@ import androidx.compose.ui.draw.clip
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgress
+ import java.util.Locale
+ 
+ @Composable
+ fun ReportCategoryProgressCard(category: ReportCategoryProgress) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = CATEGORY_CARD_ALPHA),
+     ) {
+-        Column(modifier = Modifier.padding(18.dp)) {
++        Column {
+             ReportCategoryProgressHeader(category = category)
+             Spacer(modifier = Modifier.height(14.dp))
+             ReportCategoryMetricRow(category = category)
+@@ -66,12 +67,9 @@ private fun ReportCategoryProgressHeader(category: ReportCategoryProgress) {
+             overflow = TextOverflow.Ellipsis,
+         )
+         Spacer(modifier = Modifier.height(4.dp))
+-        Text(
++        AppBadge(
+             text = "최근 퀴즈 ${category.latestSessionAt.toReportDateLabel()}",
+-            style = MaterialTheme.typography.bodySmall,
+-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+-            maxLines = 1,
+-            overflow = TextOverflow.Ellipsis,
++            tone = AppBadgeTone.Neutral,
+         )
+     }
+ }
+@@ -179,7 +177,6 @@ private fun String?.toReportDateLabel(): String =
+         take(ISO_DATE_LENGTH).replace("-", ".")
+     }
+ 
+-private const val CATEGORY_CARD_ALPHA = 0.45f
+ private const val ISO_DATE_LENGTH = 10
+ private const val PERCENT_MIN = 0.0
+ private const val PERCENT_MAX = 100.0
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressRoute.kt
+@@ -14,7 +14,6 @@ import androidx.compose.foundation.lazy.items
+ import androidx.compose.material3.ExperimentalMaterial3Api
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Scaffold
+-import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.material3.TextButton
+ import androidx.compose.material3.TopAppBar
+@@ -32,6 +31,9 @@ import androidx.lifecycle.Lifecycle
+ import androidx.lifecycle.LifecycleEventObserver
+ import androidx.lifecycle.compose.LocalLifecycleOwner
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
+@@ -244,30 +246,34 @@ private fun ReportCategoryProgressIntro(activeChildState: ActiveChildProfileStat
+ 
+ @Composable
+ private fun ReportCategoryProgressSummary(page: ReportCategoryProgressPage) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = CATEGORY_SUMMARY_ALPHA),
+     ) {
++        AppBadge(
++            text = "카테고리",
++            tone = AppBadgeTone.Secondary,
++        )
++        Spacer(modifier = Modifier.height(8.dp))
+         Text(
+             text = "완료된 퀴즈 기록이 있는 ${page.categories.size}개 카테고리를 보여드려요.",
+-            modifier = Modifier.padding(18.dp),
+             style = MaterialTheme.typography.bodyMedium,
+-            color = MaterialTheme.colorScheme.onSecondaryContainer,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
+         )
+     }
+ }
+ 
+ @Composable
+ private fun ReportCategoryProgressStatusCard(message: String) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = CATEGORY_STATUS_ALPHA),
+     ) {
++        AppBadge(
++            text = "상태",
++            tone = AppBadgeTone.Neutral,
++        )
++        Spacer(modifier = Modifier.height(8.dp))
+         Text(
+             text = message,
+-            modifier = Modifier.padding(20.dp),
+             style = MaterialTheme.typography.bodyMedium,
+             color = MaterialTheme.colorScheme.onSurfaceVariant,
+             textAlign = TextAlign.Center,
+@@ -280,15 +286,17 @@ private fun ReportCategoryProgressErrorCard(
+     message: String,
+     onRetryClick: () -> Unit,
+ ) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = CATEGORY_ERROR_ALPHA),
+     ) {
+         Column(
+-            modifier = Modifier.padding(20.dp),
+             horizontalAlignment = Alignment.CenterHorizontally,
+         ) {
++            AppBadge(
++                text = "불러오기 실패",
++                tone = AppBadgeTone.Error,
++            )
++            Spacer(modifier = Modifier.height(8.dp))
+             Text(
+                 text = message,
+                 style = MaterialTheme.typography.bodyMedium,
+@@ -311,19 +319,21 @@ private fun ReportCategoryProgressActionCard(
+     buttonText: String,
+     onClick: () -> Unit,
+ ) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = CATEGORY_ACTION_ALPHA),
+     ) {
+         Column(
+-            modifier = Modifier.padding(20.dp),
+             horizontalAlignment = Alignment.CenterHorizontally,
+         ) {
++            AppBadge(
++                text = "아이 선택",
++                tone = AppBadgeTone.Warning,
++            )
++            Spacer(modifier = Modifier.height(8.dp))
+             Text(
+                 text = message,
+                 style = MaterialTheme.typography.bodyMedium,
+-                color = MaterialTheme.colorScheme.onPrimaryContainer,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                 textAlign = TextAlign.Center,
+             )
+             Spacer(modifier = Modifier.height(12.dp))
+@@ -335,8 +345,3 @@ private fun ReportCategoryProgressActionCard(
+         }
+     }
+ }
+-
+-private const val CATEGORY_SUMMARY_ALPHA = 0.35f
+-private const val CATEGORY_STATUS_ALPHA = 0.5f
+-private const val CATEGORY_ERROR_ALPHA = 0.4f
+-private const val CATEGORY_ACTION_ALPHA = 0.35f
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterComponents.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterComponents.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterComponents.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterComponents.kt
+@@ -1,5 +1,9 @@
+ package com.ssafy.mobile.feature.report.presentation
+ 
++import androidx.compose.animation.AnimatedVisibility
++import androidx.compose.animation.animateContentSize
++import androidx.compose.animation.fadeIn
++import androidx.compose.animation.slideInVertically
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+@@ -7,13 +11,11 @@ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+-import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.width
+ import androidx.compose.material3.DropdownMenu
+ import androidx.compose.material3.DropdownMenuItem
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.OutlinedButton
+-import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.getValue
+@@ -24,10 +26,15 @@ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ import com.ssafy.mobile.core.ui.components.AppTextField
+ 
++private const val FILTER_ENTER_SLIDE_DIVISOR = 5
++
+ @Composable
+ internal fun ReportFilterPanel(
+     state: ReportFilterUiState,
+@@ -35,22 +42,19 @@ internal fun ReportFilterPanel(
+     actions: ReportFilterActions,
+     modifier: Modifier = Modifier,
+ ) {
+-    Surface(
+-        modifier = modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = REPORT_FILTER_ALPHA),
++    AppCard(
++        modifier =
++            modifier
++                .fillMaxWidth()
++                .animateContentSize(),
+     ) {
+         Column(
+-            modifier = Modifier.padding(16.dp),
+-            verticalArrangement = Arrangement.spacedBy(10.dp),
++            verticalArrangement = Arrangement.spacedBy(12.dp),
+         ) {
+-            Text(
+-                text = "필터",
+-                style = MaterialTheme.typography.titleMedium,
+-                fontWeight = FontWeight.Bold,
+-            )
++            ReportFilterHeader(hasAppliedFilter = state.hasAppliedFilter)
+             ReportDateRangeFields(
+                 input = state.input,
++                isError = state.errorMessage != null,
+                 onInputChange = actions.onInputChange,
+             )
+             if (config.showCategory) {
+@@ -91,15 +95,20 @@ internal fun ReportFilterPanel(
+                         actions.onInputChange(state.input.copy(minAttemptCount = value))
+                     },
+                     label = "최소 풀이 횟수",
++                    isError = state.errorMessage != null,
+                     supportingText = "1 이상",
+                 )
+             }
+-            state.errorMessage?.let { message ->
+-                Text(
+-                    text = message,
+-                    style = MaterialTheme.typography.bodySmall,
+-                    color = MaterialTheme.colorScheme.error,
+-                )
++            AnimatedVisibility(
++                visible = state.errorMessage != null,
++                enter = fadeIn() + slideInVertically { it / FILTER_ENTER_SLIDE_DIVISOR },
++            ) {
++                state.errorMessage?.let { message ->
++                    AppBadge(
++                        text = message,
++                        tone = AppBadgeTone.Error,
++                    )
++                }
+             }
+             ReportFilterActionRow(
+                 onApplyClick = actions.onApplyClick,
+@@ -109,9 +118,28 @@ internal fun ReportFilterPanel(
+     }
+ }
+ 
++@Composable
++private fun ReportFilterHeader(hasAppliedFilter: Boolean) {
++    Row(
++        modifier = Modifier.fillMaxWidth(),
++        horizontalArrangement = Arrangement.SpaceBetween,
++    ) {
++        Text(
++            text = "필터",
++            style = MaterialTheme.typography.titleMedium,
++            fontWeight = FontWeight.Bold,
++        )
++        AppBadge(
++            text = if (hasAppliedFilter) "적용 중" else "전체",
++            tone = if (hasAppliedFilter) AppBadgeTone.Primary else AppBadgeTone.Neutral,
++        )
++    }
++}
++
+ @Composable
+ private fun ReportDateRangeFields(
+     input: ReportFilterInputState,
++    isError: Boolean,
+     onInputChange: (ReportFilterInputState) -> Unit,
+ ) {
+     Row(
+@@ -122,6 +150,7 @@ private fun ReportDateRangeFields(
+             value = input.from,
+             onValueChange = { value -> onInputChange(input.copy(from = value)) },
+             label = "시작일",
++            isError = isError,
+             modifier = Modifier.weight(1f),
+             supportingText = "YYYY-MM-DD",
+         )
+@@ -129,6 +158,7 @@ private fun ReportDateRangeFields(
+             value = input.to,
+             onValueChange = { value -> onInputChange(input.copy(to = value)) },
+             label = "종료일",
++            isError = isError,
+             modifier = Modifier.weight(1f),
+             supportingText = "YYYY-MM-DD",
+         )
+@@ -152,19 +182,16 @@ private fun ReportCategoryFilter(
+             onInputChange(state.input.copy(categoryId = categoryId))
+         },
+     )
+-
+     if (state.isCategoryLoading) {
+-        Text(
++        AppBadge(
+             text = "카테고리를 불러오는 중...",
+-            style = MaterialTheme.typography.bodySmall,
+-            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            tone = AppBadgeTone.Neutral,
+         )
+     }
+     state.categoryErrorMessage?.let { message ->
+-        Text(
++        AppBadge(
+             text = message,
+-            style = MaterialTheme.typography.bodySmall,
+-            color = MaterialTheme.colorScheme.error,
++            tone = AppBadgeTone.Error,
+         )
+         AppSecondaryButton(
+             text = "카테고리 다시 불러오기",
+@@ -294,5 +321,3 @@ private val statusOptions =
+         ReportFilterSelectionOption(value = "STARTED", label = "진행 중"),
+         ReportFilterSelectionOption(value = "ABANDONED", label = "중단"),
+     )
+-
+-private const val REPORT_FILTER_ALPHA = 0.42f
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
+@@ -1,8 +1,8 @@
+ package com.ssafy.mobile.feature.report.presentation
+ 
++import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+-import androidx.compose.foundation.layout.PaddingValues
+ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
+@@ -13,9 +13,7 @@ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.rememberScrollState
+ import androidx.compose.foundation.verticalScroll
+-import androidx.compose.material3.ElevatedCard
+ import androidx.compose.material3.MaterialTheme
+-import androidx.compose.material3.OutlinedButton
+ import androidx.compose.material3.Scaffold
+ import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+@@ -28,12 +26,15 @@ import androidx.compose.ui.draw.alpha
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
+-import androidx.compose.ui.unit.sp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.Lifecycle
+ import androidx.lifecycle.LifecycleEventObserver
+ import androidx.lifecycle.compose.LocalLifecycleOwner
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
++import com.ssafy.mobile.core.ui.components.AppLoadingIndicator
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
+@@ -147,58 +148,61 @@ private fun ReportHomeScreen(
+                 Spacer(modifier = Modifier.height(32.dp))
+             }
+ 
+-            Text(
+-                text = "리포트 목록",
+-                style = MaterialTheme.typography.titleLarge,
+-                fontWeight = FontWeight.Bold,
+-            )
+-
+-            Spacer(modifier = Modifier.height(16.dp))
+-
+-            // NOTE: 아래 아이콘(이모지)들은 기획 확정 전까지 사용되는 임시 시각 요소(placeholder)입니다.
+-            ReportMenuCard(
+-                title = "학습 요약 리포트",
+-                description = "최근 아이의 학습 성과를 한눈에 보여드려요.",
+-                iconEmoji = "📝",
+-                onClick = actions.onNavigateToSummary,
+-                enabled = isMenuEnabled,
+-            )
+-
+-            Spacer(modifier = Modifier.height(12.dp))
+-
+-            ReportMenuCard(
+-                title = "자주 틀리는 단어",
+-                description = "아이가 어려워하는 단어들을 모아봤어요.",
+-                iconEmoji = "⚠️",
+-                onClick = actions.onNavigateToWeakWords,
+-                enabled = isMenuEnabled,
+-            )
+-
+-            Spacer(modifier = Modifier.height(12.dp))
+-
+-            ReportMenuCard(
+-                title = "카테고리별 학습 진행도",
+-                description = "카테고리별 학습 흐름을 정리해드릴게요.",
+-                iconEmoji = "📊",
+-                onClick = actions.onNavigateToCategoryProgress,
++            ReportMenuSection(
++                actions = actions,
+                 enabled = isMenuEnabled,
+             )
+-
+-            Spacer(modifier = Modifier.height(12.dp))
+-
+-            ReportMenuCard(
+-                title = "퀴즈 기록",
+-                description = "아이가 풀어본 퀴즈 기록을 최신순으로 볼 수 있어요.",
+-                iconEmoji = "🧩",
+-                onClick = actions.onNavigateToQuizSessions,
+-                enabled = isMenuEnabled,
+-            )
+-
+             Spacer(modifier = Modifier.height(32.dp))
+         }
+     }
+ }
+ 
++@Composable
++private fun ReportMenuSection(
++    actions: ReportHomeActions,
++    enabled: Boolean,
++) {
++    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
++        Text(
++            text = "리포트 목록",
++            style = MaterialTheme.typography.titleLarge,
++            fontWeight = FontWeight.Bold,
++        )
++        ReportMenuCard(
++            title = "학습 요약 리포트",
++            description = "최근 아이의 학습 성과를 한눈에 보여드려요.",
++            badgeText = "요약",
++            badgeTone = AppBadgeTone.Primary,
++            onClick = actions.onNavigateToSummary,
++            enabled = enabled,
++        )
++        ReportMenuCard(
++            title = "자주 틀리는 단어",
++            description = "아이가 어려워하는 단어들을 모아봤어요.",
++            badgeText = "단어",
++            badgeTone = AppBadgeTone.Error,
++            onClick = actions.onNavigateToWeakWords,
++            enabled = enabled,
++        )
++        ReportMenuCard(
++            title = "카테고리별 학습 진행도",
++            description = "카테고리별 학습 흐름을 정리해드릴게요.",
++            badgeText = "진행",
++            badgeTone = AppBadgeTone.Secondary,
++            onClick = actions.onNavigateToCategoryProgress,
++            enabled = enabled,
++        )
++        ReportMenuCard(
++            title = "퀴즈 기록",
++            description = "아이가 풀어본 퀴즈 기록을 최신순으로 볼 수 있어요.",
++            badgeText = "퀴즈",
++            badgeTone = AppBadgeTone.Tertiary,
++            onClick = actions.onNavigateToQuizSessions,
++            enabled = enabled,
++        )
++    }
++}
++
+ @Composable
+ private fun ReportHeader() {
+     Column(
+@@ -227,18 +231,16 @@ private fun ReportActiveChildSection(
+     onSwitchClick: () -> Unit,
+     onRetryClick: () -> Unit,
+ ) {
+-    Surface(
+-        modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f),
+-    ) {
++    AppCard(modifier = Modifier.fillMaxWidth()) {
+         Column(
+-            modifier = Modifier.padding(16.dp),
+             horizontalAlignment = Alignment.CenterHorizontally,
+         ) {
+             when (state) {
+                 is ActiveChildProfileState.Loading -> {
+-                    Text(text = "아이 정보를 불러오는 중...")
++                    AppLoadingIndicator(
++                        message = "아이 정보를 불러오는 중...",
++                        modifier = Modifier.height(112.dp),
++                    )
+                 }
+ 
+                 is ActiveChildProfileState.Selected -> {
+@@ -258,6 +260,11 @@ private fun ReportActiveChildSection(
+ 
+                 is ActiveChildProfileState.Error -> {
+                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
++                        AppBadge(
++                            text = "확인 필요",
++                            tone = AppBadgeTone.Error,
++                        )
++                        Spacer(modifier = Modifier.height(8.dp))
+                         Text(
+                             text = state.message,
+                             style = MaterialTheme.typography.bodyMedium,
+@@ -318,22 +325,25 @@ private fun ActiveChildSelectedContent(
+             }
+         }
+ 
+-        OutlinedButton(
++        AppSecondaryButton(
++            text = "아이 변경",
+             onClick = onSwitchClick,
+-            modifier = Modifier.height(36.dp),
+-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+-        ) {
+-            Text(
+-                text = "아이 변경",
+-                style = MaterialTheme.typography.labelMedium,
+-            )
+-        }
++            modifier =
++                Modifier
++                    .width(96.dp)
++                    .height(40.dp),
++        )
+     }
+ }
+ 
+ @Composable
+ private fun ActiveChildMissingContent(onSwitchClick: () -> Unit) {
+     Column(horizontalAlignment = Alignment.CenterHorizontally) {
++        AppBadge(
++            text = "아이 선택 필요",
++            tone = AppBadgeTone.Warning,
++        )
++        Spacer(modifier = Modifier.height(8.dp))
+         Text(
+             text = "선택된 아이가 없습니다.",
+             style = MaterialTheme.typography.bodyMedium,
+@@ -351,6 +361,11 @@ private fun ActiveChildMissingContent(onSwitchClick: () -> Unit) {
+ @Composable
+ private fun ActiveChildNotFoundContent(onSwitchClick: () -> Unit) {
+     Column(horizontalAlignment = Alignment.CenterHorizontally) {
++        AppBadge(
++            text = "정보 없음",
++            tone = AppBadgeTone.Error,
++        )
++        Spacer(modifier = Modifier.height(8.dp))
+         Text(
+             text = "선택된 아이 정보를 찾을 수 없습니다.",
+             style = MaterialTheme.typography.bodyMedium,
+@@ -371,37 +386,28 @@ private const val DISABLED_CARD_ALPHA = 0.5f
+ private fun ReportMenuCard(
+     title: String,
+     description: String,
+-    iconEmoji: String,
++    badgeText: String,
++    badgeTone: AppBadgeTone,
+     onClick: () -> Unit,
+     enabled: Boolean = true,
+ ) {
+-    ElevatedCard(
+-        onClick = onClick,
++    AppCard(
++        onClick = onClick.takeIf { enabled },
+         modifier = Modifier.fillMaxWidth(),
+-        enabled = enabled,
+     ) {
+         val contentAlpha = if (enabled) 1f else DISABLED_CARD_ALPHA
+ 
+         Row(
+             modifier =
+                 Modifier
+-                    .padding(20.dp)
+                     .fillMaxWidth()
+                     .alpha(contentAlpha),
+             verticalAlignment = Alignment.CenterVertically,
+         ) {
+-            Surface(
+-                modifier = Modifier.size(48.dp),
+-                shape = MaterialTheme.shapes.small,
+-                color = MaterialTheme.colorScheme.surfaceVariant,
+-            ) {
+-                Box(contentAlignment = Alignment.Center) {
+-                    Text(
+-                        text = iconEmoji,
+-                        fontSize = 24.sp,
+-                    )
+-                }
+-            }
++            AppBadge(
++                text = badgeText,
++                tone = badgeTone,
++            )
+ 
+             Spacer(modifier = Modifier.width(16.dp))
+ 
+@@ -420,10 +426,9 @@ private fun ReportMenuCard(
+ 
+             Spacer(modifier = Modifier.width(8.dp))
+ 
+-            Text(
+-                text = "▶",
+-                style = MaterialTheme.typography.bodyLarge,
+-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
++            AppBadge(
++                text = "보기",
++                tone = AppBadgeTone.Neutral,
+             )
+         }
+     }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionCard.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionCard.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionCard.kt
+@@ -1,6 +1,5 @@
+ package com.ssafy.mobile.feature.report.presentation
+ 
+-import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.Row
+@@ -17,6 +16,9 @@ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.feature.report.domain.model.ReportQuizSession
+ import java.util.Locale
+ 
+@@ -25,15 +27,11 @@ fun ReportQuizSessionCard(
+     session: ReportQuizSession,
+     onClick: () -> Unit,
+ ) {
+-    Surface(
+-        modifier =
+-            Modifier
+-                .fillMaxWidth()
+-                .clickable(onClick = onClick),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = QUIZ_SESSION_CARD_ALPHA),
++    AppCard(
++        modifier = Modifier.fillMaxWidth(),
++        onClick = onClick,
+     ) {
+-        Column(modifier = Modifier.padding(18.dp)) {
++        Column {
+             Row(
+                 modifier = Modifier.fillMaxWidth(),
+                 verticalAlignment = Alignment.CenterVertically,
+@@ -46,20 +44,21 @@ fun ReportQuizSessionCard(
+                         maxLines = 1,
+                         overflow = TextOverflow.Ellipsis,
+                     )
+-                    Text(
+-                        text =
+-                            "${session.difficulty.toReportDifficultyLabel()} · " +
+-                                session.status.toReportSessionStatusLabel(),
+-                        style = MaterialTheme.typography.bodySmall,
+-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                        maxLines = 1,
+-                        overflow = TextOverflow.Ellipsis,
+-                    )
++                    Spacer(modifier = Modifier.height(6.dp))
++                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
++                        AppBadge(
++                            text = session.difficulty.toReportDifficultyLabel(),
++                            tone = AppBadgeTone.Primary,
++                        )
++                        AppBadge(
++                            text = session.status.toReportSessionStatusLabel(),
++                            tone = session.status.toReportSessionStatusBadgeTone(),
++                        )
++                    }
+                 }
+-                Text(
++                AppBadge(
+                     text = "${session.correctCount}/${session.totalQuestionCount}",
+-                    style = MaterialTheme.typography.labelLarge,
+-                    color = MaterialTheme.colorScheme.primary,
++                    tone = AppBadgeTone.Neutral,
+                 )
+             }
+ 
+@@ -136,5 +135,3 @@ private fun ReportQuizSession.toDateLabel(): String =
+         !startedAt.isNullOrBlank() -> "시작 ${startedAt.toReportQuizSessionDateLabel()}"
+         else -> "날짜 정보 없음"
+     }
+-
+-private const val QUIZ_SESSION_CARD_ALPHA = 0.45f
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionDetailCards.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionDetailCards.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionDetailCards.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionDetailCards.kt
+@@ -16,18 +16,19 @@ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.feature.report.domain.model.ReportQuizAnswer
+ import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionDetail
+ import java.util.Locale
+ 
+ @Composable
+ internal fun ReportQuizSessionSummaryCard(detail: ReportQuizSessionDetail) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = DETAIL_SUMMARY_ALPHA),
+     ) {
+-        Column(modifier = Modifier.padding(18.dp)) {
++        Column {
+             Text(
+                 text = "${detail.categoryName} 퀴즈",
+                 style = MaterialTheme.typography.titleLarge,
+@@ -36,13 +37,16 @@ internal fun ReportQuizSessionSummaryCard(detail: ReportQuizSessionDetail) {
+                 overflow = TextOverflow.Ellipsis,
+             )
+             Spacer(modifier = Modifier.height(4.dp))
+-            Text(
+-                text =
+-                    "${detail.difficulty.toReportDifficultyLabel()} · " +
+-                        detail.status.toReportSessionStatusLabel(),
+-                style = MaterialTheme.typography.bodyMedium,
+-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+-            )
++            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
++                AppBadge(
++                    text = detail.difficulty.toReportDifficultyLabel(),
++                    tone = AppBadgeTone.Primary,
++                )
++                AppBadge(
++                    text = detail.status.toReportSessionStatusLabel(),
++                    tone = detail.status.toReportSessionStatusBadgeTone(),
++                )
++            }
+ 
+             Spacer(modifier = Modifier.height(16.dp))
+             ReportQuizSessionSummaryMetricGrid(detail = detail)
+@@ -106,22 +110,20 @@ private fun ReportQuizSessionDateSection(detail: ReportQuizSessionDetail) {
+ 
+ @Composable
+ internal fun ReportQuizAnswerCard(answer: ReportQuizAnswer) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = ANSWER_CARD_ALPHA),
+     ) {
+-        Column(modifier = Modifier.padding(18.dp)) {
++        Column {
+             Row(
+                 modifier = Modifier.fillMaxWidth(),
+                 verticalAlignment = Alignment.CenterVertically,
+             ) {
+                 Column(modifier = Modifier.weight(1f)) {
+-                    Text(
++                    AppBadge(
+                         text = "${answer.questionNumber}번 문제",
+-                        style = MaterialTheme.typography.labelLarge,
+-                        color = MaterialTheme.colorScheme.primary,
++                        tone = AppBadgeTone.Neutral,
+                     )
++                    Spacer(modifier = Modifier.height(6.dp))
+                     Text(
+                         text = answer.targetText,
+                         style = MaterialTheme.typography.titleMedium,
+@@ -130,15 +132,9 @@ internal fun ReportQuizAnswerCard(answer: ReportQuizAnswer) {
+                         overflow = TextOverflow.Ellipsis,
+                     )
+                 }
+-                Text(
++                AppBadge(
+                     text = answer.correctnessLabel(),
+-                    style = MaterialTheme.typography.labelLarge,
+-                    color =
+-                        if (answer.isCorrect == false) {
+-                            MaterialTheme.colorScheme.error
+-                        } else {
+-                            MaterialTheme.colorScheme.primary
+-                        },
++                    tone = answer.toReportCorrectnessBadgeTone(),
+                 )
+             }
+ 
+@@ -233,6 +229,3 @@ private fun ReportQuizAnswer.correctnessLabel(): String =
+ 
+ private fun String?.toDisplayText(fallback: String): String =
+     if (isNullOrBlank()) fallback else this
+-
+-private const val DETAIL_SUMMARY_ALPHA = 0.45f
+-private const val ANSWER_CARD_ALPHA = 0.45f
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionDetailStateCards.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionDetailStateCards.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionDetailStateCards.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionDetailStateCards.kt
+@@ -4,28 +4,31 @@ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+-import androidx.compose.foundation.layout.padding
+ import androidx.compose.material3.MaterialTheme
+-import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ 
+ @Composable
+ internal fun ReportQuizSessionDetailStatusCard(message: String) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = DETAIL_STATUS_ALPHA),
+     ) {
++        AppBadge(
++            text = "상태",
++            tone = AppBadgeTone.Neutral,
++        )
++        Spacer(modifier = Modifier.height(8.dp))
+         Text(
+             text = message,
+-            modifier = Modifier.padding(20.dp),
+             style = MaterialTheme.typography.bodyMedium,
+             color = MaterialTheme.colorScheme.onSurfaceVariant,
+             textAlign = TextAlign.Center,
+@@ -38,15 +41,17 @@ internal fun ReportQuizSessionDetailErrorCard(
+     message: String,
+     onRetryClick: () -> Unit,
+ ) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = DETAIL_ERROR_ALPHA),
+     ) {
+         Column(
+-            modifier = Modifier.padding(20.dp),
+             horizontalAlignment = Alignment.CenterHorizontally,
+         ) {
++            AppBadge(
++                text = "불러오기 실패",
++                tone = AppBadgeTone.Error,
++            )
++            Spacer(modifier = Modifier.height(8.dp))
+             Text(
+                 text = message,
+                 style = MaterialTheme.typography.bodyMedium,
+@@ -69,19 +74,21 @@ internal fun ReportQuizSessionDetailActionCard(
+     buttonText: String,
+     onClick: () -> Unit,
+ ) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = DETAIL_ACTION_ALPHA),
+     ) {
+         Column(
+-            modifier = Modifier.padding(20.dp),
+             horizontalAlignment = Alignment.CenterHorizontally,
+         ) {
++            AppBadge(
++                text = "아이 선택",
++                tone = AppBadgeTone.Warning,
++            )
++            Spacer(modifier = Modifier.height(8.dp))
+             Text(
+                 text = message,
+                 style = MaterialTheme.typography.bodyMedium,
+-                color = MaterialTheme.colorScheme.onPrimaryContainer,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                 textAlign = TextAlign.Center,
+             )
+             Spacer(modifier = Modifier.height(12.dp))
+@@ -93,7 +100,3 @@ internal fun ReportQuizSessionDetailActionCard(
+         }
+     }
+ }
+-
+-private const val DETAIL_STATUS_ALPHA = 0.5f
+-private const val DETAIL_ERROR_ALPHA = 0.4f
+-private const val DETAIL_ACTION_ALPHA = 0.35f
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionFormatters.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionFormatters.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionFormatters.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionFormatters.kt
+@@ -1,5 +1,8 @@
+ package com.ssafy.mobile.feature.report.presentation
+ 
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.feature.report.domain.model.ReportQuizAnswer
++
+ internal fun String.toReportDifficultyLabel(): String =
+     when (this) {
+         "EASY" -> "쉬움"
+@@ -16,6 +19,21 @@ internal fun String.toReportSessionStatusLabel(): String =
+         else -> this
+     }
+ 
++internal fun String.toReportSessionStatusBadgeTone(): AppBadgeTone =
++    when (this) {
++        "COMPLETED" -> AppBadgeTone.Success
++        "STARTED" -> AppBadgeTone.Primary
++        "ABANDONED" -> AppBadgeTone.Warning
++        else -> AppBadgeTone.Neutral
++    }
++
++internal fun ReportQuizAnswer.toReportCorrectnessBadgeTone(): AppBadgeTone =
++    when (isCorrect) {
++        true -> AppBadgeTone.Success
++        false -> AppBadgeTone.Error
++        null -> AppBadgeTone.Neutral
++    }
++
+ internal fun String?.toReportQuizSessionDateLabel(): String =
+     if (isNullOrBlank()) {
+         "정보 없음"
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsRoute.kt
+@@ -14,7 +14,6 @@ import androidx.compose.foundation.lazy.items
+ import androidx.compose.material3.ExperimentalMaterial3Api
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Scaffold
+-import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.material3.TextButton
+ import androidx.compose.material3.TopAppBar
+@@ -32,6 +31,9 @@ import androidx.lifecycle.Lifecycle
+ import androidx.lifecycle.LifecycleEventObserver
+ import androidx.lifecycle.compose.LocalLifecycleOwner
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
+@@ -269,16 +271,18 @@ private fun ReportQuizSessionsIntro(activeChildState: ActiveChildProfileState) {
+ 
+ @Composable
+ private fun ReportQuizSessionsSummary(page: ReportQuizSessionPage) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = QUIZ_SUMMARY_ALPHA),
+     ) {
++        AppBadge(
++            text = "퀴즈 기록",
++            tone = AppBadgeTone.Tertiary,
++        )
++        Spacer(modifier = Modifier.height(8.dp))
+         Text(
+             text = "총 ${page.totalElements}개의 퀴즈 기록이 있어요.",
+-            modifier = Modifier.padding(18.dp),
+             style = MaterialTheme.typography.bodyMedium,
+-            color = MaterialTheme.colorScheme.onSecondaryContainer,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
+         )
+     }
+ }
+@@ -317,14 +321,16 @@ private fun ReportQuizSessionsMoreSection(
+ 
+ @Composable
+ private fun ReportQuizSessionsStatusCard(message: String) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = QUIZ_STATUS_ALPHA),
+     ) {
++        AppBadge(
++            text = "상태",
++            tone = AppBadgeTone.Neutral,
++        )
++        Spacer(modifier = Modifier.height(8.dp))
+         Text(
+             text = message,
+-            modifier = Modifier.padding(20.dp),
+             style = MaterialTheme.typography.bodyMedium,
+             color = MaterialTheme.colorScheme.onSurfaceVariant,
+             textAlign = TextAlign.Center,
+@@ -337,15 +343,17 @@ private fun ReportQuizSessionsErrorCard(
+     message: String,
+     onRetryClick: () -> Unit,
+ ) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = QUIZ_ERROR_ALPHA),
+     ) {
+         Column(
+-            modifier = Modifier.padding(20.dp),
+             horizontalAlignment = Alignment.CenterHorizontally,
+         ) {
++            AppBadge(
++                text = "불러오기 실패",
++                tone = AppBadgeTone.Error,
++            )
++            Spacer(modifier = Modifier.height(8.dp))
+             Text(
+                 text = message,
+                 style = MaterialTheme.typography.bodyMedium,
+@@ -368,19 +376,21 @@ private fun ReportQuizSessionsActionCard(
+     buttonText: String,
+     onClick: () -> Unit,
+ ) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = QUIZ_ACTION_ALPHA),
+     ) {
+         Column(
+-            modifier = Modifier.padding(20.dp),
+             horizontalAlignment = Alignment.CenterHorizontally,
+         ) {
++            AppBadge(
++                text = "아이 선택",
++                tone = AppBadgeTone.Warning,
++            )
++            Spacer(modifier = Modifier.height(8.dp))
+             Text(
+                 text = message,
+                 style = MaterialTheme.typography.bodyMedium,
+-                color = MaterialTheme.colorScheme.onPrimaryContainer,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                 textAlign = TextAlign.Center,
+             )
+             Spacer(modifier = Modifier.height(12.dp))
+@@ -392,8 +402,3 @@ private fun ReportQuizSessionsActionCard(
+         }
+     }
+ }
+-
+-private const val QUIZ_SUMMARY_ALPHA = 0.35f
+-private const val QUIZ_STATUS_ALPHA = 0.5f
+-private const val QUIZ_ERROR_ALPHA = 0.4f
+-private const val QUIZ_ACTION_ALPHA = 0.35f
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportSummarySection.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportSummarySection.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportSummarySection.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportSummarySection.kt
+@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.material3.MaterialTheme
+-import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Alignment
+@@ -16,6 +15,9 @@ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ import com.ssafy.mobile.feature.report.domain.model.ReportSummary
+ import com.ssafy.mobile.feature.report.domain.model.ReportWeakWord
+@@ -58,14 +60,16 @@ fun ReportSummarySection(
+ 
+ @Composable
+ private fun ReportSummaryStatusCard(message: String) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = SUMMARY_STATUS_ALPHA),
+     ) {
++        AppBadge(
++            text = "요약",
++            tone = AppBadgeTone.Neutral,
++        )
++        Spacer(modifier = Modifier.height(10.dp))
+         Text(
+             text = message,
+-            modifier = Modifier.padding(20.dp),
+             style = MaterialTheme.typography.bodyMedium,
+             color = MaterialTheme.colorScheme.onSurfaceVariant,
+         )
+@@ -77,15 +81,17 @@ private fun ReportSummaryErrorCard(
+     message: String,
+     onRetryClick: () -> Unit,
+ ) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = SUMMARY_ERROR_ALPHA),
+     ) {
+         Column(
+-            modifier = Modifier.padding(20.dp),
+             horizontalAlignment = Alignment.CenterHorizontally,
+         ) {
++            AppBadge(
++                text = "불러오기 실패",
++                tone = AppBadgeTone.Error,
++            )
++            Spacer(modifier = Modifier.height(10.dp))
+             Text(
+                 text = message,
+                 style = MaterialTheme.typography.bodyMedium,
+@@ -162,18 +168,15 @@ private fun SummaryMetricCard(
+     value: String,
+     modifier: Modifier = Modifier,
+ ) {
+-    Surface(
++    AppCard(
+         modifier = modifier,
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = SUMMARY_METRIC_ALPHA),
+     ) {
+-        Column(modifier = Modifier.padding(16.dp)) {
+-            Text(
++        Column {
++            AppBadge(
+                 text = title,
+-                style = MaterialTheme.typography.labelMedium,
+-                color = MaterialTheme.colorScheme.onSurfaceVariant,
++                tone = AppBadgeTone.Primary,
+             )
+-            Spacer(modifier = Modifier.height(6.dp))
++            Spacer(modifier = Modifier.height(8.dp))
+             Text(
+                 text = value,
+                 style = MaterialTheme.typography.titleMedium,
+@@ -186,16 +189,13 @@ private fun SummaryMetricCard(
+ 
+ @Composable
+ private fun LatestActivityCard(summary: ReportSummary) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = SUMMARY_LATEST_ALPHA),
+     ) {
+-        Column(modifier = Modifier.padding(18.dp)) {
+-            Text(
++        Column {
++            AppBadge(
+                 text = "최근 학습",
+-                style = MaterialTheme.typography.titleSmall,
+-                fontWeight = FontWeight.Bold,
++                tone = AppBadgeTone.Secondary,
+             )
+             Spacer(modifier = Modifier.height(8.dp))
+             Text(
+@@ -203,7 +203,8 @@ private fun LatestActivityCard(summary: ReportSummary) {
+                     summary.latestActivity?.let { activity ->
+                         "${activity.categoryName} · ${activity.latestSessionAt.toDateLabel()}"
+                     } ?: "최근 완료한 퀴즈 기록이 없어요.",
+-                style = MaterialTheme.typography.bodyMedium,
++                style = MaterialTheme.typography.titleSmall,
++                fontWeight = FontWeight.Bold,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                 maxLines = 1,
+                 overflow = TextOverflow.Ellipsis,
+@@ -214,14 +215,17 @@ private fun LatestActivityCard(summary: ReportSummary) {
+ 
+ @Composable
+ private fun WeakWordsPreviewCard(weakWords: List<ReportWeakWord>) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = SUMMARY_PREVIEW_ALPHA),
+     ) {
+-        Column(modifier = Modifier.padding(18.dp)) {
+-            Text(
++        Column {
++            AppBadge(
+                 text = "자주 틀리는 단어",
++                tone = AppBadgeTone.Error,
++            )
++            Spacer(modifier = Modifier.height(8.dp))
++            Text(
++                text = if (weakWords.isEmpty()) "아직 자주 틀린 단어가 없어요." else "상위 단어",
+                 style = MaterialTheme.typography.titleSmall,
+                 fontWeight = FontWeight.Bold,
+             )
+@@ -229,7 +233,7 @@ private fun WeakWordsPreviewCard(weakWords: List<ReportWeakWord>) {
+ 
+             if (weakWords.isEmpty()) {
+                 Text(
+-                    text = "아직 자주 틀린 단어가 없어요.",
++                    text = "퀴즈를 더 풀면 이곳에 어려워하는 단어가 쌓여요.",
+                     style = MaterialTheme.typography.bodyMedium,
+                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                 )
+@@ -275,11 +279,6 @@ private fun WeakWordRow(word: ReportWeakWord) {
+     }
+ }
+ 
+-private const val SUMMARY_STATUS_ALPHA = 0.5f
+-private const val SUMMARY_ERROR_ALPHA = 0.4f
+-private const val SUMMARY_METRIC_ALPHA = 0.35f
+-private const val SUMMARY_LATEST_ALPHA = 0.25f
+-private const val SUMMARY_PREVIEW_ALPHA = 0.35f
+ private const val WEAK_WORD_PREVIEW_COUNT = 3
+ private const val ISO_DATE_LENGTH = 10
+ private const val PERCENT_MIN = 0.0
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordCard.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordCard.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordCard.kt
+@@ -16,17 +16,18 @@ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.feature.report.domain.model.ReportWeakWord
+ import java.util.Locale
+ 
+ @Composable
+ fun ReportWeakWordCard(word: ReportWeakWord) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = WEAK_WORD_CARD_ALPHA),
+     ) {
+-        Column(modifier = Modifier.padding(18.dp)) {
++        Column {
+             Row(
+                 modifier = Modifier.fillMaxWidth(),
+                 verticalAlignment = Alignment.CenterVertically,
+@@ -48,10 +49,9 @@ fun ReportWeakWordCard(word: ReportWeakWord) {
+                         overflow = TextOverflow.Ellipsis,
+                     )
+                 }
+-                Text(
++                AppBadge(
+                     text = "${word.wrongCount}회 틀림",
+-                    style = MaterialTheme.typography.labelLarge,
+-                    color = MaterialTheme.colorScheme.error,
++                    tone = AppBadgeTone.Error,
+                 )
+             }
+ 
+@@ -129,5 +129,4 @@ private fun String?.toReportDateLabel(): String =
+         take(ISO_DATE_LENGTH).replace("-", ".")
+     }
+ 
+-private const val WEAK_WORD_CARD_ALPHA = 0.45f
+ private const val ISO_DATE_LENGTH = 10
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsRoute.kt
+@@ -14,7 +14,6 @@ import androidx.compose.foundation.lazy.items
+ import androidx.compose.material3.ExperimentalMaterial3Api
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Scaffold
+-import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.material3.TextButton
+ import androidx.compose.material3.TopAppBar
+@@ -32,6 +31,9 @@ import androidx.lifecycle.Lifecycle
+ import androidx.lifecycle.LifecycleEventObserver
+ import androidx.lifecycle.compose.LocalLifecycleOwner
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppBadge
++import com.ssafy.mobile.core.ui.components.AppBadgeTone
++import com.ssafy.mobile.core.ui.components.AppCard
+ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
+@@ -265,16 +267,18 @@ private fun ReportWeakWordsIntro(activeChildState: ActiveChildProfileState) {
+ 
+ @Composable
+ private fun ReportWeakWordsSummary(page: ReportWeakWordPage) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = WEAK_WORD_SUMMARY_ALPHA),
+     ) {
++        AppBadge(
++            text = "취약 단어",
++            tone = AppBadgeTone.Error,
++        )
++        Spacer(modifier = Modifier.height(8.dp))
+         Text(
+             text = "총 ${page.totalElements}개의 취약 단어가 있어요.",
+-            modifier = Modifier.padding(18.dp),
+             style = MaterialTheme.typography.bodyMedium,
+-            color = MaterialTheme.colorScheme.onSecondaryContainer,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
+         )
+     }
+ }
+@@ -313,14 +317,16 @@ private fun ReportWeakWordsMoreSection(
+ 
+ @Composable
+ private fun ReportWeakWordsStatusCard(message: String) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = WEAK_WORD_STATUS_ALPHA),
+     ) {
++        AppBadge(
++            text = "상태",
++            tone = AppBadgeTone.Neutral,
++        )
++        Spacer(modifier = Modifier.height(8.dp))
+         Text(
+             text = message,
+-            modifier = Modifier.padding(20.dp),
+             style = MaterialTheme.typography.bodyMedium,
+             color = MaterialTheme.colorScheme.onSurfaceVariant,
+             textAlign = TextAlign.Center,
+@@ -333,15 +339,17 @@ private fun ReportWeakWordsErrorCard(
+     message: String,
+     onRetryClick: () -> Unit,
+ ) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = WEAK_WORD_ERROR_ALPHA),
+     ) {
+         Column(
+-            modifier = Modifier.padding(20.dp),
+             horizontalAlignment = Alignment.CenterHorizontally,
+         ) {
++            AppBadge(
++                text = "불러오기 실패",
++                tone = AppBadgeTone.Error,
++            )
++            Spacer(modifier = Modifier.height(8.dp))
+             Text(
+                 text = message,
+                 style = MaterialTheme.typography.bodyMedium,
+@@ -364,19 +372,21 @@ private fun ReportWeakWordsActionCard(
+     buttonText: String,
+     onClick: () -> Unit,
+ ) {
+-    Surface(
++    AppCard(
+         modifier = Modifier.fillMaxWidth(),
+-        shape = MaterialTheme.shapes.medium,
+-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = WEAK_WORD_ACTION_ALPHA),
+     ) {
+         Column(
+-            modifier = Modifier.padding(20.dp),
+             horizontalAlignment = Alignment.CenterHorizontally,
+         ) {
++            AppBadge(
++                text = "아이 선택",
++                tone = AppBadgeTone.Warning,
++            )
++            Spacer(modifier = Modifier.height(8.dp))
+             Text(
+                 text = message,
+                 style = MaterialTheme.typography.bodyMedium,
+-                color = MaterialTheme.colorScheme.onPrimaryContainer,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                 textAlign = TextAlign.Center,
+             )
+             Spacer(modifier = Modifier.height(12.dp))
+@@ -388,8 +398,3 @@ private fun ReportWeakWordsActionCard(
+         }
+     }
+ }
+-
+-private const val WEAK_WORD_SUMMARY_ALPHA = 0.35f
+-private const val WEAK_WORD_STATUS_ALPHA = 0.5f
+-private const val WEAK_WORD_ERROR_ALPHA = 0.4f
+-private const val WEAK_WORD_ACTION_ALPHA = 0.35f
+
+

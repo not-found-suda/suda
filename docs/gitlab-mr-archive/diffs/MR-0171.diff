@@ -1,0 +1,1111 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/controller/CommunicationSessionController.java b/backend/src/main/java/com/ssafy/backend/domain/comms/controller/CommunicationSessionController.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/controller/CommunicationSessionController.java
+@@ -0,0 +1,51 @@
++package com.ssafy.backend.domain.comms.controller;
++
++import com.ssafy.backend.domain.comms.docs.CommunicationSessionApiDocs;
++import com.ssafy.backend.domain.comms.dto.CommunicationSessionCreateRequestDto;
++import com.ssafy.backend.domain.comms.dto.CommunicationSessionResponseDto;
++import com.ssafy.backend.domain.comms.service.CommunicationSessionService;
++import com.ssafy.backend.global.exception.BusinessException;
++import com.ssafy.backend.global.exception.CommonErrorCode;
++import jakarta.validation.Valid;
++import java.net.URI;
++import org.springframework.http.ResponseEntity;
++import org.springframework.security.core.Authentication;
++import org.springframework.web.bind.annotation.*;
++
++@RestController
++@RequestMapping("/api/v1/comms/sessions")
++public class CommunicationSessionController implements CommunicationSessionApiDocs {
++
++  private final CommunicationSessionService communicationSessionService;
++
++  public CommunicationSessionController(CommunicationSessionService communicationSessionService) {
++    this.communicationSessionService = communicationSessionService;
++  }
++
++  @PostMapping
++  public ResponseEntity<CommunicationSessionResponseDto> createSession(
++      Authentication authentication,
++      @Valid @RequestBody CommunicationSessionCreateRequestDto requestDto) {
++    CommunicationSessionResponseDto responseDto =
++        communicationSessionService.createSession(resolveUserId(authentication), requestDto);
++
++    return ResponseEntity.created(URI.create("/api/v1/comms/sessions/" + responseDto.sessionId()))
++        .body(responseDto);
++  }
++
++  @PatchMapping("/{sessionId}/end")
++  public ResponseEntity<CommunicationSessionResponseDto> endSession(
++      Authentication authentication, @PathVariable Long sessionId) {
++    CommunicationSessionResponseDto responseDto =
++        communicationSessionService.endSession(resolveUserId(authentication), sessionId);
++
++    return ResponseEntity.ok(responseDto);
++  }
++
++  private Long resolveUserId(Authentication authentication) {
++    if (authentication == null || !(authentication.getPrincipal() instanceof Long userId)) {
++      throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
++    }
++    return userId;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/docs/CommunicationSessionApiDocs.java b/backend/src/main/java/com/ssafy/backend/domain/comms/docs/CommunicationSessionApiDocs.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/docs/CommunicationSessionApiDocs.java
+@@ -0,0 +1,36 @@
++package com.ssafy.backend.domain.comms.docs;
++
++import com.ssafy.backend.domain.comms.dto.CommunicationSessionCreateRequestDto;
++import com.ssafy.backend.domain.comms.dto.CommunicationSessionResponseDto;
++import com.ssafy.backend.global.docs.ApiErrorCodes;
++import io.swagger.v3.oas.annotations.Operation;
++import io.swagger.v3.oas.annotations.security.SecurityRequirement;
++import jakarta.validation.Valid;
++import org.springframework.http.ResponseEntity;
++import org.springframework.security.core.Authentication;
++import org.springframework.web.bind.annotation.PathVariable;
++import org.springframework.web.bind.annotation.RequestBody;
++
++public interface CommunicationSessionApiDocs {
++
++  @Operation(
++      summary = "대화 세션 시작",
++      description = "comms 화면 진입 시 부모-아이 대화 세션을 시작합니다.",
++      security = {@SecurityRequirement(name = "bearerAuth")})
++  @ApiErrorCodes({"COMMON_UNAUTHORIZED", "CHILD_PROFILE_NOT_FOUND"})
++  ResponseEntity<CommunicationSessionResponseDto> createSession(
++      Authentication authentication,
++      @Valid @RequestBody CommunicationSessionCreateRequestDto requestDto);
++
++  @Operation(
++      summary = "대화 세션 종료",
++      description = "comms 화면 종료 시 대화 세션을 종료합니다.",
++      security = {@SecurityRequirement(name = "bearerAuth")})
++  @ApiErrorCodes({
++    "COMMON_UNAUTHORIZED",
++    "COMMUNICATION_SESSION_NOT_FOUND",
++    "COMMUNICATION_SESSION_ALREADY_ENDED"
++  })
++  ResponseEntity<CommunicationSessionResponseDto> endSession(
++      Authentication authentication, @PathVariable Long sessionId);
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/dto/CommunicationSessionCreateRequestDto.java b/backend/src/main/java/com/ssafy/backend/domain/comms/dto/CommunicationSessionCreateRequestDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/dto/CommunicationSessionCreateRequestDto.java
+@@ -0,0 +1,9 @@
++package com.ssafy.backend.domain.comms.dto;
++
++import io.swagger.v3.oas.annotations.media.Schema;
++import jakarta.validation.constraints.NotNull;
++
++public record CommunicationSessionCreateRequestDto(
++    @Schema(description = "대화 대상 아이 프로필 ID", example = "1")
++        @NotNull(message = "childProfileId는 필수입니다.")
++        Long childProfileId) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/dto/CommunicationSessionResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/comms/dto/CommunicationSessionResponseDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/dto/CommunicationSessionResponseDto.java
+@@ -0,0 +1,15 @@
++package com.ssafy.backend.domain.comms.dto;
++
++import com.ssafy.backend.domain.comms.entity.CommunicationSessionStatus;
++import io.swagger.v3.oas.annotations.media.Schema;
++import java.time.LocalDateTime;
++
++public record CommunicationSessionResponseDto(
++    @Schema(description = "대화 세션 ID", example = "1") Long sessionId,
++    @Schema(description = "사용자 ID", example = "1") Long userId,
++    @Schema(description = "아이 프로필 ID", example = "1") Long childProfileId,
++    @Schema(description = "세션 상태", example = "ACTIVE") CommunicationSessionStatus status,
++    @Schema(description = "대화 시작 시각") LocalDateTime startedAt,
++    @Schema(description = "대화 종료 시각") LocalDateTime endedAt,
++    @Schema(description = "저장된 메시지 개수", example = "0") int messageCount,
++    @Schema(description = "원본 로그 보관 만료 시각") LocalDateTime expiresAt) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationDirection.java b/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationDirection.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationDirection.java
+@@ -0,0 +1,6 @@
++package com.ssafy.backend.domain.comms.entity;
++
++public enum CommunicationDirection {
++  PARENT_SIGN_TO_CHILD_SPEECH,
++  CHILD_SPEECH_TO_PARENT_TEXT
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationMessage.java b/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationMessage.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationMessage.java
+@@ -0,0 +1,178 @@
++package com.ssafy.backend.domain.comms.entity;
++
++import com.ssafy.backend.global.entity.BaseEntity;
++import jakarta.persistence.Column;
++import jakarta.persistence.Entity;
++import jakarta.persistence.EnumType;
++import jakarta.persistence.Enumerated;
++import jakarta.persistence.FetchType;
++import jakarta.persistence.GeneratedValue;
++import jakarta.persistence.GenerationType;
++import jakarta.persistence.Id;
++import jakarta.persistence.JoinColumn;
++import jakarta.persistence.ManyToOne;
++import jakarta.persistence.Table;
++
++@Entity
++@Table(name = "communication_messages")
++public class CommunicationMessage extends BaseEntity {
++
++  @Id
++  @GeneratedValue(strategy = GenerationType.IDENTITY)
++  private Long id;
++
++  @ManyToOne(fetch = FetchType.LAZY, optional = false)
++  @JoinColumn(name = "session_id", nullable = false)
++  private CommunicationSession session;
++
++  @Enumerated(EnumType.STRING)
++  @Column(name = "speaker_role", nullable = false, length = 20)
++  private SpeakerRole speakerRole;
++
++  @Enumerated(EnumType.STRING)
++  @Column(nullable = false, length = 50)
++  private CommunicationDirection direction;
++
++  @Enumerated(EnumType.STRING)
++  @Column(name = "source_type", nullable = false, length = 30)
++  private CommunicationSourceType sourceType;
++
++  @Column(name = "original_words", columnDefinition = "TEXT")
++  private String originalWords;
++
++  @Column(name = "recognized_text", columnDefinition = "TEXT")
++  private String recognizedText;
++
++  @Column(name = "final_text", nullable = false, columnDefinition = "TEXT")
++  private String finalText;
++
++  @Column(name = "audio_mime_type", length = 100)
++  private String audioMimeType;
++
++  @Column(name = "tts_speaker", length = 50)
++  private String ttsSpeaker;
++
++  @Column(nullable = false, length = 20)
++  private String locale;
++
++  @Column(name = "message_order", nullable = false)
++  private int messageOrder;
++
++  protected CommunicationMessage() {}
++
++  private CommunicationMessage(
++      CommunicationSession session,
++      SpeakerRole speakerRole,
++      CommunicationDirection direction,
++      CommunicationSourceType sourceType,
++      String originalWords,
++      String recognizedText,
++      String finalText,
++      String audioMimeType,
++      String ttsSpeaker,
++      String locale,
++      int messageOrder) {
++    this.session = session;
++    this.speakerRole = speakerRole;
++    this.direction = direction;
++    this.sourceType = sourceType;
++    this.originalWords = originalWords;
++    this.recognizedText = recognizedText;
++    this.finalText = finalText;
++    this.audioMimeType = audioMimeType;
++    this.ttsSpeaker = ttsSpeaker;
++    this.locale = locale;
++    this.messageOrder = messageOrder;
++  }
++
++  public static CommunicationMessage parentSignToChildSpeech(
++      CommunicationSession session,
++      String originalWords,
++      String finalText,
++      String audioMimeType,
++      String ttsSpeaker,
++      String locale,
++      int messageOrder) {
++    return new CommunicationMessage(
++        session,
++        SpeakerRole.PARENT,
++        CommunicationDirection.PARENT_SIGN_TO_CHILD_SPEECH,
++        CommunicationSourceType.SIGN_WORDS,
++        originalWords,
++        null,
++        finalText,
++        audioMimeType,
++        ttsSpeaker,
++        locale,
++        messageOrder);
++  }
++
++  public static CommunicationMessage childSpeechToParentText(
++      CommunicationSession session,
++      String recognizedText,
++      String finalText,
++      String audioMimeType,
++      String locale,
++      int messageOrder) {
++    return new CommunicationMessage(
++        session,
++        SpeakerRole.CHILD,
++        CommunicationDirection.CHILD_SPEECH_TO_PARENT_TEXT,
++        CommunicationSourceType.AUDIO,
++        null,
++        recognizedText,
++        finalText,
++        audioMimeType,
++        null,
++        locale,
++        messageOrder);
++  }
++
++  public Long getId() {
++    return id;
++  }
++
++  public CommunicationSession getSession() {
++    return session;
++  }
++
++  public SpeakerRole getSpeakerRole() {
++    return speakerRole;
++  }
++
++  public CommunicationDirection getDirection() {
++    return direction;
++  }
++
++  public CommunicationSourceType getSourceType() {
++    return sourceType;
++  }
++
++  public String getOriginalWords() {
++    return originalWords;
++  }
++
++  public String getRecognizedText() {
++    return recognizedText;
++  }
++
++  public String getFinalText() {
++    return finalText;
++  }
++
++  public String getAudioMimeType() {
++    return audioMimeType;
++  }
++
++  public String getTtsSpeaker() {
++    return ttsSpeaker;
++  }
++
++  public String getLocale() {
++    return locale;
++  }
++
++  public int getMessageOrder() {
++    return messageOrder;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationSession.java b/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationSession.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationSession.java
+@@ -0,0 +1,122 @@
++package com.ssafy.backend.domain.comms.entity;
++
++import com.ssafy.backend.domain.child.entity.ChildProfile;
++import com.ssafy.backend.domain.user.entity.User;
++import com.ssafy.backend.global.entity.BaseEntity;
++import jakarta.persistence.Column;
++import jakarta.persistence.Entity;
++import jakarta.persistence.EnumType;
++import jakarta.persistence.Enumerated;
++import jakarta.persistence.FetchType;
++import jakarta.persistence.GeneratedValue;
++import jakarta.persistence.GenerationType;
++import jakarta.persistence.Id;
++import jakarta.persistence.JoinColumn;
++import jakarta.persistence.ManyToOne;
++import jakarta.persistence.Table;
++import java.time.LocalDateTime;
++
++@Entity
++@Table(name = "communication_sessions")
++public class CommunicationSession extends BaseEntity {
++
++  @Id
++  @GeneratedValue(strategy = GenerationType.IDENTITY)
++  private Long id;
++
++  @ManyToOne(fetch = FetchType.LAZY)
++  @JoinColumn(name = "user_id")
++  private User user;
++
++  @ManyToOne(fetch = FetchType.LAZY)
++  @JoinColumn(name = "child_profile_id")
++  private ChildProfile childProfile;
++
++  @Enumerated(EnumType.STRING)
++  @Column(nullable = false, length = 20)
++  private CommunicationSessionStatus status;
++
++  @Column(name = "started_at", nullable = false)
++  private LocalDateTime startedAt;
++
++  @Column(name = "ended_at")
++  private LocalDateTime endedAt;
++
++  @Column(name = "message_count", nullable = false)
++  private int messageCount;
++
++  @Column(name = "summary_text", columnDefinition = "TEXT")
++  private String summaryText;
++
++  @Column(name = "expires_at")
++  private LocalDateTime expiresAt;
++
++  protected CommunicationSession() {}
++
++  private CommunicationSession(User user, ChildProfile childProfile, LocalDateTime expiresAt) {
++    this.user = user;
++    this.childProfile = childProfile;
++    this.status = CommunicationSessionStatus.ACTIVE;
++    this.startedAt = LocalDateTime.now();
++    this.messageCount = 0;
++    this.expiresAt = expiresAt;
++  }
++
++  public static CommunicationSession start(User user, ChildProfile childProfile) {
++    return new CommunicationSession(user, childProfile, LocalDateTime.now().plusMonths(6));
++  }
++
++  public Long getId() {
++    return id;
++  }
++
++  public User getUser() {
++    return user;
++  }
++
++  public ChildProfile getChildProfile() {
++    return childProfile;
++  }
++
++  public CommunicationSessionStatus getStatus() {
++    return status;
++  }
++
++  public LocalDateTime getStartedAt() {
++    return startedAt;
++  }
++
++  public LocalDateTime getEndedAt() {
++    return endedAt;
++  }
++
++  public int getMessageCount() {
++    return messageCount;
++  }
++
++  public String getSummaryText() {
++    return summaryText;
++  }
++
++  public LocalDateTime getExpiresAt() {
++    return expiresAt;
++  }
++
++  public boolean isActive() {
++    return this.status == CommunicationSessionStatus.ACTIVE;
++  }
++
++  public int allocateNextMessageOrder() {
++    this.messageCount++;
++    return this.messageCount;
++  }
++
++  public void end() {
++    this.status = CommunicationSessionStatus.ENDED;
++    this.endedAt = LocalDateTime.now();
++  }
++
++  public void updateSummaryText(String summaryText) {
++    this.summaryText = summaryText;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationSessionStatus.java b/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationSessionStatus.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationSessionStatus.java
+@@ -0,0 +1,6 @@
++package com.ssafy.backend.domain.comms.entity;
++
++public enum CommunicationSessionStatus {
++  ACTIVE,
++  ENDED
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationSourceType.java b/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationSourceType.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/entity/CommunicationSourceType.java
+@@ -0,0 +1,6 @@
++package com.ssafy.backend.domain.comms.entity;
++
++public enum CommunicationSourceType {
++  SIGN_WORDS,
++  AUDIO
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/entity/SpeakerRole.java b/backend/src/main/java/com/ssafy/backend/domain/comms/entity/SpeakerRole.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/entity/SpeakerRole.java
+@@ -0,0 +1,6 @@
++package com.ssafy.backend.domain.comms.entity;
++
++public enum SpeakerRole {
++  PARENT,
++  CHILD
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/exception/CommunicationSessionErrorCode.java b/backend/src/main/java/com/ssafy/backend/domain/comms/exception/CommunicationSessionErrorCode.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/exception/CommunicationSessionErrorCode.java
+@@ -0,0 +1,41 @@
++package com.ssafy.backend.domain.comms.exception;
++
++import com.ssafy.backend.global.exception.ErrorCode;
++import org.springframework.http.HttpStatus;
++
++public enum CommunicationSessionErrorCode implements ErrorCode {
++  SESSION_NOT_FOUND("COMMUNICATION_SESSION_NOT_FOUND", HttpStatus.NOT_FOUND, "대화 세션을 찾을 수 없습니다."),
++
++  SESSION_ALREADY_ENDED(
++      "COMMUNICATION_SESSION_ALREADY_ENDED", HttpStatus.CONFLICT, "이미 종료된 대화 세션입니다.");
++
++  private final String code;
++  private final HttpStatus httpStatus;
++  private final String message;
++
++  CommunicationSessionErrorCode(String code, HttpStatus httpStatus, String message) {
++    this.code = code;
++    this.httpStatus = httpStatus;
++    this.message = message;
++  }
++
++  @Override
++  public String getCode() {
++    return code;
++  }
++
++  @Override
++  public HttpStatus getHttpStatus() {
++    return httpStatus;
++  }
++
++  @Override
++  public String getDomainTitle() {
++    return "대화 세션 오류";
++  }
++
++  @Override
++  public String getMessage() {
++    return message;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationMessageRepository.java b/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationMessageRepository.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationMessageRepository.java
+@@ -0,0 +1,16 @@
++package com.ssafy.backend.domain.comms.repository;
++
++import com.ssafy.backend.domain.comms.entity.CommunicationMessage;
++import com.ssafy.backend.domain.comms.entity.SpeakerRole;
++import java.util.List;
++import org.springframework.data.jpa.repository.JpaRepository;
++
++public interface CommunicationMessageRepository extends JpaRepository<CommunicationMessage, Long> {
++
++  List<CommunicationMessage> findBySessionIdOrderByMessageOrderAsc(Long sessionId);
++
++  List<CommunicationMessage> findBySessionIdAndSpeakerRoleOrderByMessageOrderAsc(
++      Long sessionId, SpeakerRole speakerRole);
++
++  int countBySessionId(Long sessionId);
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationSessionRepository.java b/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationSessionRepository.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationSessionRepository.java
+@@ -0,0 +1,39 @@
++package com.ssafy.backend.domain.comms.repository;
++
++import com.ssafy.backend.domain.comms.entity.CommunicationSession;
++import com.ssafy.backend.domain.comms.entity.CommunicationSessionStatus;
++import jakarta.persistence.LockModeType;
++import java.util.List;
++import java.util.Optional;
++import org.springframework.data.jpa.repository.JpaRepository;
++import org.springframework.data.jpa.repository.Lock;
++import org.springframework.data.jpa.repository.Query;
++import org.springframework.data.repository.query.Param;
++
++public interface CommunicationSessionRepository extends JpaRepository<CommunicationSession, Long> {
++
++  Optional<CommunicationSession> findByIdAndUserId(Long id, Long userId);
++
++  Optional<CommunicationSession> findByIdAndUserIdAndStatus(
++      Long id, Long userId, CommunicationSessionStatus status);
++
++  @Lock(LockModeType.PESSIMISTIC_WRITE)
++  @Query(
++      """
++      select s
++      from CommunicationSession s
++      where s.id = :id
++        and s.user.id = :userId
++        and s.status = :status
++      """)
++  Optional<CommunicationSession> findByIdAndUserIdAndStatusForUpdate(
++      @Param("id") Long id,
++      @Param("userId") Long userId,
++      @Param("status") CommunicationSessionStatus status);
++
++  List<CommunicationSession> findByUserIdAndChildProfileIdOrderByStartedAtDesc(
++      Long userId, Long childProfileId);
++
++  List<CommunicationSession> findByUserIdAndChildProfileIdAndStatusOrderByStartedAtDesc(
++      Long userId, Long childProfileId, CommunicationSessionStatus status);
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/service/CommunicationSessionService.java b/backend/src/main/java/com/ssafy/backend/domain/comms/service/CommunicationSessionService.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/service/CommunicationSessionService.java
+@@ -0,0 +1,86 @@
++package com.ssafy.backend.domain.comms.service;
++
++import com.ssafy.backend.domain.child.entity.ChildProfile;
++import com.ssafy.backend.domain.child.exception.ChildProfileErrorCode;
++import com.ssafy.backend.domain.child.repository.ChildProfileRepository;
++import com.ssafy.backend.domain.comms.dto.CommunicationSessionCreateRequestDto;
++import com.ssafy.backend.domain.comms.dto.CommunicationSessionResponseDto;
++import com.ssafy.backend.domain.comms.entity.CommunicationSession;
++import com.ssafy.backend.domain.comms.entity.CommunicationSessionStatus;
++import com.ssafy.backend.domain.comms.exception.CommunicationSessionErrorCode;
++import com.ssafy.backend.domain.comms.repository.CommunicationSessionRepository;
++import com.ssafy.backend.domain.user.entity.User;
++import com.ssafy.backend.domain.user.exception.UserErrorCode;
++import com.ssafy.backend.domain.user.repository.UserRepository;
++import com.ssafy.backend.global.exception.BusinessException;
++import com.ssafy.backend.global.exception.ValidationErrorCode;
++import org.springframework.stereotype.Service;
++import org.springframework.transaction.annotation.Transactional;
++
++@Service
++@Transactional
++public class CommunicationSessionService {
++
++  private final CommunicationSessionRepository communicationSessionRepository;
++  private final ChildProfileRepository childProfileRepository;
++  private final UserRepository userRepository;
++
++  public CommunicationSessionService(
++      CommunicationSessionRepository communicationSessionRepository,
++      ChildProfileRepository childProfileRepository,
++      UserRepository userRepository) {
++    this.communicationSessionRepository = communicationSessionRepository;
++    this.childProfileRepository = childProfileRepository;
++    this.userRepository = userRepository;
++  }
++
++  public CommunicationSessionResponseDto createSession(
++      Long userId, CommunicationSessionCreateRequestDto requestDto) {
++    if (requestDto == null || requestDto.childProfileId() == null) {
++      throw new BusinessException(ValidationErrorCode.INVALID_INPUT, "childProfileId는 필수입니다.");
++    }
++
++    User user =
++        userRepository
++            .findById(userId)
++            .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
++
++    ChildProfile childProfile =
++        childProfileRepository
++            .findByIdAndUserIdAndActiveTrue(requestDto.childProfileId(), userId)
++            .orElseThrow(() -> new BusinessException(ChildProfileErrorCode.NOT_FOUND));
++
++    CommunicationSession session =
++        communicationSessionRepository.save(CommunicationSession.start(user, childProfile));
++
++    return toResponse(session);
++  }
++
++  public CommunicationSessionResponseDto endSession(Long userId, Long sessionId) {
++    CommunicationSession session =
++        communicationSessionRepository
++            .findByIdAndUserId(sessionId, userId)
++            .orElseThrow(
++                () -> new BusinessException(CommunicationSessionErrorCode.SESSION_NOT_FOUND));
++
++    if (session.getStatus() == CommunicationSessionStatus.ENDED) {
++      throw new BusinessException(CommunicationSessionErrorCode.SESSION_ALREADY_ENDED);
++    }
++
++    session.end();
++
++    return toResponse(session);
++  }
++
++  private CommunicationSessionResponseDto toResponse(CommunicationSession session) {
++    return new CommunicationSessionResponseDto(
++        session.getId(),
++        session.getUser().getId(),
++        session.getChildProfile().getId(),
++        session.getStatus(),
++        session.getStartedAt(),
++        session.getEndedAt(),
++        session.getMessageCount(),
++        session.getExpiresAt());
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/controller/TranslationController.java b/backend/src/main/java/com/ssafy/backend/domain/translation/controller/TranslationController.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/translation/controller/TranslationController.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/controller/TranslationController.java
+@@ -12,6 +12,7 @@ import org.springframework.security.core.Authentication;
+ import org.springframework.web.bind.annotation.PostMapping;
+ import org.springframework.web.bind.annotation.RequestBody;
+ import org.springframework.web.bind.annotation.RequestMapping;
++import org.springframework.web.bind.annotation.RequestParam;
+ import org.springframework.web.bind.annotation.RequestPart;
+ import org.springframework.web.bind.annotation.RestController;
+ import org.springframework.web.multipart.MultipartFile;
+@@ -39,12 +40,17 @@ public class TranslationController implements TranslationApiDocs {
+   @PostMapping(value = "/speech-to-text", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+   @Override
+   public ResponseEntity<SpeechToTextResponseDto> translateSpeechToText(
++      Authentication authentication,
++      @RequestParam(value = "sessionId", required = false) Long sessionId,
+       @RequestPart("audioFile") MultipartFile audioFile,
+-      @RequestPart(value = "locale", required = false) String locale,
+-      @RequestPart(value = "audioMimeType", required = false) String audioMimeType) {
++      @RequestParam(value = "locale", required = false) String locale,
++      @RequestParam(value = "audioMimeType", required = false) String audioMimeType) {
++
++    Long userId = extractNullableUserId(authentication);
+ 
+     return ResponseEntity.ok(
+-        translationService.translateSpeechToText(audioFile, locale, audioMimeType));
++        translationService.translateSpeechToText(
++            userId, sessionId, audioFile, locale, audioMimeType));
+   }
+ 
+   private Long extractNullableUserId(Authentication authentication) {
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/docs/TranslationApiDocs.java b/backend/src/main/java/com/ssafy/backend/domain/translation/docs/TranslationApiDocs.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/translation/docs/TranslationApiDocs.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/docs/TranslationApiDocs.java
+@@ -15,6 +15,7 @@ import jakarta.validation.Valid;
+ import org.springframework.http.ResponseEntity;
+ import org.springframework.security.core.Authentication;
+ import org.springframework.web.bind.annotation.RequestBody;
++import org.springframework.web.bind.annotation.RequestParam;
+ import org.springframework.web.bind.annotation.RequestPart;
+ import org.springframework.web.multipart.MultipartFile;
+ 
+@@ -23,12 +24,12 @@ public interface TranslationApiDocs {
+ 
+   @Operation(
+       summary = "수어 텍스트 및 음성 변환",
+-      description =
+-          "수어 단어 배열을 받아 문맥 보정 후 TTS 음성을 생성하여 반환합니다. 비로그인 사용자는 기본 목소리(vara)를 사용하고, 로그인 사용자는 저장된 TTS 목소리를 사용합니다.",
++      description = "수어 단어 배열을 받아 문맥 보정 후 TTS 음성을 생성하여 반환합니다. sessionId가 전달되면 대화 메시지로 저장합니다.",
+       security = {@SecurityRequirement(name = "bearerAuth")})
+   @ApiErrorCodes({
+     "VALIDATION_INVALID_INPUT",
+     "USER_NOT_FOUND",
++    "COMMUNICATION_SESSION_NOT_FOUND",
+     "TRANSLATION_SIGN_CORRECTION_FAILED",
+     "TRANSLATION_TEXT_TO_SPEECH_FAILED"
+   })
+@@ -40,8 +41,12 @@ public interface TranslationApiDocs {
+       @Parameter(hidden = true) Authentication authentication,
+       @Valid @RequestBody SignToSpeechRequestDto requestDto);
+ 
+-  @Operation(summary = "음성 텍스트 변환", description = "자녀 음성 파일을 받아 Clova STT로 인식한 텍스트를 그대로 반환합니다.")
++  @Operation(
++      summary = "음성 텍스트 변환",
++      description = "자녀 음성 파일을 받아 Clova STT로 인식한 텍스트를 그대로 반환합니다. sessionId가 전달되면 대화 메시지로 저장합니다.",
++      security = {@SecurityRequirement(name = "bearerAuth")})
+   @ApiErrorCodes({
++    "COMMUNICATION_SESSION_NOT_FOUND",
+     "TRANSLATION_INVALID_AUDIO",
+     "TRANSLATION_INVALID_LOCALE",
+     "TRANSLATION_UNRECOGNIZABLE_AUDIO",
+@@ -52,7 +57,9 @@ public interface TranslationApiDocs {
+       description = "성공",
+       content = @Content(schema = @Schema(implementation = SpeechToTextResponseDto.class)))
+   ResponseEntity<SpeechToTextResponseDto> translateSpeechToText(
++      @Parameter(hidden = true) Authentication authentication,
++      @RequestParam(value = "sessionId", required = false) Long sessionId,
+       @RequestPart("audioFile") MultipartFile audioFile,
+-      @RequestPart(value = "locale", required = false) String locale,
+-      @RequestPart(value = "audioMimeType", required = false) String audioMimeType);
++      @RequestParam(value = "locale", required = false) String locale,
++      @RequestParam(value = "audioMimeType", required = false) String audioMimeType);
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/dto/SignToSpeechRequestDto.java b/backend/src/main/java/com/ssafy/backend/domain/translation/dto/SignToSpeechRequestDto.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/translation/dto/SignToSpeechRequestDto.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/dto/SignToSpeechRequestDto.java
+@@ -7,6 +7,7 @@ import jakarta.validation.constraints.Pattern;
+ import java.util.List;
+ 
+ public record SignToSpeechRequestDto(
++    @Schema(description = "대화 세션 ID", example = "1") Long sessionId,
+     @Schema(description = "온디바이스 수어 인식 결과 단어 배열", example = "[\"엄마\", \"해보다\"]")
+         @NotEmpty(message = "단어 배열은 최소 1개 이상이어야 합니다.")
+         List<@NotBlank(message = "단어는 비어 있을 수 없습니다.") String> words,
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationService.java b/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationService.java
+@@ -6,8 +6,9 @@ import com.ssafy.backend.domain.translation.dto.SpeechToTextResponseDto;
+ import org.springframework.web.multipart.MultipartFile;
+ 
+ public interface TranslationService {
++
+   SignToSpeechResponseDto translateSignToSpeech(Long userId, SignToSpeechRequestDto requestDto);
+ 
+   SpeechToTextResponseDto translateSpeechToText(
+-      MultipartFile audioFile, String locale, String audioMimeType);
++      Long userId, Long sessionId, MultipartFile audioFile, String locale, String audioMimeType);
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java b/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java
+@@ -1,5 +1,11 @@
+ package com.ssafy.backend.domain.translation.service;
+ 
++import com.ssafy.backend.domain.comms.entity.CommunicationMessage;
++import com.ssafy.backend.domain.comms.entity.CommunicationSession;
++import com.ssafy.backend.domain.comms.entity.CommunicationSessionStatus;
++import com.ssafy.backend.domain.comms.exception.CommunicationSessionErrorCode;
++import com.ssafy.backend.domain.comms.repository.CommunicationMessageRepository;
++import com.ssafy.backend.domain.comms.repository.CommunicationSessionRepository;
+ import com.ssafy.backend.domain.comms.service.ClovaSttClient;
+ import com.ssafy.backend.domain.comms.service.ClovaTtsClient;
+ import com.ssafy.backend.domain.comms.service.SignLanguageCorrectionClient;
+@@ -21,9 +27,11 @@ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ import org.slf4j.MDC;
+ import org.springframework.stereotype.Service;
++import org.springframework.transaction.annotation.Transactional;
+ import org.springframework.web.multipart.MultipartFile;
+ 
+ @Service
++@Transactional
+ public class TranslationServiceImpl implements TranslationService {
+ 
+   private static final Logger log = LoggerFactory.getLogger(TranslationServiceImpl.class);
+@@ -37,16 +45,22 @@ public class TranslationServiceImpl implements TranslationService {
+   private final ClovaTtsClient clovaTtsClient;
+   private final ClovaSttClient clovaSttClient;
+   private final UserRepository userRepository;
++  private final CommunicationSessionRepository communicationSessionRepository;
++  private final CommunicationMessageRepository communicationMessageRepository;
+ 
+   public TranslationServiceImpl(
+       SignLanguageCorrectionClient signLanguageCorrectionClient,
+       ClovaTtsClient clovaTtsClient,
+       ClovaSttClient clovaSttClient,
+-      UserRepository userRepository) {
++      UserRepository userRepository,
++      CommunicationSessionRepository communicationSessionRepository,
++      CommunicationMessageRepository communicationMessageRepository) {
+     this.signLanguageCorrectionClient = signLanguageCorrectionClient;
+     this.clovaTtsClient = clovaTtsClient;
+     this.clovaSttClient = clovaSttClient;
+     this.userRepository = userRepository;
++    this.communicationSessionRepository = communicationSessionRepository;
++    this.communicationMessageRepository = communicationMessageRepository;
+   }
+ 
+   @Override
+@@ -75,9 +89,10 @@ public class TranslationServiceImpl implements TranslationService {
+ 
+     String audioBase64 = null;
+     String audioMimeType = null;
++    String speaker = null;
+ 
+     if (requestTts) {
+-      String speaker = resolveTtsSpeaker(userId);
++      speaker = resolveTtsSpeaker(userId);
+ 
+       try {
+         log.info(
+@@ -113,27 +128,23 @@ public class TranslationServiceImpl implements TranslationService {
+       }
+     }
+ 
++    saveParentMessageIfSessionExists(
++        userId,
++        requestDto.sessionId(),
++        words,
++        correctedText,
++        audioMimeType,
++        speaker,
++        requestDto.locale());
++
+     boolean corrected = !String.join(" ", words).equals(correctedText);
+ 
+     return new SignToSpeechResponseDto(words, correctedText, audioBase64, audioMimeType, corrected);
+   }
+ 
+-  private String resolveTtsSpeaker(Long userId) {
+-    if (userId == null) {
+-      return TtsSpeaker.MOM_WARM.getCode();
+-    }
+-
+-    User user =
+-        userRepository
+-            .findById(userId)
+-            .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+-
+-    return user.getTtsSpeaker();
+-  }
+-
+   @Override
+   public SpeechToTextResponseDto translateSpeechToText(
+-      MultipartFile audioFile, String locale, String audioMimeType) {
++      Long userId, Long sessionId, MultipartFile audioFile, String locale, String audioMimeType) {
+ 
+     logSpeechToTextRequest(audioFile, locale, audioMimeType);
+ 
+@@ -162,9 +173,79 @@ public class TranslationServiceImpl implements TranslationService {
+       throw new BusinessException(TranslationErrorCode.UNRECOGNIZABLE_AUDIO);
+     }
+ 
++    saveChildMessageIfSessionExists(
++        userId, sessionId, recognizedText, resolvedAudioMimeType, resolvedLocale);
++
+     return new SpeechToTextResponseDto(recognizedText, recognizedText, false, null, resolvedLocale);
+   }
+ 
++  private void saveParentMessageIfSessionExists(
++      Long userId,
++      Long sessionId,
++      List<String> words,
++      String finalText,
++      String audioMimeType,
++      String speaker,
++      String locale) {
++    if (sessionId == null) {
++      return;
++    }
++
++    CommunicationSession session = getActiveSessionForUpdate(userId, sessionId);
++    int messageOrder = session.allocateNextMessageOrder();
++
++    CommunicationMessage message =
++        CommunicationMessage.parentSignToChildSpeech(
++            session,
++            String.join(" ", words),
++            finalText,
++            audioMimeType,
++            speaker,
++            resolveLocale(locale),
++            messageOrder);
++
++    communicationMessageRepository.save(message);
++  }
++
++  private void saveChildMessageIfSessionExists(
++      Long userId, Long sessionId, String recognizedText, String audioMimeType, String locale) {
++    if (sessionId == null) {
++      return;
++    }
++
++    CommunicationSession session = getActiveSessionForUpdate(userId, sessionId);
++    int messageOrder = session.allocateNextMessageOrder();
++
++    CommunicationMessage message =
++        CommunicationMessage.childSpeechToParentText(
++            session, recognizedText, recognizedText, audioMimeType, locale, messageOrder);
++
++    communicationMessageRepository.save(message);
++  }
++
++  private CommunicationSession getActiveSessionForUpdate(Long userId, Long sessionId) {
++    if (userId == null) {
++      throw new BusinessException(CommunicationSessionErrorCode.SESSION_NOT_FOUND);
++    }
++
++    return communicationSessionRepository
++        .findByIdAndUserIdAndStatusForUpdate(sessionId, userId, CommunicationSessionStatus.ACTIVE)
++        .orElseThrow(() -> new BusinessException(CommunicationSessionErrorCode.SESSION_NOT_FOUND));
++  }
++
++  private String resolveTtsSpeaker(Long userId) {
++    if (userId == null) {
++      return TtsSpeaker.MOM_WARM.getCode();
++    }
++
++    User user =
++        userRepository
++            .findById(userId)
++            .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
++
++    return user.getTtsSpeaker();
++  }
++
+   private void validateAudioFile(MultipartFile audioFile) {
+     if (audioFile == null || audioFile.isEmpty()) {
+       log.warn("[STT] Invalid empty audio file. traceId={}", getTraceId());
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260514133000__create_communication_sessions_and_messages.sql b/backend/src/main/resources/db/migration/V20260514133000__create_communication_sessions_and_messages.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260514133000__create_communication_sessions_and_messages.sql
+@@ -0,0 +1,93 @@
++CREATE TABLE IF NOT EXISTS communication_sessions (
++                                                    id BIGSERIAL PRIMARY KEY,
++
++                                                    user_id BIGINT,
++                                                    child_profile_id BIGINT,
++
++                                                    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
++
++  started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  ended_at TIMESTAMP,
++
++  message_count INT NOT NULL DEFAULT 0,
++  summary_text TEXT,
++
++  expires_at TIMESTAMP,
++
++  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
++
++  CONSTRAINT fk_communication_sessions_user
++  FOREIGN KEY (user_id)
++  REFERENCES users(id),
++
++  CONSTRAINT fk_communication_sessions_child_profile
++  FOREIGN KEY (child_profile_id)
++  REFERENCES child_profiles(id),
++
++  CONSTRAINT chk_communication_sessions_status
++  CHECK (status IN ('ACTIVE', 'ENDED'))
++  );
++
++CREATE TABLE IF NOT EXISTS communication_messages (
++                                                    id BIGSERIAL PRIMARY KEY,
++
++                                                    session_id BIGINT NOT NULL,
++
++                                                    speaker_role VARCHAR(20) NOT NULL,
++  direction VARCHAR(50) NOT NULL,
++  source_type VARCHAR(30) NOT NULL,
++
++  original_words TEXT,
++  recognized_text TEXT,
++  final_text TEXT NOT NULL,
++
++  audio_mime_type VARCHAR(100),
++  tts_speaker VARCHAR(50),
++  locale VARCHAR(20) NOT NULL DEFAULT 'ko-KR',
++
++  message_order INT NOT NULL,
++
++  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
++
++  CONSTRAINT fk_communication_messages_session
++  FOREIGN KEY (session_id)
++  REFERENCES communication_sessions(id)
++  ON DELETE CASCADE,
++
++  CONSTRAINT chk_communication_messages_speaker_role
++  CHECK (speaker_role IN ('PARENT', 'CHILD')),
++
++  CONSTRAINT chk_communication_messages_direction
++  CHECK (
++          direction IN (
++          'PARENT_SIGN_TO_CHILD_SPEECH',
++          'CHILD_SPEECH_TO_PARENT_TEXT'
++                       )
++  ),
++
++  CONSTRAINT chk_communication_messages_source_type
++  CHECK (source_type IN ('SIGN_WORDS', 'AUDIO')),
++
++  CONSTRAINT uk_communication_messages_session_order
++  UNIQUE (session_id, message_order)
++  );
++
++CREATE INDEX IF NOT EXISTS ix_communication_sessions_user_child_started
++  ON communication_sessions(user_id, child_profile_id, started_at DESC);
++
++CREATE INDEX IF NOT EXISTS ix_communication_sessions_status_started
++  ON communication_sessions(status, started_at DESC);
++
++CREATE INDEX IF NOT EXISTS ix_communication_sessions_expires_at
++  ON communication_sessions(expires_at);
++
++CREATE INDEX IF NOT EXISTS ix_communication_messages_session_order
++  ON communication_messages(session_id, message_order);
++
++CREATE INDEX IF NOT EXISTS ix_communication_messages_speaker_created
++  ON communication_messages(speaker_role, created_at DESC);
++
++CREATE INDEX IF NOT EXISTS ix_communication_messages_direction_created
++  ON communication_messages(direction, created_at DESC);
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260515101500__add_not_null_to_communication_session_owner.sql b/backend/src/main/resources/db/migration/V20260515101500__add_not_null_to_communication_session_owner.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260515101500__add_not_null_to_communication_session_owner.sql
+@@ -0,0 +1,5 @@
++ALTER TABLE communication_sessions
++  ALTER COLUMN user_id SET NOT NULL;
++
++ALTER TABLE communication_sessions
++  ALTER COLUMN child_profile_id SET NOT NULL;
+
+

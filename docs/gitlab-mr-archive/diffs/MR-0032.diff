@@ -1,0 +1,630 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -1,21 +1,19 @@
+ package com.ssafy.mobile.core.navigation
+ 
+-import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.fillMaxSize
+-import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+-import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.navigation.NavHostController
+ import androidx.navigation.compose.NavHost
+ import androidx.navigation.compose.composable
++import com.ssafy.mobile.feature.conversation.presentation.ConversationRoute
+ import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
+ 
+ @Composable
+ fun MobileNavHost(
+     navController: NavHostController,
+     modifier: Modifier = Modifier,
+-    startDestination: String = Screen.Sign.route,
++    startDestination: String = Screen.Conversation.route,
+ ) {
+     NavHost(
+         navController = navController,
+@@ -23,9 +21,7 @@ fun MobileNavHost(
+         modifier = modifier,
+     ) {
+         composable(Screen.Conversation.route) {
+-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+-                Text(text = "Conversation Screen")
+-            }
++            ConversationRoute(modifier = Modifier.fillMaxSize())
+         }
+ 
+         composable(Screen.Sign.route) {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/ConversationModule.kt
+@@ -0,0 +1,18 @@
++package com.ssafy.mobile.feature.conversation.di
++
++import com.ssafy.mobile.core.vision.SignRecognitionEngine
++import dagger.Binds
++import dagger.Module
++import dagger.hilt.InstallIn
++import dagger.hilt.android.components.ViewModelComponent
++import dagger.hilt.android.scopes.ViewModelScoped
++
++@Module
++@InstallIn(ViewModelComponent::class)
++abstract class ConversationModule {
++    @Binds
++    @ViewModelScoped
++    abstract fun bindSignRecognitionEngine(
++        fakeEngine: FakeSignRecognitionEngine,
++    ): SignRecognitionEngine
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/FakeSignRecognitionEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/FakeSignRecognitionEngine.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/di/FakeSignRecognitionEngine.kt
+@@ -0,0 +1,58 @@
++package com.ssafy.mobile.feature.conversation.di
++
++import com.ssafy.mobile.core.model.SignRecognitionEvent
++import com.ssafy.mobile.core.vision.SignRecognitionEngine
++import javax.inject.Inject
++import kotlinx.coroutines.delay
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.flow
++
++/**
++ * A파트의 실제 엔진이 준비되기 전까지 UI와 통신 로직을 테스트하기 위한 가짜 엔진입니다.
++ * 1~2초 간격으로 시나리오에 따른 수어 인식 이벤트를 방출합니다.
++ */
++private const val MODEL_LOADING_DELAY_MS = 1000L
++private const val PREDICTION_DELAY_INITIAL_MS = 2000L
++private const val PREDICTION_DELAY_NEXT_MS = 1500L
++private const val NO_HANDS_DELAY_MS = 3000L
++private const val CONFIDENCE_HIGH = 0.98f
++private const val CONFIDENCE_MEDIUM = 0.95f
++
++class FakeSignRecognitionEngine
++    @Inject
++    constructor() : SignRecognitionEngine {
++        override val events: Flow<SignRecognitionEvent> =
++            flow {
++                emit(SignRecognitionEvent.ModelLoading)
++                delay(MODEL_LOADING_DELAY_MS)
++
++                while (true) {
++                    delay(PREDICTION_DELAY_INITIAL_MS)
++                    emit(
++                        SignRecognitionEvent.Prediction(
++                            "안녕",
++                            CONFIDENCE_HIGH,
++                            System.currentTimeMillis(),
++                        ),
++                    )
++                    delay(PREDICTION_DELAY_NEXT_MS)
++                    emit(
++                        SignRecognitionEvent.Prediction(
++                            "하세요",
++                            CONFIDENCE_MEDIUM,
++                            System.currentTimeMillis(),
++                        ),
++                    )
++                    delay(NO_HANDS_DELAY_MS)
++                    emit(SignRecognitionEvent.NoHandsDetected)
++                }
++            }
++
++        override fun start() {
++            // Fake 엔진 시작 시뮬레이션
++        }
++
++        override fun stop() {
++            // Fake 엔진 중지 시뮬레이션
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationRoute.kt
+@@ -0,0 +1,221 @@
++package com.ssafy.mobile.feature.conversation.presentation
++
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.lazy.LazyRow
++import androidx.compose.foundation.lazy.items
++import androidx.compose.foundation.shape.CircleShape
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Scaffold
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.collectAsState
++import androidx.compose.runtime.getValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.unit.dp
++import androidx.hilt.navigation.compose.hiltViewModel
++import com.ssafy.mobile.core.ui.components.AppPrimaryButton
++import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.feature.sign.presentation.SignRecognitionScreen
++
++@Composable
++fun ConversationRoute(
++    modifier: Modifier = Modifier,
++    viewModel: ConversationViewModel = hiltViewModel(),
++) {
++    val sessionState by viewModel.sessionState.collectAsState()
++    val lastGlosses by viewModel.lastGlosses.collectAsState()
++
++    ConversationScreen(
++        sessionState = sessionState,
++        lastGlosses = lastGlosses,
++        onStartSession = viewModel::startSession,
++        onStopSession = viewModel::stopSession,
++        modifier = modifier,
++    )
++}
++
++@Composable
++private fun ConversationScreen(
++    sessionState: SessionState,
++    lastGlosses: List<String>,
++    onStartSession: () -> Unit,
++    onStopSession: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Scaffold(
++        modifier = modifier.fillMaxSize(),
++        topBar = {
++            SessionHeader(sessionState = sessionState)
++        },
++        bottomBar = {
++            SessionControls(
++                sessionState = sessionState,
++                onStartSession = onStartSession,
++                onStopSession = onStopSession,
++            )
++        },
++    ) { paddingValues ->
++        Column(
++            modifier =
++                Modifier
++                    .padding(paddingValues)
++                    .fillMaxSize(),
++        ) {
++            // 카메라 인식 영역
++            Box(
++                modifier =
++                    Modifier
++                        .weight(1.0f)
++                        .fillMaxWidth(),
++            ) {
++                SignRecognitionScreen(
++                    modifier = Modifier.fillMaxSize(),
++                )
++
++                if (sessionState == SessionState.Idle) {
++                    Box(
++                        modifier =
++                            Modifier
++                                .fillMaxSize()
++                                .background(Color.Black.copy(alpha = 0.4f)),
++                        contentAlignment = Alignment.Center,
++                    ) {
++                        Text(
++                            text = "세션을 시작하려면 버튼을 누르세요",
++                            color = Color.White,
++                            style = MaterialTheme.typography.titleMedium,
++                        )
++                    }
++                }
++            }
++
++            // 실시간 인식 결과 영역 (글로스 나열)
++            Box(
++                modifier =
++                    Modifier
++                        .fillMaxWidth()
++                        .padding(16.dp)
++                        .background(
++                            MaterialTheme.colorScheme.surfaceVariant,
++                            shape = MaterialTheme.shapes.medium,
++                        ).padding(12.dp),
++            ) {
++                if (lastGlosses.isEmpty()) {
++                    Text(
++                        text = "수어 인식 대기 중...",
++                        style = MaterialTheme.typography.bodyMedium,
++                        color = MaterialTheme.colorScheme.onSurfaceVariant,
++                    )
++                } else {
++                    LazyRow(
++                        horizontalArrangement = Arrangement.spacedBy(8.dp),
++                    ) {
++                        items(lastGlosses) { gloss ->
++                            GlossChip(gloss = gloss)
++                        }
++                    }
++                }
++            }
++        }
++    }
++}
++
++@Composable
++private fun SessionHeader(sessionState: SessionState) {
++    Row(
++        modifier =
++            Modifier
++                .fillMaxWidth()
++                .padding(16.dp),
++        verticalAlignment = Alignment.CenterVertically,
++        horizontalArrangement = Arrangement.SpaceBetween,
++    ) {
++        Text(
++            text = "SUDA 소통 세션",
++            style = MaterialTheme.typography.headlineSmall,
++            fontWeight = FontWeight.Bold,
++        )
++
++        Row(verticalAlignment = Alignment.CenterVertically) {
++            Box(
++                modifier =
++                    Modifier
++                        .size(8.dp)
++                        .background(
++                            color =
++                                if (sessionState ==
++                                    SessionState.Active
++                                ) {
++                                    Color.Green
++                                } else {
++                                    Color.Gray
++                                },
++                            shape = CircleShape,
++                        ),
++            )
++            Text(
++                text = if (sessionState == SessionState.Active) " LIVE" else " IDLE",
++                modifier = Modifier.padding(start = 4.dp),
++                style = MaterialTheme.typography.labelMedium,
++                color = if (sessionState == SessionState.Active) Color.Green else Color.Gray,
++            )
++        }
++    }
++}
++
++@Composable
++private fun SessionControls(
++    sessionState: SessionState,
++    onStartSession: () -> Unit,
++    onStopSession: () -> Unit,
++) {
++    Box(
++        modifier =
++            Modifier
++                .fillMaxWidth()
++                .padding(24.dp),
++    ) {
++        if (sessionState == SessionState.Idle) {
++            AppPrimaryButton(
++                text = "대화 시작하기",
++                onClick = { onStartSession() },
++                modifier = Modifier.fillMaxWidth(),
++            )
++        } else {
++            AppSecondaryButton(
++                text = "종료",
++                onClick = { onStopSession() },
++                modifier = Modifier.fillMaxWidth(),
++            )
++        }
++    }
++}
++
++@Composable
++private fun GlossChip(gloss: String) {
++    Box(
++        modifier =
++            Modifier
++                .background(
++                    color = MaterialTheme.colorScheme.primary,
++                    shape = CircleShape,
++                ).padding(horizontal = 12.dp, vertical = 4.dp),
++    ) {
++        Text(
++            text = gloss,
++            color = MaterialTheme.colorScheme.onPrimary,
++            style = MaterialTheme.typography.labelLarge,
++        )
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -0,0 +1,65 @@
++package com.ssafy.mobile.feature.conversation.presentation
++
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.core.model.SignRecognitionEvent
++import com.ssafy.mobile.core.vision.SignRecognitionEngine
++import dagger.hilt.android.lifecycle.HiltViewModel
++import javax.inject.Inject
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++
++enum class SessionState {
++    Idle,
++    Active,
++    Stopping,
++}
++
++@HiltViewModel
++class ConversationViewModel
++    @Inject
++    constructor(
++        private val signRecognitionEngine: SignRecognitionEngine,
++    ) : ViewModel() {
++        private val _sessionState = MutableStateFlow(SessionState.Idle)
++        val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
++
++        private val _lastGlosses = MutableStateFlow<List<String>>(emptyList())
++        val lastGlosses: StateFlow<List<String>> = _lastGlosses.asStateFlow()
++
++        init {
++            // 엔진으로부터 들어오는 수어 인식 이벤트를 구독합니다.
++            viewModelScope.launch {
++                signRecognitionEngine.events.collect { event ->
++                    if (_sessionState.value == SessionState.Active) {
++                        handleEvent(event)
++                    }
++                }
++            }
++        }
++
++        private fun handleEvent(event: SignRecognitionEvent) {
++            when (event) {
++                is SignRecognitionEvent.Prediction -> {
++                    _lastGlosses.value = _lastGlosses.value + event.gloss
++                }
++                is SignRecognitionEvent.NoHandsDetected -> {
++                    // 필요 시 사용자에게 손이 보이지 않는다는 피드백 제공 로직 추가 가능
++                }
++                else -> { /* 기타 상태(로딩 등) 처리 */ }
++            }
++        }
++
++        fun startSession() {
++            _sessionState.value = SessionState.Active
++            signRecognitionEngine.start()
++        }
++
++        fun stopSession() {
++            _sessionState.value = SessionState.Idle
++            signRecognitionEngine.stop()
++            _lastGlosses.value = emptyList()
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/presentation/SignRecognitionScreen.kt
+@@ -1,22 +1,10 @@
+ package com.ssafy.mobile.feature.sign.presentation
+ 
+-import android.Manifest
+-import android.app.Activity
+-import android.content.Context
+-import android.content.ContextWrapper
+-import android.content.Intent
+-import android.content.pm.PackageManager
+-import android.net.Uri
+ import android.os.SystemClock
+-import android.provider.Settings
+-import androidx.activity.compose.rememberLauncherForActivityResult
+-import androidx.activity.result.contract.ActivityResultContracts
+ import androidx.camera.core.ImageAnalysis
+ import androidx.camera.lifecycle.ProcessCameraProvider
+ import androidx.camera.view.PreviewView
+-import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+-import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.material3.MaterialTheme
+@@ -26,11 +14,9 @@ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.DisposableEffect
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+-import androidx.compose.runtime.mutableIntStateOf
+ import androidx.compose.runtime.mutableStateOf
+ import androidx.compose.runtime.remember
+ import androidx.compose.runtime.rememberUpdatedState
+-import androidx.compose.runtime.saveable.rememberSaveable
+ import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+@@ -39,16 +25,10 @@ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+ import androidx.compose.ui.viewinterop.AndroidView
+-import androidx.core.app.ActivityCompat
+ import androidx.core.content.ContextCompat
+-import androidx.lifecycle.Lifecycle
+-import androidx.lifecycle.LifecycleEventObserver
+ import androidx.lifecycle.LifecycleOwner
+ import androidx.lifecycle.compose.LocalLifecycleOwner
+ import com.google.common.util.concurrent.ListenableFuture
+-import com.ssafy.mobile.core.permission.PermissionGuide
+-import com.ssafy.mobile.core.permission.PermissionRequestState
+-import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import java.util.Locale
+ import java.util.concurrent.Executor
+ import java.util.concurrent.Executors
+@@ -63,92 +43,11 @@ fun SignRecognitionScreen(
+     modifier: Modifier = Modifier,
+     onFrameAvailable: (YuvAnalysisFrame) -> Unit = {},
+ ) {
+-    val context = LocalContext.current
+-    val lifecycleOwner = LocalLifecycleOwner.current
+-    val activity = remember(context) { context.findActivity() }
+-    var hasRequestedPermission by rememberSaveable { mutableStateOf(false) }
+-    var permissionRefreshKey by remember { mutableIntStateOf(0) }
+-
+-    val cameraPermissionLauncher =
+-        rememberLauncherForActivityResult(
+-            contract = ActivityResultContracts.RequestPermission(),
+-        ) {
+-            hasRequestedPermission = true
+-            permissionRefreshKey += 1
+-        }
+-
+-    DisposableEffect(lifecycleOwner) {
+-        val observer =
+-            LifecycleEventObserver { _, event ->
+-                if (event == Lifecycle.Event.ON_RESUME) {
+-                    permissionRefreshKey += 1
+-                }
+-            }
+-        lifecycleOwner.lifecycle.addObserver(observer)
+-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+-    }
+-
+-    val permissionState =
+-        remember(context, activity, hasRequestedPermission, permissionRefreshKey) {
+-            resolvePermissionState(
+-                context = context,
+-                activity = activity,
+-                hasRequestedPermission = hasRequestedPermission,
+-            )
+-        }
+-
+-    when (permissionState) {
+-        PermissionRequestState.Granted ->
+-            CameraPreviewContent(
+-                onFrameAvailable = onFrameAvailable,
+-                modifier = modifier,
+-            )
+-        PermissionRequestState.PermanentlyDenied ->
+-            PermissionGuide(
+-                title = "Camera permission is required",
+-                description = "Allow camera permission in Settings to start sign recognition.",
+-                onOpenSettings = { context.openAppSettings() },
+-                modifier = modifier,
+-            )
+-        PermissionRequestState.ShouldRequest,
+-        PermissionRequestState.Denied,
+-        PermissionRequestState.Idle,
+-        -> {
+-            RequestPermissionContent(
+-                onRequestPermission = {
+-                    hasRequestedPermission = true
+-                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+-                },
+-                modifier = modifier,
+-            )
+-        }
+-    }
+-}
+-
+-@Composable
+-private fun RequestPermissionContent(
+-    onRequestPermission: () -> Unit,
+-    modifier: Modifier = Modifier,
+-) {
+-    Column(
+-        modifier =
+-            modifier
+-                .fillMaxSize()
+-                .padding(24.dp),
+-        horizontalAlignment = Alignment.CenterHorizontally,
+-        verticalArrangement = Arrangement.Center,
+-    ) {
+-        Text(
+-            text = "Allow camera permission to start sign recognition.",
+-            style = MaterialTheme.typography.bodyLarge,
+-            textAlign = TextAlign.Center,
+-        )
+-        AppPrimaryButton(
+-            text = "Allow camera",
+-            onClick = onRequestPermission,
+-            modifier = Modifier.padding(top = 12.dp),
+-        )
+-    }
++    // 권한은 MainActivity에서 이미 허용되었으므로 즉시 카메라 프리뷰를 실행합니다.
++    CameraPreviewContent(
++        onFrameAvailable = onFrameAvailable,
++        modifier = modifier,
++    )
+ }
+ 
+ @Composable
+@@ -327,48 +226,3 @@ private fun FrameAnalysisDebugOverlay(
+         )
+     }
+ }
+-
+-private fun resolvePermissionState(
+-    context: Context,
+-    activity: Activity?,
+-    hasRequestedPermission: Boolean,
+-): PermissionRequestState {
+-    val isGranted =
+-        ContextCompat.checkSelfPermission(
+-            context,
+-            Manifest.permission.CAMERA,
+-        ) == PackageManager.PERMISSION_GRANTED
+-
+-    return when {
+-        isGranted -> PermissionRequestState.Granted
+-        !hasRequestedPermission -> PermissionRequestState.ShouldRequest
+-        activity == null -> PermissionRequestState.Denied
+-        shouldShowCameraRationale(activity) -> PermissionRequestState.Denied
+-        else -> PermissionRequestState.PermanentlyDenied
+-    }
+-}
+-
+-private fun shouldShowCameraRationale(activity: Activity): Boolean =
+-    ActivityCompat.shouldShowRequestPermissionRationale(
+-        activity,
+-        Manifest.permission.CAMERA,
+-    )
+-
+-private fun Context.findActivity(): Activity? =
+-    when (this) {
+-        is Activity -> this
+-        is ContextWrapper -> baseContext.findActivity()
+-        else -> null
+-    }
+-
+-private fun Context.openAppSettings() {
+-    val intent =
+-        Intent(
+-            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+-            Uri.fromParts("package", packageName, null),
+-        )
+-    if (this !is Activity) {
+-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+-    }
+-    startActivity(intent)
+-}
+
+

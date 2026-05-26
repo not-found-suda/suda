@@ -1,0 +1,2215 @@
+﻿diff --git a/ai/docs/20260508_최신모델_영상추론_모바일디버깅.md b/ai/docs/20260508_최신모델_영상추론_모바일디버깅.md
+--- /dev/null
++++ b/ai/docs/20260508_최신모델_영상추론_모바일디버깅.md
+@@ -0,0 +1,144 @@
++# 2026-05-08 최신 모델, 영상 추론, 모바일 디버깅
++
++## 작업 배경
++
++7개 핵심 단어 모델을 모바일에서 안정적으로 사용하기 위해, 최종 후보 모델을 다시 학습하고 TFLite 변환 및 추론 검증 흐름을 점검했다. 전날 기준의 모바일 전달 자료를 만들었지만, 실제 테스트와 디버깅 과정에서 더 안정적인 최종 모델을 모바일 적용 후보로 갱신했다.
++
++이번 작업의 중심은 PyTorch 모델 자체의 validation 수치보다, TFLite 변환 이후 웹캠과 휴대폰 촬영 영상에서 동일한 라벨과 확률 흐름으로 추론되는지 확인하는 것이었다.
++
++## 최신 7단어 모델 정리
++
++최종 후보 단어는 기존 시연 범위에 맞춰 아래 7개로 유지했다.
++
++```text
++기차, 장난감, 놀다, 가다, 일어나다, 병원, 조심
++```
++
++원본 학습 산출물 중 Git 저장소에 반영할 모바일 적용 파일은 아래처럼 정리했다.
++
++```text
++label_map.json
++train_config.json
++best_sign_model_float16.tflite
++best_sign_model_float32.tflite
++```
++
++`label_map.json`은 모바일과 웹 추론에서 동일한 클래스 순서를 사용하기 위한 기준 파일로 두었다. `train_config.json`에는 학습 시 사용한 입력 차원, 프레임 길이, 클래스 구성, 샘플링 조건을 남겨 모델 교체 시 추적 가능하도록 했다.
++
++Git 저장소에는 모바일 적용 경로에 맞춰 파일명을 단순화해 반영한다.
++
++```text
++ai/models/transformer_mobile/label_map.json
++ai/models/transformer_mobile/train_config.json
++ai/models/transformer_mobile/best_sign_model_float16.tflite
++ai/models/transformer_mobile/best_sign_model_float32.tflite
++```
++
++## 코드 정리
++
++루트의 Transformer 코드들은 5월 8일까지 수정된 최신본으로 정리했다. 특히 데이터 추출, 다운로드, 학습, 데이터셋 구성, TFLite 변환, 실시간 추론, holdout 평가, 영상 파일 추론 쪽을 현재 모바일 검증 흐름에 맞게 갱신했다.
++
++Git 저장소에 반영한 코드 파일은 다음과 같다.
++
++```text
++ai/src/sign2text_transformer/s3_mediapipe_extractor.py
++ai/src/sign2text_transformer/download_npy.py
++ai/src/sign2text_transformer/collect_data.py
++ai/src/sign2text_transformer/convert_to_tflite.py
++ai/src/sign2text_transformer/dataset.py
++ai/src/sign2text_transformer/evaluate_holdout.py
++ai/src/sign2text_transformer/inference_realtime_tflite.py
++ai/src/sign2text_transformer/inference_realtime_transformer.py
++ai/src/sign2text_transformer/inference_video_tflite.py
++ai/src/sign2text_transformer/model.py
++ai/src/sign2text_transformer/train.py
++```
++
++모델 생성 시점의 백업 코드도 남아 있었지만, 루트 코드와 비교했을 때 TFLite 변환과 실시간 TFLite 추론 코드는 루트 쪽이 더 최신이었다. 또한 영상 파일 추론용 코드는 루트에만 존재했다. 따라서 실제 Git 저장소 반영 기준은 루트의 최신 코드로 잡는 것이 맞다고 판단했다.
++
++Git 저장소 파일명에 맞춰 내부 import도 함께 정리했다.
++
++```text
++from model import ...
++from dataset import ...
++from inference_realtime_tflite import ...
++```
++
++## TFLite 변환 및 모바일 적용
++
++TFLite 변환 시 모바일 추론에서 바로 확률값을 사용할 수 있도록 softmax 출력이 유지되는지 확인했다. 변환 대상 모델 디렉터리는 기본적으로 `7words_test_great`를 우선 사용하도록 정리했다.
++
++모바일 적용용 산출물은 용량과 사용 목적을 고려해 아래 파일만 Git 저장소 관리 대상으로 삼았다.
++
++```text
++ai/models/transformer_mobile/label_map.json
++ai/models/transformer_mobile/train_config.json
++ai/models/transformer_mobile/best_sign_model_float16.tflite
++ai/models/transformer_mobile/best_sign_model_float32.tflite
++```
++
++원본 PyTorch 모델인 `.pt` 파일은 저장소에 직접 올리지 않는 방향으로 정했다. ONNX 파일도 이번 최종 모델 폴더에는 포함하지 않고, 이후에도 저장소에는 올리지 않는 기준으로 둔다.
++
++## 실시간 TFLite 추론 디버깅
++
++`ai/src/sign2text_transformer/inference_realtime_tflite.py`는 모바일 적용 전 TFLite 모델의 실제 추론 결과를 웹캠 환경에서 확인하기 위한 스크립트로 정리했다. confidence threshold, top-2 margin, smoothing, 최소 프레임 수, 손이 사라질 때까지 예측을 잠그는 옵션 등을 환경변수로 조정할 수 있게 했다.
++
++주요 디버깅 기준은 다음과 같다.
++
++```text
++CONFIDENCE_THRESHOLD
++MARGIN_THRESHOLD
++PREDICTION_SMOOTHING
++STABLE_MIN_COUNT
++MIN_FRAMES_FOR_PREDICTION
++LOCK_ACTION_UNTIL_NO_HANDS
++```
++
++이를 통해 단일 프레임의 순간적인 오인식보다, 일정 구간 동안 안정적으로 반복되는 예측을 최종 결과로 사용하는 방향을 유지했다.
++
++## 영상 파일 추론 추가
++
++모바일에서 촬영한 영상 파일을 직접 검증하기 위해 `ai/src/sign2text_transformer/inference_video_tflite.py`를 추가했다. 이 스크립트는 휴대폰 또는 카메라로 녹화한 영상 파일을 입력받아 MediaPipe feature를 추출하고, TFLite 모델로 구간별 단어를 예측한다.
++
++문장 영상처럼 여러 단어가 이어지는 경우를 고려해, 손이 사라지는 구간 또는 손 움직임이 멈추는 구간을 단어 경계 후보로 사용할 수 있게 했다.
++
++주요 옵션은 다음과 같다.
++
++```text
++--segment-end-seconds
++--stride
++--min-word-windows
++--ignore-edge-windows
++--split-on-pause / --no-split-on-pause
++--pause-seconds
++--pause-motion-threshold
++--debug-timestamps-ms
++```
++
++이 스크립트는 단어 단위 모델을 문장 영상에 적용할 때, 어떤 방식으로 단어 시퀀스를 만들 수 있는지 확인하기 위한 디버깅 도구로 사용한다.
++
++## 남긴 판단
++
++이번 날짜의 핵심은 최종 모바일 적용 후보를 갱신하고, 실시간 추론과 영상 파일 추론에서 TFLite 모델을 검증할 수 있는 흐름을 만든 것이다.
++
++Git 저장소에는 최신 코드와 모바일 적용용 TFLite 산출물만 올리고, `.pt`, `.onnx`, 선택 단어 중복 문서, 대량 학습 데이터, 임시 영상 파일은 제외하는 방향을 유지한다.
++
++이번 작업에서 Git 저장소에 반영할 변경 목록은 다음과 같다.
++
++```text
++ai/src/sign2text_transformer/s3_mediapipe_extractor.py
++ai/src/sign2text_transformer/download_npy.py
++ai/src/sign2text_transformer/collect_data.py
++ai/src/sign2text_transformer/convert_to_tflite.py
++ai/src/sign2text_transformer/dataset.py
++ai/src/sign2text_transformer/evaluate_holdout.py
++ai/src/sign2text_transformer/inference_realtime_tflite.py
++ai/src/sign2text_transformer/inference_realtime_transformer.py
++ai/src/sign2text_transformer/inference_video_tflite.py
++ai/src/sign2text_transformer/model.py
++ai/src/sign2text_transformer/train.py
++ai/models/transformer_mobile/label_map.json
++ai/models/transformer_mobile/train_config.json
++ai/models/transformer_mobile/best_sign_model_float16.tflite
++ai/models/transformer_mobile/best_sign_model_float32.tflite
++```
+
+
+diff --git a/ai/models/transformer_mobile/best_sign_model_float16.tflite b/ai/models/transformer_mobile/best_sign_model_float16.tflite
+--- a/ai/models/transformer_mobile/best_sign_model_float16.tflite
++++ b/ai/models/transformer_mobile/best_sign_model_float16.tflite
+Binary files a/ai/models/transformer_mobile/best_sign_model_float16.tflite and b/ai/models/transformer_mobile/best_sign_model_float16.tflite differ
+
+
+diff --git a/ai/models/transformer_mobile/best_sign_model_float32.tflite b/ai/models/transformer_mobile/best_sign_model_float32.tflite
+--- a/ai/models/transformer_mobile/best_sign_model_float32.tflite
++++ b/ai/models/transformer_mobile/best_sign_model_float32.tflite
+Binary files a/ai/models/transformer_mobile/best_sign_model_float32.tflite and b/ai/models/transformer_mobile/best_sign_model_float32.tflite differ
+
+
+diff --git a/ai/models/transformer_mobile/train_config.json b/ai/models/transformer_mobile/train_config.json
+--- a/ai/models/transformer_mobile/train_config.json
++++ b/ai/models/transformer_mobile/train_config.json
+@@ -1,5 +1,5 @@
+ {
+-    "run_idx": 1,
++    "run_idx": 6,
+     "data_dir": "/home/j-k14a404/Transformer_Kim/Training_v5/processed_npy_v5",
+     "model_dir_name": "overfit_model_v5_7words_demo_stable",
+     "epochs": 120,
+@@ -22,22 +22,36 @@
+     ],
+     "stats": {
+         "class_counts": {
+-            "기차": 80,
+-            "장난감": 80,
+-            "놀다": 80,
++            "기차": 60,
++            "장난감": 60,
++            "놀다": 60,
+             "가다": 30,
+             "일어나다": 30,
+-            "병원": 75,
+-            "조심": 105
++            "병원": 60,
++            "조심": 60
+         },
+         "variant_counts": {
+-            "기차/기차": 80,
+-            "장난감/장난감": 80,
+-            "놀다/놀다": 80,
++            "기차/기차": 60,
++            "장난감/장난감": 60,
++            "놀다/놀다": 60,
+             "가다/가다4": 30,
+             "일어나다/일어나다2": 30,
+-            "병원/병원": 75,
+-            "조심/조심": 105
++            "병원/병원": 60,
++            "조심/조심": 60
++        },
++        "priority_file_keywords": [
++            "_FRONT",
++            "_LEFT",
++            "_RIGHT"
++        ],
++        "priority_file_counts": {
++            "기차": 19,
++            "장난감": 9,
++            "놀다": 19,
++            "가다": 25,
++            "일어나다": 25,
++            "병원": 4,
++            "조심": 29
+         },
+         "train_class_counts": {
+             "기차": 80,
+@@ -46,16 +60,16 @@
+             "가다": 80,
+             "일어나다": 80,
+             "병원": 80,
+-            "조심": 84
++            "조심": 80
+         },
+         "val_class_counts": {
+-            "기차": 16,
+-            "장난감": 16,
+-            "놀다": 16,
++            "기차": 12,
++            "장난감": 12,
++            "놀다": 12,
+             "가다": 6,
+             "일어나다": 6,
+-            "병원": 15,
+-            "조심": 21
++            "병원": 12,
++            "조심": 12
+         },
+         "target_variants": {
+             "가다": [
+@@ -65,25 +79,31 @@
+                 "일어나다2"
+             ]
+         },
+-        "max_files_per_class": {},
++        "max_files_per_class": {
++            "기차": 60,
++            "장난감": 60,
++            "놀다": 60,
++            "병원": 60,
++            "조심": 60
++        },
+         "file_sample_seed": 42,
+-        "total_size": 660,
+-        "original_total_size": 480,
+-        "train_size": 564,
+-        "original_train_size": 384,
+-        "val_size": 96,
++        "total_size": 632,
++        "original_total_size": 360,
++        "train_size": 560,
++        "original_train_size": 288,
++        "val_size": 72,
+         "stratified_split": true,
+         "balanced_sampling": false,
+         "use_augmentation": true,
+         "target_samples_per_class": 80,
+         "augmentation_counts": {
+-            "기차": 16,
+-            "장난감": 16,
+-            "놀다": 16,
++            "기차": 32,
++            "장난감": 32,
++            "놀다": 32,
+             "가다": 56,
+             "일어나다": 56,
+-            "병원": 20,
+-            "조심": 0
++            "병원": 32,
++            "조심": 32
+         },
+         "augmentation": {
+             "seed": 2026,
+
+
+diff --git a/ai/src/sign2text_transformer/collect_data.py b/ai/src/sign2text_transformer/collect_data.py
+--- /dev/null
++++ b/ai/src/sign2text_transformer/collect_data.py
+@@ -0,0 +1,454 @@
++import re
++import time
++from pathlib import Path
++
++import cv2
++import mediapipe as mp
++import numpy as np
++from PIL import Image, ImageDraw, ImageFont
++
++
++SCRIPT_DIR = Path(__file__).resolve().parent
++OUTPUT_ROOT = SCRIPT_DIR / "processed_npy_v5"
++SEQ_LEN = 60
++COUNTDOWN_SECONDS = (4, 3, 2, 1)
++WINDOW_NAME = "Collect V5 Sign Data"
++ORIENTATION_PLAN = ["FRONT", "FRONT", "FRONT", "LEFT", "RIGHT"]
++DISPLAY_MIRROR_MODE = True
++
++# Representative class -> variants to collect.
++# Saved path: processed_npy_v5/{class_name}/{variant_name}/{file}.npy
++COLLECTION_TARGETS = {
++    "기차": ["기차"],
++    "장난감": ["장난감"],
++    "놀다": ["놀다"],
++    "병원": ["병원"],
++    "조심": ["조심"],
++}
++
++# Feature layout:
++# left hand 63 + right hand 63 + expanded face 135 + pose 21 + hand-face distances 50 = 332
++INPUT_DIM = 332
++BASE_FACE_IDXS = [
++    70, 63, 105, 66,
++    336, 296, 334, 293,
++    33, 160, 158, 133, 153, 144,
++    362, 385, 387, 263, 373, 380,
++    61, 146, 91, 181, 84, 17, 314, 405, 321, 375,
++]
++FACEPLUS_IDXS = [
++    1, 4,          # nose
++    152,           # chin
++    234, 454,      # cheeks / face sides
++    172, 397,      # jaw line
++    148, 377,      # lower jaw line
++    13, 14,        # upper/lower lip center
++    78, 308,       # mouth corners
++    82, 312,       # upper lip detail
++]
++FACE_IDXS = BASE_FACE_IDXS + FACEPLUS_IDXS
++POSE_IDXS = [0, 7, 8, 11, 12, 13, 14]
++HAND_TIP_IDXS = [4, 8, 12, 16, 20]
++FACE_ANCHOR_IDXS = [1, 13, 152, 234, 454]  # nose, mouth, chin, left cheek, right cheek
++
++mp_holistic = mp.solutions.holistic
++mp_drawing = mp.solutions.drawing_utils
++
++
++def slugify(value):
++    value = value.strip().lower()
++    value = re.sub(r"[^a-z0-9_-]+", "_", value)
++    return value.strip("_") or "person"
++
++
++def flatten_landmarks(landmarks, idxs):
++    return np.array(
++        [[landmarks[idx].x, landmarks[idx].y, landmarks[idx].z] for idx in idxs],
++        dtype=np.float32,
++    ).flatten()
++
++
++def hand_array(hand_landmarks):
++    if not hand_landmarks:
++        return np.zeros((21, 3), dtype=np.float32), False
++
++    points = np.array([[lm.x, lm.y, lm.z] for lm in hand_landmarks.landmark], dtype=np.float32)
++    return points, True
++
++
++def hand_face_distances(left_hand, left_present, right_hand, right_present, face_landmarks):
++    if not face_landmarks:
++        return np.zeros(len(HAND_TIP_IDXS) * 2 * len(FACE_ANCHOR_IDXS), dtype=np.float32)
++
++    anchors = np.array(
++        [
++            [
++                face_landmarks.landmark[idx].x,
++                face_landmarks.landmark[idx].y,
++                face_landmarks.landmark[idx].z,
++            ]
++            for idx in FACE_ANCHOR_IDXS
++        ],
++        dtype=np.float32,
++    )
++
++    features = []
++    for hand_points, is_present in ((left_hand, left_present), (right_hand, right_present)):
++        if not is_present:
++            features.extend([0.0] * (len(HAND_TIP_IDXS) * len(FACE_ANCHOR_IDXS)))
++            continue
++
++        for tip_idx in HAND_TIP_IDXS:
++            tip = hand_points[tip_idx]
++            features.extend(np.linalg.norm(anchors - tip, axis=1).tolist())
++
++    return np.array(features, dtype=np.float32)
++
++
++def extract_keypoints(results, last_pose, last_face):
++    left_hand, left_present = hand_array(results.left_hand_landmarks)
++    right_hand, right_present = hand_array(results.right_hand_landmarks)
++    lh = left_hand.flatten()
++    rh = right_hand.flatten()
++
++    if results.face_landmarks:
++        face = flatten_landmarks(results.face_landmarks.landmark, FACE_IDXS)
++        last_face = face
++    else:
++        face = last_face if last_face is not None else np.zeros(len(FACE_IDXS) * 3, dtype=np.float32)
++
++    if results.pose_landmarks:
++        pose = flatten_landmarks(results.pose_landmarks.landmark, POSE_IDXS)
++        last_pose = pose
++    else:
++        pose = last_pose if last_pose is not None else np.zeros(len(POSE_IDXS) * 3, dtype=np.float32)
++
++    distances = hand_face_distances(
++        left_hand,
++        left_present,
++        right_hand,
++        right_present,
++        results.face_landmarks,
++    )
++
++    feature = np.concatenate([lh, rh, face, pose, distances]).astype(np.float32)
++    if feature.shape[0] != INPUT_DIM:
++        raise ValueError(f"Unexpected feature dim: {feature.shape[0]} != {INPUT_DIM}")
++
++    return feature, last_pose, last_face
++
++
++def read_key(delay=20):
++    return cv2.waitKey(delay) & 0xFF
++
++
++def is_start_key(key):
++    return key in (ord("s"), ord("S"), 13, 32)
++
++
++def is_quit_key(key):
++    return key in (ord("q"), ord("Q"), 27)
++
++
++def draw_landmark_list(frame, landmark_list, connections):
++    if landmark_list:
++        mp_drawing.draw_landmarks(frame, landmark_list, connections)
++
++
++def draw_mirrored_landmarks(frame, landmark_list, connections):
++    if not landmark_list:
++        return
++
++    mirrored = type(landmark_list)()
++    mirrored.landmark.extend(landmark_list.landmark)
++    for lm in mirrored.landmark:
++        lm.x = 1.0 - lm.x
++
++    mp_drawing.draw_landmarks(frame, mirrored, connections)
++
++
++def draw_landmarks(frame, results, mirror=False):
++    draw_fn = draw_mirrored_landmarks if mirror else draw_landmark_list
++    draw_fn(frame, results.pose_landmarks, mp_holistic.POSE_CONNECTIONS)
++    draw_fn(frame, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
++    draw_fn(frame, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
++
++
++def make_display_frame(frame, results):
++    if not DISPLAY_MIRROR_MODE:
++        display = frame.copy()
++        draw_landmarks(display, results, mirror=False)
++        return display
++
++    display = cv2.flip(frame, 1)
++    draw_landmarks(display, results, mirror=True)
++    return display
++
++
++def get_korean_font(size=28):
++    for font_name in ("malgun.ttf", "malgunbd.ttf", "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"):
++        try:
++            return ImageFont.truetype(font_name, size)
++        except Exception:
++            continue
++    return ImageFont.load_default()
++
++
++def draw_text(frame, lines):
++    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
++    draw = ImageDraw.Draw(image)
++    font = get_korean_font(28)
++
++    y = 24
++    for line in lines:
++        draw.text((20, y), line, font=font, fill=(0, 255, 0))
++        y += 34
++
++    frame[:] = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
++
++
++def countdown(cap, holistic, title_lines, seconds=COUNTDOWN_SECONDS):
++    for sec in seconds:
++        end_time = time.time() + 1.0
++        while time.time() < end_time:
++            ok, frame = cap.read()
++            if not ok:
++                continue
++
++            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
++            results = holistic.process(rgb)
++            display = make_display_frame(frame, results)
++            draw_text(display, title_lines)
++            cv2.putText(
++                display,
++                str(sec),
++                (display.shape[1] // 2 - 30, display.shape[0] // 2),
++                cv2.FONT_HERSHEY_SIMPLEX,
++                3.0,
++                (0, 255, 255),
++                5,
++            )
++            cv2.imshow(WINDOW_NAME, display)
++            if is_quit_key(read_key(20)):
++                raise SystemExit
++
++
++def wait_for_initial_start(cap, holistic, participant_id, selected_targets):
++    title_lines = [
++        "V5 수어 데이터 수집",
++        f"참가자: {participant_id}",
++        f"수집 variant 수: {len(selected_targets)} | variant당 촬영: {len(ORIENTATION_PLAN)}",
++        "상반신 전체, 얼굴, 양손이 화면에 들어오게 맞춰주세요.",
++        "S / Enter / Space: 자동 진행, Q: 종료",
++    ]
++    while True:
++        ok, frame = cap.read()
++        if not ok:
++            continue
++
++        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
++        results = holistic.process(rgb)
++        display = make_display_frame(frame, results)
++        draw_text(display, title_lines)
++        cv2.imshow(WINDOW_NAME, display)
++
++        key = read_key(20)
++        if is_start_key(key):
++            return
++        if is_quit_key(key):
++            raise SystemExit
++
++
++def wait_for_target_start(cap, holistic, participant_id, class_name, variant_name, target_idx, total_targets):
++    title_lines = [
++        "다음 수집 대상 준비",
++        f"참가자: {participant_id}",
++        f"대상: {target_idx}/{total_targets} - {class_name} / {variant_name}",
++        f"촬영 방향: {ORIENTATION_PLAN}",
++        "자세를 맞춘 뒤 S / Enter / Space를 누르면 이 대상 촬영을 시작합니다.",
++        "Q: 종료",
++    ]
++    while True:
++        ok, frame = cap.read()
++        if not ok:
++            continue
++
++        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
++        results = holistic.process(rgb)
++        display = make_display_frame(frame, results)
++        draw_text(display, title_lines)
++        cv2.imshow(WINDOW_NAME, display)
++
++        key = read_key(20)
++        if is_start_key(key):
++            return
++        if is_quit_key(key):
++            raise SystemExit
++
++
++def capture_sequence(cap, holistic, participant_id, class_name, variant_name, orient, sample_no, take_idx, total_takes):
++    title_lines = [
++        f"다음 동작: {variant_name}",
++        f"저장 라벨: {class_name} / {variant_name}",
++        f"참가자: {participant_id} | 촬영: {take_idx}/{total_takes} | 방향: {orient}",
++        "4초 카운트다운 후 자동 시작. Q 종료.",
++    ]
++
++    countdown(cap, holistic, title_lines)
++
++    sequence = []
++    last_pose = None
++    last_face = None
++
++    while len(sequence) < SEQ_LEN:
++        ok, frame = cap.read()
++        if not ok:
++            continue
++
++        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
++        results = holistic.process(rgb)
++        keypoints, last_pose, last_face = extract_keypoints(results, last_pose, last_face)
++        sequence.append(keypoints)
++
++        display = make_display_frame(frame, results)
++        draw_text(
++            display,
++            [
++                f"촬영 중: {len(sequence)}/{SEQ_LEN}",
++                f"{class_name} / {variant_name} / {orient}",
++                "상반신 전체와 손 이동 방향이 잘 보이게 유지해주세요.",
++            ],
++        )
++        cv2.imshow(WINDOW_NAME, display)
++
++        if is_quit_key(read_key(1)):
++            raise SystemExit
++
++    data = np.array(sequence, dtype=np.float32)
++    if data.ndim != 2 or data.shape[1] != INPUT_DIM:
++        raise ValueError(f"Unexpected sequence shape: {data.shape}")
++    return data
++
++
++def next_index(output_dir, participant_id, class_name, variant_name):
++    output_dir.mkdir(parents=True, exist_ok=True)
++    prefix = f"{class_name}_{variant_name}_{participant_id}_"
++    indices = []
++
++    for path in output_dir.glob(f"{prefix}*.npy"):
++        stem = path.stem
++        parts = stem.split("_")
++        if len(parts) >= 5 and parts[-2].isdigit():
++            indices.append(int(parts[-2]))
++
++    return max(indices) + 1 if indices else 1
++
++
++def all_collection_targets():
++    targets = []
++    for class_name, variants in COLLECTION_TARGETS.items():
++        for variant_name in variants:
++            targets.append((class_name, variant_name))
++    return targets
++
++
++def choose_targets():
++    targets = all_collection_targets()
++    print("\nV5 collection targets")
++    for idx, (class_name, variant_name) in enumerate(targets, start=1):
++        print(f"{idx}. {class_name} / {variant_name}")
++    print("a. All targets")
++
++    while True:
++        raw = input("Select target numbers separated by comma, or 'a' for all: ").strip().lower()
++        if raw == "a":
++            return targets
++
++        selected = []
++        try:
++            for token in raw.split(","):
++                idx = int(token.strip())
++                if not 1 <= idx <= len(targets):
++                    raise ValueError
++                selected.append(targets[idx - 1])
++        except ValueError:
++            print("Invalid input. Example: 1,2 or a")
++            continue
++
++        if selected:
++            return selected
++
++
++def main():
++    participant_id = slugify(input("Participant ID (example: p01): "))
++    selected_targets = choose_targets()
++
++    print("\nCollection plan")
++    print(f"- output root: {OUTPUT_ROOT}")
++    print(f"- participant: {participant_id}")
++    print(f"- sequence length: {SEQ_LEN}")
++    print(f"- feature dim: {INPUT_DIM}")
++    print(f"- views per target: {ORIENTATION_PLAN}")
++    print(f"- selected targets: {selected_targets}")
++    print("\nTip: each participant can run all targets once or twice for stronger coverage.")
++
++    cap = cv2.VideoCapture(0)
++    if not cap.isOpened():
++        raise RuntimeError("Cannot open webcam.")
++
++    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
++    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
++
++    try:
++        with mp_holistic.Holistic(
++            static_image_mode=False,
++            min_detection_confidence=0.5,
++            min_tracking_confidence=0.5,
++        ) as holistic:
++            wait_for_initial_start(cap, holistic, participant_id, selected_targets)
++
++            total_takes = len(selected_targets) * len(ORIENTATION_PLAN)
++            current_take = 0
++
++            for target_idx, (class_name, variant_name) in enumerate(selected_targets, start=1):
++                wait_for_target_start(
++                    cap,
++                    holistic,
++                    participant_id,
++                    class_name,
++                    variant_name,
++                    target_idx,
++                    len(selected_targets),
++                )
++
++                output_dir = OUTPUT_ROOT / class_name / variant_name
++                start_idx = next_index(output_dir, participant_id, class_name, variant_name)
++
++                for offset, orient in enumerate(ORIENTATION_PLAN):
++                    current_take += 1
++                    sample_no = start_idx + offset
++                    data = capture_sequence(
++                        cap,
++                        holistic,
++                        participant_id,
++                        class_name,
++                        variant_name,
++                        orient,
++                        sample_no,
++                        current_take,
++                        total_takes,
++                    )
++                    save_path = (
++                        output_dir
++                        / f"{class_name}_{variant_name}_{participant_id}_{sample_no:03d}_{orient}.npy"
++                    )
++                    np.save(save_path, data)
++                    print(f"saved: {save_path} shape={data.shape}")
++
++    finally:
++        cap.release()
++        cv2.destroyAllWindows()
++
++
++if __name__ == "__main__":
++    main()
+
+
+diff --git a/ai/src/sign2text_transformer/convert_to_tflite.py b/ai/src/sign2text_transformer/convert_to_tflite.py
+--- /dev/null
++++ b/ai/src/sign2text_transformer/convert_to_tflite.py
+@@ -0,0 +1,348 @@
++import argparse
++import json
++import os
++import shutil
++import subprocess
++import sys
++from pathlib import Path
++
++import numpy as np
++import torch
++import torch.onnx
++
++try:
++    import onnx
++    try:
++        import onnx.mapping
++    except ImportError:
++        from onnx import _mapping as mapping
++        onnx.mapping = mapping
++except ImportError:
++    onnx = None
++
++from model import KSLTransformerV5
++
++
++SCRIPT_DIR = Path(__file__).resolve().parent
++MODELS_ROOT = SCRIPT_DIR / "models"
++DEFAULT_MODEL_DIR_NAMES = [
++    "7words_test_great",
++    "7words_test",
++    "BEST_7words_val_acc_100-f1_100-2",
++    "7words_demo_stable",
++    "overfit_model_v5_7words_demo_stable",
++]
++DEFAULT_MODEL_DIR = MODELS_ROOT / DEFAULT_MODEL_DIR_NAMES[0]
++
++INPUT_DIM = 332
++SEQ_LEN = 30
++D_MODEL = 128
++NUM_HEADS = 8
++NUM_LAYERS = 3
++
++
++class SoftmaxWrapper(torch.nn.Module):
++    def __init__(self, core_model):
++        super().__init__()
++        self.core_model = core_model
++
++    def forward(self, x):
++        # Mobile inference consumes probabilities directly.
++        return self.core_model(x, lengths=None, return_probs=True)
++
++
++def load_num_classes(label_map_path):
++    with open(label_map_path, "r", encoding="utf-8") as f:
++        label_map = json.load(f)
++    if isinstance(label_map, dict) and "classes" in label_map:
++        return len(label_map["classes"])
++    return len(label_map)
++
++
++def resolve_model_dir(model_dir=None):
++    if model_dir:
++        path = Path(model_dir)
++        if path.is_absolute():
++            return path
++        if path.exists():
++            return path.resolve()
++        return MODELS_ROOT / path
++
++    for dirname in DEFAULT_MODEL_DIR_NAMES:
++        candidate = MODELS_ROOT / dirname
++        if candidate.exists():
++            return candidate
++
++    return DEFAULT_MODEL_DIR
++
++
++def find_latest_numbered_pair(model_dir):
++    pairs = []
++
++    legacy_model_path = model_dir / "best_sign_model_v5.pt"
++    legacy_label_map_path = model_dir / "label_map_v5.json"
++    if legacy_model_path.exists() and legacy_label_map_path.exists():
++        pairs.append((0, legacy_model_path, legacy_label_map_path))
++
++    for model_path in model_dir.glob("best_sign_model_v5_*.pt"):
++        suffix = model_path.stem.replace("best_sign_model_v5_", "")
++        if not suffix.isdigit():
++            continue
++
++        label_map_path = model_dir / f"label_map_v5_{suffix}.json"
++        if label_map_path.exists():
++            pairs.append((int(suffix), model_path, label_map_path))
++            continue
++
++        config_path = model_dir / f"train_config_v5_{suffix}.json"
++        if config_path.exists():
++            pairs.append((int(suffix), model_path, config_path))
++
++    if not pairs:
++        return None, None, None
++
++    suffix, model_path, label_map_path = sorted(pairs, key=lambda item: item[0])[-1]
++    return suffix, model_path, label_map_path
++
++
++def load_model(model_path, num_classes):
++    model = KSLTransformerV5(
++        input_dim=INPUT_DIM,
++        num_classes=num_classes,
++        d_model=D_MODEL,
++        num_heads=NUM_HEADS,
++        num_layers=NUM_LAYERS,
++    )
++    try:
++        state_dict = torch.load(model_path, map_location="cpu", weights_only=True)
++    except TypeError:
++        state_dict = torch.load(model_path, map_location="cpu")
++    model.load_state_dict(state_dict)
++    model.eval()
++    return model
++
++
++def export_onnx(export_model, onnx_path):
++    dummy_input = torch.randn(1, SEQ_LEN, INPUT_DIM, dtype=torch.float32)
++
++    print(f"[1/4] Export PyTorch -> ONNX: {onnx_path}")
++    torch.onnx.export(
++        export_model,
++        dummy_input,
++        onnx_path,
++        input_names=["input"],
++        output_names=["output"],
++        # Keep batch/sequence fixed for mobile. This avoids extra transpose/reshape surprises.
++        dynamic_axes=None,
++        opset_version=17,
++    )
++    return dummy_input
++
++
++def write_patched_onnx2tf_runner(runner_path):
++    patch_code = """
++import sys
++import numpy as np
++import onnx
++
++if not hasattr(onnx, "mapping"):
++    class MockMapping:
++        pass
++    onnx.mapping = MockMapping()
++
++if not hasattr(onnx.mapping, "TENSOR_TYPE_TO_NP_TYPE"):
++    onnx.mapping.TENSOR_TYPE_TO_NP_TYPE = {
++        1: np.dtype("float32"), 2: np.dtype("uint8"), 3: np.dtype("int8"),
++        4: np.dtype("uint16"), 5: np.dtype("int16"), 6: np.dtype("int32"),
++        7: np.dtype("int64"), 8: np.dtype("object"), 9: np.dtype("bool"),
++        10: np.dtype("float16"), 11: np.dtype("double"), 12: np.dtype("uint32"),
++        13: np.dtype("uint64"), 14: np.dtype("complex64"), 15: np.dtype("complex128"),
++        16: np.dtype("float32"),
++    }
++
++from onnx2tf import main
++
++sys.argv = ["onnx2tf"] + sys.argv[1:]
++main()
++"""
++    runner_path.write_text(patch_code, encoding="utf-8")
++
++
++def convert_onnx_to_saved_model(onnx_path, saved_model_dir):
++    runner_path = SCRIPT_DIR / "patched_onnx2tf_v5.py"
++    write_patched_onnx2tf_runner(runner_path)
++
++    if saved_model_dir.exists():
++        shutil.rmtree(saved_model_dir)
++
++    print(f"[2/4] Convert ONNX -> TensorFlow SavedModel: {saved_model_dir}")
++    command = [
++        sys.executable,
++        str(runner_path),
++        "-i",
++        str(onnx_path),
++        "-o",
++        str(saved_model_dir),
++        "-ois",
++        f"input:1,{SEQ_LEN},{INPUT_DIM}",
++        "-kt",
++        "input",
++    ]
++
++    try:
++        subprocess.run(command, check=True)
++    finally:
++        if runner_path.exists():
++            runner_path.unlink()
++
++
++def convert_saved_model_to_tflite(saved_model_dir, tflite_path, quantization="float32"):
++    import tensorflow as tf
++
++    print(f"[3/4] Convert SavedModel -> TFLite {quantization}: {tflite_path}")
++    converter = tf.lite.TFLiteConverter.from_saved_model(str(saved_model_dir))
++    if quantization == "float32":
++        converter.optimizations = []
++    elif quantization == "float16":
++        converter.optimizations = [tf.lite.Optimize.DEFAULT]
++        converter.target_spec.supported_types = [tf.float16]
++    else:
++        raise ValueError(f"Unsupported quantization mode: {quantization}")
++    tflite_model = converter.convert()
++    tflite_path.write_bytes(tflite_model)
++
++
++def compare_outputs(export_model, dummy_input, onnx_path, tflite_paths):
++    print("[4/4] Compare PyTorch / ONNX / TFLite outputs")
++    with torch.no_grad():
++        torch_output = export_model(dummy_input).cpu().numpy()
++
++    try:
++        import onnxruntime as ort
++
++        ort_session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
++        onnx_output = ort_session.run(None, {"input": dummy_input.numpy()})[0]
++        print(f"- PyTorch vs ONNX max_abs_diff: {np.max(np.abs(torch_output - onnx_output)):.8f}")
++    except ImportError:
++        print("- Skip ONNXRuntime check: onnxruntime is not installed.")
++
++    try:
++        import tensorflow as tf
++
++        for label, tflite_path in tflite_paths:
++            interpreter = tf.lite.Interpreter(model_path=str(tflite_path))
++            interpreter.allocate_tensors()
++            input_details = interpreter.get_input_details()
++            output_details = interpreter.get_output_details()
++            interpreter.set_tensor(input_details[0]["index"], dummy_input.numpy().astype(np.float32))
++            interpreter.invoke()
++            tflite_output = interpreter.get_tensor(output_details[0]["index"])
++            print(
++                f"- PyTorch vs TFLite {label} max_abs_diff: "
++                f"{np.max(np.abs(torch_output - tflite_output)):.8f}"
++            )
++            print(f"  input shape: {input_details[0]['shape']}, dtype={input_details[0]['dtype']}")
++            print(f"  output shape: {output_details[0]['shape']}, dtype={output_details[0]['dtype']}")
++    except ImportError:
++        print("- Skip TFLite check: tensorflow is not installed.")
++
++
++def convert_pt_to_tflite(
++    model_path,
++    label_map_path,
++    onnx_path,
++    tflite_path,
++    quantization="both",
++    keep_saved_model=False,
++):
++    if onnx is None:
++        raise RuntimeError("onnx is not installed. Install onnx before conversion.")
++
++    model_path = Path(model_path)
++    label_map_path = Path(label_map_path)
++    onnx_path = Path(onnx_path)
++    tflite_path = Path(tflite_path)
++    saved_model_dir = tflite_path.parent / "tflite_saved_model"
++
++    if not model_path.exists():
++        raise FileNotFoundError(f"Model file not found: {model_path}")
++    if not label_map_path.exists():
++        raise FileNotFoundError(f"Label map file not found: {label_map_path}")
++
++    num_classes = load_num_classes(label_map_path)
++    print(f"Detected classes from label map: {num_classes}")
++    print(f"Input shape: [1, {SEQ_LEN}, {INPUT_DIM}]")
++
++    model = load_model(model_path, num_classes)
++    export_model = SoftmaxWrapper(model).eval()
++
++    onnx_path.parent.mkdir(parents=True, exist_ok=True)
++    tflite_path.parent.mkdir(parents=True, exist_ok=True)
++
++    dummy_input = export_onnx(export_model, onnx_path)
++    convert_onnx_to_saved_model(onnx_path, saved_model_dir)
++
++    generated_tflites = []
++    if quantization in ("float32", "both"):
++        float32_path = tflite_path if quantization == "float32" else tflite_path.with_name(f"{tflite_path.stem}_float32.tflite")
++        convert_saved_model_to_tflite(saved_model_dir, float32_path, quantization="float32")
++        generated_tflites.append(("float32", float32_path))
++
++    if quantization in ("float16", "both"):
++        float16_path = tflite_path if quantization == "float16" else tflite_path.with_name(f"{tflite_path.stem}_float16.tflite")
++        convert_saved_model_to_tflite(saved_model_dir, float16_path, quantization="float16")
++        generated_tflites.append(("float16", float16_path))
++
++    compare_outputs(export_model, dummy_input, onnx_path, generated_tflites)
++
++    if not keep_saved_model and saved_model_dir.exists():
++        shutil.rmtree(saved_model_dir)
++
++    print("\nConversion complete.")
++    print(f"- ONNX: {onnx_path}")
++    for label, generated_path in generated_tflites:
++        print(f"- TFLite {label}: {generated_path} ({generated_path.stat().st_size / 1024 / 1024:.2f} MB)")
++    print(f"- Label map: {label_map_path}")
++
++
++def parse_args():
++    parser = argparse.ArgumentParser(description="Convert V5 PyTorch model to TFLite.")
++    parser.add_argument("--model-dir", default=None, help="Model directory name/path. Defaults to the stable 7-word demo model.")
++    parser.add_argument("--model", default=None, help="Path to .pt model. Defaults to latest numbered V5 model.")
++    parser.add_argument("--label-map", default=None, help="Path to label_map_v5_*.json. Defaults to matching latest model.")
++    parser.add_argument("--onnx", default=None, help="Output .onnx path")
++    parser.add_argument("--tflite", default=None, help="Output .tflite base path")
++    parser.add_argument(
++        "--quantization",
++        choices=("float32", "float16", "both"),
++        default="both",
++        help="TFLite output type. Use 'both' to create float32 and float16 files.",
++    )
++    parser.add_argument("--keep-saved-model", action="store_true", help="Keep intermediate TensorFlow SavedModel")
++    return parser.parse_args()
++
++
++if __name__ == "__main__":
++    args = parse_args()
++    model_dir = resolve_model_dir(args.model_dir)
++    latest_suffix, latest_model_path, latest_label_map_path = find_latest_numbered_pair(model_dir)
++
++    model_path = Path(args.model) if args.model else latest_model_path
++    label_map_path = Path(args.label_map) if args.label_map else latest_label_map_path
++
++    if model_path is None or label_map_path is None:
++        model_path = model_dir / "best_sign_model_v5.pt"
++        label_map_path = model_dir / "label_map_v5.json"
++
++    output_stem = model_path.stem if model_path is not None else "best_sign_model_v5"
++    onnx_path = Path(args.onnx) if args.onnx else model_dir / f"{output_stem}.onnx"
++    tflite_path = Path(args.tflite) if args.tflite else model_dir / f"{output_stem}.tflite"
++
++    convert_pt_to_tflite(
++        model_path=model_path,
++        label_map_path=label_map_path,
++        onnx_path=onnx_path,
++        tflite_path=tflite_path,
++        quantization=args.quantization,
++        keep_saved_model=args.keep_saved_model,
++    )
+
+
+diff --git a/ai/src/sign2text_transformer/dataset.py b/ai/src/sign2text_transformer/dataset.py
+--- a/ai/src/sign2text_transformer/dataset.py
++++ b/ai/src/sign2text_transformer/dataset.py
+
+diff --git a/ai/src/sign2text_transformer/download_npy.py b/ai/src/sign2text_transformer/download_npy.py
+--- a/ai/src/sign2text_transformer/download_npy.py
++++ b/ai/src/sign2text_transformer/download_npy.py
+@@ -1,60 +1,147 @@
+ import os
++from collections import Counter, defaultdict
++from concurrent.futures import ThreadPoolExecutor, as_completed
++
+ import boto3
+-import concurrent.futures
+-from dotenv import load_dotenv
++import numpy as np
++
++
++AWS_ACCESS_KEY = os.environ.get("AWS_ACCESS_KEY")
++AWS_SECRET_KEY = os.environ.get("AWS_SECRET_KEY")
++BUCKET_NAME = os.environ.get("S3_BUCKET_NAME")
++
++SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
++S3_SOURCE_PREFIX = "processed_npy_v5/"
++LOCAL_DOWNLOAD_DIR = os.path.join(SCRIPT_DIR, "processed_npy_v5")
++EXPECTED_INPUT_DIM = 332
++MAX_WORKERS = int(os.environ.get("V5_DOWNLOAD_WORKERS", "8"))
+ 
+-load_dotenv()
+-AWS_ACCESS_KEY = os.getenv('AWS_ACCESS_KEY')
+-AWS_SECRET_KEY = os.getenv('AWS_SECRET_KEY')
+-BUCKET_NAME = os.getenv('S3_BUCKET_NAME')
+ 
+-TARGET_DIR = './s3_downloaded_data'
++def validate_env():
++    missing = [
++        name
++        for name, value in {
++            "AWS_ACCESS_KEY": AWS_ACCESS_KEY,
++            "AWS_SECRET_KEY": AWS_SECRET_KEY,
++            "S3_BUCKET_NAME": BUCKET_NAME,
++        }.items()
++        if not value
++    ]
++    if missing:
++        raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
+ 
+-def download_single_file(s3_key):
+-    s3_client = boto3.client(
+-        's3',
++
++def make_s3_client():
++    return boto3.client(
++        "s3",
+         aws_access_key_id=AWS_ACCESS_KEY,
+-        aws_secret_access_key=AWS_SECRET_KEY
++        aws_secret_access_key=AWS_SECRET_KEY,
+     )
+-    
+-    relative_path = s3_key.replace('processed_npy/', '')
+-    local_path = os.path.join(TARGET_DIR, relative_path)
+-    
+-    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+-    
++
++
++def remove_prefix(value, prefix):
++    if value.startswith(prefix):
++        return value[len(prefix):]
++    return value
++
++
++def download_single_file(s3_client, s3_key, local_path):
+     try:
++        if os.path.exists(local_path):
++            return f"SKIP already exists: {local_path}"
++
++        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+         s3_client.download_file(BUCKET_NAME, s3_key, local_path)
+-        return f"📥 다운로드 완료: {local_path}"
++        return f"DONE downloaded: {local_path}"
+     except Exception as e:
+-        return f"❌ 실패 ({s3_key}): {e}"
++        return f"FAIL download {s3_key}: {e}"
+ 
+-def download_all_processed_npy():
+-    s3_client = boto3.client(
+-        's3',
+-        aws_access_key_id=AWS_ACCESS_KEY,
+-        aws_secret_access_key=AWS_SECRET_KEY
+-    )
+-    
+-    print(f"📂 S3 '{BUCKET_NAME}'에서 141차원 추출 데이터를 찾는 중...")
+-    target_keys = []
+-    paginator = s3_client.get_paginator('list_objects_v2')
+-    
+-    for page in paginator.paginate(Bucket=BUCKET_NAME, Prefix='processed_npy/'):
+-        if 'Contents' in page:
+-            for obj in page['Contents']:
+-                if obj['Key'].endswith('.npy'):
+-                    target_keys.append(obj['Key'])
+-    
+-    if not target_keys:
+-        print("⚠️ 다운로드할 .npy 파일이 없습니다. 추출기가 아직 실행 중인지 확인하세요.")
++
++def generate_s3_keys(s3_client, prefix):
++    paginator = s3_client.get_paginator("list_objects_v2")
++    for page in paginator.paginate(Bucket=BUCKET_NAME, Prefix=prefix):
++        for obj in page.get("Contents", []):
++            if obj["Key"].endswith(".npy"):
++                yield obj["Key"]
++
++
++def summarize_local_files():
++    class_counts = Counter()
++    variant_counts = Counter()
++    shape_samples = defaultdict(list)
++    bad_shapes = []
++
++    for root, _, files in os.walk(LOCAL_DOWNLOAD_DIR):
++        for filename in files:
++            if not filename.endswith(".npy"):
++                continue
++
++            path = os.path.join(root, filename)
++            rel_path = os.path.relpath(path, LOCAL_DOWNLOAD_DIR)
++            path_parts = rel_path.split(os.sep)
++            class_name = path_parts[0]
++            variant_name = path_parts[1] if len(path_parts) > 1 else class_name
++
++            class_counts[class_name] += 1
++            variant_counts[f"{class_name}/{variant_name}"] += 1
++
++            if len(shape_samples[class_name]) >= 3:
++                continue
++
++            try:
++                data = np.load(path, mmap_mode="r")
++                shape_samples[class_name].append((rel_path, tuple(data.shape)))
++                if data.ndim != 2 or data.shape[1] != EXPECTED_INPUT_DIM:
++                    bad_shapes.append((rel_path, tuple(data.shape)))
++            except Exception as e:
++                bad_shapes.append((rel_path, f"load error: {e}"))
++
++    print("\nClass counts:")
++    for class_name, count in sorted(class_counts.items()):
++        print(f"- {class_name}: {count}")
++
++    print("\nVariant counts:")
++    for variant_name, count in sorted(variant_counts.items()):
++        print(f"- {variant_name}: {count}")
++
++    print("\nShape samples:")
++    for class_name, samples in sorted(shape_samples.items()):
++        for rel_path, shape in samples:
++            print(f"- {class_name}: {rel_path} shape={shape}")
++
++    if bad_shapes:
++        print("\nBad shapes:")
++        for rel_path, shape in bad_shapes[:20]:
++            print(f"- {rel_path}: {shape}")
++    else:
++        print(f"\nAll sampled files match input_dim={EXPECTED_INPUT_DIM}.")
++
++
++def main():
++    validate_env()
++    s3_client = make_s3_client()
++
++    print(f"List V5 npy files from S3: {S3_SOURCE_PREFIX}")
++    s3_keys = list(generate_s3_keys(s3_client, S3_SOURCE_PREFIX))
++
++    if not s3_keys:
++        print("No .npy files found to download.")
+         return
+ 
+-    print(f"🚀 총 {len(target_keys)}개 파일 병렬 다운로드 시작...")
+-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+-        results = list(executor.map(download_single_file, target_keys))
+-    
+-    for res in results[:10]: print(res)
+-    print(f"✅ 다운로드 완료! 총 {len(target_keys)}개 파일을 {TARGET_DIR}에 저장했습니다.")
++    print(f"Start download: {len(s3_keys)} files -> {LOCAL_DOWNLOAD_DIR}")
++
++    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
++        future_to_key = {}
++        for key in s3_keys:
++            local_path = os.path.join(LOCAL_DOWNLOAD_DIR, remove_prefix(key, S3_SOURCE_PREFIX)).replace("\\", "/")
++            future = executor.submit(download_single_file, s3_client, key, local_path)
++            future_to_key[future] = key
++
++        for future in as_completed(future_to_key):
++            print(future.result())
++
++    summarize_local_files()
++
+ 
+ if __name__ == "__main__":
+-    download_all_processed_npy()
++    main()
+
+
+diff --git a/ai/src/sign2text_transformer/evaluate_holdout.py b/ai/src/sign2text_transformer/evaluate_holdout.py
+--- /dev/null
++++ b/ai/src/sign2text_transformer/evaluate_holdout.py
+@@ -0,0 +1,312 @@
++import json
++import os
++from collections import Counter
++from pathlib import Path
++
++import numpy as np
++import torch
++
++from dataset import INPUT_DIM, KSLDatasetV5
++from model import KSLTransformerV5
++
++
++SCRIPT_DIR = Path(__file__).resolve().parent
++MODELS_ROOT = SCRIPT_DIR / "models"
++HOLDOUT_DIR = Path(os.environ.get("V5_HOLDOUT_DIR", SCRIPT_DIR / "holdout_test_v5"))
++MODEL_DIR_NAME = os.environ.get("V5_MODEL_DIR", "")
++MODEL_PATH = os.environ.get("V5_MODEL_PATH", "")
++LABEL_MAP_PATH = os.environ.get("V5_LABEL_MAP_PATH", "")
++
++DEFAULT_MODEL_DIRS = [
++    "overfit_model_v5_7words_demo_stable",
++    "7words_demo_stable",
++    "overfit_model_v5_8words_no_oda_jada",
++    "8words_new_1",
++]
++MAX_LEN = int(os.environ.get("V5_MAX_LEN", "30"))
++BATCH_SIZE = int(os.environ.get("V5_HOLDOUT_BATCH_SIZE", "16"))
++TOP_K = int(os.environ.get("V5_TOP_K", "3"))
++
++
++def resolve_model_path(path_or_name):
++    path = Path(path_or_name)
++    if path.is_absolute():
++        return path
++    if path.exists():
++        return path.resolve()
++    return MODELS_ROOT / path
++
++
++def choose_model_dir():
++    if MODEL_DIR_NAME:
++        return resolve_model_path(MODEL_DIR_NAME)
++
++    for dirname in DEFAULT_MODEL_DIRS:
++        candidate = MODELS_ROOT / dirname
++        if candidate.exists():
++            return candidate
++
++    return MODELS_ROOT / DEFAULT_MODEL_DIRS[0]
++
++
++def find_latest_numbered_pair(model_dir):
++    model_dir = resolve_model_path(model_dir)
++    pairs = []
++
++    legacy_model = model_dir / "best_sign_model_v5.pt"
++    legacy_label_map = model_dir / "label_map_v5.json"
++    if legacy_model.exists() and legacy_label_map.exists():
++        pairs.append((0, legacy_model, legacy_label_map))
++
++    for model_path in model_dir.glob("best_sign_model_v5_*.pt"):
++        suffix = model_path.stem.replace("best_sign_model_v5_", "")
++        if not suffix.isdigit():
++            continue
++
++        label_map_path = model_dir / f"label_map_v5_{suffix}.json"
++        config_path = model_dir / f"train_config_v5_{suffix}.json"
++        if label_map_path.exists():
++            pairs.append((int(suffix), model_path, label_map_path))
++        elif config_path.exists():
++            pairs.append((int(suffix), model_path, config_path))
++
++    if not pairs:
++        return None, None
++
++    _, model_path, label_map_path = sorted(pairs, key=lambda item: item[0])[-1]
++    return model_path, label_map_path
++
++
++def find_model_files():
++    if MODEL_PATH and LABEL_MAP_PATH:
++        return resolve_model_path(MODEL_PATH), resolve_model_path(LABEL_MAP_PATH)
++
++    model_dir = choose_model_dir()
++    return find_latest_numbered_pair(model_dir)
++
++
++def load_label_map(label_map_path):
++    with open(label_map_path, "r", encoding="utf-8") as f:
++        raw = json.load(f)
++
++    if isinstance(raw, dict) and "classes" in raw:
++        raw = raw["classes"]
++
++    if isinstance(raw, dict):
++        return [raw[str(idx)] for idx in range(len(raw))]
++
++    if isinstance(raw, list):
++        return raw
++
++    raise ValueError(f"Unsupported label map format: {label_map_path}")
++
++
++def collect_holdout_files(holdout_dir, classes):
++    holdout_dir = Path(holdout_dir)
++    class_to_idx = {class_name: idx for idx, class_name in enumerate(classes)}
++    samples = []
++    missing_classes = []
++    unknown_dirs = []
++
++    for class_name in classes:
++        class_dir = holdout_dir / class_name
++        if not class_dir.exists():
++            missing_classes.append(class_name)
++            continue
++
++        files = sorted(class_dir.rglob("*.npy"))
++        if not files:
++            missing_classes.append(class_name)
++            continue
++
++        for file_path in files:
++            samples.append((file_path, class_to_idx[class_name], class_name))
++
++    if holdout_dir.exists():
++        for path in sorted(holdout_dir.iterdir()):
++            if path.is_dir() and path.name not in class_to_idx:
++                unknown_dirs.append(path.name)
++
++    return samples, missing_classes, unknown_dirs
++
++
++def load_state_dict(model_path, device):
++    try:
++        return torch.load(model_path, map_location=device, weights_only=True)
++    except TypeError:
++        return torch.load(model_path, map_location=device)
++
++
++def preprocess_file(file_path, dataset_helper):
++    data = np.load(file_path)
++    data = dataset_helper.normalize_features(data)
++    data, valid_length = dataset_helper.adjust_sequence_length(data)
++    if valid_length <= 0:
++        raise ValueError("valid_length is 0")
++    return torch.from_numpy(np.array(data, dtype=np.float32)), int(valid_length)
++
++
++def format_topk(probs, classes, top_k=TOP_K):
++    k = min(top_k, len(classes))
++    top_indices = np.argsort(probs)[::-1][:k]
++    return ", ".join(
++        f"{classes[int(idx)]}:{float(probs[idx]):.3f}"
++        for idx in top_indices
++    )
++
++
++def print_confusion_matrix(classes, labels, preds, present_indices):
++    print("\n[Confusion Matrix]")
++    header = "true \\ pred".ljust(14) + " ".join(classes[idx][:6].rjust(8) for idx in present_indices)
++    print(header)
++    for true_idx in present_indices:
++        row = []
++        for pred_idx in present_indices:
++            row.append(sum(1 for y, p in zip(labels, preds) if y == true_idx and p == pred_idx))
++        print(classes[true_idx].ljust(14) + " ".join(str(value).rjust(8) for value in row))
++
++    outside = Counter()
++    for y, p in zip(labels, preds):
++        if p not in present_indices:
++            outside[(classes[y], classes[p])] += 1
++
++    if outside:
++        print("\n[Predicted Outside Holdout Classes]")
++        for (true_name, pred_name), count in outside.most_common():
++            print(f"- {true_name} -> {pred_name}: {count}")
++
++
++def evaluate():
++    holdout_dir = Path(HOLDOUT_DIR)
++    model_path, label_map_path = find_model_files()
++
++    if model_path is None or not model_path.exists():
++        print("V5 model file was not found.")
++        print(f"Configured model dir: {choose_model_dir()}")
++        return
++
++    if label_map_path is None or not label_map_path.exists():
++        print("V5 label map file was not found.")
++        print(f"Configured model dir: {choose_model_dir()}")
++        return
++
++    if not holdout_dir.exists():
++        print("Holdout directory was not found.")
++        print(f"Configured holdout dir: {holdout_dir}")
++        return
++
++    classes = load_label_map(label_map_path)
++    samples, missing_classes, unknown_dirs = collect_holdout_files(holdout_dir, classes)
++    if not samples:
++        print("No holdout npy files found for classes in label map.")
++        print(f"Holdout dir: {holdout_dir}")
++        print(f"Classes: {classes}")
++        return
++
++    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
++    model = KSLTransformerV5(
++        input_dim=INPUT_DIM,
++        num_classes=len(classes),
++        d_model=128,
++        num_heads=8,
++        num_layers=3,
++    ).to(device)
++    model.load_state_dict(load_state_dict(model_path, device))
++    model.eval()
++
++    print("[Holdout Evaluation]")
++    print(f"- device: {device}")
++    print(f"- model: {model_path}")
++    print(f"- label map: {label_map_path}")
++    print(f"- holdout dir: {holdout_dir}")
++    print(f"- classes: {classes}")
++    print(f"- files: {len(samples)}")
++    print(f"- missing classes in holdout: {missing_classes}")
++    if unknown_dirs:
++        print(f"- ignored unknown holdout dirs: {unknown_dirs}")
++
++    dataset_helper = KSLDatasetV5([], [], max_len=MAX_LEN, input_dim=INPUT_DIM)
++    labels = []
++    preds = []
++    bad_files = []
++    detailed_rows = []
++
++    with torch.no_grad():
++        for start in range(0, len(samples), BATCH_SIZE):
++            batch_samples = samples[start : start + BATCH_SIZE]
++            batch_data = []
++            batch_lengths = []
++            batch_labels = []
++            batch_paths = []
++
++            for file_path, label_idx, _ in batch_samples:
++                try:
++                    data, valid_length = preprocess_file(file_path, dataset_helper)
++                    batch_data.append(data)
++                    batch_lengths.append(valid_length)
++                    batch_labels.append(label_idx)
++                    batch_paths.append(file_path)
++                except Exception as e:
++                    bad_files.append((file_path, str(e)))
++
++            if not batch_data:
++                continue
++
++            x = torch.stack(batch_data).to(device)
++            lengths = torch.tensor(batch_lengths, dtype=torch.long, device=device)
++            logits = model(x, lengths=lengths)
++            probs = torch.softmax(logits, dim=1).cpu().numpy()
++            batch_preds = probs.argmax(axis=1).tolist()
++
++            for file_path, true_idx, pred_idx, prob_row in zip(
++                batch_paths,
++                batch_labels,
++                batch_preds,
++                probs,
++            ):
++                labels.append(true_idx)
++                preds.append(pred_idx)
++                detailed_rows.append((file_path, true_idx, pred_idx, prob_row))
++
++    total = len(labels)
++    correct = sum(1 for y, p in zip(labels, preds) if y == p)
++    accuracy = 100.0 * correct / max(total, 1)
++
++    present_indices = sorted(set(labels))
++    print(f"\n[Summary]")
++    print(f"- evaluated files: {total}")
++    print(f"- skipped bad files: {len(bad_files)}")
++    print(f"- accuracy: {accuracy:.2f}% ({correct}/{total})")
++
++    print("\n[Per-Class Accuracy]")
++    for idx in present_indices:
++        class_total = sum(1 for y in labels if y == idx)
++        class_correct = sum(1 for y, p in zip(labels, preds) if y == idx and p == idx)
++        class_acc = 100.0 * class_correct / max(class_total, 1)
++        print(f"- {classes[idx]}: {class_acc:.2f}% ({class_correct}/{class_total})")
++
++    print_confusion_matrix(classes, labels, preds, present_indices)
++
++    print("\n[Wrong Predictions]")
++    wrong_count = 0
++    for file_path, true_idx, pred_idx, prob_row in detailed_rows:
++        if true_idx == pred_idx:
++            continue
++        wrong_count += 1
++        rel_path = file_path.relative_to(holdout_dir)
++        print(
++            f"- {rel_path}: true={classes[true_idx]}, pred={classes[pred_idx]}, "
++            f"top{min(TOP_K, len(classes))}=[{format_topk(prob_row, classes)}]"
++        )
++
++    if wrong_count == 0:
++        print("- none")
++
++    if bad_files:
++        print("\n[Skipped Bad Files]")
++        for file_path, reason in bad_files[:20]:
++            print(f"- {file_path}: {reason}")
++
++
++if __name__ == "__main__":
++    evaluate()
+
+
+diff --git a/ai/src/sign2text_transformer/inference_realtime_tflite.py b/ai/src/sign2text_transformer/inference_realtime_tflite.py
+--- /dev/null
++++ b/ai/src/sign2text_transformer/inference_realtime_tflite.py
+
+diff --git a/ai/src/sign2text_transformer/inference_realtime_transformer.py b/ai/src/sign2text_transformer/inference_realtime_transformer.py
+--- a/ai/src/sign2text_transformer/inference_realtime_transformer.py
++++ b/ai/src/sign2text_transformer/inference_realtime_transformer.py
+
+diff --git a/ai/src/sign2text_transformer/inference_video_tflite.py b/ai/src/sign2text_transformer/inference_video_tflite.py
+--- /dev/null
++++ b/ai/src/sign2text_transformer/inference_video_tflite.py
+
+diff --git a/ai/src/sign2text_transformer/model.py b/ai/src/sign2text_transformer/model.py
+--- a/ai/src/sign2text_transformer/model.py
++++ b/ai/src/sign2text_transformer/model.py
+@@ -1,80 +1,77 @@
++import math
++
+ import torch
+ import torch.nn as nn
+-import math
++
+ 
+ class PositionalEncoding(nn.Module):
+     def __init__(self, d_model, max_len=5000):
+-        super(PositionalEncoding, self).__init__()
+-        
+-        # 1. 시퀀스 내의 위치(순서)를 표현할 행렬 생성
++        super().__init__()
+         pe = torch.zeros(max_len, d_model)
+         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+-        
+-        # 2. 주파수 스케일링을 위한 분모 계산
+-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+-        
+-        # 3. 짝수 인덱스에는 Sin, 홀수 인덱스에는 Cos 함수 적용
++        div_term = torch.exp(
++            torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)
++        )
+         pe[:, 0::2] = torch.sin(position * div_term)
+         pe[:, 1::2] = torch.cos(position * div_term)
+-        
+-        # pe shape: (1, max_len, d_model)
+         pe = pe.unsqueeze(0)
+-        self.register_buffer('pe', pe)
++        self.register_buffer("pe", pe)
+ 
+     def forward(self, x):
+-        # x shape: (batch_size, seq_len, d_model)
+         seq_len = x.size(1)
+-        # 입력 x에 Positional Encoding 값을 더해줌
+-        x = x + self.pe[:, :seq_len, :]
+-        return x
++        return x + self.pe[:, :seq_len, :]
++
+ 
+-class KSLTransformer(nn.Module):
+-    def __init__(self, input_dim=141, num_classes=110, d_model=128, num_heads=8, num_layers=3, dim_feedforward=512, dropout=0.1):
+-        super(KSLTransformer, self).__init__()
+-        
+-        # 1. 입력 차원(141)을 모델 내부 차원(128)으로 축소/확장 (Linear Projection)
++class KSLTransformerV5(nn.Module):
++    def __init__(
++        self,
++        input_dim=332,
++        num_classes=4,
++        d_model=128,
++        num_heads=8,
++        num_layers=3,
++        dim_feedforward=512,
++        dropout=0.1,
++    ):
++        super().__init__()
+         self.input_projection = nn.Linear(input_dim, d_model)
+-        
+-        # 2. 시간에 대한 순서 정보를 부여하는 Positional Encoding
+         self.pos_encoder = PositionalEncoding(d_model)
+-        
+-        # 3. Transformer Encoder 블록 생성
+-        # 모바일 환경을 고려하여 layer 수와 차원을 최대한 얇게 유지
++
+         encoder_layer = nn.TransformerEncoderLayer(
+-            d_model=d_model, 
+-            nhead=num_heads, 
+-            dim_feedforward=dim_feedforward, 
++            d_model=d_model,
++            nhead=num_heads,
++            dim_feedforward=dim_feedforward,
+             dropout=dropout,
+-            batch_first=True # (batch_size, seq_len, d_model) 형태 사용
++            batch_first=True,
+         )
+         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+-        
+-        # 4. 분류기 (Classifier)
+-        # 30프레임의 시퀀스 정보를 하나로 압축한 뒤(GAP), 110개의 단어로 분류
++
+         self.classifier = nn.Sequential(
+             nn.Linear(d_model, d_model // 2),
+             nn.ReLU(),
+             nn.Dropout(dropout),
+-            nn.Linear(d_model // 2, num_classes)
++            nn.Linear(d_model // 2, num_classes),
+         )
+ 
+-    def forward(self, x):
+-        # x shape: (batch_size, seq_len(30), input_dim(141))
+-        
+-        # Step 1. 임베딩 및 위치 정보 추가
+-        x = self.input_projection(x)  # (batch_size, 30, 128)
+-        x = self.pos_encoder(x)       # (batch_size, 30, 128)
+-        
+-        # Step 2. Transformer 인코더 통과
+-        # Self-Attention을 통해 각 프레임 간의 움직임 연관성을 파악
+-        encoded = self.transformer_encoder(x) # (batch_size, 30, 128)
+-        
+-        # Step 3. Global Average Pooling (시간 축(30 프레임)을 평균내어 하나의 벡터로 압축)
+-        # (batch_size, 30, 128) -> (batch_size, 128)
+-        pooled = encoded.mean(dim=1) 
+-        
+-        # Step 4. 최종 분류
+-        # (batch_size, 110)
++    def forward(self, x, lengths=None, return_probs=False):
++        x = self.input_projection(x)
++        x = self.pos_encoder(x)
++
++        padding_mask = None
++        if lengths is not None:
++            max_len = x.size(1)
++            positions = torch.arange(max_len, device=x.device).unsqueeze(0)
++            padding_mask = positions >= lengths.unsqueeze(1)
++
++        encoded = self.transformer_encoder(x, src_key_padding_mask=padding_mask)
++
++        if lengths is not None:
++            valid_mask = (~padding_mask).unsqueeze(-1).float()
++            pooled = (encoded * valid_mask).sum(dim=1) / valid_mask.sum(dim=1).clamp(min=1.0)
++        else:
++            pooled = encoded.mean(dim=1)
++
+         output = self.classifier(pooled)
+-        
++        if return_probs:
++            return torch.softmax(output, dim=1)
+         return output
+
+
+diff --git a/ai/src/sign2text_transformer/s3_mediapipe_extractor.py b/ai/src/sign2text_transformer/s3_mediapipe_extractor.py
+--- a/ai/src/sign2text_transformer/s3_mediapipe_extractor.py
++++ b/ai/src/sign2text_transformer/s3_mediapipe_extractor.py
+@@ -1,104 +1,372 @@
+-import boto3
+-import cv2
+-import mediapipe as mp
+-import numpy as np
++import gc
+ import os
++import re
+ import tempfile
+ import time
+ from concurrent.futures import ProcessPoolExecutor, as_completed
+ 
+-AWS_ACCESS_KEY = os.environ.get('AWS_ACCESS_KEY')
+-AWS_SECRET_KEY = os.environ.get('AWS_SECRET_KEY')
+-BUCKET_NAME = os.environ.get('S3_BUCKET_NAME')
+-S3_SOURCE_PREFIX = 'raw_videos/'
+-S3_TARGET_PREFIX = 'processed_npy_v2/'
++import boto3
++import cv2
++import mediapipe as mp
++import numpy as np
+ 
+-POSE_IDXS = [0, 11, 12, 13, 14]
+ 
+-def extract_keypoints(results, last_pose):
+-    if results.left_hand_landmarks:
+-        lh = np.array([[lm.x, lm.y, lm.z] for lm in results.left_hand_landmarks.landmark]).flatten()
+-    else:
+-        lh = np.zeros(21 * 3)
++AWS_ACCESS_KEY = os.environ.get("AWS_ACCESS_KEY")
++AWS_SECRET_KEY = os.environ.get("AWS_SECRET_KEY")
++BUCKET_NAME = os.environ.get("S3_BUCKET_NAME")
++
++S3_SOURCE_PREFIX = "raw_videos/"
++S3_TARGET_PREFIX = "processed_npy_v5/"
++DEFAULT_MAX_WORKERS = 2
++DEFAULT_BATCH_SIZE = 8
++
++# A source folder is included only when it is exactly the word or word + digits.
++# Example: "엄마", "엄마1", "엄마2" are included for "엄마"; "작은엄마" is not.
++TARGET_WORDS = [
++    "기차",
++    "장난감",
++    "놀다",
++    "가다",
++    "오다",
++    "자다",
++    "일어나다",
++    "아프다",
++    "병원",
++    "조심",
++]
++
++# Feature layout:
++# left hand 63 + right hand 63 + expanded face 135 + pose 21 + hand-face distances 50 = 332
++EXPECTED_INPUT_DIM = 332
++
++BASE_FACE_IDXS = [
++    70, 63, 105, 66,
++    336, 296, 334, 293,
++    33, 160, 158, 133, 153, 144,
++    362, 385, 387, 263, 373, 380,
++    61, 146, 91, 181, 84, 17, 314, 405, 321, 375,
++]
++FACEPLUS_IDXS = [
++    1, 4,          # nose
++    152,           # chin
++    234, 454,      # cheeks / face sides
++    172, 397,      # jaw line
++    148, 377,      # lower jaw line
++    13, 14,        # upper/lower lip center
++    78, 308,       # mouth corners
++    82, 312,       # upper lip detail
++]
++FACE_IDXS = BASE_FACE_IDXS + FACEPLUS_IDXS
++POSE_IDXS = [0, 7, 8, 11, 12, 13, 14]
++HAND_TIP_IDXS = [4, 8, 12, 16, 20]
++FACE_ANCHOR_IDXS = [1, 13, 152, 234, 454]  # nose, mouth, chin, left cheek, right cheek
++
++
++def validate_env():
++    missing = [
++        name
++        for name, value in {
++            "AWS_ACCESS_KEY": AWS_ACCESS_KEY,
++            "AWS_SECRET_KEY": AWS_SECRET_KEY,
++            "S3_BUCKET_NAME": BUCKET_NAME,
++        }.items()
++        if not value
++    ]
++    if missing:
++        raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
++
++
++def _flatten_landmarks(landmarks, idxs):
++    return np.array([[landmarks[idx].x, landmarks[idx].y, landmarks[idx].z] for idx in idxs], dtype=np.float32).flatten()
++
++
++def _hand_array(hand_landmarks):
++    if not hand_landmarks:
++        return np.zeros((21, 3), dtype=np.float32), False
++
++    points = np.array([[lm.x, lm.y, lm.z] for lm in hand_landmarks.landmark], dtype=np.float32)
++    return points, True
++
++
++def _hand_face_distances(left_hand, left_present, right_hand, right_present, face_landmarks):
++    if not face_landmarks:
++        return np.zeros(len(HAND_TIP_IDXS) * 2 * len(FACE_ANCHOR_IDXS), dtype=np.float32)
+ 
+-    if results.right_hand_landmarks:
+-        rh = np.array([[lm.x, lm.y, lm.z] for lm in results.right_hand_landmarks.landmark]).flatten()
++    anchors = np.array(
++        [
++            [
++                face_landmarks.landmark[idx].x,
++                face_landmarks.landmark[idx].y,
++                face_landmarks.landmark[idx].z,
++            ]
++            for idx in FACE_ANCHOR_IDXS
++        ],
++        dtype=np.float32,
++    )
++
++    features = []
++    for hand_points, is_present in ((left_hand, left_present), (right_hand, right_present)):
++        if not is_present:
++            features.extend([0.0] * (len(HAND_TIP_IDXS) * len(FACE_ANCHOR_IDXS)))
++            continue
++
++        for tip_idx in HAND_TIP_IDXS:
++            tip = hand_points[tip_idx]
++            features.extend(np.linalg.norm(anchors - tip, axis=1).tolist())
++
++    return np.array(features, dtype=np.float32)
++
++
++def extract_keypoints(results, last_pose, last_face):
++    left_hand, left_present = _hand_array(results.left_hand_landmarks)
++    right_hand, right_present = _hand_array(results.right_hand_landmarks)
++    lh = left_hand.flatten()
++    rh = right_hand.flatten()
++
++    if results.face_landmarks:
++        face = _flatten_landmarks(results.face_landmarks.landmark, FACE_IDXS)
++        last_face = face
+     else:
+-        rh = np.zeros(21 * 3)
++        face = last_face if last_face is not None else np.zeros(len(FACE_IDXS) * 3, dtype=np.float32)
+ 
+     if results.pose_landmarks:
+-        pose_landmarks = results.pose_landmarks.landmark
+-        pose = np.array([[pose_landmarks[idx].x, pose_landmarks[idx].y, pose_landmarks[idx].z] for idx in POSE_IDXS]).flatten()
++        pose = _flatten_landmarks(results.pose_landmarks.landmark, POSE_IDXS)
+         last_pose = pose
+     else:
+-        pose = last_pose if last_pose is not None else np.zeros(len(POSE_IDXS) * 3)
++        pose = last_pose if last_pose is not None else np.zeros(len(POSE_IDXS) * 3, dtype=np.float32)
++
++    distances = _hand_face_distances(
++        left_hand,
++        left_present,
++        right_hand,
++        right_present,
++        results.face_landmarks,
++    )
++
++    feature = np.concatenate([lh, rh, face, pose, distances]).astype(np.float32)
++    if feature.shape[0] != EXPECTED_INPUT_DIM:
++        raise ValueError(f"Unexpected feature dim: {feature.shape[0]} != {EXPECTED_INPUT_DIM}")
++
++    return feature, last_pose, last_face
++
++
++def make_s3_client():
++    return boto3.client(
++        "s3",
++        aws_access_key_id=AWS_ACCESS_KEY,
++        aws_secret_access_key=AWS_SECRET_KEY,
++    )
+ 
+-    return np.concatenate([lh, rh, pose]), last_pose
+ 
+-def process_single_video(s3_key):
++def remove_prefix(value, prefix):
++    if value.startswith(prefix):
++        return value[len(prefix):]
++    return value
++
++
++def get_int_env(name, default, minimum=1):
++    raw_value = os.environ.get(name)
++    if raw_value is None:
++        return default
++
+     try:
+-        s3_client = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY, aws_secret_access_key=AWS_SECRET_KEY)
+-        
+-        relative_path = s3_key.replace(S3_SOURCE_PREFIX, '')
+-        target_key = os.path.join(S3_TARGET_PREFIX, os.path.splitext(relative_path)[0] + '.npy').replace('\\', '/')
+-        
++        value = int(raw_value)
++    except ValueError:
++        print(f"Invalid {name}={raw_value!r}; use default={default}")
++        return default
++
++    return max(value, minimum)
++
++
++def list_source_folders(s3_client):
++    paginator = s3_client.get_paginator("list_objects_v2")
++    folders = []
++
++    for page in paginator.paginate(Bucket=BUCKET_NAME, Prefix=S3_SOURCE_PREFIX, Delimiter="/"):
++        for prefix_info in page.get("CommonPrefixes", []):
++            prefix = prefix_info["Prefix"]
++            folder_name = remove_prefix(prefix, S3_SOURCE_PREFIX).strip("/")
++            if folder_name:
++                folders.append(folder_name)
++
++    return sorted(set(folders))
++
++
++def match_target_word(folder_name):
++    for word in TARGET_WORDS:
++        if re.fullmatch(rf"{re.escape(word)}\d*", folder_name):
++            return word
++    return None
++
++
++def generate_video_jobs(s3_client):
++    paginator = s3_client.get_paginator("list_objects_v2")
++    jobs = []
++    matched_folders = []
++
++    for folder_name in list_source_folders(s3_client):
++        target_word = match_target_word(folder_name)
++        if target_word is None:
++            continue
++
++        matched_folders.append((folder_name, target_word))
++        folder_prefix = f"{S3_SOURCE_PREFIX}{folder_name}/"
++        for page in paginator.paginate(Bucket=BUCKET_NAME, Prefix=folder_prefix):
++            for obj in page.get("Contents", []):
++                key = obj["Key"]
++                if key.lower().endswith(".mp4"):
++                    jobs.append((key, target_word, folder_name))
++
++    return jobs, matched_folders
++
++
++def build_target_key(s3_key, target_word, source_folder):
++    source_prefix = f"{S3_SOURCE_PREFIX}{source_folder}/"
++    relative_path = remove_prefix(s3_key, source_prefix)
++    stem_path = os.path.splitext(relative_path)[0]
++    target_key = os.path.join(S3_TARGET_PREFIX, target_word, source_folder, stem_path + ".npy")
++    return target_key.replace("\\", "/")
++
++
++def s3_object_exists(s3_client, key):
++    try:
++        s3_client.head_object(Bucket=BUCKET_NAME, Key=key)
++        return True
++    except Exception:
++        return False
++
++
++def filter_pending_jobs(s3_client, video_jobs):
++    pending_jobs = []
++    skipped_count = 0
++
++    for job in video_jobs:
++        s3_key, target_word, source_folder = job
++        target_key = build_target_key(s3_key, target_word, source_folder)
++        if s3_object_exists(s3_client, target_key):
++            skipped_count += 1
++            continue
++        pending_jobs.append(job)
++
++    return pending_jobs, skipped_count
++
++
++def chunked(items, chunk_size):
++    for start in range(0, len(items), chunk_size):
++        yield items[start:start + chunk_size]
++
++
++def process_single_video(job):
++    s3_key, target_word, source_folder = job
++    tmp_path = None
++    tmp_npy_path = None
++    cap = None
++
++    try:
++        s3_client = make_s3_client()
++        target_key = build_target_key(s3_key, target_word, source_folder)
++
+         try:
+             s3_client.head_object(Bucket=BUCKET_NAME, Key=target_key)
+-            return f"⏭️ 스킵 (이미 존재): {target_key}"
+-        except:
++            return f"SKIP already exists: {target_key}"
++        except Exception:
+             pass
+-            
+-        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_file:
++
++        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
+             tmp_path = tmp_file.name
+-            s3_client.download_file(Bucket=BUCKET_NAME, Key=s3_key, Filename=tmp_path)
++        s3_client.download_file(Bucket=BUCKET_NAME, Key=s3_key, Filename=tmp_path)
+ 
+         video_data = []
+-        cap = cv2.VideoCapture(tmp_path)
+         last_pose = None
+-        
++        last_face = None
++        cap = cv2.VideoCapture(tmp_path)
++
+         mp_holistic = mp.solutions.holistic
+         with mp_holistic.Holistic(static_image_mode=False, min_detection_confidence=0.5) as holistic:
+             while cap.isOpened():
+                 success, frame = cap.read()
+-                if not success: break
++                if not success:
++                    break
++
+                 image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                 results = holistic.process(image_rgb)
+-                keypoints, last_pose = extract_keypoints(results, last_pose)
++                keypoints, last_pose, last_face = extract_keypoints(results, last_pose, last_face)
+                 video_data.append(keypoints)
+-        
+-        cap.release()
+-        os.remove(tmp_path)
+ 
+         if len(video_data) > 0 and last_pose is not None:
+             npy_data = np.array(video_data, dtype=np.float32)
+-            with tempfile.NamedTemporaryFile(suffix='.npy', delete=False) as tmp_npy:
+-                np.save(tmp_npy.name, npy_data)
+-                s3_client.upload_file(tmp_npy.name, BUCKET_NAME, target_key)
+-            os.remove(tmp_npy.name)
+-            return f"✅ 완료: {target_key}"
+-        return f"⚠️ 실패 (데이터 없음): {s3_key}"
+-    
++            if npy_data.ndim != 2 or npy_data.shape[1] != EXPECTED_INPUT_DIM:
++                return f"FAIL shape mismatch {npy_data.shape}: {s3_key}"
++
++            with tempfile.NamedTemporaryFile(suffix=".npy", delete=False) as tmp_npy:
++                tmp_npy_path = tmp_npy.name
++                np.save(tmp_npy_path, npy_data)
++            s3_client.upload_file(tmp_npy_path, BUCKET_NAME, target_key)
++            return f"DONE input_dim={EXPECTED_INPUT_DIM}: {target_key}"
++
++        return f"FAIL no usable pose data: {s3_key}"
++
+     except Exception as e:
+-        return f"❌ 에러 ({s3_key}): {str(e)}"
++        return f"ERROR {s3_key}: {e}"
++
++    finally:
++        if cap is not None:
++            cap.release()
++        for path in (tmp_path, tmp_npy_path):
++            if path and os.path.exists(path):
++                os.remove(path)
++        gc.collect()
++
++
++def process_jobs_in_batches(video_jobs, max_workers, batch_size):
++    completed = 0
++    total = len(video_jobs)
++
++    for batch_idx, batch in enumerate(chunked(video_jobs, batch_size), start=1):
++        print(
++            f"\nBatch {batch_idx}: {len(batch)} jobs "
++            f"(progress {completed}/{total}, workers={max_workers})"
++        )
++
++        # Recreate the pool per batch so MediaPipe/OpenCV memory is returned to the OS regularly.
++        with ProcessPoolExecutor(max_workers=max_workers) as executor:
++            future_to_video = {executor.submit(process_single_video, job): job[0] for job in batch}
++
++            for future in as_completed(future_to_video):
++                completed += 1
++                print(f"[{completed}/{total}] {future.result()}")
++                time.sleep(0.05)
++
+ 
+ def main():
+-    s3_client = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY, aws_secret_access_key=AWS_SECRET_KEY)
+-    
+-    paginator = s3_client.get_paginator('list_objects_v2')
+-    video_keys = []
+-    for page in paginator.paginate(Bucket=BUCKET_NAME, Prefix=S3_SOURCE_PREFIX):
+-        if 'Contents' in page:
+-            video_keys.extend([obj['Key'] for obj in page['Contents'] if obj['Key'].endswith('.mp4')])
+-
+-    print(f"🚀 총 {len(video_keys)}개의 영상 작업을 시작합니다. (안정화 병렬 모드)")
+-
+-    with ProcessPoolExecutor(max_workers=4) as executor:
+-        future_to_video = {executor.submit(process_single_video, key): key for key in video_keys}
+-        
+-        for future in as_completed(future_to_video):
+-            result = future.result()
+-            print(result)
+-            time.sleep(0.05)
++    validate_env()
++    s3_client = make_s3_client()
++    video_jobs, matched_folders = generate_video_jobs(s3_client)
++    max_workers = get_int_env("V5_MAX_WORKERS", DEFAULT_MAX_WORKERS)
++    batch_size = get_int_env("V5_BATCH_SIZE", DEFAULT_BATCH_SIZE)
++    batch_size = max(batch_size, max_workers)
++
++    print(f"Start V5 extraction: {len(video_jobs)} videos, input_dim={EXPECTED_INPUT_DIM}")
++    print(f"S3 source prefix: {S3_SOURCE_PREFIX}")
++    print(f"S3 target prefix: {S3_TARGET_PREFIX}")
++    print(f"Parallel config: workers={max_workers}, batch_size={batch_size}")
++    print("Matched folders:")
++    for folder_name, target_word in matched_folders:
++        print(f"- {folder_name} -> {target_word}")
++
++    if not video_jobs:
++        print("No matching .mp4 files found.")
++        return
++
++    pending_jobs, skipped_count = filter_pending_jobs(s3_client, video_jobs)
++    print(f"Resume check: skip existing={skipped_count}, pending={len(pending_jobs)}")
++
++    if not pending_jobs:
++        print("All matching videos are already processed.")
++        return
++
++    process_jobs_in_batches(pending_jobs, max_workers=max_workers, batch_size=batch_size)
++
+ 
+ if __name__ == "__main__":
+     main()
+
+
+diff --git a/ai/src/sign2text_transformer/train.py b/ai/src/sign2text_transformer/train.py
+--- a/ai/src/sign2text_transformer/train.py
++++ b/ai/src/sign2text_transformer/train.py
+

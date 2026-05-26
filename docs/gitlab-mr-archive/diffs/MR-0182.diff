@@ -1,0 +1,632 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -26,6 +26,7 @@ import com.ssafy.mobile.feature.mypage.presentation.MyPageRoute
+ import com.ssafy.mobile.feature.quiz.presentation.QuizResultRoute
+ import com.ssafy.mobile.feature.quiz.presentation.quizQuestionRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportCategoryProgressRoute
++import com.ssafy.mobile.feature.report.presentation.ReportCommunicationSummaryRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportHomeRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportQuizSessionDetailRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportQuizSessionsRoute
+@@ -379,6 +380,9 @@ fun MobileNavHost(
+                 onNavigateToCategoryProgress = {
+                     navController.navigate(Screen.ReportCategoryProgress.route)
+                 },
++                onNavigateToCommunicationSummary = {
++                    navController.navigate(Screen.ReportCommunicationSummary.route)
++                },
+                 onNavigateToQuizSessions = {
+                     navController.navigate(Screen.ReportQuizSessions.route)
+                 },
+@@ -419,6 +423,16 @@ fun MobileNavHost(
+             )
+         }
+ 
++        composable(Screen.ReportCommunicationSummary.route) {
++            ReportCommunicationSummaryRoute(
++                onNavigateBack = { navController.popBackStack() },
++                onSwitchChild = {
++                    navController.navigate(Screen.ChildSelect.route)
++                },
++                modifier = Modifier.fillMaxSize(),
++            )
++        }
++
+         composable(Screen.ReportQuizSessions.route) {
+             ReportQuizSessionsRoute(
+                 onNavigateBack = { navController.popBackStack() },
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+@@ -70,6 +70,8 @@ sealed class Screen(
+ 
+     data object ReportCategoryProgress : Screen("report_category_progress_route")
+ 
++    data object ReportCommunicationSummary : Screen("report_communication_summary_route")
++
+     data object ReportQuizSessions : Screen("report_quiz_sessions_route")
+ 
+     data object ReportQuizSessionDetail : Screen("report_quiz_session_detail/{sessionId}") {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
+@@ -1,6 +1,7 @@
+ package com.ssafy.mobile.feature.report.data.api
+ 
+ import com.ssafy.mobile.feature.report.data.dto.ReportCategoryProgressListResponseDto
++import com.ssafy.mobile.feature.report.data.dto.ReportCommunicationSummaryResponseDto
+ import com.ssafy.mobile.feature.report.data.dto.ReportQuizSessionDetailResponseDto
+ import com.ssafy.mobile.feature.report.data.dto.ReportQuizSessionListResponseDto
+ import com.ssafy.mobile.feature.report.data.dto.ReportSummaryResponseDto
+@@ -32,6 +33,12 @@ interface ReportApiService {
+         @QueryMap filters: Map<String, String> = emptyMap(),
+     ): Response<ReportCategoryProgressListResponseDto>
+ 
++    @GET("v1/children/{childId}/reports/communication-summary")
++    suspend fun getCommunicationSummary(
++        @Path("childId") childId: Long,
++        @QueryMap filters: Map<String, String> = emptyMap(),
++    ): Response<ReportCommunicationSummaryResponseDto>
++
+     @GET("v1/children/{childId}/reports/sessions")
+     suspend fun getQuizSessions(
+         @Path("childId") childId: Long,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportCommunicationSummaryDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportCommunicationSummaryDto.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportCommunicationSummaryDto.kt
+@@ -0,0 +1,131 @@
++package com.ssafy.mobile.feature.report.data.dto
++
++import com.google.gson.annotations.SerializedName
++import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationAnalysisStatus
++import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationSessionSummary
++import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationSummary
++import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationWordCount
++import com.ssafy.mobile.feature.report.domain.model.ReportExpressionTypeCounts
++
++data class ReportCommunicationSummaryResponseDto(
++    @SerializedName("childId")
++    val childId: Long,
++    @SerializedName("analysisStatus")
++    val analysisStatus: String? = null,
++    @SerializedName("totalSessionCount")
++    val totalSessionCount: Long = 0,
++    @SerializedName("totalUtteranceCount")
++    val totalUtteranceCount: Long = 0,
++    @SerializedName("averageSentenceLength")
++    val averageSentenceLength: Double = 0.0,
++    @SerializedName("frequentWords")
++    val frequentWords: List<ReportCommunicationWordCountDto> = emptyList(),
++    @SerializedName("expressionTypeCounts")
++    val expressionTypeCounts: ReportExpressionTypeCountsDto? = null,
++    @SerializedName("recentSessions")
++    val recentSessions: List<ReportCommunicationSessionSummaryDto> = emptyList(),
++    @SerializedName("generatedAt")
++    val generatedAt: String? = null,
++)
++
++data class ReportCommunicationSessionSummaryDto(
++    @SerializedName("sessionId")
++    val sessionId: Long,
++    @SerializedName("startedAt")
++    val startedAt: String? = null,
++    @SerializedName("endedAt")
++    val endedAt: String? = null,
++    @SerializedName("utteranceCount")
++    val utteranceCount: Int = 0,
++    @SerializedName("frequentWords")
++    val frequentWords: List<ReportCommunicationWordCountDto> = emptyList(),
++    @SerializedName("summary")
++    val summary: String? = null,
++    @SerializedName("analysisStatus")
++    val analysisStatus: String? = null,
++    @SerializedName("analyzedAt")
++    val analyzedAt: String? = null,
++)
++
++data class ReportCommunicationWordCountDto(
++    @SerializedName("word")
++    val word: String? = null,
++    @SerializedName("count")
++    val count: Int = 0,
++)
++
++data class ReportExpressionTypeCountsDto(
++    @SerializedName("request")
++    val request: Int = 0,
++    @SerializedName("emotion")
++    val emotion: Int = 0,
++    @SerializedName("response")
++    val response: Int = 0,
++    @SerializedName("play")
++    val play: Int = 0,
++    @SerializedName("other")
++    val other: Int = 0,
++)
++
++fun ReportCommunicationSummaryResponseDto.toDomain(): ReportCommunicationSummary =
++    ReportCommunicationSummary(
++        childId = childId,
++        analysisStatus = analysisStatus.toCommunicationAnalysisStatus(),
++        totalSessionCount = totalSessionCount,
++        totalUtteranceCount = totalUtteranceCount,
++        averageSentenceLength = averageSentenceLength,
++        frequentWords = frequentWords.mapNotNull { it.toDomainOrNull() },
++        expressionTypeCounts =
++            expressionTypeCounts?.toDomain()
++                ?: ReportExpressionTypeCounts(
++                    request = 0,
++                    emotion = 0,
++                    response = 0,
++                    play = 0,
++                    other = 0,
++                ),
++        recentSessions = recentSessions.map { it.toDomain() },
++        generatedAt = generatedAt,
++    )
++
++fun ReportCommunicationSessionSummaryDto.toDomain(): ReportCommunicationSessionSummary =
++    ReportCommunicationSessionSummary(
++        sessionId = sessionId,
++        startedAt = startedAt,
++        endedAt = endedAt,
++        utteranceCount = utteranceCount,
++        frequentWords = frequentWords.mapNotNull { it.toDomainOrNull() },
++        summary = summary.orEmpty(),
++        analysisStatus = analysisStatus.toCommunicationAnalysisStatus(),
++        analyzedAt = analyzedAt,
++    )
++
++fun ReportExpressionTypeCountsDto.toDomain(): ReportExpressionTypeCounts =
++    ReportExpressionTypeCounts(
++        request = request,
++        emotion = emotion,
++        response = response,
++        play = play,
++        other = other,
++    )
++
++private fun ReportCommunicationWordCountDto.toDomainOrNull(): ReportCommunicationWordCount? {
++    val safeWord = word?.trim().orEmpty()
++    if (safeWord.isBlank()) {
++        return null
++    }
++    return ReportCommunicationWordCount(
++        word = safeWord,
++        count = count,
++    )
++}
++
++private fun String?.toCommunicationAnalysisStatus(): ReportCommunicationAnalysisStatus =
++    when (this) {
++        "PENDING" -> ReportCommunicationAnalysisStatus.Pending
++        "PROCESSING" -> ReportCommunicationAnalysisStatus.Processing
++        "COMPLETED" -> ReportCommunicationAnalysisStatus.Completed
++        "FAILED" -> ReportCommunicationAnalysisStatus.Failed
++        "EMPTY" -> ReportCommunicationAnalysisStatus.Empty
++        else -> ReportCommunicationAnalysisStatus.Unknown
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
+@@ -4,6 +4,7 @@ import android.util.Log
+ import com.ssafy.mobile.feature.report.data.api.ReportApiService
+ import com.ssafy.mobile.feature.report.data.dto.toDomain
+ import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgressPage
++import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationSummary
+ import com.ssafy.mobile.feature.report.domain.model.ReportFilterState
+ import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionDetail
+ import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionPage
+@@ -148,6 +149,47 @@ class RemoteReportRepository
+                 Result.failure(IllegalStateException("카테고리별 리포트를 불러오는 중 오류가 발생했습니다."))
+             }
+ 
++        override suspend fun getCommunicationSummary(
++            childId: Long,
++            filter: ReportFilterState,
++        ): Result<ReportCommunicationSummary> =
++            try {
++                val response =
++                    apiService.getCommunicationSummary(
++                        childId = childId,
++                        filters = filter.toDateQueryMap(),
++                    )
++
++                if (response.isSuccessful) {
++                    val body =
++                        response.body()
++                            ?: return Result.failure(
++                                IllegalStateException("소통 발화 분석 리포트 응답이 비어 있습니다."),
++                            )
++                    Result.success(body.toDomain())
++                } else {
++                    Result.failure(
++                        IllegalStateException(
++                            response.toReportFailureMessage(
++                                endpoint = "reports/communication-summary",
++                                defaultMessage = "소통 발화 분석 리포트를 불러오지 못했습니다.",
++                            ),
++                        ),
++                    )
++                }
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: IOException) {
++                Log.e(TAG, "Report communication summary network error", e)
++                Result.failure(IOException("네트워크 연결을 확인해 주세요."))
++            } catch (
++                @Suppress("TooGenericExceptionCaught")
++                e: Exception,
++            ) {
++                Log.e(TAG, "Report communication summary unknown error", e)
++                Result.failure(IllegalStateException("소통 발화 분석 리포트를 불러오는 중 오류가 발생했습니다."))
++            }
++
+         override suspend fun getQuizSessions(
+             childId: Long,
+             page: Int,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportCommunicationSummary.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportCommunicationSummary.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportCommunicationSummary.kt
+@@ -0,0 +1,52 @@
++package com.ssafy.mobile.feature.report.domain.model
++
++data class ReportCommunicationSummary(
++    val childId: Long,
++    val analysisStatus: ReportCommunicationAnalysisStatus,
++    val totalSessionCount: Long,
++    val totalUtteranceCount: Long,
++    val averageSentenceLength: Double,
++    val frequentWords: List<ReportCommunicationWordCount>,
++    val expressionTypeCounts: ReportExpressionTypeCounts,
++    val recentSessions: List<ReportCommunicationSessionSummary>,
++    val generatedAt: String?,
++) {
++    val hasCommunicationData: Boolean
++        get() = totalSessionCount > 0 || totalUtteranceCount > 0 || recentSessions.isNotEmpty()
++}
++
++data class ReportCommunicationWordCount(
++    val word: String,
++    val count: Int,
++)
++
++data class ReportExpressionTypeCounts(
++    val request: Int,
++    val emotion: Int,
++    val response: Int,
++    val play: Int,
++    val other: Int,
++) {
++    val total: Int
++        get() = request + emotion + response + play + other
++}
++
++data class ReportCommunicationSessionSummary(
++    val sessionId: Long,
++    val startedAt: String?,
++    val endedAt: String?,
++    val utteranceCount: Int,
++    val frequentWords: List<ReportCommunicationWordCount>,
++    val summary: String,
++    val analysisStatus: ReportCommunicationAnalysisStatus,
++    val analyzedAt: String?,
++)
++
++enum class ReportCommunicationAnalysisStatus {
++    Pending,
++    Processing,
++    Completed,
++    Failed,
++    Empty,
++    Unknown,
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
+@@ -1,6 +1,7 @@
+ package com.ssafy.mobile.feature.report.domain.repository
+ 
+ import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgressPage
++import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationSummary
+ import com.ssafy.mobile.feature.report.domain.model.ReportFilterState
+ import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionDetail
+ import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionPage
+@@ -25,6 +26,11 @@ interface ReportRepository {
+         filter: ReportFilterState = ReportFilterState(),
+     ): Result<ReportCategoryProgressPage>
+ 
++    suspend fun getCommunicationSummary(
++        childId: Long,
++        filter: ReportFilterState = ReportFilterState(),
++    ): Result<ReportCommunicationSummary>
++
+     suspend fun getQuizSessions(
+         childId: Long,
+         page: Int,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCommunicationSummaryRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCommunicationSummaryRoute.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCommunicationSummaryRoute.kt
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCommunicationSummaryViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCommunicationSummaryViewModel.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCommunicationSummaryViewModel.kt
+@@ -0,0 +1,212 @@
++package com.ssafy.mobile.feature.report.presentation
++
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileManager
++import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
++import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationAnalysisStatus
++import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationSummary
++import com.ssafy.mobile.feature.report.domain.model.ReportFilterState
++import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
++import dagger.hilt.android.lifecycle.HiltViewModel
++import javax.inject.Inject
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++
++data class ReportCommunicationSummaryUiState(
++    val activeChildState: ActiveChildProfileState = ActiveChildProfileState.Loading,
++    val communicationSummaryState: ReportCommunicationSummaryState =
++        ReportCommunicationSummaryState.Idle,
++    val filterUiState: ReportFilterUiState = ReportFilterUiState(),
++)
++
++sealed interface ReportCommunicationSummaryState {
++    data object Idle : ReportCommunicationSummaryState
++
++    data object Loading : ReportCommunicationSummaryState
++
++    data class Success(
++        val summary: ReportCommunicationSummary,
++    ) : ReportCommunicationSummaryState
++
++    data class Error(
++        val message: String,
++    ) : ReportCommunicationSummaryState
++}
++
++@HiltViewModel
++class ReportCommunicationSummaryViewModel
++    @Inject
++    constructor(
++        private val activeChildProfileManager: ActiveChildProfileManager,
++        private val reportRepository: ReportRepository,
++    ) : ViewModel() {
++        private val _uiState = MutableStateFlow(ReportCommunicationSummaryUiState())
++        val uiState: StateFlow<ReportCommunicationSummaryUiState> = _uiState.asStateFlow()
++
++        private var loadJob: Job? = null
++        private var appliedFilter = defaultReportFilterState()
++
++        init {
++            loadActiveChildProfile()
++        }
++
++        fun loadActiveChildProfile() {
++            loadJob?.cancel()
++            loadJob =
++                viewModelScope.launch {
++                    _uiState.value =
++                        _uiState.value.copy(
++                            activeChildState = ActiveChildProfileState.Loading,
++                            communicationSummaryState = ReportCommunicationSummaryState.Idle,
++                        )
++
++                    val state =
++                        withContext(Dispatchers.IO) {
++                            activeChildProfileManager.getActiveChildProfile()
++                        }
++
++                    _uiState.value =
++                        _uiState.value.copy(
++                            activeChildState = state,
++                            communicationSummaryState =
++                                if (state is ActiveChildProfileState.Selected) {
++                                    ReportCommunicationSummaryState.Loading
++                                } else {
++                                    ReportCommunicationSummaryState.Idle
++                                },
++                        )
++
++                    if (state is ActiveChildProfileState.Selected) {
++                        loadCommunicationSummary(
++                            childId = state.profile.childId,
++                            filter = appliedFilter,
++                        )
++                    }
++                }
++        }
++
++        fun updateFilterInput(input: ReportFilterInputState) {
++            _uiState.value =
++                _uiState.value.copy(
++                    filterUiState =
++                        _uiState.value.filterUiState.copy(
++                            input = input,
++                            errorMessage = null,
++                        ),
++                )
++        }
++
++        fun applyFilter() {
++            val filterResult =
++                _uiState.value.filterUiState.input
++                    .toDateFilter()
++            val filter =
++                filterResult.getOrElse { throwable ->
++                    _uiState.value =
++                        _uiState.value.copy(
++                            filterUiState =
++                                _uiState.value.filterUiState.copy(
++                                    errorMessage = throwable.message ?: "필터 값을 확인해 주세요.",
++                                ),
++                        )
++                    return
++                }
++
++            appliedFilter = filter
++            _uiState.value =
++                _uiState.value.copy(
++                    filterUiState =
++                        _uiState.value.filterUiState.copy(
++                            hasAppliedFilter = filter.hasFilters(),
++                            errorMessage = null,
++                        ),
++                )
++            reloadCommunicationSummaryWithCurrentChild()
++        }
++
++        fun resetFilter() {
++            appliedFilter = defaultReportFilterState()
++            _uiState.value =
++                _uiState.value.copy(
++                    filterUiState = ReportFilterUiState(),
++                )
++            reloadCommunicationSummaryWithCurrentChild()
++        }
++
++        private fun reloadCommunicationSummaryWithCurrentChild() {
++            val childState =
++                _uiState.value.activeChildState as? ActiveChildProfileState.Selected
++                    ?: return
++            loadJob?.cancel()
++            loadJob =
++                viewModelScope.launch {
++                    _uiState.value =
++                        _uiState.value.copy(
++                            communicationSummaryState = ReportCommunicationSummaryState.Loading,
++                        )
++                    loadCommunicationSummary(
++                        childId = childState.profile.childId,
++                        filter = appliedFilter,
++                    )
++                }
++        }
++
++        private suspend fun loadCommunicationSummary(
++            childId: Long,
++            filter: ReportFilterState,
++        ) {
++            val result =
++                withContext(Dispatchers.IO) {
++                    reportRepository.getCommunicationSummary(
++                        childId = childId,
++                        filter = filter,
++                    )
++                }
++
++            if (!isSameActiveChild(childId = childId)) {
++                return
++            }
++
++            _uiState.value =
++                result.fold(
++                    onSuccess = { summary ->
++                        _uiState.value.copy(
++                            communicationSummaryState =
++                                ReportCommunicationSummaryState.Success(
++                                    summary = summary.withSafeStatus(),
++                                ),
++                        )
++                    },
++                    onFailure = { throwable ->
++                        _uiState.value.copy(
++                            communicationSummaryState =
++                                ReportCommunicationSummaryState.Error(
++                                    throwable.message ?: "소통 발화 분석 리포트를 불러오지 못했습니다.",
++                                ),
++                        )
++                    },
++                )
++        }
++
++        private fun ReportCommunicationSummary.withSafeStatus(): ReportCommunicationSummary =
++            if (
++                analysisStatus == ReportCommunicationAnalysisStatus.Unknown &&
++                !hasCommunicationData
++            ) {
++                copy(analysisStatus = ReportCommunicationAnalysisStatus.Empty)
++            } else {
++                this
++            }
++
++        private fun isSameActiveChild(childId: Long): Boolean {
++            val activeChildState = _uiState.value.activeChildState
++            return activeChildState is ActiveChildProfileState.Selected &&
++                activeChildState.profile.childId == childId
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
+@@ -40,10 +40,12 @@ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
+ import com.ssafy.mobile.feature.childprofile.domain.model.ChildProfile
+ 
+ @Composable
++@Suppress("LongParameterList")
+ fun ReportHomeRoute(
+     onNavigateToSummary: () -> Unit,
+     onNavigateToWeakWords: () -> Unit,
+     onNavigateToCategoryProgress: () -> Unit,
++    onNavigateToCommunicationSummary: () -> Unit,
+     onNavigateToQuizSessions: () -> Unit,
+     onSwitchChild: () -> Unit,
+     modifier: Modifier = Modifier,
+@@ -74,6 +76,7 @@ fun ReportHomeRoute(
+                 onNavigateToSummary = onNavigateToSummary,
+                 onNavigateToWeakWords = onNavigateToWeakWords,
+                 onNavigateToCategoryProgress = onNavigateToCategoryProgress,
++                onNavigateToCommunicationSummary = onNavigateToCommunicationSummary,
+                 onNavigateToQuizSessions = onNavigateToQuizSessions,
+                 onSwitchChild = onSwitchChild,
+                 onRetryClick = viewModel::loadActiveChildProfile,
+@@ -92,6 +95,7 @@ private data class ReportHomeActions(
+     val onNavigateToSummary: () -> Unit,
+     val onNavigateToWeakWords: () -> Unit,
+     val onNavigateToCategoryProgress: () -> Unit,
++    val onNavigateToCommunicationSummary: () -> Unit,
+     val onNavigateToQuizSessions: () -> Unit,
+     val onSwitchChild: () -> Unit,
+     val onRetryClick: () -> Unit,
+@@ -190,6 +194,14 @@ private fun ReportMenuSection(
+             onClick = actions.onNavigateToCategoryProgress,
+             enabled = enabled,
+         )
++        ReportMenuCard(
++            title = "소통 발화 분석",
++            description = "아이의 대화 발화와 표현 유형을 AI 분석으로 정리했어요.",
++            badgeText = "소통",
++            badgeTone = AppBadgeTone.Success,
++            onClick = actions.onNavigateToCommunicationSummary,
++            enabled = enabled,
++        )
+         ReportMenuCard(
+             title = "퀴즈 기록",
+             description = "아이가 풀어본 퀴즈 기록을 최신순으로 볼 수 있어요.",
+
+

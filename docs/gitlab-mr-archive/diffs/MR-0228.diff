@@ -1,0 +1,11 @@
+﻿diff --git a/backend/Dockerfile b/backend/Dockerfile
+--- a/backend/Dockerfile
++++ b/backend/Dockerfile
+@@ -1,4 +1,4 @@
+-FROM eclipse-temurin:21-jdk-alpine AS build
++FROM eclipse-temurin:21-jdk AS build
+ WORKDIR /app
+ 
+ COPY gradlew gradlew.bat settings.gradle build.gradle ./
+
+

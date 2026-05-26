@@ -1,0 +1,304 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/controller/LearnController.java b/backend/src/main/java/com/ssafy/backend/domain/learn/controller/LearnController.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/controller/LearnController.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/controller/LearnController.java
+@@ -1,12 +1,11 @@
+ package com.ssafy.backend.domain.learn.controller;
+ 
+ import com.ssafy.backend.domain.learn.docs.LearnControllerDocs;
+-import com.ssafy.backend.domain.learn.dto.response.LearnCategoryResponse;
+-import com.ssafy.backend.domain.learn.dto.response.LearnLevelResponse;
+-import com.ssafy.backend.domain.learn.dto.response.LearnWordResponse;
++import com.ssafy.backend.domain.learn.dto.response.LearnCategoryListResponse;
++import com.ssafy.backend.domain.learn.dto.response.LearnLevelListResponse;
++import com.ssafy.backend.domain.learn.dto.response.LearnWordListResponse;
+ import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
+ import com.ssafy.backend.domain.learn.service.LearnService;
+-import java.util.List;
+ import org.springframework.web.bind.annotation.GetMapping;
+ import org.springframework.web.bind.annotation.RequestMapping;
+ import org.springframework.web.bind.annotation.RequestParam;
+@@ -23,17 +22,17 @@ public class LearnController implements LearnControllerDocs {
+   }
+ 
+   @GetMapping("/categories")
+-  public List<LearnCategoryResponse> getCategories() {
++  public LearnCategoryListResponse getCategories() {
+     return learnService.getCategories();
+   }
+ 
+   @GetMapping("/levels")
+-  public List<LearnLevelResponse> getLevels() {
++  public LearnLevelListResponse getLevels() {
+     return learnService.getLevels();
+   }
+ 
+   @GetMapping("/words")
+-  public List<LearnWordResponse> getWords(
++  public LearnWordListResponse getWords(
+       @RequestParam Long categoryId, @RequestParam LearnDifficulty difficulty) {
+     return learnService.getWords(categoryId, difficulty);
+   }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/docs/LearnControllerDocs.java b/backend/src/main/java/com/ssafy/backend/domain/learn/docs/LearnControllerDocs.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/docs/LearnControllerDocs.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/docs/LearnControllerDocs.java
+@@ -1,14 +1,13 @@
+ package com.ssafy.backend.domain.learn.docs;
+ 
+-import com.ssafy.backend.domain.learn.dto.response.LearnCategoryResponse;
+-import com.ssafy.backend.domain.learn.dto.response.LearnLevelResponse;
+-import com.ssafy.backend.domain.learn.dto.response.LearnWordResponse;
++import com.ssafy.backend.domain.learn.dto.response.LearnCategoryListResponse;
++import com.ssafy.backend.domain.learn.dto.response.LearnLevelListResponse;
++import com.ssafy.backend.domain.learn.dto.response.LearnWordListResponse;
+ import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
+ import com.ssafy.backend.global.docs.ApiErrorCodes;
+ import io.swagger.v3.oas.annotations.Operation;
+ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+ import io.swagger.v3.oas.annotations.tags.Tag;
+-import java.util.List;
+ import org.springframework.web.bind.annotation.RequestParam;
+ 
+ @Tag(name = "학습 API", description = "카테고리 및 단어장 학습 API")
+@@ -19,20 +18,20 @@ public interface LearnControllerDocs {
+       description = "학습 가능한 카테고리 목록을 조회합니다.",
+       security = {@SecurityRequirement(name = "bearerAuth")})
+   @ApiErrorCodes({"COMMON_UNAUTHORIZED"})
+-  List<LearnCategoryResponse> getCategories();
++  LearnCategoryListResponse getCategories();
+ 
+   @Operation(
+       summary = "난이도 목록 조회",
+       description = "학습 가능한 난이도 목록을 조회합니다.",
+       security = {@SecurityRequirement(name = "bearerAuth")})
+   @ApiErrorCodes({"COMMON_UNAUTHORIZED"})
+-  List<LearnLevelResponse> getLevels();
++  LearnLevelListResponse getLevels();
+ 
+   @Operation(
+       summary = "카테고리/난이도별 단어 목록 조회",
+       description = "선택한 카테고리와 난이도에 해당하는 단어 목록을 조회합니다.",
+       security = {@SecurityRequirement(name = "bearerAuth")})
+   @ApiErrorCodes({"COMMON_UNAUTHORIZED"})
+-  List<LearnWordResponse> getWords(
++  LearnWordListResponse getWords(
+       @RequestParam Long categoryId, @RequestParam LearnDifficulty difficulty);
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnCategoryListResponse.java b/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnCategoryListResponse.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnCategoryListResponse.java
+@@ -0,0 +1,5 @@
++package com.ssafy.backend.domain.learn.dto.response;
++
++import java.util.List;
++
++public record LearnCategoryListResponse(List<LearnCategoryResponse> categories) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnCategoryResponse.java b/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnCategoryResponse.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnCategoryResponse.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnCategoryResponse.java
+@@ -1,5 +1,4 @@
+ package com.ssafy.backend.domain.learn.dto.response;
+ 
+-// 카테고리 목록 화면용
+ public record LearnCategoryResponse(
+-    Long id, String name, String description, String thumbnailUrl) {}
++    Long categoryId, String name, String description, String thumbnailUrl) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnLevelListResponse.java b/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnLevelListResponse.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnLevelListResponse.java
+@@ -0,0 +1,5 @@
++package com.ssafy.backend.domain.learn.dto.response;
++
++import java.util.List;
++
++public record LearnLevelListResponse(List<LearnLevelResponse> levels) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnLevelResponse.java b/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnLevelResponse.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnLevelResponse.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnLevelResponse.java
+@@ -1,3 +1,5 @@
+ package com.ssafy.backend.domain.learn.dto.response;
+ 
+-public record LearnLevelResponse(String code, String name) {}
++import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
++
++public record LearnLevelResponse(LearnDifficulty difficulty, String name, String description) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnWordListResponse.java b/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnWordListResponse.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnWordListResponse.java
+@@ -0,0 +1,5 @@
++package com.ssafy.backend.domain.learn.dto.response;
++
++import java.util.List;
++
++public record LearnWordListResponse(List<LearnWordResponse> words) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnWordResponse.java b/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnWordResponse.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnWordResponse.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/dto/response/LearnWordResponse.java
+@@ -1,5 +1,4 @@
+ package com.ssafy.backend.domain.learn.dto.response;
+ 
+-// (카테고리 + 난이도) 단어장 화면
+ public record LearnWordResponse(
+     Long wordId, String word, String displayText, String imageUrl, String audioUrl) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/entity/LearnDifficulty.java b/backend/src/main/java/com/ssafy/backend/domain/learn/entity/LearnDifficulty.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/entity/LearnDifficulty.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/entity/LearnDifficulty.java
+@@ -1,17 +1,23 @@
+ package com.ssafy.backend.domain.learn.entity;
+ 
+ public enum LearnDifficulty {
+-  EASY("쉬움"),
+-  MEDIUM("보통"),
+-  HARD("어려움");
++  EASY("쉬움", "0~2세 아이를 위한 쉬운 단어"),
++  NORMAL("보통", "3~4세 아이를 위한 기본 단어"),
++  HARD("어려움", "5세 아이를 위한 확장 단어");
+ 
+   private final String displayName;
++  private final String description;
+ 
+-  LearnDifficulty(String displayName) {
++  LearnDifficulty(String displayName, String description) {
+     this.displayName = displayName;
++    this.description = description;
+   }
+ 
+   public String getDisplayName() {
+     return displayName;
+   }
++
++  public String getDescription() {
++    return description;
++  }
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/learn/service/LearnService.java b/backend/src/main/java/com/ssafy/backend/domain/learn/service/LearnService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/learn/service/LearnService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/learn/service/LearnService.java
+@@ -1,13 +1,15 @@
+ package com.ssafy.backend.domain.learn.service;
+ 
++import com.ssafy.backend.domain.learn.dto.response.LearnCategoryListResponse;
+ import com.ssafy.backend.domain.learn.dto.response.LearnCategoryResponse;
++import com.ssafy.backend.domain.learn.dto.response.LearnLevelListResponse;
+ import com.ssafy.backend.domain.learn.dto.response.LearnLevelResponse;
++import com.ssafy.backend.domain.learn.dto.response.LearnWordListResponse;
+ import com.ssafy.backend.domain.learn.dto.response.LearnWordResponse;
+ import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
+ import com.ssafy.backend.domain.learn.repository.LearnCategoryRepository;
+ import com.ssafy.backend.domain.learn.repository.LearnRepository;
+ import java.util.Arrays;
+-import java.util.List;
+ import org.springframework.stereotype.Service;
+ import org.springframework.transaction.annotation.Transactional;
+ 
+@@ -15,7 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
+ @Transactional(readOnly = true)
+ public class LearnService {
+ 
+-  // 일단 지금은 5개로 가정
+   private static final int DEFAULT_WORD_COUNT = 5;
+ 
+   private final LearnCategoryRepository learnCategoryRepository;
+@@ -27,36 +28,43 @@ public class LearnService {
+     this.learnRepository = learnRepository;
+   }
+ 
+-  public List<LearnCategoryResponse> getCategories() {
+-    return learnCategoryRepository.findByActiveTrueOrderBySortOrderAsc().stream()
+-        .map(
+-            category ->
+-                new LearnCategoryResponse(
+-                    category.getId(),
+-                    category.getName(),
+-                    category.getDescription(),
+-                    category.getThumbnailUrl()))
+-        .toList();
++  public LearnCategoryListResponse getCategories() {
++    return new LearnCategoryListResponse(
++        learnCategoryRepository.findByActiveTrueOrderBySortOrderAsc().stream()
++            .map(
++                category ->
++                    new LearnCategoryResponse(
++                        category.getId(),
++                        category.getName(),
++                        category.getDescription(),
++                        category.getThumbnailUrl()))
++            .toList());
+   }
+ 
+-  public List<LearnLevelResponse> getLevels() {
+-    return Arrays.stream(LearnDifficulty.values())
+-        .map(difficulty -> new LearnLevelResponse(difficulty.name(), difficulty.getDisplayName()))
+-        .toList();
++  public LearnLevelListResponse getLevels() {
++    return new LearnLevelListResponse(
++        Arrays.stream(LearnDifficulty.values())
++            .map(
++                difficulty ->
++                    new LearnLevelResponse(
++                        difficulty, difficulty.getDisplayName(), difficulty.getDescription()))
++            .toList());
+   }
+ 
+-  public List<LearnWordResponse> getWords(Long categoryId, LearnDifficulty difficulty) {
+-    return learnRepository
+-        .findRandomWordsByCategoryAndDifficulty(categoryId, difficulty.name(), DEFAULT_WORD_COUNT)
+-        .stream()
+-        .map(
+-            word ->
+-                new LearnWordResponse(
+-                    word.getId(),
+-                    word.getWord(),
+-                    word.getDisplayText(),
+-                    word.getImageUrl(),
+-                    word.getAudioUrl()))
+-        .toList();
++  public LearnWordListResponse getWords(Long categoryId, LearnDifficulty difficulty) {
++    return new LearnWordListResponse(
++        learnRepository
++            .findRandomWordsByCategoryAndDifficulty(
++                categoryId, difficulty.name(), DEFAULT_WORD_COUNT)
++            .stream()
++            .map(
++                word ->
++                    new LearnWordResponse(
++                        word.getId(),
++                        word.getWord(),
++                        word.getDisplayText(),
++                        word.getImageUrl(),
++                        word.getAudioUrl()))
++            .toList());
+   }
+ }
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260507130000__rename_medium_difficulty_to_normal.sql b/backend/src/main/resources/db/migration/V20260507130000__rename_medium_difficulty_to_normal.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260507130000__rename_medium_difficulty_to_normal.sql
+@@ -0,0 +1,7 @@
++UPDATE learn
++SET difficulty = 'NORMAL'
++WHERE difficulty = 'MEDIUM';
++
++UPDATE quiz_sessions
++SET difficulty = 'NORMAL'
++WHERE difficulty = 'MEDIUM';
+
+

@@ -1,0 +1,17 @@
+﻿diff --git a/.gitlab/merge_request_templates/Default.md b/.gitlab/merge_request_templates/Default.md
+--- a/.gitlab/merge_request_templates/Default.md
++++ b/.gitlab/merge_request_templates/Default.md
+@@ -16,6 +16,11 @@
+ ## 스크린샷/로그
+ `- UI 변경이면 스크린샷 / API면 로그나 응답 캡처`
+ 
++##  테스트 결과 (선택사항)
++- [ ] 단위 테스트 작성 / 통과 여부
++- [ ] API 응답/로그 캡처 (스크린샷 첨부)
++
++
+ ## 작성자 체크리스트
+ - [ ] Secret/Env/개인정보가 포함되지 않음
+ - [ ] 불필요한 로그/디버그 코드 제거
+
+

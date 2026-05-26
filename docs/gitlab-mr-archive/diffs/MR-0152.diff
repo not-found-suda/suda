@@ -1,0 +1,1766 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
+@@ -9,11 +9,13 @@ import retrofit2.Response
+ import retrofit2.http.GET
+ import retrofit2.http.Path
+ import retrofit2.http.Query
++import retrofit2.http.QueryMap
+ 
+ interface ReportApiService {
+     @GET("v1/children/{childId}/reports/summary")
+     suspend fun getSummary(
+         @Path("childId") childId: Long,
++        @QueryMap filters: Map<String, String> = emptyMap(),
+     ): Response<ReportSummaryResponseDto>
+ 
+     @GET("v1/children/{childId}/reports/weak-words")
+@@ -21,13 +23,13 @@ interface ReportApiService {
+         @Path("childId") childId: Long,
+         @Query("page") page: Int,
+         @Query("size") size: Int,
++        @QueryMap filters: Map<String, String> = emptyMap(),
+     ): Response<ReportWeakWordListResponseDto>
+ 
+     @GET("v1/children/{childId}/reports/categories")
+     suspend fun getCategoryProgress(
+         @Path("childId") childId: Long,
+-        @Query("from") from: String? = null,
+-        @Query("to") to: String? = null,
++        @QueryMap filters: Map<String, String> = emptyMap(),
+     ): Response<ReportCategoryProgressListResponseDto>
+ 
+     @GET("v1/children/{childId}/reports/sessions")
+@@ -35,6 +37,7 @@ interface ReportApiService {
+         @Path("childId") childId: Long,
+         @Query("page") page: Int,
+         @Query("size") size: Int,
++        @QueryMap filters: Map<String, String> = emptyMap(),
+     ): Response<ReportQuizSessionListResponseDto>
+ 
+     @GET("v1/children/{childId}/reports/sessions/{sessionId}")
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
+@@ -4,6 +4,7 @@ import android.util.Log
+ import com.ssafy.mobile.feature.report.data.api.ReportApiService
+ import com.ssafy.mobile.feature.report.data.dto.toDomain
+ import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgressPage
++import com.ssafy.mobile.feature.report.domain.model.ReportFilterState
+ import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionDetail
+ import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionPage
+ import com.ssafy.mobile.feature.report.domain.model.ReportSummary
+@@ -24,9 +25,16 @@ class RemoteReportRepository
+     constructor(
+         private val apiService: ReportApiService,
+     ) : ReportRepository {
+-        override suspend fun getSummary(childId: Long): Result<ReportSummary> =
++        override suspend fun getSummary(
++            childId: Long,
++            filter: ReportFilterState,
++        ): Result<ReportSummary> =
+             try {
+-                val response = apiService.getSummary(childId)
++                val response =
++                    apiService.getSummary(
++                        childId = childId,
++                        filters = filter.toDateQueryMap(),
++                    )
+ 
+                 if (response.isSuccessful) {
+                     val body =
+@@ -60,6 +68,7 @@ class RemoteReportRepository
+             childId: Long,
+             page: Int,
+             size: Int,
++            filter: ReportFilterState,
+         ): Result<ReportWeakWordPage> =
+             try {
+                 val response =
+@@ -67,6 +76,7 @@ class RemoteReportRepository
+                         childId = childId,
+                         page = page,
+                         size = size,
++                        filters = filter.toWeakWordsQueryMap(),
+                     )
+ 
+                 if (response.isSuccessful) {
+@@ -99,15 +109,13 @@ class RemoteReportRepository
+ 
+         override suspend fun getCategoryProgress(
+             childId: Long,
+-            from: String?,
+-            to: String?,
++            filter: ReportFilterState,
+         ): Result<ReportCategoryProgressPage> =
+             try {
+                 val response =
+                     apiService.getCategoryProgress(
+                         childId = childId,
+-                        from = from,
+-                        to = to,
++                        filters = filter.toDateQueryMap(),
+                     )
+ 
+                 if (response.isSuccessful) {
+@@ -142,6 +150,7 @@ class RemoteReportRepository
+             childId: Long,
+             page: Int,
+             size: Int,
++            filter: ReportFilterState,
+         ): Result<ReportQuizSessionPage> =
+             try {
+                 val response =
+@@ -149,6 +158,7 @@ class RemoteReportRepository
+                         childId = childId,
+                         page = page,
+                         size = size,
++                        filters = filter.toQuizSessionsQueryMap(),
+                     )
+ 
+                 if (response.isSuccessful) {
+@@ -232,3 +242,33 @@ class RemoteReportRepository
+                 else -> defaultMessage
+             }
+     }
++
++private fun ReportFilterState.toDateQueryMap(): Map<String, String> =
++    buildMap {
++        putIfNotBlank(key = "from", value = from)
++        putIfNotBlank(key = "to", value = to)
++    }
++
++private fun ReportFilterState.toWeakWordsQueryMap(): Map<String, String> =
++    buildMap {
++        putAll(toDateQueryMap())
++        categoryId?.let { put("categoryId", it.toString()) }
++        minAttemptCount?.let { put("minAttemptCount", it.toString()) }
++    }
++
++private fun ReportFilterState.toQuizSessionsQueryMap(): Map<String, String> =
++    buildMap {
++        putAll(toDateQueryMap())
++        categoryId?.let { put("categoryId", it.toString()) }
++        putIfNotBlank(key = "difficulty", value = difficulty)
++        putIfNotBlank(key = "status", value = status)
++    }
++
++private fun MutableMap<String, String>.putIfNotBlank(
++    key: String,
++    value: String?,
++) {
++    if (!value.isNullOrBlank()) {
++        put(key, value)
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportFilterState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportFilterState.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportFilterState.kt
+@@ -0,0 +1,10 @@
++package com.ssafy.mobile.feature.report.domain.model
++
++data class ReportFilterState(
++    val from: String? = null,
++    val to: String? = null,
++    val categoryId: Long? = null,
++    val difficulty: String? = null,
++    val status: String? = null,
++    val minAttemptCount: Int? = null,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
+@@ -1,30 +1,35 @@
+ package com.ssafy.mobile.feature.report.domain.repository
+ 
+ import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgressPage
++import com.ssafy.mobile.feature.report.domain.model.ReportFilterState
+ import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionDetail
+ import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionPage
+ import com.ssafy.mobile.feature.report.domain.model.ReportSummary
+ import com.ssafy.mobile.feature.report.domain.model.ReportWeakWordPage
+ 
+ interface ReportRepository {
+-    suspend fun getSummary(childId: Long): Result<ReportSummary>
++    suspend fun getSummary(
++        childId: Long,
++        filter: ReportFilterState = ReportFilterState(),
++    ): Result<ReportSummary>
+ 
+     suspend fun getWeakWords(
+         childId: Long,
+         page: Int,
+         size: Int,
++        filter: ReportFilterState = ReportFilterState(),
+     ): Result<ReportWeakWordPage>
+ 
+     suspend fun getCategoryProgress(
+         childId: Long,
+-        from: String? = null,
+-        to: String? = null,
++        filter: ReportFilterState = ReportFilterState(),
+     ): Result<ReportCategoryProgressPage>
+ 
+     suspend fun getQuizSessions(
+         childId: Long,
+         page: Int,
+         size: Int,
++        filter: ReportFilterState = ReportFilterState(),
+     ): Result<ReportQuizSessionPage>
+ 
+     suspend fun getQuizSessionDetail(
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressRoute.kt
+@@ -87,8 +87,15 @@ fun ReportCategoryProgressRoute(
+         ReportCategoryProgressContent(
+             activeChildState = uiState.activeChildState,
+             categoryProgressState = uiState.categoryProgressState,
++            filterUiState = uiState.filterUiState,
+             onRetryClick = viewModel::loadActiveChildProfile,
+             onSwitchChild = onSwitchChild,
++            filterActions =
++                ReportFilterActions(
++                    onInputChange = viewModel::updateFilterInput,
++                    onApplyClick = viewModel::applyFilter,
++                    onResetClick = viewModel::resetFilter,
++                ),
+             modifier =
+                 Modifier
+                     .fillMaxSize()
+@@ -101,8 +108,10 @@ fun ReportCategoryProgressRoute(
+ private fun ReportCategoryProgressContent(
+     activeChildState: ActiveChildProfileState,
+     categoryProgressState: ReportCategoryProgressState,
++    filterUiState: ReportFilterUiState,
+     onRetryClick: () -> Unit,
+     onSwitchChild: () -> Unit,
++    filterActions: ReportFilterActions,
+     modifier: Modifier = Modifier,
+ ) {
+     LazyColumn(
+@@ -123,6 +132,8 @@ private fun ReportCategoryProgressContent(
+             is ActiveChildProfileState.Selected ->
+                 categoryProgressItems(
+                     state = categoryProgressState,
++                    filterUiState = filterUiState,
++                    filterActions = filterActions,
+                     onRetryClick = onRetryClick,
+                 )
+ 
+@@ -157,8 +168,18 @@ private fun ReportCategoryProgressContent(
+ 
+ private fun LazyListScope.categoryProgressItems(
+     state: ReportCategoryProgressState,
++    filterUiState: ReportFilterUiState,
++    filterActions: ReportFilterActions,
+     onRetryClick: () -> Unit,
+ ) {
++    item {
++        ReportFilterPanel(
++            state = filterUiState,
++            config = ReportFilterPanelConfig(),
++            actions = filterActions,
++        )
++    }
++
+     when (state) {
+         ReportCategoryProgressState.Idle,
+         ReportCategoryProgressState.Loading,
+@@ -170,7 +191,12 @@ private fun LazyListScope.categoryProgressItems(
+         ReportCategoryProgressState.Empty ->
+             item {
+                 ReportCategoryProgressStatusCard(
+-                    message = "아직 완료된 퀴즈 기록이 있는 카테고리가 없어요.\n퀴즈를 마치면 진행도를 확인할 수 있어요.",
++                    message =
++                        if (filterUiState.hasAppliedFilter) {
++                            "조건에 맞는 카테고리 기록이 없어요."
++                        } else {
++                            "아직 완료된 퀴즈 기록이 있는 카테고리가 없어요.\n퀴즈를 마치면 진행도를 확인할 수 있어요."
++                        },
+                 )
+             }
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressViewModel.kt
+@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
+ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileManager
+ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
+ import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgressPage
++import com.ssafy.mobile.feature.report.domain.model.ReportFilterState
+ import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import javax.inject.Inject
+@@ -19,6 +20,7 @@ import kotlinx.coroutines.withContext
+ data class ReportCategoryProgressUiState(
+     val activeChildState: ActiveChildProfileState = ActiveChildProfileState.Loading,
+     val categoryProgressState: ReportCategoryProgressState = ReportCategoryProgressState.Idle,
++    val filterUiState: ReportFilterUiState = ReportFilterUiState(),
+ )
+ 
+ sealed interface ReportCategoryProgressState {
+@@ -48,6 +50,7 @@ class ReportCategoryProgressViewModel
+         val uiState: StateFlow<ReportCategoryProgressUiState> = _uiState.asStateFlow()
+ 
+         private var loadJob: Job? = null
++        private var appliedFilter = ReportFilterState()
+ 
+         init {
+             loadActiveChildProfile()
+@@ -80,15 +83,90 @@ class ReportCategoryProgressViewModel
+                         )
+ 
+                     if (state is ActiveChildProfileState.Selected) {
+-                        loadCategoryProgress(childId = state.profile.childId)
++                        loadCategoryProgress(
++                            childId = state.profile.childId,
++                            filter = appliedFilter,
++                        )
+                     }
+                 }
+         }
+ 
+-        private suspend fun loadCategoryProgress(childId: Long) {
++        fun updateFilterInput(input: ReportFilterInputState) {
++            _uiState.value =
++                _uiState.value.copy(
++                    filterUiState =
++                        _uiState.value.filterUiState.copy(
++                            input = input,
++                            errorMessage = null,
++                        ),
++                )
++        }
++
++        fun applyFilter() {
++            val filterResult =
++                _uiState.value.filterUiState.input
++                    .toDateFilter()
++            val filter =
++                filterResult.getOrElse { throwable ->
++                    _uiState.value =
++                        _uiState.value.copy(
++                            filterUiState =
++                                _uiState.value.filterUiState.copy(
++                                    errorMessage = throwable.message ?: "필터 값을 확인해 주세요.",
++                                ),
++                        )
++                    return
++                }
++
++            appliedFilter = filter
++            _uiState.value =
++                _uiState.value.copy(
++                    filterUiState =
++                        _uiState.value.filterUiState.copy(
++                            hasAppliedFilter = filter.hasFilters(),
++                            errorMessage = null,
++                        ),
++                )
++            reloadCategoryProgressWithCurrentChild()
++        }
++
++        fun resetFilter() {
++            appliedFilter = ReportFilterState()
++            _uiState.value =
++                _uiState.value.copy(
++                    filterUiState = ReportFilterUiState(),
++                )
++            reloadCategoryProgressWithCurrentChild()
++        }
++
++        private fun reloadCategoryProgressWithCurrentChild() {
++            val childState =
++                _uiState.value.activeChildState as? ActiveChildProfileState.Selected
++                    ?: return
++            loadJob?.cancel()
++            loadJob =
++                viewModelScope.launch {
++                    _uiState.value =
++                        _uiState.value.copy(
++                            categoryProgressState = ReportCategoryProgressState.Loading,
++                        )
++                    loadCategoryProgress(
++                        childId = childState.profile.childId,
++                        filter = appliedFilter,
++                    )
++                }
++        }
++
++        private suspend fun loadCategoryProgress(
++            childId: Long,
++            filter: ReportFilterState,
++        ) {
+             val result =
+                 withContext(Dispatchers.IO) {
+-                    reportRepository.getCategoryProgress(childId = childId)
++                    reportRepository.getCategoryProgress(
++                        childId = childId,
++                        filter = filter,
++                    )
+                 }
+ 
+             if (!isSameActiveChild(childId = childId)) {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterComponents.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterComponents.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterComponents.kt
+@@ -0,0 +1,298 @@
++package com.ssafy.mobile.feature.report.presentation
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.width
++import androidx.compose.material3.DropdownMenu
++import androidx.compose.material3.DropdownMenuItem
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.OutlinedButton
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.setValue
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.core.ui.components.AppPrimaryButton
++import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.core.ui.components.AppTextField
++
++@Composable
++internal fun ReportFilterPanel(
++    state: ReportFilterUiState,
++    config: ReportFilterPanelConfig,
++    actions: ReportFilterActions,
++    modifier: Modifier = Modifier,
++) {
++    Surface(
++        modifier = modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = REPORT_FILTER_ALPHA),
++    ) {
++        Column(
++            modifier = Modifier.padding(16.dp),
++            verticalArrangement = Arrangement.spacedBy(10.dp),
++        ) {
++            Text(
++                text = "필터",
++                style = MaterialTheme.typography.titleMedium,
++                fontWeight = FontWeight.Bold,
++            )
++            ReportDateRangeFields(
++                input = state.input,
++                onInputChange = actions.onInputChange,
++            )
++            if (config.showCategory) {
++                ReportCategoryFilter(
++                    state = state,
++                    onInputChange = actions.onInputChange,
++                    onRetryClick = actions.onRetryCategoriesClick,
++                )
++            }
++            if (config.showDifficulty) {
++                ReportOptionDropdown(
++                    label = "난이도",
++                    selectedLabel =
++                        difficultyOptions.firstOrNull { it.value == state.input.difficulty }?.label
++                            ?: "전체 난이도",
++                    options = difficultyOptions,
++                    onSelected = { value ->
++                        actions.onInputChange(state.input.copy(difficulty = value))
++                    },
++                )
++            }
++            if (config.showStatus) {
++                ReportOptionDropdown(
++                    label = "상태",
++                    selectedLabel =
++                        statusOptions.firstOrNull { it.value == state.input.status }?.label
++                            ?: "전체 상태",
++                    options = statusOptions,
++                    onSelected = { value ->
++                        actions.onInputChange(state.input.copy(status = value))
++                    },
++                )
++            }
++            if (config.showMinAttemptCount) {
++                AppTextField(
++                    value = state.input.minAttemptCount,
++                    onValueChange = { value ->
++                        actions.onInputChange(state.input.copy(minAttemptCount = value))
++                    },
++                    label = "최소 풀이 횟수",
++                    supportingText = "1 이상",
++                )
++            }
++            state.errorMessage?.let { message ->
++                Text(
++                    text = message,
++                    style = MaterialTheme.typography.bodySmall,
++                    color = MaterialTheme.colorScheme.error,
++                )
++            }
++            ReportFilterActionRow(
++                onApplyClick = actions.onApplyClick,
++                onResetClick = actions.onResetClick,
++            )
++        }
++    }
++}
++
++@Composable
++private fun ReportDateRangeFields(
++    input: ReportFilterInputState,
++    onInputChange: (ReportFilterInputState) -> Unit,
++) {
++    Row(
++        modifier = Modifier.fillMaxWidth(),
++        horizontalArrangement = Arrangement.spacedBy(8.dp),
++    ) {
++        AppTextField(
++            value = input.from,
++            onValueChange = { value -> onInputChange(input.copy(from = value)) },
++            label = "시작일",
++            modifier = Modifier.weight(1f),
++            supportingText = "YYYY-MM-DD",
++        )
++        AppTextField(
++            value = input.to,
++            onValueChange = { value -> onInputChange(input.copy(to = value)) },
++            label = "종료일",
++            modifier = Modifier.weight(1f),
++            supportingText = "YYYY-MM-DD",
++        )
++    }
++}
++
++@Composable
++private fun ReportCategoryFilter(
++    state: ReportFilterUiState,
++    onInputChange: (ReportFilterInputState) -> Unit,
++    onRetryClick: () -> Unit,
++) {
++    val selectedCategory =
++        state.categoryOptions.firstOrNull { option ->
++            option.categoryId == state.input.categoryId
++        }
++    ReportCategoryDropdown(
++        selectedLabel = selectedCategory?.name ?: "전체 카테고리",
++        options = state.categoryOptions,
++        onSelected = { categoryId ->
++            onInputChange(state.input.copy(categoryId = categoryId))
++        },
++    )
++
++    if (state.isCategoryLoading) {
++        Text(
++            text = "카테고리를 불러오는 중...",
++            style = MaterialTheme.typography.bodySmall,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++        )
++    }
++    state.categoryErrorMessage?.let { message ->
++        Text(
++            text = message,
++            style = MaterialTheme.typography.bodySmall,
++            color = MaterialTheme.colorScheme.error,
++        )
++        AppSecondaryButton(
++            text = "카테고리 다시 불러오기",
++            onClick = onRetryClick,
++            modifier = Modifier.height(36.dp),
++        )
++    }
++}
++
++@Composable
++private fun ReportCategoryDropdown(
++    selectedLabel: String,
++    options: List<ReportFilterCategoryOption>,
++    onSelected: (Long?) -> Unit,
++) {
++    var expanded by remember { mutableStateOf(false) }
++    Box(modifier = Modifier.fillMaxWidth()) {
++        OutlinedButton(
++            onClick = { expanded = true },
++            modifier = Modifier.fillMaxWidth(),
++        ) {
++            Text(
++                text = selectedLabel,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++            )
++        }
++        DropdownMenu(
++            expanded = expanded,
++            onDismissRequest = { expanded = false },
++        ) {
++            DropdownMenuItem(
++                text = { Text(text = "전체 카테고리") },
++                onClick = {
++                    expanded = false
++                    onSelected(null)
++                },
++            )
++            options.forEach { option ->
++                DropdownMenuItem(
++                    text = { Text(text = option.name) },
++                    onClick = {
++                        expanded = false
++                        onSelected(option.categoryId)
++                    },
++                )
++            }
++        }
++    }
++}
++
++@Composable
++private fun ReportOptionDropdown(
++    label: String,
++    selectedLabel: String,
++    options: List<ReportFilterSelectionOption>,
++    onSelected: (String?) -> Unit,
++) {
++    var expanded by remember { mutableStateOf(false) }
++    Box(modifier = Modifier.fillMaxWidth()) {
++        OutlinedButton(
++            onClick = { expanded = true },
++            modifier = Modifier.fillMaxWidth(),
++        ) {
++            Text(text = "$label: $selectedLabel")
++        }
++        DropdownMenu(
++            expanded = expanded,
++            onDismissRequest = { expanded = false },
++        ) {
++            options.forEach { option ->
++                DropdownMenuItem(
++                    text = { Text(text = option.label) },
++                    onClick = {
++                        expanded = false
++                        onSelected(option.value)
++                    },
++                )
++            }
++        }
++    }
++}
++
++@Composable
++private fun ReportFilterActionRow(
++    onApplyClick: () -> Unit,
++    onResetClick: () -> Unit,
++) {
++    Row(modifier = Modifier.fillMaxWidth()) {
++        AppSecondaryButton(
++            text = "초기화",
++            onClick = onResetClick,
++            modifier =
++                Modifier
++                    .weight(1f)
++                    .height(40.dp),
++        )
++        Spacer(modifier = Modifier.width(8.dp))
++        AppPrimaryButton(
++            text = "적용",
++            onClick = onApplyClick,
++            modifier =
++                Modifier
++                    .weight(1f)
++                    .height(40.dp),
++        )
++    }
++}
++
++private data class ReportFilterSelectionOption(
++    val value: String?,
++    val label: String,
++)
++
++private val difficultyOptions =
++    listOf(
++        ReportFilterSelectionOption(value = null, label = "전체 난이도"),
++        ReportFilterSelectionOption(value = "EASY", label = "쉬움"),
++        ReportFilterSelectionOption(value = "NORMAL", label = "보통"),
++        ReportFilterSelectionOption(value = "HARD", label = "어려움"),
++    )
++
++private val statusOptions =
++    listOf(
++        ReportFilterSelectionOption(value = null, label = "전체 상태"),
++        ReportFilterSelectionOption(value = "COMPLETED", label = "완료"),
++        ReportFilterSelectionOption(value = "STARTED", label = "진행 중"),
++        ReportFilterSelectionOption(value = "ABANDONED", label = "중단"),
++    )
++
++private const val REPORT_FILTER_ALPHA = 0.42f
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterModels.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterModels.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterModels.kt
+@@ -0,0 +1,133 @@
++package com.ssafy.mobile.feature.report.presentation
++
++import com.ssafy.mobile.feature.report.domain.model.ReportFilterState
++import java.time.LocalDate
++
++data class ReportFilterInputState(
++    val from: String = "",
++    val to: String = "",
++    val categoryId: Long? = null,
++    val difficulty: String? = null,
++    val status: String? = null,
++    val minAttemptCount: String = "",
++)
++
++data class ReportFilterCategoryOption(
++    val categoryId: Long,
++    val name: String,
++)
++
++data class ReportFilterUiState(
++    val input: ReportFilterInputState = ReportFilterInputState(),
++    val hasAppliedFilter: Boolean = false,
++    val errorMessage: String? = null,
++    val categoryOptions: List<ReportFilterCategoryOption> = emptyList(),
++    val isCategoryLoading: Boolean = false,
++    val categoryErrorMessage: String? = null,
++)
++
++internal data class ReportFilterPanelConfig(
++    val showCategory: Boolean = false,
++    val showDifficulty: Boolean = false,
++    val showStatus: Boolean = false,
++    val showMinAttemptCount: Boolean = false,
++)
++
++internal data class ReportFilterActions(
++    val onInputChange: (ReportFilterInputState) -> Unit,
++    val onApplyClick: () -> Unit,
++    val onResetClick: () -> Unit,
++    val onRetryCategoriesClick: () -> Unit = {},
++)
++
++internal fun ReportFilterInputState.toDateFilter(): Result<ReportFilterState> =
++    runCatching {
++        val dateRange = validateDateRange()
++        ReportFilterState(
++            from = dateRange.from,
++            to = dateRange.to,
++        )
++    }
++
++internal fun ReportFilterInputState.toWeakWordsFilter(): Result<ReportFilterState> =
++    runCatching {
++        val dateRange = validateDateRange()
++        ReportFilterState(
++            from = dateRange.from,
++            to = dateRange.to,
++            categoryId = categoryId,
++            minAttemptCount = minAttemptCount.toMinAttemptCount(),
++        )
++    }
++
++internal fun ReportFilterInputState.toQuizSessionsFilter(): Result<ReportFilterState> =
++    runCatching {
++        val dateRange = validateDateRange()
++        ReportFilterState(
++            from = dateRange.from,
++            to = dateRange.to,
++            categoryId = categoryId,
++            difficulty = difficulty,
++            status = status,
++        )
++    }
++
++internal fun ReportFilterState.hasFilters(): Boolean =
++    !from.isNullOrBlank() ||
++        !to.isNullOrBlank() ||
++        categoryId != null ||
++        !difficulty.isNullOrBlank() ||
++        !status.isNullOrBlank() ||
++        minAttemptCount != null
++
++private data class DateRange(
++    val from: String?,
++    val to: String?,
++)
++
++private fun ReportFilterInputState.validateDateRange(): DateRange {
++    val fromValue = from.trim().ifBlank { null }
++    val toValue = to.trim().ifBlank { null }
++    val fromDate = fromValue?.toReportFilterDate()
++    val toDate = toValue?.toReportFilterDate()
++
++    require(!(fromDate != null && toDate != null && fromDate.isAfter(toDate))) {
++        "조회 시작일은 종료일보다 늦을 수 없습니다."
++    }
++
++    return DateRange(
++        from = fromValue,
++        to = toValue,
++    )
++}
++
++private fun String.toReportFilterDate(): LocalDate {
++    require(datePattern.matches(this)) {
++        "날짜는 YYYY-MM-DD 형식으로 입력해 주세요."
++    }
++
++    return try {
++        LocalDate.parse(this)
++    } catch (
++        @Suppress("TooGenericExceptionCaught")
++        e: Exception,
++    ) {
++        throw IllegalArgumentException("존재하는 날짜를 입력해 주세요.", e)
++    }
++}
++
++private fun String.toMinAttemptCount(): Int? {
++    val value = trim()
++    if (value.isBlank()) {
++        return null
++    }
++
++    val count = value.toIntOrNull()
++    require(count != null && count >= MIN_ATTEMPT_COUNT) {
++        "최소 풀이 횟수는 1 이상의 숫자로 입력해 주세요."
++    }
++    return count
++}
++
++private const val MIN_ATTEMPT_COUNT = 1
++private val datePattern = Regex("""\d{4}-\d{2}-\d{2}""")
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
+@@ -68,6 +68,7 @@ fun ReportHomeRoute(
+     ReportHomeScreen(
+         activeChildState = uiState.activeChildState,
+         summaryState = uiState.summaryState,
++        filterUiState = uiState.filterUiState,
+         actions =
+             ReportHomeActions(
+                 onNavigateToSummary = onNavigateToSummary,
+@@ -76,6 +77,12 @@ fun ReportHomeRoute(
+                 onNavigateToQuizSessions = onNavigateToQuizSessions,
+                 onSwitchChild = onSwitchChild,
+                 onRetryClick = viewModel::loadActiveChildProfile,
++                filterActions =
++                    ReportFilterActions(
++                        onInputChange = viewModel::updateFilterInput,
++                        onApplyClick = viewModel::applyFilter,
++                        onResetClick = viewModel::resetFilter,
++                    ),
+             ),
+         modifier = modifier,
+     )
+@@ -88,12 +95,14 @@ private data class ReportHomeActions(
+     val onNavigateToQuizSessions: () -> Unit,
+     val onSwitchChild: () -> Unit,
+     val onRetryClick: () -> Unit,
++    val filterActions: ReportFilterActions,
+ )
+ 
+ @Composable
+ private fun ReportHomeScreen(
+     activeChildState: ActiveChildProfileState,
+     summaryState: ReportSummaryUiState,
++    filterUiState: ReportFilterUiState,
+     actions: ReportHomeActions,
+     modifier: Modifier = Modifier,
+ ) {
+@@ -122,6 +131,14 @@ private fun ReportHomeScreen(
+             val isMenuEnabled = activeChildState is ActiveChildProfileState.Selected
+ 
+             if (isMenuEnabled) {
++                ReportFilterPanel(
++                    state = filterUiState,
++                    config = ReportFilterPanelConfig(),
++                    actions = actions.filterActions,
++                )
++
++                Spacer(modifier = Modifier.height(16.dp))
++
+                 ReportSummarySection(
+                     summaryState = summaryState,
+                     onRetryClick = actions.onRetryClick,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeViewModel.kt
+@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
+ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileManager
+ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
++import com.ssafy.mobile.feature.report.domain.model.ReportFilterState
+ import com.ssafy.mobile.feature.report.domain.model.ReportSummary
+ import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
+@@ -19,6 +20,7 @@ import kotlinx.coroutines.withContext
+ data class ReportHomeUiState(
+     val activeChildState: ActiveChildProfileState = ActiveChildProfileState.Loading,
+     val summaryState: ReportSummaryUiState = ReportSummaryUiState.Idle,
++    val filterUiState: ReportFilterUiState = ReportFilterUiState(),
+ )
+ 
+ sealed interface ReportSummaryUiState {
+@@ -47,6 +49,7 @@ class ReportHomeViewModel
+         private val _uiState = MutableStateFlow(ReportHomeUiState())
+         val uiState: StateFlow<ReportHomeUiState> = _uiState.asStateFlow()
+         private var loadJob: Job? = null
++        private var appliedFilter = ReportFilterState()
+ 
+         init {
+             loadActiveChildProfile()
+@@ -77,15 +80,90 @@ class ReportHomeViewModel
+                         )
+ 
+                     if (state is ActiveChildProfileState.Selected) {
+-                        loadReportSummary(state.profile.childId)
++                        loadReportSummary(
++                            childId = state.profile.childId,
++                            filter = appliedFilter,
++                        )
+                     }
+                 }
+         }
+ 
+-        private suspend fun loadReportSummary(childId: Long) {
++        fun updateFilterInput(input: ReportFilterInputState) {
++            _uiState.value =
++                _uiState.value.copy(
++                    filterUiState =
++                        _uiState.value.filterUiState.copy(
++                            input = input,
++                            errorMessage = null,
++                        ),
++                )
++        }
++
++        fun applyFilter() {
++            val filterResult =
++                _uiState.value.filterUiState.input
++                    .toDateFilter()
++            val filter =
++                filterResult.getOrElse { throwable ->
++                    _uiState.value =
++                        _uiState.value.copy(
++                            filterUiState =
++                                _uiState.value.filterUiState.copy(
++                                    errorMessage = throwable.message ?: "필터 값을 확인해 주세요.",
++                                ),
++                        )
++                    return
++                }
++
++            appliedFilter = filter
++            _uiState.value =
++                _uiState.value.copy(
++                    filterUiState =
++                        _uiState.value.filterUiState.copy(
++                            hasAppliedFilter = filter.hasFilters(),
++                            errorMessage = null,
++                        ),
++                )
++            reloadSummaryWithCurrentChild()
++        }
++
++        fun resetFilter() {
++            appliedFilter = ReportFilterState()
++            _uiState.value =
++                _uiState.value.copy(
++                    filterUiState = ReportFilterUiState(),
++                )
++            reloadSummaryWithCurrentChild()
++        }
++
++        private fun reloadSummaryWithCurrentChild() {
++            val childState =
++                _uiState.value.activeChildState as? ActiveChildProfileState.Selected
++                    ?: return
++            loadJob?.cancel()
++            loadJob =
++                viewModelScope.launch {
++                    _uiState.value =
++                        _uiState.value.copy(
++                            summaryState = ReportSummaryUiState.Loading,
++                        )
++                    loadReportSummary(
++                        childId = childState.profile.childId,
++                        filter = appliedFilter,
++                    )
++                }
++        }
++
++        private suspend fun loadReportSummary(
++            childId: Long,
++            filter: ReportFilterState,
++        ) {
+             val result =
+                 withContext(Dispatchers.IO) {
+-                    reportRepository.getSummary(childId)
++                    reportRepository.getSummary(
++                        childId = childId,
++                        filter = filter,
++                    )
+                 }
+ 
+             val currentActiveChildState = _uiState.value.activeChildState
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsRoute.kt
+@@ -88,10 +88,21 @@ fun ReportQuizSessionsRoute(
+         ReportQuizSessionsContent(
+             activeChildState = uiState.activeChildState,
+             quizSessionsState = uiState.quizSessionsState,
+-            onRetryClick = viewModel::loadActiveChildProfile,
+-            onLoadMoreClick = viewModel::loadMoreQuizSessions,
+-            onSwitchChild = onSwitchChild,
+-            onNavigateToDetail = onNavigateToDetail,
++            filterUiState = uiState.filterUiState,
++            actions =
++                ReportQuizSessionsActions(
++                    onRetryClick = viewModel::loadActiveChildProfile,
++                    onLoadMoreClick = viewModel::loadMoreQuizSessions,
++                    onSwitchChild = onSwitchChild,
++                    onNavigateToDetail = onNavigateToDetail,
++                    filterActions =
++                        ReportFilterActions(
++                            onInputChange = viewModel::updateFilterInput,
++                            onApplyClick = viewModel::applyFilter,
++                            onResetClick = viewModel::resetFilter,
++                            onRetryCategoriesClick = viewModel::loadFilterCategories,
++                        ),
++                ),
+             modifier =
+                 Modifier
+                     .fillMaxSize()
+@@ -104,10 +115,8 @@ fun ReportQuizSessionsRoute(
+ private fun ReportQuizSessionsContent(
+     activeChildState: ActiveChildProfileState,
+     quizSessionsState: ReportQuizSessionsState,
+-    onRetryClick: () -> Unit,
+-    onLoadMoreClick: () -> Unit,
+-    onSwitchChild: () -> Unit,
+-    onNavigateToDetail: (Long) -> Unit,
++    filterUiState: ReportFilterUiState,
++    actions: ReportQuizSessionsActions,
+     modifier: Modifier = Modifier,
+ ) {
+     LazyColumn(
+@@ -128,9 +137,8 @@ private fun ReportQuizSessionsContent(
+             is ActiveChildProfileState.Selected ->
+                 quizSessionsItems(
+                     state = quizSessionsState,
+-                    onRetryClick = onRetryClick,
+-                    onLoadMoreClick = onLoadMoreClick,
+-                    onNavigateToDetail = onNavigateToDetail,
++                    filterUiState = filterUiState,
++                    actions = actions,
+                 )
+ 
+             ActiveChildProfileState.Missing ->
+@@ -138,7 +146,7 @@ private fun ReportQuizSessionsContent(
+                     ReportQuizSessionsActionCard(
+                         message = "리포트를 보려면 아이를 먼저 선택해 주세요.",
+                         buttonText = "아이 선택하기",
+-                        onClick = onSwitchChild,
++                        onClick = actions.onSwitchChild,
+                     )
+                 }
+ 
+@@ -147,7 +155,7 @@ private fun ReportQuizSessionsContent(
+                     ReportQuizSessionsActionCard(
+                         message = "선택된 아이 정보를 찾을 수 없습니다.",
+                         buttonText = "아이 다시 선택하기",
+-                        onClick = onSwitchChild,
++                        onClick = actions.onSwitchChild,
+                     )
+                 }
+ 
+@@ -155,7 +163,7 @@ private fun ReportQuizSessionsContent(
+                 item {
+                     ReportQuizSessionsErrorCard(
+                         message = activeChildState.message,
+-                        onRetryClick = onRetryClick,
++                        onRetryClick = actions.onRetryClick,
+                     )
+                 }
+         }
+@@ -164,10 +172,22 @@ private fun ReportQuizSessionsContent(
+ 
+ private fun LazyListScope.quizSessionsItems(
+     state: ReportQuizSessionsState,
+-    onRetryClick: () -> Unit,
+-    onLoadMoreClick: () -> Unit,
+-    onNavigateToDetail: (Long) -> Unit,
++    filterUiState: ReportFilterUiState,
++    actions: ReportQuizSessionsActions,
+ ) {
++    item {
++        ReportFilterPanel(
++            state = filterUiState,
++            config =
++                ReportFilterPanelConfig(
++                    showCategory = true,
++                    showDifficulty = true,
++                    showStatus = true,
++                ),
++            actions = actions.filterActions,
++        )
++    }
++
+     when (state) {
+         ReportQuizSessionsState.Idle,
+         ReportQuizSessionsState.Loading,
+@@ -179,7 +199,12 @@ private fun LazyListScope.quizSessionsItems(
+         ReportQuizSessionsState.Empty ->
+             item {
+                 ReportQuizSessionsStatusCard(
+-                    message = "아직 퀴즈 기록이 없어요.\n퀴즈를 완료하면 기록을 모아볼 수 있어요.",
++                    message =
++                        if (filterUiState.hasAppliedFilter) {
++                            "조건에 맞는 퀴즈 기록이 없어요."
++                        } else {
++                            "아직 퀴즈 기록이 없어요.\n퀴즈를 완료하면 기록을 모아볼 수 있어요."
++                        },
+                 )
+             }
+ 
+@@ -187,7 +212,7 @@ private fun LazyListScope.quizSessionsItems(
+             item {
+                 ReportQuizSessionsErrorCard(
+                     message = state.message,
+-                    onRetryClick = onRetryClick,
++                    onRetryClick = actions.onRetryClick,
+                 )
+             }
+ 
+@@ -201,19 +226,27 @@ private fun LazyListScope.quizSessionsItems(
+             ) { session ->
+                 ReportQuizSessionCard(
+                     session = session,
+-                    onClick = { onNavigateToDetail(session.sessionId) },
++                    onClick = { actions.onNavigateToDetail(session.sessionId) },
+                 )
+             }
+             item {
+                 ReportQuizSessionsMoreSection(
+                     state = state,
+-                    onLoadMoreClick = onLoadMoreClick,
++                    onLoadMoreClick = actions.onLoadMoreClick,
+                 )
+             }
+         }
+     }
+ }
+ 
++private data class ReportQuizSessionsActions(
++    val onRetryClick: () -> Unit,
++    val onLoadMoreClick: () -> Unit,
++    val onSwitchChild: () -> Unit,
++    val onNavigateToDetail: (Long) -> Unit,
++    val filterActions: ReportFilterActions,
++)
++
+ @Composable
+ private fun ReportQuizSessionsIntro(activeChildState: ActiveChildProfileState) {
+     val selectedProfile = (activeChildState as? ActiveChildProfileState.Selected)?.profile
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsViewModel.kt
+@@ -4,10 +4,13 @@ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
+ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileManager
+ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
++import com.ssafy.mobile.feature.learning.domain.repository.LearningCategoryRepository
++import com.ssafy.mobile.feature.report.domain.model.ReportFilterState
+ import com.ssafy.mobile.feature.report.domain.model.ReportQuizSessionPage
+ import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import javax.inject.Inject
++import kotlin.coroutines.cancellation.CancellationException
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.Job
+ import kotlinx.coroutines.flow.MutableStateFlow
+@@ -19,6 +22,7 @@ import kotlinx.coroutines.withContext
+ data class ReportQuizSessionsUiState(
+     val activeChildState: ActiveChildProfileState = ActiveChildProfileState.Loading,
+     val quizSessionsState: ReportQuizSessionsState = ReportQuizSessionsState.Idle,
++    val filterUiState: ReportFilterUiState = ReportFilterUiState(),
+ )
+ 
+ private data class QuizSessionsLoadMoreRequest(
+@@ -50,14 +54,18 @@ class ReportQuizSessionsViewModel
+     constructor(
+         private val activeChildProfileManager: ActiveChildProfileManager,
+         private val reportRepository: ReportRepository,
++        private val learningCategoryRepository: LearningCategoryRepository,
+     ) : ViewModel() {
+         private val _uiState = MutableStateFlow(ReportQuizSessionsUiState())
+         val uiState: StateFlow<ReportQuizSessionsUiState> = _uiState.asStateFlow()
+ 
+         private var loadJob: Job? = null
+         private var loadMoreJob: Job? = null
++        private var loadCategoriesJob: Job? = null
++        private var appliedFilter = ReportFilterState()
+ 
+         init {
++            loadFilterCategories()
+             loadActiveChildProfile()
+         }
+ 
+@@ -89,7 +97,10 @@ class ReportQuizSessionsViewModel
+                         )
+ 
+                     if (state is ActiveChildProfileState.Selected) {
+-                        loadQuizSessions(childId = state.profile.childId)
++                        loadQuizSessions(
++                            childId = state.profile.childId,
++                            filter = appliedFilter,
++                        )
+                     }
+                 }
+         }
+@@ -118,6 +129,7 @@ class ReportQuizSessionsViewModel
+                                 childId = childId,
+                                 page = nextPage,
+                                 size = DEFAULT_QUIZ_SESSIONS_PAGE_SIZE,
++                                filter = appliedFilter,
+                             )
+                         }
+ 
+@@ -155,13 +167,141 @@ class ReportQuizSessionsViewModel
+                 }
+         }
+ 
+-        private suspend fun loadQuizSessions(childId: Long) {
++        fun loadFilterCategories() {
++            if (loadCategoriesJob?.isActive == true) return
++
++            _uiState.value =
++                _uiState.value.copy(
++                    filterUiState =
++                        _uiState.value.filterUiState.copy(
++                            isCategoryLoading = true,
++                            categoryErrorMessage = null,
++                        ),
++                )
++
++            loadCategoriesJob =
++                viewModelScope.launch {
++                    try {
++                        val categories =
++                            withContext(Dispatchers.IO) {
++                                learningCategoryRepository.getCategories()
++                            }
++                        _uiState.value =
++                            _uiState.value.copy(
++                                filterUiState =
++                                    _uiState.value.filterUiState.copy(
++                                        categoryOptions =
++                                            categories.map { category ->
++                                                ReportFilterCategoryOption(
++                                                    categoryId = category.categoryId,
++                                                    name = category.name,
++                                                )
++                                            },
++                                        isCategoryLoading = false,
++                                        categoryErrorMessage = null,
++                                    ),
++                            )
++                    } catch (e: CancellationException) {
++                        throw e
++                    } catch (
++                        @Suppress("TooGenericExceptionCaught")
++                        e: Exception,
++                    ) {
++                        _uiState.value =
++                            _uiState.value.copy(
++                                filterUiState =
++                                    _uiState.value.filterUiState.copy(
++                                        isCategoryLoading = false,
++                                        categoryErrorMessage = e.message ?: "카테고리를 불러오지 못했습니다.",
++                                    ),
++                            )
++                    }
++                }
++        }
++
++        fun updateFilterInput(input: ReportFilterInputState) {
++            _uiState.value =
++                _uiState.value.copy(
++                    filterUiState =
++                        _uiState.value.filterUiState.copy(
++                            input = input,
++                            errorMessage = null,
++                        ),
++                )
++        }
++
++        fun applyFilter() {
++            val filterResult =
++                _uiState.value.filterUiState.input
++                    .toQuizSessionsFilter()
++            val filter =
++                filterResult.getOrElse { throwable ->
++                    _uiState.value =
++                        _uiState.value.copy(
++                            filterUiState =
++                                _uiState.value.filterUiState.copy(
++                                    errorMessage = throwable.message ?: "필터 값을 확인해 주세요.",
++                                ),
++                        )
++                    return
++                }
++
++            appliedFilter = filter
++            _uiState.value =
++                _uiState.value.copy(
++                    filterUiState =
++                        _uiState.value.filterUiState.copy(
++                            hasAppliedFilter = filter.hasFilters(),
++                            errorMessage = null,
++                        ),
++                )
++            reloadQuizSessionsWithCurrentChild()
++        }
++
++        fun resetFilter() {
++            appliedFilter = ReportFilterState()
++            _uiState.value =
++                _uiState.value.copy(
++                    filterUiState =
++                        _uiState.value.filterUiState.copy(
++                            input = ReportFilterInputState(),
++                            hasAppliedFilter = false,
++                            errorMessage = null,
++                        ),
++                )
++            reloadQuizSessionsWithCurrentChild()
++        }
++
++        private fun reloadQuizSessionsWithCurrentChild() {
++            val childState =
++                _uiState.value.activeChildState as? ActiveChildProfileState.Selected
++                    ?: return
++            loadJob?.cancel()
++            loadMoreJob?.cancel()
++            loadJob =
++                viewModelScope.launch {
++                    _uiState.value =
++                        _uiState.value.copy(
++                            quizSessionsState = ReportQuizSessionsState.Loading,
++                        )
++                    loadQuizSessions(
++                        childId = childState.profile.childId,
++                        filter = appliedFilter,
++                    )
++                }
++        }
++
++        private suspend fun loadQuizSessions(
++            childId: Long,
++            filter: ReportFilterState,
++        ) {
+             val result =
+                 withContext(Dispatchers.IO) {
+                     reportRepository.getQuizSessions(
+                         childId = childId,
+                         page = FIRST_PAGE,
+                         size = DEFAULT_QUIZ_SESSIONS_PAGE_SIZE,
++                        filter = filter,
+                     )
+                 }
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsRoute.kt
+@@ -87,9 +87,20 @@ fun ReportWeakWordsRoute(
+         ReportWeakWordsContent(
+             activeChildState = uiState.activeChildState,
+             weakWordsState = uiState.weakWordsState,
+-            onRetryClick = viewModel::loadActiveChildProfile,
+-            onLoadMoreClick = viewModel::loadMoreWeakWords,
+-            onSwitchChild = onSwitchChild,
++            filterUiState = uiState.filterUiState,
++            actions =
++                ReportWeakWordsActions(
++                    onRetryClick = viewModel::loadActiveChildProfile,
++                    onLoadMoreClick = viewModel::loadMoreWeakWords,
++                    onSwitchChild = onSwitchChild,
++                    filterActions =
++                        ReportFilterActions(
++                            onInputChange = viewModel::updateFilterInput,
++                            onApplyClick = viewModel::applyFilter,
++                            onResetClick = viewModel::resetFilter,
++                            onRetryCategoriesClick = viewModel::loadFilterCategories,
++                        ),
++                ),
+             modifier =
+                 Modifier
+                     .fillMaxSize()
+@@ -102,9 +113,8 @@ fun ReportWeakWordsRoute(
+ private fun ReportWeakWordsContent(
+     activeChildState: ActiveChildProfileState,
+     weakWordsState: ReportWeakWordsState,
+-    onRetryClick: () -> Unit,
+-    onLoadMoreClick: () -> Unit,
+-    onSwitchChild: () -> Unit,
++    filterUiState: ReportFilterUiState,
++    actions: ReportWeakWordsActions,
+     modifier: Modifier = Modifier,
+ ) {
+     LazyColumn(
+@@ -125,8 +135,8 @@ private fun ReportWeakWordsContent(
+             is ActiveChildProfileState.Selected ->
+                 weakWordsItems(
+                     state = weakWordsState,
+-                    onRetryClick = onRetryClick,
+-                    onLoadMoreClick = onLoadMoreClick,
++                    filterUiState = filterUiState,
++                    actions = actions,
+                 )
+ 
+             ActiveChildProfileState.Missing ->
+@@ -134,7 +144,7 @@ private fun ReportWeakWordsContent(
+                     ReportWeakWordsActionCard(
+                         message = "리포트를 보려면 아이를 먼저 선택해 주세요.",
+                         buttonText = "아이 선택하기",
+-                        onClick = onSwitchChild,
++                        onClick = actions.onSwitchChild,
+                     )
+                 }
+ 
+@@ -143,7 +153,7 @@ private fun ReportWeakWordsContent(
+                     ReportWeakWordsActionCard(
+                         message = "선택된 아이 정보를 찾을 수 없습니다.",
+                         buttonText = "아이 다시 선택하기",
+-                        onClick = onSwitchChild,
++                        onClick = actions.onSwitchChild,
+                     )
+                 }
+ 
+@@ -151,7 +161,7 @@ private fun ReportWeakWordsContent(
+                 item {
+                     ReportWeakWordsErrorCard(
+                         message = activeChildState.message,
+-                        onRetryClick = onRetryClick,
++                        onRetryClick = actions.onRetryClick,
+                     )
+                 }
+         }
+@@ -160,9 +170,21 @@ private fun ReportWeakWordsContent(
+ 
+ private fun LazyListScope.weakWordsItems(
+     state: ReportWeakWordsState,
+-    onRetryClick: () -> Unit,
+-    onLoadMoreClick: () -> Unit,
++    filterUiState: ReportFilterUiState,
++    actions: ReportWeakWordsActions,
+ ) {
++    item {
++        ReportFilterPanel(
++            state = filterUiState,
++            config =
++                ReportFilterPanelConfig(
++                    showCategory = true,
++                    showMinAttemptCount = true,
++                ),
++            actions = actions.filterActions,
++        )
++    }
++
+     when (state) {
+         ReportWeakWordsState.Idle ->
+             item {
+@@ -177,7 +199,12 @@ private fun LazyListScope.weakWordsItems(
+         ReportWeakWordsState.Empty ->
+             item {
+                 ReportWeakWordsStatusCard(
+-                    message = "아직 자주 틀리는 단어가 없어요.\n퀴즈를 더 풀면 어려워하는 단어를 모아볼 수 있어요.",
++                    message =
++                        if (filterUiState.hasAppliedFilter) {
++                            "조건에 맞는 취약 단어가 없어요."
++                        } else {
++                            "아직 자주 틀리는 단어가 없어요.\n퀴즈를 더 풀면 어려워하는 단어를 모아볼 수 있어요."
++                        },
+                 )
+             }
+ 
+@@ -185,7 +212,7 @@ private fun LazyListScope.weakWordsItems(
+             item {
+                 ReportWeakWordsErrorCard(
+                     message = state.message,
+-                    onRetryClick = onRetryClick,
++                    onRetryClick = actions.onRetryClick,
+                 )
+             }
+ 
+@@ -202,13 +229,20 @@ private fun LazyListScope.weakWordsItems(
+             item {
+                 ReportWeakWordsMoreSection(
+                     state = state,
+-                    onLoadMoreClick = onLoadMoreClick,
++                    onLoadMoreClick = actions.onLoadMoreClick,
+                 )
+             }
+         }
+     }
+ }
+ 
++private data class ReportWeakWordsActions(
++    val onRetryClick: () -> Unit,
++    val onLoadMoreClick: () -> Unit,
++    val onSwitchChild: () -> Unit,
++    val filterActions: ReportFilterActions,
++)
++
+ @Composable
+ private fun ReportWeakWordsIntro(activeChildState: ActiveChildProfileState) {
+     val selectedProfile = (activeChildState as? ActiveChildProfileState.Selected)?.profile
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsViewModel.kt
+@@ -4,10 +4,13 @@ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
+ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileManager
+ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
++import com.ssafy.mobile.feature.learning.domain.repository.LearningCategoryRepository
++import com.ssafy.mobile.feature.report.domain.model.ReportFilterState
+ import com.ssafy.mobile.feature.report.domain.model.ReportWeakWordPage
+ import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import javax.inject.Inject
++import kotlin.coroutines.cancellation.CancellationException
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.Job
+ import kotlinx.coroutines.flow.MutableStateFlow
+@@ -19,6 +22,7 @@ import kotlinx.coroutines.withContext
+ data class ReportWeakWordsUiState(
+     val activeChildState: ActiveChildProfileState = ActiveChildProfileState.Loading,
+     val weakWordsState: ReportWeakWordsState = ReportWeakWordsState.Idle,
++    val filterUiState: ReportFilterUiState = ReportFilterUiState(),
+ )
+ 
+ private data class WeakWordsLoadMoreRequest(
+@@ -50,14 +54,18 @@ class ReportWeakWordsViewModel
+     constructor(
+         private val activeChildProfileManager: ActiveChildProfileManager,
+         private val reportRepository: ReportRepository,
++        private val learningCategoryRepository: LearningCategoryRepository,
+     ) : ViewModel() {
+         private val _uiState = MutableStateFlow(ReportWeakWordsUiState())
+         val uiState: StateFlow<ReportWeakWordsUiState> = _uiState.asStateFlow()
+ 
+         private var loadJob: Job? = null
+         private var loadMoreJob: Job? = null
++        private var loadCategoriesJob: Job? = null
++        private var appliedFilter = ReportFilterState()
+ 
+         init {
++            loadFilterCategories()
+             loadActiveChildProfile()
+         }
+ 
+@@ -89,7 +97,10 @@ class ReportWeakWordsViewModel
+                         )
+ 
+                     if (state is ActiveChildProfileState.Selected) {
+-                        loadWeakWords(childId = state.profile.childId)
++                        loadWeakWords(
++                            childId = state.profile.childId,
++                            filter = appliedFilter,
++                        )
+                     }
+                 }
+         }
+@@ -118,6 +129,7 @@ class ReportWeakWordsViewModel
+                                 childId = childId,
+                                 page = nextPage,
+                                 size = DEFAULT_WEAK_WORDS_PAGE_SIZE,
++                                filter = appliedFilter,
+                             )
+                         }
+ 
+@@ -153,13 +165,141 @@ class ReportWeakWordsViewModel
+                 }
+         }
+ 
+-        private suspend fun loadWeakWords(childId: Long) {
++        fun loadFilterCategories() {
++            if (loadCategoriesJob?.isActive == true) return
++
++            _uiState.value =
++                _uiState.value.copy(
++                    filterUiState =
++                        _uiState.value.filterUiState.copy(
++                            isCategoryLoading = true,
++                            categoryErrorMessage = null,
++                        ),
++                )
++
++            loadCategoriesJob =
++                viewModelScope.launch {
++                    try {
++                        val categories =
++                            withContext(Dispatchers.IO) {
++                                learningCategoryRepository.getCategories()
++                            }
++                        _uiState.value =
++                            _uiState.value.copy(
++                                filterUiState =
++                                    _uiState.value.filterUiState.copy(
++                                        categoryOptions =
++                                            categories.map { category ->
++                                                ReportFilterCategoryOption(
++                                                    categoryId = category.categoryId,
++                                                    name = category.name,
++                                                )
++                                            },
++                                        isCategoryLoading = false,
++                                        categoryErrorMessage = null,
++                                    ),
++                            )
++                    } catch (e: CancellationException) {
++                        throw e
++                    } catch (
++                        @Suppress("TooGenericExceptionCaught")
++                        e: Exception,
++                    ) {
++                        _uiState.value =
++                            _uiState.value.copy(
++                                filterUiState =
++                                    _uiState.value.filterUiState.copy(
++                                        isCategoryLoading = false,
++                                        categoryErrorMessage = e.message ?: "카테고리를 불러오지 못했습니다.",
++                                    ),
++                            )
++                    }
++                }
++        }
++
++        fun updateFilterInput(input: ReportFilterInputState) {
++            _uiState.value =
++                _uiState.value.copy(
++                    filterUiState =
++                        _uiState.value.filterUiState.copy(
++                            input = input,
++                            errorMessage = null,
++                        ),
++                )
++        }
++
++        fun applyFilter() {
++            val filterResult =
++                _uiState.value.filterUiState.input
++                    .toWeakWordsFilter()
++            val filter =
++                filterResult.getOrElse { throwable ->
++                    _uiState.value =
++                        _uiState.value.copy(
++                            filterUiState =
++                                _uiState.value.filterUiState.copy(
++                                    errorMessage = throwable.message ?: "필터 값을 확인해 주세요.",
++                                ),
++                        )
++                    return
++                }
++
++            appliedFilter = filter
++            _uiState.value =
++                _uiState.value.copy(
++                    filterUiState =
++                        _uiState.value.filterUiState.copy(
++                            hasAppliedFilter = filter.hasFilters(),
++                            errorMessage = null,
++                        ),
++                )
++            reloadWeakWordsWithCurrentChild()
++        }
++
++        fun resetFilter() {
++            appliedFilter = ReportFilterState()
++            _uiState.value =
++                _uiState.value.copy(
++                    filterUiState =
++                        _uiState.value.filterUiState.copy(
++                            input = ReportFilterInputState(),
++                            hasAppliedFilter = false,
++                            errorMessage = null,
++                        ),
++                )
++            reloadWeakWordsWithCurrentChild()
++        }
++
++        private fun reloadWeakWordsWithCurrentChild() {
++            val childState =
++                _uiState.value.activeChildState as? ActiveChildProfileState.Selected
++                    ?: return
++            loadJob?.cancel()
++            loadMoreJob?.cancel()
++            loadJob =
++                viewModelScope.launch {
++                    _uiState.value =
++                        _uiState.value.copy(
++                            weakWordsState = ReportWeakWordsState.Loading,
++                        )
++                    loadWeakWords(
++                        childId = childState.profile.childId,
++                        filter = appliedFilter,
++                    )
++                }
++        }
++
++        private suspend fun loadWeakWords(
++            childId: Long,
++            filter: ReportFilterState,
++        ) {
+             val result =
+                 withContext(Dispatchers.IO) {
+                     reportRepository.getWeakWords(
+                         childId = childId,
+                         page = FIRST_PAGE,
+                         size = DEFAULT_WEAK_WORDS_PAGE_SIZE,
++                        filter = filter,
+                     )
+                 }
+ 
+
+

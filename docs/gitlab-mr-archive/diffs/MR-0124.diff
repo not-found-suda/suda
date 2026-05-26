@@ -1,0 +1,1926 @@
+﻿diff --git a/ai/docs/20260507_단어시퀀스_문장변환_구현계획.md b/ai/docs/20260507_단어시퀀스_문장변환_구현계획.md
+--- /dev/null
++++ b/ai/docs/20260507_단어시퀀스_문장변환_구현계획.md
+@@ -0,0 +1,525 @@
++# 단어 시퀀스 생성 및 한국어 문장 변환 구현 계획
++
++## 1. 목표
++
++수어 단어 인식 모델이 실시간으로 출력하는 단어 후보를 바로 문장 변환에 사용하지 않고, 안정적으로 확정된 단어만 모아 gloss 형태의 단어 시퀀스를 만든다. 이후 이 gloss 시퀀스를 GPT 계열 모델에 전달해, 농인 부모가 3~5세 CODA 아이에게 말하는 듯한 자연스러운 한국어 문장으로 변환한다.
++
++현재 최종 모델 인식 단어:
++
++```text
++기차, 장난감, 놀다, 가다, 일어나다, 병원, 조심
++```
++
++전체 흐름:
++
++```text
++실시간 TFLite 추론
++→ 단어 후보 안정화
++→ 확정 단어 이벤트 생성
++→ 문장 버퍼에 단어 누적
++→ 중복/노이즈 단어 제거
++→ 양손 모두 사라짐으로 문장 끝 판단
++→ gloss 시퀀스를 GPT에 전달
++→ 아이에게 말하는 자연스러운 한국어 문장 생성
++```
++
++## 2. 문장 시작 기준
++
++문장 시작은 **첫 번째 단어가 확정되는 순간**으로 본다.
++
++손이 화면에 보이기 시작한 시점만으로는 문장 시작으로 보지 않는다. 손을 준비 자세로 올리거나 위치를 잡는 동안 잘못된 후보가 나올 수 있기 때문이다.
++
++상태 전이:
++
++```text
++IDLE
++  첫 번째 확정 단어 발생
++  → COLLECTING
++  → sentenceBuffer 초기화 후 첫 단어 추가
++```
++
++예:
++
++```text
++확정 단어: 병원
++sentenceBuffer = ["병원"]
++문장 상태 = COLLECTING
++```
++
++## 3. 단어 확정 기준
++
++초기 기준은 현재 inference 코드와 동일하게 사용한다.
++
++```text
++confidence threshold = 0.75
++margin threshold = 0.08
++prediction smoothing window = 6
++stable minimum count = 4
++minimum frames for prediction = 15
++```
++
++확정 조건:
++
++```text
++top1_confidence >= 0.75
++top1_confidence - top2_confidence >= 0.08
++최근 6회 예측 중 같은 단어가 최소 4회 이상 등장
++```
++
++이 조건을 통과한 단어만 `confirmedWord`로 취급하고 문장 버퍼에 넣는다.
++
++이 값들은 실제 모바일 테스트 후 조정 가능하다.
++
++```text
++오인식이 많음 → confidence / margin / stable minimum count 상향
++반응이 너무 느림 → stable minimum count 하향 또는 minimum frames 하향
++```
++
++## 4. 중복 단어 제거 전략
++
++중복 제거는 단순히 인접한 같은 단어만 제거하는 것으로는 부족하다. 실시간 추론에서는 중간에 짧은 노이즈 단어가 끼어들 수 있기 때문이다.
++
++예:
++
++```text
++raw confirmed words:
++["가다", "가다", "기차", "가다", "가다"]
++```
++
++이 경우 `기차`는 짧게 튄 노이즈로 보고 최종 시퀀스는 다음처럼 처리한다.
++
++```text
++["가다"]
++```
++
++따라서 후처리는 두 단계로 한다.
++
++### 4.1 1단계: 짧은 노이즈 제거
++
++패턴이 `A, B, A`이고, `B`가 짧은 시간 안에 1회만 등장한 경우 `B`를 제거한다.
++
++```text
++["가다", "기차", "가다"] → ["가다", "가다"]
++["병원", "장난감", "병원"] → ["병원", "병원"]
++```
++
++권장 조건:
++
++```text
++B가 1회만 등장
++A와 B, B와 A 사이 시간 간격이 각각 1.0초 이하
++B의 confidence가 A보다 낮거나, B의 지속 시간이 짧음
++```
++
++단순 데모 구현에서는 우선 아래 조건만 적용해도 된다.
++
++```text
++if previousWord == nextWord and middleWord != previousWord:
++    remove middleWord
++```
++
++### 4.2 2단계: 연속 중복 제거
++
++노이즈 제거 후 연속으로 같은 단어가 이어지면 하나로 합친다.
++
++```text
++["가다", "가다"] → ["가다"]
++["병원", "병원", "가다", "가다"] → ["병원", "가다"]
++```
++
++최종 예:
++
++```text
++입력: ["가다", "가다", "기차", "가다", "가다"]
++
++1단계 노이즈 제거:
++["가다", "가다", "가다", "가다"]
++
++2단계 연속 중복 제거:
++["가다"]
++```
++
++## 5. 문장 끝 기준
++
++문장 끝은 **양손이 모두 화면에서 사라진 상태가 1.2~1.5초 이상 지속될 때**로 판단한다.
++
++중요: 한 손만 사라진 상태는 문장 끝으로 보지 않는다. 수어 동작 중 한 손만 잠시 검출되지 않거나 화면 밖으로 나갈 수 있기 때문이다.
++
++손 감지 기준:
++
++```text
++leftHandVisible = left hand landmarks 존재
++rightHandVisible = right hand landmarks 존재
++bothHandsMissing = !leftHandVisible && !rightHandVisible
++```
++
++문장 끝 후보:
++
++```text
++bothHandsMissing 상태가 1.2초 이상 지속
++```
++
++권장값:
++
++```text
++초기값: 1.3초
++조정 범위: 1.2초 ~ 1.5초
++```
++
++상태 전이:
++
++```text
++COLLECTING
++  bothHandsMissingDuration >= 1.3초
++  → READY_TO_CONVERT
++  → sentenceBuffer 후처리
++  → GPT 변환 요청
++```
++
++## 6. GPT에 넘길 데이터 형태
++
++GPT에는 영상이나 landmark 좌표를 넘기지 않는다. 모델에서 확정된 단어 시퀀스만 넘긴다.
++
++권장 JSON 형식:
++
++```json
++{
++  "gloss": ["병원", "가다", "조심"],
++  "sentenceType": "평서문",
++  "availableWords": ["기차", "장난감", "놀다", "가다", "일어나다", "병원", "조심"],
++  "tone": "농인 부모가 3~5세 CODA 아이에게 말하는 따뜻하고 쉬운 말투"
++}
++```
++
++`availableWords`는 GPT가 입력 gloss에 없는 의미를 만들어내지 않도록 제한하기 위한 단어 목록이다. 즉, 모델이 실제로 인식할 수 있는 단어 범위를 알려주는 guardrail 역할을 한다.
++
++좋은 변환:
++
++```text
++["병원", "가다"] → "병원에 가자."
++```
++
++나쁜 변환:
++
++```text
++["병원", "가다"] → "엄마랑 병원에 가서 주사를 맞자."
++```
++
++위 나쁜 예시는 `엄마`, `주사`라는 입력에 없는 의미를 추가했기 때문에 피해야 한다.
++
++평서문과 의문문도 **같은 JSON 형태**로 보낸다. 달라지는 것은 `sentenceType` 값뿐이다.
++
++평서문:
++
++```json
++{
++  "gloss": ["기차", "가다"],
++  "sentenceType": "평서문",
++  "availableWords": ["기차", "장난감", "놀다", "가다", "일어나다", "병원", "조심"],
++  "tone": "농인 부모가 3~5세 CODA 아이에게 말하는 따뜻하고 쉬운 말투"
++}
++```
++
++의문문:
++
++```json
++{
++  "gloss": ["기차", "가다"],
++  "sentenceType": "의문문",
++  "availableWords": ["기차", "장난감", "놀다", "가다", "일어나다", "병원", "조심"],
++  "tone": "농인 부모가 3~5세 CODA 아이에게 말하는 따뜻하고 쉬운 말투"
++}
++```
++
++## 7. GPT 프롬프트 초안
++
++목표 말투는 **농인 부모가 3~5세 CODA 아이에게 말하는 자연스럽고 쉬운 한국어**다. 너무 딱딱한 번역문이 아니라, 짧고 따뜻하며 아이가 이해하기 쉬운 문장으로 만든다.
++
++프롬프트 초안:
++
++```text
++너는 한국 수어 gloss 단어 시퀀스를 자연스러운 한국어 문장으로 바꾸는 변환기다.
++
++상황:
++- 말하는 사람은 농인 부모다.
++- 듣는 사람은 3~5세 CODA 아이다.
++- 따라서 문장은 짧고, 쉽고, 따뜻한 말투여야 한다.
++
++규칙:
++1. 입력 gloss에 있는 단어의 의미만 사용한다.
++2. 입력에 없는 새로운 사람, 장소, 사물, 사건을 추가하지 않는다.
++3. 사용 가능한 단어 목록 밖의 핵심 의미를 새로 만들지 않는다.
++4. 단어 순서는 가능한 유지한다.
++5. 한국어 조사와 어미는 자연스럽게 보완한다.
++6. sentenceType이 "의문문"이면 아이에게 묻는 말투로 만들고 물음표로 끝낸다.
++7. sentenceType이 "평서문"이면 부드러운 평서문 또는 권유문으로 만든다.
++8. 출력은 한국어 문장 하나만 반환한다.
++9. 설명, 후보, 따옴표, JSON 없이 문장만 출력한다.
++
++사용 가능한 단어:
++{availableWords}
++
++입력 gloss:
++{gloss}
++
++문장 유형:
++{sentenceType}
++
++출력:
++```
++
++예시:
++
++```text
++gloss = ["병원", "가다"]
++sentenceType = "평서문"
++출력 = 병원에 가자.
++```
++
++```text
++gloss = ["기차", "가다"]
++sentenceType = "의문문"
++출력 = 기차 타러 갈까?
++```
++
++```text
++gloss = ["장난감", "조심"]
++sentenceType = "평서문"
++출력 = 장난감 조심하자.
++```
++
++## 8. 규칙 기반 변환과 GPT 사용 전략
++
++당장은 GPT를 테스트해보되, 데모 안정성을 위해 자주 쓰는 조합은 규칙 기반 결과를 먼저 준비하는 것이 좋다.
++
++규칙 기반 예시:
++
++```json
++{
++  "기차,가다": "기차 타러 가자.",
++  "병원,가다": "병원에 가자.",
++  "장난감,놀다": "장난감으로 놀자.",
++  "장난감,조심": "장난감 조심하자.",
++  "기차,조심": "기차 조심하자.",
++  "병원,가다,조심": "병원에 가서 조심하자.",
++  "놀다,일어나다": "놀다가 일어나자."
++}
++```
++
++의문문이면 규칙 결과를 의문문 말투로 바꾼다.
++
++```json
++{
++  "기차,가다": "기차 타러 갈까?",
++  "병원,가다": "병원에 갈까?",
++  "장난감,놀다": "장난감으로 놀까?"
++}
++```
++
++권장 처리:
++
++```text
++if ruleBasedMapping exists:
++    use ruleBasedSentence
++else:
++    call GPT
++```
++
++나중에 단어 수가 늘어나면 GPT 사용 비중을 늘릴 수 있다.
++
++## 9. 상태 머신 설계
++
++```text
++IDLE
++  - 문장 대기 상태
++  - 확정 단어가 발생하면 COLLECTING으로 이동
++
++COLLECTING
++  - 확정 단어를 sentenceBuffer에 누적
++  - 연속 중복 단어는 무시
++  - 짧게 튄 노이즈 단어는 후보 상태로 보류
++  - 양손 모두 사라진 시간을 측정
++
++READY_TO_CONVERT
++  - 양손 모두 사라짐이 1.3초 이상 지속된 상태
++  - sentenceBuffer 후처리 수행
++  - 빈 버퍼면 IDLE로 복귀
++  - 단어가 있으면 CONVERTING으로 이동
++
++CONVERTING
++  - 규칙 기반 변환 또는 GPT API 호출
++  - 변환 결과를 화면에 표시
++
++DONE
++  - 최종 문장 표시
++  - 다음 손 동작이 시작되면 새 문장으로 IDLE 또는 COLLECTING 복귀
++```
++
++## 10. 구현 의사코드
++
++```kotlin
++enum class SentenceState {
++    IDLE,
++    COLLECTING,
++    READY_TO_CONVERT,
++    CONVERTING,
++    DONE
++}
++
++data class ConfirmedWordEvent(
++    val label: String,
++    val confidence: Float,
++    val margin: Float,
++    val timestamp: Long
++)
++
++val sentenceBuffer = mutableListOf<ConfirmedWordEvent>()
++var state = SentenceState.IDLE
++var bothHandsMissingStartTime: Long? = null
++val sentenceEndMs = 1300L
++
++fun onFrameResult(
++    leftHandVisible: Boolean,
++    rightHandVisible: Boolean,
++    confirmedWord: ConfirmedWordEvent?
++) {
++    val now = System.currentTimeMillis()
++    val bothHandsMissing = !leftHandVisible && !rightHandVisible
++
++    if (confirmedWord != null) {
++        bothHandsMissingStartTime = null
++
++        if (state == SentenceState.IDLE || state == SentenceState.DONE) {
++            sentenceBuffer.clear()
++            state = SentenceState.COLLECTING
++        }
++
++        appendWordWithDedup(confirmedWord)
++    }
++
++    if (state == SentenceState.COLLECTING) {
++        if (bothHandsMissing) {
++            if (bothHandsMissingStartTime == null) {
++                bothHandsMissingStartTime = now
++            }
++
++            val missingDuration = now - bothHandsMissingStartTime!!
++            if (missingDuration >= sentenceEndMs) {
++                state = SentenceState.READY_TO_CONVERT
++                finalizeSentence()
++            }
++        } else {
++            bothHandsMissingStartTime = null
++        }
++    }
++}
++```
++
++중복 제거:
++
++```kotlin
++fun appendWordWithDedup(event: ConfirmedWordEvent) {
++    val last = sentenceBuffer.lastOrNull()
++
++    // 1. 바로 직전 단어와 같으면 중복으로 무시
++    if (last != null && last.label == event.label) {
++        return
++    }
++
++    sentenceBuffer.add(event)
++
++    // 2. A-B-A 형태의 짧은 노이즈 제거
++    removeShortBridgeNoise()
++}
++
++fun removeShortBridgeNoise() {
++    if (sentenceBuffer.size < 3) return
++
++    val n = sentenceBuffer.size
++    val a = sentenceBuffer[n - 3]
++    val b = sentenceBuffer[n - 2]
++    val c = sentenceBuffer[n - 1]
++
++    val isBridgeNoise = a.label == c.label && b.label != a.label
++    val shortGap = (b.timestamp - a.timestamp <= 1000L) &&
++                   (c.timestamp - b.timestamp <= 1000L)
++
++    if (isBridgeNoise && shortGap) {
++        sentenceBuffer.removeAt(n - 2)
++    }
++}
++```
++
++문장 확정:
++
++```kotlin
++fun finalizeSentence() {
++    val gloss = sentenceBuffer
++        .map { it.label }
++        .dedupeAdjacent()
++
++    if (gloss.isEmpty()) {
++        state = SentenceState.IDLE
++        return
++    }
++
++    state = SentenceState.CONVERTING
++    val sentence = convertGlossToKorean(
++        gloss = gloss,
++        sentenceType = currentSentenceType
++    )
++
++    showSentence(sentence)
++    state = SentenceState.DONE
++}
++```
++
++## 11. GPT API 호출 시 요청/응답 형태
++
++서버에 전달할 요청:
++
++```json
++{
++  "gloss": ["병원", "가다", "조심"],
++  "sentenceType": "평서문",
++  "tone": "parent_to_young_coda_child"
++}
++```
++
++서버에서 GPT에 보낼 내부 요청:
++
++```json
++{
++  "model": "gpt-5-mini",
++  "input": {
++    "availableWords": ["기차", "장난감", "놀다", "가다", "일어나다", "병원", "조심"],
++    "gloss": ["병원", "가다", "조심"],
++    "sentenceType": "평서문",
++    "style": "농인 부모가 3~5세 CODA 아이에게 말하는 따뜻하고 쉬운 말투"
++  }
++}
++```
++
++서버 응답:
++
++```json
++{
++  "sentence": "병원에 가서 조심하자.",
++  "sourceGloss": ["병원", "가다", "조심"],
++  "sentenceType": "평서문"
++}
++```
++
++## 12. 정리
++
++현재 합의한 핵심 기준:
++
++```text
++1. 문장 시작 = 첫 번째 단어 확정 순간
++2. 단어 확정 = confidence/margin/smoothing 기준 통과
++3. 중복 제거 = 연속 중복 제거 + A-B-A 짧은 노이즈 제거
++4. 문장 끝 = 양손 모두 사라진 상태가 1.2~1.5초 지속
++5. GPT 입력 = gloss, sentenceType, availableWords를 같은 형식으로 전달
++6. 문장 변환 말투 = 농인 부모가 3~5세 CODA 아이에게 말하는 쉬운 말투
++7. 규칙 기반 변환을 우선 적용하고, 매핑이 없으면 GPT 호출
++```
+
+
+diff --git a/ai/docs/20260507_모바일변환_문서화_문장시퀀스계획.md b/ai/docs/20260507_모바일변환_문서화_문장시퀀스계획.md
+--- /dev/null
++++ b/ai/docs/20260507_모바일변환_문서화_문장시퀀스계획.md
+@@ -0,0 +1,134 @@
++# 2026-05-07 모바일 변환, 문서화, 문장 시퀀스 계획
++
++## 작업 배경
++
++7개 핵심 단어 모델이 실제 촬영 데이터 기준으로 어느 정도 안정화된 뒤, 최종 목표인 모바일 온디바이스 추론을 위해 TFLite 변환과 팀원 전달 문서를 정리했다. 또한 단어 단위 인식 이후, 여러 단어가 이어진 문장 영상에서 단어 시퀀스를 어떻게 구성할지 논의했다.
++
++## 핵심 단어 모델
++
++한 시점의 핵심 단어 모델은 다음 7개 단어를 대상으로 했다.
++
++```text
++기차, 장난감, 놀다, 가다, 일어나다, 병원, 조심
++```
++
++모델 폴더에는 PyTorch 모델, label map, train config, ONNX, TFLite 모델, 문서가 함께 들어갔다.
++
++```text
++best_sign_model_1.pt
++best_sign_model_1.onnx
++best_sign_model_1_float32.tflite
++best_sign_model_1_float16.tflite
++label_map_1.json
++train_config_1.json
++```
++
++## TFLite 변환
++
++변환 스크립트는 PyTorch 모델을 ONNX로 export한 뒤, TensorFlow SavedModel을 거쳐 TFLite로 변환하는 흐름을 사용했다.
++
++중요한 수정은 softmax 누락 방지였다. 모바일에서는 output을 확률값으로 바로 사용하기 때문에, 변환 시 `SoftmaxWrapper`를 통해 `return_probs=True`로 모델을 감싸도록 했다.
++
++결과적으로 TFLite 출력은 다음 형태가 되도록 했다.
++
++```text
++input:  [1, 30, 332], float32
++output: [1, 7], float32 probabilities
++```
++
++float32와 float16 두 모델을 모두 생성했다.
++
++```text
++best_sign_model_1_float32.tflite
++best_sign_model_1_float16.tflite
++```
++
++float16은 모델 파일 크기를 줄이는 용도이며, 입력 ByteBuffer는 여전히 float32 기준으로 구성한다.
++
++## TFLite 테스트 코드
++
++PC에서 TFLite 모델을 직접 테스트하기 위해 실시간 TFLite 추론 코드를 만들었다. 기존 PyTorch 실시간 추론 코드와 같은 MediaPipe 전처리를 사용하고, TFLite Interpreter로 모델을 실행하도록 했다.
++
++초기 실행 과정에서 TensorFlow, protobuf, JAX, `ml_dtypes` 관련 충돌이 있었다. 최종적으로 TensorFlow 2.15 계열에서 MediaPipe와 함께 동작하도록 환경을 맞추는 방향으로 정리했다.
++
++## 모바일 전달 문서
++
++모바일 담당 팀원에게 전달할 문서를 작성했다.
++
++```text
++온디바이스_AI_적용AI모델정보.md
++```
++
++문서에는 다음 내용을 포함했다.
++
++```text
++모델 파일 목록
++label map
++입력 shape
++출력 shape
++332차원 feature 구조
++MediaPipe Holistic landmark 선택 방식
++정규화 방식
++ByteBuffer 구성 방법
++float32/float16 사용 차이
++softmax 포함 여부
++Galaxy S26 Ultra, Galaxy Flip3 고려사항
++```
++
++모바일에서는 `holistic_landmarker.task`로 landmark를 추출한 뒤, Python 학습/추론에서 사용한 동일 landmark만 골라 332차원 feature를 만들어 TFLite에 넣는 방식이 가능하다고 판단했다.
++
++## 웹 담당자 문서
++
++웹 서비스 담당 팀원에게 전달할 문서도 별도로 작성했다.
++
++```text
++웹_AI_적용AI모델정보.md
++```
++
++웹 쪽은 모델 파일 자체보다 API 또는 서버 추론에서 어떤 입력과 출력을 주고받는지, label map과 gloss 결과를 어떻게 서비스로 넘길지에 초점을 맞췄다.
++
++## 문장 시퀀스 논의
++
++단어 인식 이후에는 gloss 형태의 단어 리스트를 한국어 문장으로 변환해야 했다. 다만 gloss에서 한국어 문장 변환은 팀원이 Gemma 3로 꽤 잘 해결했다고 하여, 우리는 모델이 예측한 단어들을 어디서부터 어디까지 하나의 문장으로 볼지에 집중하기로 했다.
++
++문장 시작은 첫 번째 단어가 확정되는 순간으로 보았다. 단어 사이 준비 동작이나 손 위치 조정은 문장 시작으로 보지 않았다.
++
++문장 끝은 양손이 모두 화면에서 사라진 상태가 1.2~1.5초 이상 지속될 때로 정했다. 한 손만 사라진 경우는 문장 끝으로 보지 않았다.
++
++## 중복 제거 아이디어
++
++연속 단어 시퀀스에서는 다음 후처리가 필요하다고 정리했다.
++
++```text
++1. 연속 중복 단어 제거
++2. A-B-A 형태의 짧은 노이즈 제거
++3. confidence와 margin 기준을 통과한 단어만 확정
++4. 안정적으로 여러 번 등장한 단어만 sentenceBuffer에 추가
++```
++
++예시는 다음과 같다.
++
++```text
++raw:     [가다, 가다, 기차, 가다, 가다]
++cleaned: [가다]
++```
++
++## 문장 변환 계획 문서
++
++문장 시퀀스와 gloss 변환 계획은 별도 폴더에 정리했다.
++
++```text
++단어시퀀스_문장변환_구현계획.md
++```
++
++여기에는 상태 머신, 확정 단어 기준, 중복 제거, 문장 종료 기준, LLM 또는 SLLM에 넘길 gloss JSON 구조, Kotlin 구현 방향 등을 정리했다.
++
++## 모델 선택 및 API 논의
++
++gloss를 자연스러운 한국어 문장으로 바꾸는 LLM/SLLM 후보도 논의했다. NAVER CLOVA Speech는 STT/TTS 성격이어서 gloss 변환에는 맞지 않는다고 판단했다.
++
++SSAFY GMS 크레딧을 활용할 수 있다면 GPT 계열 소형 모델을 API로 사용하는 방안도 고려했다. 다만 이후 팀원이 Gemma 3 기반 변환을 잘 구현했다고 하여, 우리 쪽 우선순위는 문장 구간 분리와 단어 시퀀스 안정화로 조정했다.
++
++## 남긴 판단
++
++이 날짜의 핵심은 모델을 모바일에서 실제로 사용할 수 있는 형태로 변환하고, 팀원이 같은 feature 구조를 구현할 수 있도록 문서화한 것이다. 또한 단어 인식 모델 하나만으로 문장 처리를 완전히 해결하기 어렵기 때문에, 별도의 후처리 상태 머신과 gloss 변환 단계를 두는 방향을 확정했다.
+
+
+diff --git a/ai/models/transformer_mobile/best_sign_model_float16.tflite b/ai/models/transformer_mobile/best_sign_model_float16.tflite
+--- /dev/null
++++ b/ai/models/transformer_mobile/best_sign_model_float16.tflite
+Binary files /dev/null and b/ai/models/transformer_mobile/best_sign_model_float16.tflite differ
+
+
+diff --git a/ai/models/transformer_mobile/best_sign_model_float32.tflite b/ai/models/transformer_mobile/best_sign_model_float32.tflite
+--- /dev/null
++++ b/ai/models/transformer_mobile/best_sign_model_float32.tflite
+Binary files /dev/null and b/ai/models/transformer_mobile/best_sign_model_float32.tflite differ
+
+
+diff --git a/ai/models/transformer_mobile/label_map.json b/ai/models/transformer_mobile/label_map.json
+--- /dev/null
++++ b/ai/models/transformer_mobile/label_map.json
+@@ -0,0 +1,9 @@
++{
++    "0": "기차",
++    "1": "장난감",
++    "2": "놀다",
++    "3": "가다",
++    "4": "일어나다",
++    "5": "병원",
++    "6": "조심"
++}
+\ No newline at end of file
+
+
+diff --git a/ai/models/transformer_mobile/train_config.json b/ai/models/transformer_mobile/train_config.json
+--- /dev/null
++++ b/ai/models/transformer_mobile/train_config.json
+@@ -0,0 +1,102 @@
++{
++    "run_idx": 1,
++    "data_dir": "/home/j-k14a404/Transformer_Kim/Training_v5/processed_npy_v5",
++    "model_dir_name": "overfit_model_v5_7words_demo_stable",
++    "epochs": 120,
++    "batch_size": 16,
++    "learning_rate": 0.001,
++    "input_dim": 332,
++    "max_len": 30,
++    "use_class_weights": false,
++    "use_scheduler": false,
++    "use_balanced_sampler": false,
++    "single_batch_check_steps": 200,
++    "classes": [
++        "기차",
++        "장난감",
++        "놀다",
++        "가다",
++        "일어나다",
++        "병원",
++        "조심"
++    ],
++    "stats": {
++        "class_counts": {
++            "기차": 80,
++            "장난감": 80,
++            "놀다": 80,
++            "가다": 30,
++            "일어나다": 30,
++            "병원": 75,
++            "조심": 105
++        },
++        "variant_counts": {
++            "기차/기차": 80,
++            "장난감/장난감": 80,
++            "놀다/놀다": 80,
++            "가다/가다4": 30,
++            "일어나다/일어나다2": 30,
++            "병원/병원": 75,
++            "조심/조심": 105
++        },
++        "train_class_counts": {
++            "기차": 80,
++            "장난감": 80,
++            "놀다": 80,
++            "가다": 80,
++            "일어나다": 80,
++            "병원": 80,
++            "조심": 84
++        },
++        "val_class_counts": {
++            "기차": 16,
++            "장난감": 16,
++            "놀다": 16,
++            "가다": 6,
++            "일어나다": 6,
++            "병원": 15,
++            "조심": 21
++        },
++        "target_variants": {
++            "가다": [
++                "가다4"
++            ],
++            "일어나다": [
++                "일어나다2"
++            ]
++        },
++        "max_files_per_class": {},
++        "file_sample_seed": 42,
++        "total_size": 660,
++        "original_total_size": 480,
++        "train_size": 564,
++        "original_train_size": 384,
++        "val_size": 96,
++        "stratified_split": true,
++        "balanced_sampling": false,
++        "use_augmentation": true,
++        "target_samples_per_class": 80,
++        "augmentation_counts": {
++            "기차": 16,
++            "장난감": 16,
++            "놀다": 16,
++            "가다": 56,
++            "일어나다": 56,
++            "병원": 20,
++            "조심": 0
++        },
++        "augmentation": {
++            "seed": 2026,
++            "noise_std": 0.01,
++            "time_scale_range": [
++                0.9,
++                1.1
++            ],
++            "time_shift_range": [
++                -2,
++                2
++            ]
++        },
++        "skipped_file_count": 0
++    }
++}
+\ No newline at end of file
+
+
+diff --git a/ai/models/transformer_mobile/온디바이스_AI_적용AI모델정보.md b/ai/models/transformer_mobile/온디바이스_AI_적용AI모델정보.md
+--- /dev/null
++++ b/ai/models/transformer_mobile/온디바이스_AI_적용AI모델정보.md
+@@ -0,0 +1,648 @@
++# 온디바이스 AI 적용 AI 모델 정보
++
++## 1. 최종 데모 모델 요약
++
++모바일 온디바이스 추론용 최종 모델은 수어 단어 7개를 분류하는 Transformer 기반 모델이다.
++
++최종 인식 단어와 라벨 순서는 다음과 같다.
++
++| index | label |
++| ---: | --- |
++| 0 | 기차 |
++| 1 | 장난감 |
++| 2 | 놀다 |
++| 3 | 가다 |
++| 4 | 일어나다 |
++| 5 | 병원 |
++| 6 | 조심 |
++
++현재 7개 단어만으로 구성할 수 있는 문장 예시는 다음과 같다. 이 문장들은 모델 학습에 직접 사용된 문장 데이터가 아니라, 인식된 단어들을 조합해 데모에서 보여줄 수 있는 테스트 문장 예시다.
++
++| 번호 | 문장 예시 | 사용 단어 |
++| ---: | --- | --- |
++| 1 | 기차가 가다 | 기차, 가다 |
++| 2 | 병원에 가다 | 병원, 가다 |
++| 3 | 장난감으로 놀다 | 장난감, 놀다 |
++| 4 | 장난감을 조심하다 | 장난감, 조심 |
++| 5 | 기차를 조심하다 | 기차, 조심 |
++| 6 | 병원에서 일어나다 | 병원, 일어나다 |
++| 7 | 놀다가 일어나다 | 놀다, 일어나다 |
++| 8 | 기차 타러 가다 | 기차, 가다 |
++| 9 | 병원에 가서 조심하다 | 병원, 가다, 조심 |
++| 10 | 장난감 가지고 놀다 | 장난감, 놀다 |
++
++모바일에 전달할 주요 파일은 다음과 같다.
++
++| 파일 | 용도 |
++| --- | --- |
++| `best_sign_model_v5_1_float16.tflite` | 모바일 권장 모델. float16 경량화 TFLite |
++| `best_sign_model_v5_1_float32.tflite` | 정확도 비교용 float32 TFLite |
++| `label_map_v5_1.json` | 모델 출력 index와 단어 라벨 매핑 |
++| `train_config_v5_1.json` | 학습 설정 기록용 |
++
++파일 크기:
++
++| 모델 | 크기 |
++| --- | ---: |
++| float32 TFLite | 약 2.51 MB |
++| float16 TFLite | 약 1.27 MB |
++
++갤럭시 S26 Ultra에서는 `float16` 모델부터 테스트하고, 실제 프로젝트 시연 기기인 갤럭시 Flip3에서도 동일 모델을 우선 테스트한다. Flip3에서 발열, 지연, 프레임 드랍, 정확도 저하가 있으면 `float32`와 `float16`을 모두 비교한다.
++
++## 2. 모델 입출력 형식
++
++TFLite 모델 입력은 고정 크기 float32 텐서다.
++
++```text
++input shape: [1, 30, 332]
++input dtype: float32
++output shape: [1, 7]
++output dtype: float32
++```
++
++입력 의미:
++
++```text
++1개 샘플
++30프레임
++프레임당 332차원 MediaPipe 기반 feature
++```
++
++출력 의미:
++
++```text
++7개 클래스에 대한 확률값
++argmax(output[0]) = 예측 단어 index
++```
++
++변환 시 모델 내부에 softmax를 포함했으므로, 일반적으로 TFLite 출력은 확률값으로 사용할 수 있다. 다만 모바일 구현에서 출력 합이 1에 가깝지 않다면 softmax를 한 번 적용해도 된다.
++
++## 3. MediaPipe 좌표 추출 방식
++
++학습, PC 실시간 추론, TFLite 테스트는 모두 같은 332차원 feature 구조를 사용했다.
++
++프레임 1개의 feature 구성:
++
++```text
++left hand: 21개 landmark x 3차원(x, y, z) = 63
++right hand: 21개 landmark x 3차원(x, y, z) = 63
++face: 45개 landmark x 3차원(x, y, z) = 135
++pose: 7개 landmark x 3차원(x, y, z) = 21
++hand-face distances: 50
++총합: 332
++```
++
++최종 feature 순서:
++
++```text
++[left_hand_63, right_hand_63, face_135, pose_21, hand_face_distance_50]
++```
++
++사용한 MediaPipe face landmark index:
++
++```text
++BASE_FACE_IDXS = [
++  70, 63, 105, 66,
++  336, 296, 334, 293,
++  33, 160, 158, 133, 153, 144,
++  362, 385, 387, 263, 373, 380,
++  61, 146, 91, 181, 84, 17, 314, 405, 321, 375
++]
++
++FACEPLUS_IDXS = [
++  1, 4,
++  152,
++  234, 454,
++  172, 397,
++  148, 377,
++  13, 14,
++  78, 308,
++  82, 312
++]
++
++FACE_IDXS = BASE_FACE_IDXS + FACEPLUS_IDXS
++```
++
++사용한 pose landmark index:
++
++```text
++POSE_IDXS = [0, 7, 8, 11, 12, 13, 14]
++```
++
++손끝과 얼굴 기준점 거리 feature:
++
++```text
++HAND_TIP_IDXS = [4, 8, 12, 16, 20]
++FACE_ANCHOR_IDXS = [1, 13, 152, 234, 454]
++```
++
++각 손마다 손끝 5개와 얼굴 anchor 5개의 거리 25개를 계산한다. 양손을 사용하므로 총 50차원이다.
++
++```text
++left hand distances: 5 tips x 5 anchors = 25
++right hand distances: 5 tips x 5 anchors = 25
++total distances = 50
++```
++
++손이 검출되지 않으면 해당 손 좌표와 거리 feature는 0으로 채운다. 얼굴 또는 pose가 일시적으로 검출되지 않으면 직전 검출값을 재사용하고, 직전값도 없으면 0으로 채운다.
++
++## 4. 전처리 및 정규화
++
++모델에 넣기 전에 각 프레임 feature를 어깨 기준으로 정규화한다.
++
++정규화 기준:
++
++```text
++left shoulder index in 94-landmark array = 90
++right shoulder index in 94-landmark array = 91
++shoulder_center = (left_shoulder + right_shoulder) / 2
++shoulder_width = distance(left_shoulder, right_shoulder)
++```
++
++정규화 방식:
++
++```text
++normalized_landmarks = (landmarks - shoulder_center) / shoulder_width
++normalized_distances = distances / shoulder_width
++```
++
++`shoulder_width`가 너무 작으면 1.0으로 처리한다.
++
++중요: 모바일에서도 학습/PC 추론과 동일하게 어깨 중심과 어깨 너비 기준 정규화를 해야 한다. 이 정규화를 빼면 모델 입력 분포가 달라져 정확도가 크게 떨어질 수 있다.
++
++## 5. 시퀀스 길이 처리
++
++모델은 항상 30프레임 입력을 받는다.
++
++실시간 추론에서는 손이 보이는 동안 프레임 feature를 누적하고, 최소 15프레임 이상 모이면 예측을 시작한다.
++
++프레임 수 처리 규칙:
++
++```text
++frames > 30:
++  전체 구간에서 30개 index를 균등 샘플링
++
++frames == 30:
++  그대로 사용
++
++15 <= frames < 30:
++  마지막 프레임을 반복 padding하여 30프레임으로 맞춤
++
++frames < 15:
++  선형 보간으로 30프레임으로 upsampling
++```
++
++PC 코드에서는 최근 30프레임 window를 유지한다.
++
++```text
++frame_window = deque(maxlen=30)
++```
++
++모바일에서도 같은 방식으로 최근 30프레임을 유지하면 된다.
++
++## 6. 실시간 추론 로직
++
++PC 기준 TFLite 추론 코드는 다음 파일에 구현되어 있다.
++
++```text
++inference_realtime_tflite_v5.py
++```
++
++핵심 흐름:
++
++```text
++1. 카메라 프레임 획득
++2. MediaPipe Holistic 또는 동등한 landmark 추출
++3. 손/얼굴/pose 좌표를 332차원 feature로 변환
++4. 어깨 기준 정규화
++5. 최근 feature를 frame_window에 누적
++6. 최소 15프레임 이상이면 [1, 30, 332] 입력 생성
++7. TFLite Interpreter로 추론
++8. Top-1 confidence와 Top-1/Top-2 margin 계산
++9. threshold와 smoothing 조건을 만족하면 단어 확정
++```
++
++현재 PC 테스트 기준 threshold:
++
++```text
++confidence threshold = 0.75
++margin threshold = 0.08
++prediction smoothing window = 6
++stable minimum count = 4
++minimum frames for prediction = 15
++```
++
++확정 조건:
++
++```text
++top1_confidence >= 0.75
++top1_confidence - top2_confidence >= 0.08
++최근 6개 예측 중 같은 단어가 최소 4회 이상 등장
++```
++
++이 smoothing을 넣은 이유는 손이 이동 중인 중간 프레임에서 다른 단어가 잠깐 튀는 현상을 줄이기 위해서다.
++
++## 7. 평서문/의문문 판별용 눈썹 정보
++
++단어 모델 자체는 7개 단어 분류 모델이다. 평서문/의문문 판별은 별도 학습 모델이 아니라, MediaPipe face landmark 기반 rule(수학적 계산)로 처리한다.
++
++사용 index:
++
++```text
++LEFT_EYEBROW_IDXS = [70, 63, 105, 66]
++RIGHT_EYEBROW_IDXS = [336, 296, 334, 293]
++LEFT_EYE_CENTER_IDXS = [33, 133]
++RIGHT_EYE_CENTER_IDXS = [362, 263]
++```
++
++계산 방식:
++
++```text
++eye_distance = distance(left_eye_center, right_eye_center)
++eyebrow_gap = (eye_y - eyebrow_y) / eye_distance
++```
++
++손이 보이지 않는 중립 상태에서 eyebrow gap을 모아 neutral baseline을 만들고, 현재 gap이 baseline보다 충분히 크면 의문문으로 판단한다.
++
++현재 기준:
++
++```text
++neutral face window = 45
++minimum neutral samples = 15
++question eyebrow delta threshold = 0.055
++```
++
++안경 착용 시에도 MediaPipe가 눈썹 자체가 아니라 얼굴 mesh의 해당 landmark를 추정한다. 즉 안경 테두리를 직접 feature로 쓰는 것은 아니다. 다만 조명, 안경 반사, 머리카락에 따라 landmark 품질이 흔들릴 수 있다.
++
++## 8. 모델 학습 정보
++
++모델 구조:
++
++```text
++input_dim = 332
++d_model = 128
++num_heads = 8
++num_layers = 3
++dim_feedforward = 512
++dropout = 0.1
++classifier output = 7 classes
++```
++
++모델은 입력 projection 후 positional encoding을 더하고 Transformer Encoder를 통과한다. 이후 valid frame pooling을 거쳐 classifier로 7개 단어를 분류한다.
++
++학습 데이터 구성:
++
++```text
++AI Hub 기반 npy 데이터
++팀원 추가 촬영 데이터
++최종 데모 안정화를 위해 오다, 자다, 아프다 제외
++가다: 가다4 variant만 사용
++일어나다: 일어나다2 variant만 사용
++```
++
++학습 중 사용한 주요 기법:
++
++```text
++1. shoulder normalization
++2. fixed 30-frame sequence
++3. stratified train/validation split
++4. 부족한 train class에만 안전한 virtual augmentation 적용
++5. best model numbering 저장
++6. 별도 holdout_test_v5 평가
++```
++
++사용한 augmentation:
++
++```text
++Gaussian noise: std=0.01
++temporal scale: 0.9 ~ 1.1
++temporal shift: -2 ~ +2 frames
++```
++
++좌우 flip은 사용하지 않았다. 수어에서 좌우 방향이 의미에 영향을 줄 수 있기 때문이다.
++
++최종 holdout 평가 결과:
++
++```text
++holdout 대상: 가다, 일어나다, 조심
++accuracy: 100.00% (15/15)
++가다: 5/5
++일어나다: 5/5
++조심: 5/5
++wrong predictions: none
++```
++
++학습 로그 기준:
++
++```text
++Best F1: 1.0000
++Val Acc@BestF1: 100.00%
++Best Train Acc: 100.00%
++```
++
++## 9. TFLite 변환 및 양자화 정보
++
++변환 흐름:
++
++```text
++PyTorch .pt
++→ ONNX
++→ TensorFlow SavedModel
++→ TFLite
++```
++
++생성한 TFLite 모델:
++
++```text
++float32 TFLite: 양자화 없음, 정확도 비교용
++float16 TFLite: float16 양자화/경량화 모델, 모바일 우선 적용 후보
++```
++
++현재 권장 사용 순서:
++
++```text
++1. Galaxy S26 Ultra에서 float16 테스트
++2. Galaxy Flip3에서 float16 테스트
++3. Flip3에서 정확도/속도 문제가 있으면 float32와 비교
++4. float16이 충분히 안정적이면 모바일에는 float16 모델 적용
++```
++
++int8 양자화는 현재 적용하지 않았다. int8은 representative dataset이 필요하고, 단어 간 경계가 민감한 모델에서 정확도 손실이 커질 수 있어 데모 안정성 기준에서는 제외했다.
++
++## 10. Galaxy S26 Ultra / Galaxy Flip3 적용 시 주의사항
++
++S26 Ultra는 성능 여유가 크므로 float16 모델에서 실시간 추론이 가능할 것으로 예상한다. Flip3는 실제 시연 기기이므로 다음 항목을 반드시 확인한다.
++
++**Flip3 테스트 체크리스트:**
++
++```text
++1. 카메라 프레임이 안정적으로 들어오는지
++2. MediaPipe landmark 추출 FPS가 충분한지
++3. 손이 화면 밖으로 나가지 않는지
++4. 상반신, 얼굴, 양손이 모두 화면에 들어오는지
++5. 조명 반사와 역광이 심하지 않은지
++6. float16 모델에서 단어가 튀면 float32 모델과 비교
++7. 예측이 너무 자주 바뀌면 smoothing count 또는 confidence threshold 조정
++```
++
++**모바일에서 권장 카메라 가이드:**
++
++```text
++상반신 전체가 보이게 촬영
++얼굴과 양손이 동시에 보여야 함
++손 시작 전에는 손을 잠시 내리거나 중립 위치에 둠
++동작이 끝나면 마지막 자세를 짧게 유지
++카메라와 너무 가까우면 손/어깨 기준 정규화가 흔들릴 수 있음
++```
++
++## 11. 모바일 구현 시 핵심 의사코드
++
++```text
++load TFLite model
++load label_map
++
++frameWindow = Queue(maxSize=30)
++predictionWindow = Queue(maxSize=6)
++neutralEyebrowWindow = Queue(maxSize=45)
++
++for each camera frame:
++  landmarks = runMediaPipe(frame)
++
++  if no hand detected:
++    update neutral eyebrow baseline if face exists
++    clear frameWindow
++    clear predictionWindow
++    continue
++
++  feature332 = extractFeature332(landmarks)
++  normalized = normalizeByShoulder(feature332)
++  frameWindow.push(normalized)
++
++  if frameWindow.size < 15:
++    continue
++
++  input = makeFixed30Frames(frameWindow)
++  output = tflite.run(input[1, 30, 332])
++
++  top1, top2 = getTop2(output)
++  confidence = output[top1]
++  margin = output[top1] - output[top2]
++
++  if confidence >= 0.75 and margin >= 0.08:
++    predictionWindow.push(label[top1])
++  else:
++    predictionWindow.clear()
++
++  if mostCommon(predictionWindow).count >= 4:
++    emit detected word
++```
++
++## 12. 모바일 담당자에게 전달할 최소 패키지
++
++최소 전달 파일:
++
++```text
++best_sign_model_v5_1_float16.tflite
++best_sign_model_v5_1_float32.tflite
++label_map_v5_1.json
++온디바이스_AI_적용AI모델정보.md
++```
++
++참고용으로 함께 전달하면 좋은 파일:
++
++```text
++inference_realtime_tflite_v5.py
++inference_realtime_transformer_v5.py
++train_config_v5_1.json
++```
++
++모바일 구현에서 가장 중요한 것은 TFLite 모델 파일보다도 **학습 때와 완전히 같은 332차원 feature 추출 순서와 shoulder normalization을 맞추는 것**이다. 이 부분이 다르면 모델은 정상이어도 모바일 추론 결과가 크게 달라질 수 있다.
++
++## 13. Android Holistic Landmarker `.task` 사용 시 구현 기준
++
++모바일에서는 `holistic_landmarker.task`를 사용해 실시간으로 사용자의 landmark를 추출한 뒤, 그중 학습에 사용한 landmark index만 선택해서 TFLite 모델 입력을 만든다. 이 방식은 가능하며, 현재 모델 적용 방향과도 맞다.
++
++모바일 처리 흐름:
++
++```text
++1. CameraX 등으로 카메라 프레임 획득
++2. holistic_landmarker.task로 face / pose / left hand / right hand landmark 추출
++3. 학습에 사용한 index만 선택
++4. 프레임당 332차원 feature 생성
++5. 어깨 기준 normalization 적용
++6. 최근 30프레임을 [1, 30, 332] 배열로 구성
++7. ByteBuffer(float32)에 순서대로 putFloat
++8. TFLite Interpreter 실행
++9. output[1, 7]에서 top-k / confidence / margin 계산
++```
++
++주의: 모바일 MediaPipe Tasks API의 객체명은 Python `mp.solutions.holistic`과 다를 수 있다. 하지만 landmark index 체계가 동일하다면 아래 값만 정확히 가져오면 된다.
++
++```text
++faceLandmarks[index].x / y / z
++poseLandmarks[index].x / y / z
++leftHandLandmarks[0..20].x / y / z
++rightHandLandmarks[0..20].x / y / z
++```
++
++모바일 담당자는 `.task` 결과에서 pose landmark가 Python Holistic과 동일한 33개 pose index 체계를 사용하는지 먼저 확인해야 한다. 우리가 사용하는 pose index는 다음 7개다.
++
++```text
++POSE_IDXS = [0, 7, 8, 11, 12, 13, 14]
++```
++
++## 14. ByteBuffer 입력 규격
++
++TFLite 모델 입력은 float32이다. float16 TFLite 모델을 사용하더라도 입력 dtype은 float32다.
++
++```text
++input shape = [1, 30, 332]
++input dtype = float32
++required byte size = 1 * 30 * 332 * 4 = 39,840 bytes
++```
++
++Android/Kotlin 예시:
++
++```kotlin
++val inputBuffer = ByteBuffer.allocateDirect(1 * 30 * 332 * 4)
++inputBuffer.order(ByteOrder.nativeOrder())
++
++for (t in 0 until 30) {
++    for (i in 0 until 332) {
++        inputBuffer.putFloat(sequence[t][i])
++    }
++}
++inputBuffer.rewind()
++
++val output = Array(1) { FloatArray(7) }
++interpreter.run(inputBuffer, output)
++```
++
++중요한 점은 `sequence[t][i]`의 `i` 순서가 반드시 아래 순서와 같아야 한다는 것이다.
++
++```text
++0..62      left hand 21 x xyz
++63..125    right hand 21 x xyz
++126..260   selected face 45 x xyz
++261..281   selected pose 7 x xyz
++282..331   hand-face distances 50
++```
++
++ByteBuffer에는 위 순서대로 30프레임을 연속으로 넣는다.
++
++```text
++frame0 feature 332개
++frame1 feature 332개
++...
++frame29 feature 332개
++```
++
++## 15. 모바일 feature 생성 의사코드
++
++```kotlin
++fun buildFeature332(result: HolisticResult): FloatArray {
++    val feature = FloatArray(332)
++    var offset = 0
++
++    // 1. left hand: 63
++    offset = putHand(feature, offset, result.leftHandLandmarks)
++
++    // 2. right hand: 63
++    offset = putHand(feature, offset, result.rightHandLandmarks)
++
++    // 3. selected face: 135
++    offset = putSelectedLandmarks(feature, offset, result.faceLandmarks, FACE_IDXS)
++
++    // 4. selected pose: 21
++    offset = putSelectedLandmarks(feature, offset, result.poseLandmarks, POSE_IDXS)
++
++    // 5. hand-face distances: 50
++    offset = putHandFaceDistances(
++        feature,
++        offset,
++        result.leftHandLandmarks,
++        result.rightHandLandmarks,
++        result.faceLandmarks
++    )
++
++    return normalizeByShoulder(feature)
++}
++```
++
++손이 검출되지 않은 경우:
++
++```text
++left hand 미검출 → left hand 63차원 0, left hand distance 25차원 0
++right hand 미검출 → right hand 63차원 0, right hand distance 25차원 0
++```
++
++얼굴 또는 pose가 일시적으로 검출되지 않은 경우:
++
++```text
++가능하면 직전 frame의 face/pose selected feature 재사용
++직전값도 없으면 0으로 채움
++```
++
++PC 추론 코드도 이 방식으로 동작한다. 모바일에서 매 프레임 face/pose 미검출을 무조건 0으로 처리하면 순간적인 입력 분포 변화가 커질 수 있으므로, 직전값 재사용을 권장한다.
++
++## 16. 모바일 구현 시 validation 체크리스트
++
++모바일에서 처음 연결할 때는 모델 정확도보다 입력 feature가 PC와 같은지 먼저 확인해야 한다.
++
++확인 항목:
++
++```text
++1. TFLite input shape가 [1, 30, 332]인지
++2. label_map index 순서가 모델 출력과 같은지
++3. 332차원 feature 순서가 PC 코드와 같은지
++4. x/y/z 좌표를 모두 float32로 넣는지
++5. 손 미검출 시 해당 hand feature를 0으로 채우는지
++6. face/pose 미검출 시 직전값 재사용 또는 0 처리 기준이 일관적인지
++7. shoulder normalization이 적용되는지
++8. 최근 30프레임 순서가 시간순인지
++9. ByteBuffer rewind 후 interpreter.run을 호출하는지
++10. output에 softmax가 이미 적용되어 있는지 확인하는지
++```
++
++추천 디버깅 방법:
++
++```text
++1. 모바일에서 1프레임 feature332를 로그로 저장
++2. 같은 자세를 PC inference 코드에서도 feature332로 저장
++3. feature 앞 10개, face 시작 index, pose 시작 index, distance 시작 index를 비교
++4. 값 범위가 크게 다르면 index 순서 또는 normalization 문제를 먼저 확인
++```
++
++정규화 후 landmark 값은 일반적으로 어깨 너비 기준 상대 좌표가 되므로, raw MediaPipe 좌표처럼 0~1 범위에만 머물지 않는다.
++
++## 17. Galaxy S26 Ultra / Flip3 적용 권장값
++
++초기 모바일 적용값은 PC와 동일하게 시작한다.
++
++```text
++confidence threshold = 0.75
++margin threshold = 0.08
++smoothing window = 6
++stable minimum count = 4
++minimum frames = 15
++```
++
++Galaxy S26 Ultra:
++
++```text
++float16 모델 우선 테스트
++MediaPipe + TFLite 전체 FPS 확인
++성능 여유가 있으면 threshold는 PC와 동일하게 유지
++```
++
++Galaxy Flip3:
++
++```text
++실제 시연 기기이므로 반드시 별도 테스트
++발열 또는 프레임 드랍이 있으면 카메라 해상도/FPS를 낮춤
++float16에서 정확도가 흔들리면 float32도 비교
++예측이 너무 자주 튀면 stable minimum count를 4에서 5로 올리는 것을 고려
++반응이 너무 느리면 stable minimum count를 3으로 낮추는 것을 고려
++```
++
++데모 안정성 기준에서는 빠른 반응보다 잘못된 단어가 출력되지 않는 것이 더 중요하다. Flip3에서 순간 오인식이 보이면 threshold를 낮추기보다 smoothing을 조금 강화하는 편이 안전하다.
+
+
+diff --git a/ai/models/transformer_mobile/웹_AI_적용AI모델정보.md b/ai/models/transformer_mobile/웹_AI_적용AI모델정보.md
+--- /dev/null
++++ b/ai/models/transformer_mobile/웹_AI_적용AI모델정보.md
+@@ -0,0 +1,441 @@
++# 웹 AI 적용 AI 모델 정보
++
++## 1. 문서 목적
++
++이 문서는 웹 서비스 담당자가 최종 수어 인식 AI 모델을 서비스 화면/API와 연결할 때 참고할 수 있도록 정리한 자료다. 모바일 온디바이스 구현 문서와 달리, 웹 담당자는 주로 다음 항목을 이해하면 된다.
++
++```text
++1. 모델이 어떤 단어를 출력하는지
++2. 출력 index와 라벨을 어떻게 매핑하는지
++3. 모바일/서버에서 받은 예측 결과를 웹 화면에 어떻게 표시하는지
++4. 문장 조합과 평서문/의문문 결과를 어떻게 다루는지
++5. 모델 파일과 관련 메타데이터를 어떻게 관리하는지
++```
++
++현재 최종 모델은 실시간 데모 안정성을 위해 7개 단어만 인식한다.
++
++## 2. 최종 모델 파일 구성
++
++현재 폴더:
++
++```text
++Transformer_v5_Impl/models/BEST_7words_model/
++```
++
++주요 파일:
++
++| 파일 | 용도 |
++| --- | --- |
++| `best_sign_model_v5_1_float16.tflite` | 모바일 온디바이스 우선 적용 모델 |
++| `best_sign_model_v5_1_float32.tflite` | 정확도 비교용 TFLite 모델 |
++| `best_sign_model_v5_1.pt` | PyTorch 원본 모델 |
++| `best_sign_model_v5_1.onnx` | 변환 중간 산출물 |
++| `label_map_v5_1.json` | 모델 출력 index와 단어 라벨 매핑 |
++| `train_config_v5_1.json` | 학습 설정 및 데이터 구성 기록 |
++| `inference_realtime_tflite_v5.py` | PC에서 TFLite 모델을 웹캠으로 테스트한 참고 코드 |
++| `inference_realtime_transformer_v5.py` | PC에서 PyTorch 모델을 웹캠으로 테스트한 참고 코드 |
++
++웹 서비스에서 직접 모델을 실행하지 않고 모바일 앱에서 예측 결과만 전달받는 구조라면, 웹 쪽에는 `label_map_v5_1.json`과 이 문서가 특히 중요하다.
++
++## 3. 모델이 인식하는 단어
++
++최종 모델의 출력 클래스는 7개다.
++
++| index | label |
++| ---: | --- |
++| 0 | 기차 |
++| 1 | 장난감 |
++| 2 | 놀다 |
++| 3 | 가다 |
++| 4 | 일어나다 |
++| 5 | 병원 |
++| 6 | 조심 |
++
++제외된 단어:
++
++```text
++오다
++자다
++아프다
++```
++
++제외 이유:
++
++```text
++오다, 자다: 가다와 동작 경계가 불안정했음
++아프다: holdout 테스트에서 가다로 오인식되는 문제가 있었음
++```
++
++데모 안정성을 위해 위 3개 단어는 최종 모델에서 제외했다.
++
++## 4. 만들 수 있는 문장 예시
++
++아래 문장들은 문장 단위로 학습된 것이 아니라, 인식된 단어 라벨을 웹 서비스에서 조합해 보여줄 수 있는 예시다.
++
++| 번호 | 문장 예시 | 사용 단어 |
++| ---: | --- | --- |
++| 1 | 기차가 가다 | 기차, 가다 |
++| 2 | 병원에 가다 | 병원, 가다 |
++| 3 | 장난감으로 놀다 | 장난감, 놀다 |
++| 4 | 장난감을 조심하다 | 장난감, 조심 |
++| 5 | 기차를 조심하다 | 기차, 조심 |
++| 6 | 병원에서 일어나다 | 병원, 일어나다 |
++| 7 | 놀다가 일어나다 | 놀다, 일어나다 |
++| 8 | 기차 타러 가다 | 기차, 가다 |
++| 9 | 병원에 가서 조심하다 | 병원, 가다, 조심 |
++| 10 | 장난감 가지고 놀다 | 장난감, 놀다 |
++
++웹에서는 우선 단어 시퀀스를 그대로 보여주고, 필요하면 간단한 규칙으로 자연어 문장처럼 표시할 수 있다.
++
++예:
++
++```text
++recognizedWords = ["병원", "가다"]
++displaySentence = "병원에 가다"
++```
++
++## 5. 웹 서비스 연동 구조 권장안
++
++현재 프로젝트 구조에서는 모델 추론은 모바일 온디바이스에서 수행하고, 웹은 결과를 받아 표시하는 구조가 가장 자연스럽다.
++
++권장 구조:
++
++```text
++Android app
++  - Camera + MediaPipe Holistic Landmarker
++  - TFLite 모델 추론
++  - 단어 라벨, confidence, sentenceType 생성
++
++Backend/WebSocket/API
++  - 모바일에서 예측 결과 수신
++  - 세션별 단어 시퀀스 저장
++  - 필요 시 문장 조합/로그 저장
++
++Web frontend
++  - 현재 인식 단어 표시
++  - 누적 단어/문장 표시
++  - confidence 또는 상태 UI 표시
++  - 평서문/의문문 표시
++```
++
++웹이 모델을 직접 실행하는 구조도 가능하지만, 현재 실시간 landmark 추출과 카메라 접근은 모바일 쪽이 더 적합하다. 따라서 웹은 AI 추론 결과 소비자 역할로 두는 것을 권장한다.
++
++## 6. 모바일 → 웹 전달 데이터 예시
++
++모바일에서 한 단어가 안정적으로 확정되었을 때 웹 또는 서버로 다음과 같은 JSON을 보낼 수 있다.
++
++```json
++{
++  "type": "sign_prediction",
++  "sessionId": "demo-session-001",
++  "timestamp": 1778115000000,
++  "label": "가다",
++  "labelIndex": 3,
++  "confidence": 0.982,
++  "margin": 0.914,
++  "sentenceType": "평서문",
++  "eyebrowDelta": -0.012,
++  "model": {
++    "name": "BEST_7words_model",
++    "format": "tflite",
++    "precision": "float16",
++    "version": "v5_7words_demo_stable"
++  }
++}
++```
++
++필드 설명:
++
++| 필드 | 설명 |
++| --- | --- |
++| `type` | 메시지 타입 |
++| `sessionId` | 데모 또는 사용자 세션 ID |
++| `timestamp` | 예측 발생 시각 |
++| `label` | 예측 단어 |
++| `labelIndex` | 모델 출력 index |
++| `confidence` | top1 확률 |
++| `margin` | top1 - top2 확률 차이 |
++| `sentenceType` | `평서문` 또는 `의문문` |
++| `eyebrowDelta` | 눈썹 기준 변화량 |
++| `model` | 사용 모델 메타 정보 |
++
++## 7. 웹 화면 표시 권장 방식
++
++실시간 추론은 순간적으로 다른 단어가 잠깐 튈 수 있으므로, 웹 화면에서는 모바일에서 확정된 단어만 표시하는 것이 좋다.
++
++권장 UI 상태:
++
++```text
++대기 중: 손이 감지되지 않음
++인식 중: 손이 감지되고 frame window 누적 중
++확정: smoothing 조건을 통과한 단어 표시
++불확실: confidence 또는 margin이 낮음
++```
++
++표시 예시:
++
++```text
++현재 단어: 가다
++신뢰도: 98.2%
++문장 유형: 평서문
++누적 문장: 병원 가다
++```
++
++웹에서 매 프레임의 top-k를 모두 보여주면 화면이 불안정해 보일 수 있다. 데모 화면에서는 안정적으로 확정된 단어만 크게 보여주고, confidence는 보조 정보로 작게 표시하는 것을 권장한다.
++
++## 8. 단어 누적 및 중복 제거 규칙
++
++모바일에서 같은 단어가 연속으로 여러 번 전송될 수 있으므로, 웹 또는 서버에서 간단한 중복 제거를 적용하면 좋다.
++
++권장 규칙:
++
++```text
++1. 직전 단어와 같은 단어가 1~2초 안에 다시 들어오면 중복으로 처리
++2. 손이 화면에서 사라졌다가 다시 나타난 뒤 같은 단어가 들어오면 새 입력으로 처리 가능
++3. 사용자가 "초기화" 버튼을 누르면 누적 단어 시퀀스 삭제
++```
++
++예시:
++
++```text
++input events:
++  가다, 가다, 가다, 병원, 병원
++
++display sequence:
++  가다, 병원
++```
++
++문장 표시용으로는 단어 시퀀스를 그대로 저장해두고, 화면에는 변환된 문장을 보여줄 수 있다.
++
++## 9. 평서문/의문문 처리
++
++현재 평서문/의문문은 단어 분류 모델이 아니라 MediaPipe face landmark 기반 rule로 판별한다.
++
++모바일에서 다음 값을 함께 보내주는 것을 권장한다.
++
++```text
++sentenceType: "평서문" 또는 "의문문"
++eyebrowDelta: 현재 눈썹 gap - 중립 눈썹 gap
++```
++
++웹에서는 이 값을 그대로 표시하면 된다.
++
++예:
++
++```text
++문장 유형: 의문문
++화면 표시: "병원 가다?"
++```
++
++현재 기준:
++
++```text
++question eyebrow delta threshold = 0.055
++minimum neutral face samples = 15
++neutral face window = 45
++```
++
++웹 담당자는 eyebrow landmark를 직접 계산할 필요는 없다. 모바일에서 계산된 결과를 받아 표시하는 것을 권장한다.
++
++## 10. 모델 학습 요약
++
++모델 구조:
++
++```text
++Transformer Encoder 기반 분류 모델
++input_dim = 332
++sequence_length = 30
++d_model = 128
++num_heads = 8
++num_layers = 3
++output classes = 7
++```
++
++학습 데이터:
++
++```text
++AI Hub 기반 수어 데이터
++팀원 추가 촬영 데이터
++MediaPipe Holistic 기반 332차원 npy feature
++```
++
++학습 구성:
++
++```text
++기차, 장난감, 놀다, 가다, 일어나다, 병원, 조심
++가다: 가다4 variant만 사용
++일어나다: 일어나다2 variant만 사용
++오다, 자다, 아프다 제외
++```
++
++사용한 주요 기법:
++
++```text
++1. 어깨 기준 좌표 정규화
++2. 30프레임 고정 길이 입력
++3. stratified train/validation split
++4. 부족한 train class에 virtual augmentation 적용
++5. holdout_test_v5 별도 평가
++```
++
++augmentation:
++
++```text
++Gaussian noise std = 0.01
++temporal scale = 0.9 ~ 1.1
++temporal shift = -2 ~ +2 frames
++```
++
++좌우 flip은 사용하지 않았다. 수어에서 좌우 방향이 의미와 동작 경계에 영향을 줄 수 있기 때문이다.
++
++## 11. 최종 평가 결과
++
++학습 결과:
++
++```text
++Best F1: 1.0000
++Val Acc@BestF1: 100.00%
++Best Train Acc: 100.00%
++```
++
++Holdout 테스트:
++
++```text
++평가 파일 수: 15
++정확도: 100.00% (15/15)
++가다: 5/5
++일어나다: 5/5
++조심: 5/5
++Wrong Predictions: none
++```
++
++주의: holdout에는 `기차`, `장난감`, `놀다`, `병원`이 포함되지 않았다. 이 단어들은 기존 실시간 테스트에서 안정적으로 동작했고, holdout은 주로 문제가 있었던 핵심 단어 축인 `가다`, `일어나다`, `조심` 검증용으로 사용했다.
++
++## 12. 웹 담당자가 알아야 할 입력/출력 한계
++
++현재 모델은 단어 단위 분류 모델이다. 즉 모델이 직접 완전한 문장을 생성하지 않는다.
++
++모델이 하는 일:
++
++```text
++30프레임 수어 landmark sequence → 7개 단어 중 하나의 확률 분포 출력
++```
++
++모델이 하지 않는 일:
++
++```text
++문장 생성
++문법 보정
++조사 자동 삽입
++사용자 의도 해석
++```
++
++따라서 웹에서 자연스러운 문장으로 보여주려면 간단한 규칙 또는 매핑 테이블이 필요하다.
++
++예:
++
++```json
++{
++  "병원,가다": "병원에 가다",
++  "장난감,놀다": "장난감으로 놀다",
++  "기차,조심": "기차를 조심하다"
++}
++```
++
++데모에서는 복잡한 문장 생성보다, 인식된 단어 시퀀스를 명확하게 보여주는 것이 안정적이다.
++
++## 13. API 설계 예시
++
++REST 방식 예시:
++
++```http
++POST /api/sign/predictions
++Content-Type: application/json
++```
++
++Request:
++
++```json
++{
++  "sessionId": "demo-session-001",
++  "label": "조심",
++  "labelIndex": 6,
++  "confidence": 0.991,
++  "margin": 0.954,
++  "sentenceType": "평서문",
++  "timestamp": 1778115000000
++}
++```
++
++Response:
++
++```json
++{
++  "ok": true,
++  "recognizedWords": ["병원", "가다", "조심"],
++  "displaySentence": "병원에 가서 조심하다",
++  "sentenceType": "평서문"
++}
++```
++
++WebSocket 방식 예시:
++
++```json
++{
++  "event": "SIGN_PREDICTED",
++  "payload": {
++    "label": "기차",
++    "labelIndex": 0,
++    "confidence": 0.987,
++    "sentenceType": "평서문"
++  }
++}
++```
++
++실시간성이 중요하면 WebSocket 또는 SSE를 권장한다. 단순 데모라면 REST polling 또는 모바일에서 결과를 서버에 저장하고 웹이 조회하는 구조도 가능하다.
++
++## 14. 서비스 화면 구성 제안
++
++데모 화면 구성:
++
++```text
++1. 현재 인식 단어
++2. 누적 단어 시퀀스
++3. 자연어 변환 문장
++4. 문장 유형: 평서문/의문문
++5. confidence 표시
++6. 모델 상태: 인식 중/대기 중
++7. 초기화 버튼
++```
++
++예시:
++
++```text
++현재 인식: 조심
++누적 단어: 병원 > 가다 > 조심
++문장: 병원에 가서 조심하다
++문장 유형: 평서문
++신뢰도: 99.1%
++```
++
++데모 안정성을 위해 화면에는 확정된 단어만 표시하고, 낮은 confidence의 후보 단어는 표시하지 않는 것을 권장한다.
++
++## 15. 전달 파일
++
++웹 담당자에게 전달할 파일:
++
++```text
++웹_AI_적용AI모델정보.md
++label_map_v5_1.json
++train_config_v5_1.json
++```
++
++웹이 직접 모델 추론을 하지 않는다면 TFLite 모델 파일은 필수는 아니다. 다만 전체 산출물 보관 및 확인을 위해 아래 파일도 함께 공유할 수 있다.
++
++```text
++best_sign_model_v5_1_float16.tflite
++best_sign_model_v5_1_float32.tflite
++inference_realtime_tflite_v5.py
++```
++
++웹에서 모델을 직접 실행하는 경우에는 브라우저 TensorFlow.js 변환이나 서버 Python 추론 API가 추가로 필요하다. 현재 권장 구조는 모바일 온디바이스 추론 후 결과를 웹으로 전달하는 방식이다.
+
+
+diff --git a/ai/.gitignore b/ai/.gitignore
+--- a/ai/.gitignore
++++ b/ai/.gitignore
+@@ -2,7 +2,10 @@
+ data/
+ 
+ ### Models ###
+-models/
++models/*
++!models/transformer_mobile/
++!models/transformer_mobile/**
++models/BiLSTM/
+ 
+ ### Python Cache ###
+ __pycache__/
+
+

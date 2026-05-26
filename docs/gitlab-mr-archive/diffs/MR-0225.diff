@@ -1,0 +1,47 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -758,12 +758,7 @@ class ConversationViewModel
+             }
+         }
+ 
+-        private fun shouldUseCloudStt(): Boolean =
+-            when (_translationMode.value) {
+-                TranslationMode.AUTO -> _isOnline.value
+-                TranslationMode.SERVER -> _isOnline.value
+-                TranslationMode.ON_DEVICE -> false
+-            }
++        private fun shouldUseCloudStt(): Boolean = _isOnline.value
+ 
+         private fun shouldUseStreamingStt(): Boolean =
+             when (serverSttMode) {
+@@ -772,12 +767,7 @@ class ConversationViewModel
+                 TranslationSttModeDto.AUTO -> !streamingFallbackToRest
+             }
+ 
+-        private fun shouldUseLocalStt(): Boolean =
+-            when (_translationMode.value) {
+-                TranslationMode.AUTO -> !_isOnline.value
+-                TranslationMode.SERVER -> false
+-                TranslationMode.ON_DEVICE -> true
+-            }
++        private fun shouldUseLocalStt(): Boolean = !_isOnline.value
+ 
+         private fun canUseCloudStt(): Boolean =
+             _sessionState.value == SessionState.Active &&
+@@ -952,12 +942,7 @@ class ConversationViewModel
+         private fun canCreateCommsSessionNow(): Boolean =
+             _sessionState.value == SessionState.Active && shouldCreateCommsSession()
+ 
+-        private fun shouldCreateCommsSession(): Boolean =
+-            when (_translationMode.value) {
+-                TranslationMode.AUTO -> _isOnline.value
+-                TranslationMode.SERVER -> _isOnline.value
+-                TranslationMode.ON_DEVICE -> false
+-            }
++        private fun shouldCreateCommsSession(): Boolean = _isOnline.value
+ 
+         private fun startSessionRuntimeIfActive() {
+             if (_sessionState.value != SessionState.Active || sessionRuntimeStarted) return
+
+

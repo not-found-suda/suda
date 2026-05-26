@@ -1,0 +1,462 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationMessageRepository.java b/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationMessageRepository.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationMessageRepository.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationMessageRepository.java
+@@ -12,5 +12,7 @@ public interface CommunicationMessageRepository extends JpaRepository<Communicat
+   List<CommunicationMessage> findBySessionIdAndSpeakerRoleOrderByMessageOrderAsc(
+       Long sessionId, SpeakerRole speakerRole);
+ 
++  int countBySessionIdAndSpeakerRole(Long sessionId, SpeakerRole speakerRole);
++
+   int countBySessionId(Long sessionId);
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationSessionAnalysisRepository.java b/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationSessionAnalysisRepository.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationSessionAnalysisRepository.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationSessionAnalysisRepository.java
+@@ -1,5 +1,6 @@
+ package com.ssafy.backend.domain.comms.repository;
+ 
++import com.ssafy.backend.domain.comms.entity.CommunicationAnalysisStatus;
+ import com.ssafy.backend.domain.comms.entity.CommunicationSessionAnalysis;
+ import com.ssafy.backend.domain.report.repository.ReportCommunicationAnalysisQueryRow;
+ import java.time.LocalDateTime;
+@@ -7,6 +8,7 @@ import java.util.List;
+ import java.util.Optional;
+ import org.springframework.data.jpa.repository.JpaRepository;
+ import org.springframework.data.jpa.repository.Query;
++import org.springframework.data.repository.query.Param;
+ 
+ public interface CommunicationSessionAnalysisRepository
+     extends JpaRepository<CommunicationSessionAnalysis, Long> {
+@@ -31,8 +33,12 @@ public interface CommunicationSessionAnalysisRepository
+     where s.childProfile.id = :childId
+       and s.startedAt >= :from
+       and s.startedAt < :to
++      and a.analysisStatus <> :excludedStatus
+     order by s.startedAt desc
+     """)
+   List<ReportCommunicationAnalysisQueryRow> findCommunicationAnalysisRows(
+-      Long childId, LocalDateTime from, LocalDateTime to);
++      @Param("childId") Long childId,
++      @Param("from") LocalDateTime from,
++      @Param("to") LocalDateTime to,
++      @Param("excludedStatus") CommunicationAnalysisStatus excludedStatus);
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/service/CommunicationSessionService.java b/backend/src/main/java/com/ssafy/backend/domain/comms/service/CommunicationSessionService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/comms/service/CommunicationSessionService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/service/CommunicationSessionService.java
+@@ -8,8 +8,10 @@ import com.ssafy.backend.domain.comms.dto.CommunicationSessionResponseDto;
+ import com.ssafy.backend.domain.comms.entity.CommunicationSession;
+ import com.ssafy.backend.domain.comms.entity.CommunicationSessionAnalysis;
+ import com.ssafy.backend.domain.comms.entity.CommunicationSessionStatus;
++import com.ssafy.backend.domain.comms.entity.SpeakerRole;
+ import com.ssafy.backend.domain.comms.event.CommunicationSessionEndedEvent;
+ import com.ssafy.backend.domain.comms.exception.CommunicationSessionErrorCode;
++import com.ssafy.backend.domain.comms.repository.CommunicationMessageRepository;
+ import com.ssafy.backend.domain.comms.repository.CommunicationSessionAnalysisRepository;
+ import com.ssafy.backend.domain.comms.repository.CommunicationSessionRepository;
+ import com.ssafy.backend.domain.user.entity.User;
+@@ -28,6 +30,7 @@ public class CommunicationSessionService {
+   private final CommunicationSessionRepository communicationSessionRepository;
+   private final ChildProfileRepository childProfileRepository;
+   private final UserRepository userRepository;
++  private final CommunicationMessageRepository communicationMessageRepository;
+   private final CommunicationSessionAnalysisRepository communicationSessionAnalysisRepository;
+   private final ApplicationEventPublisher eventPublisher;
+ 
+@@ -35,11 +38,13 @@ public class CommunicationSessionService {
+       CommunicationSessionRepository communicationSessionRepository,
+       ChildProfileRepository childProfileRepository,
+       UserRepository userRepository,
++      CommunicationMessageRepository communicationMessageRepository,
+       CommunicationSessionAnalysisRepository communicationSessionAnalysisRepository,
+       ApplicationEventPublisher eventPublisher) {
+     this.communicationSessionRepository = communicationSessionRepository;
+     this.childProfileRepository = childProfileRepository;
+     this.userRepository = userRepository;
++    this.communicationMessageRepository = communicationMessageRepository;
+     this.communicationSessionAnalysisRepository = communicationSessionAnalysisRepository;
+     this.eventPublisher = eventPublisher;
+   }
+@@ -79,6 +84,13 @@ public class CommunicationSessionService {
+ 
+     session.end();
+ 
++    int childMessageCount =
++        communicationMessageRepository.countBySessionIdAndSpeakerRole(
++            session.getId(), SpeakerRole.CHILD);
++    if (childMessageCount == 0) {
++      return toResponse(session);
++    }
++
+     if (!communicationSessionAnalysisRepository.existsBySessionId(session.getId())) {
+       communicationSessionAnalysisRepository.save(CommunicationSessionAnalysis.pending(session));
+     }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/report/service/ReportService.java b/backend/src/main/java/com/ssafy/backend/domain/report/service/ReportService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/report/service/ReportService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/report/service/ReportService.java
+@@ -131,9 +131,8 @@ public class ReportService {
+ 
+     List<ReportCommunicationAnalysisQueryRow> rows =
+         communicationSessionAnalysisRepository.findCommunicationAnalysisRows(
+-            childId, fromDateTime, toDateTime);
++            childId, fromDateTime, toDateTime, CommunicationAnalysisStatus.EMPTY);
+ 
+-    long totalSessionCount = rows.size();
+     long totalUtteranceCount = 0;
+     double sentenceLengthSum = 0.0;
+     long completedCount = 0;
+@@ -192,7 +191,15 @@ public class ReportService {
+       List<String> sessionParentGuide = readStringList(summary, "parentGuide");
+       List<String> sessionRecommendedActivities = readStringList(summary, "recommendedActivities");
+ 
+-      if (row.analysisStatus() == CommunicationAnalysisStatus.COMPLETED) {
++      if (row.analysisStatus() == CommunicationAnalysisStatus.COMPLETED && utteranceCount > 0) {
++        sessionStrengths = withFallbackStrengths(sessionStrengths, sessionSummary);
++        sessionImprovementPoints = withFallbackImprovementPoints(sessionImprovementPoints);
++        sessionParentGuide = withFallbackParentGuide(sessionParentGuide);
++        sessionRecommendedActivities =
++            withFallbackRecommendedActivities(sessionRecommendedActivities);
++      }
++
++      if (row.analysisStatus() == CommunicationAnalysisStatus.COMPLETED && utteranceCount > 0) {
+         completedCount++;
+         totalUtteranceCount += utteranceCount;
+         sentenceLengthSum += averageSentenceLength;
+@@ -236,31 +243,31 @@ public class ReportService {
+         addDistinctUntilLimit(parentGuide, sessionParentGuide, REPORT_GUIDE_LIMIT);
+         addDistinctUntilLimit(
+             recommendedActivities, sessionRecommendedActivities, REPORT_GUIDE_LIMIT);
+-      }
+ 
+-      if (recentSessions.size() < resolvedSessionLimit) {
+-        recentSessions.add(
+-            new ReportCommunicationSessionSummaryResponse(
+-                row.sessionId(),
+-                row.startedAt(),
+-                row.endedAt(),
+-                utteranceCount,
+-                averageSentenceLength,
+-                toTopWordResponses(summary.path("frequentWords"), 5),
+-                sessionExpressionTypeCounts,
+-                sessionCommunicationLevel,
+-                sessionVocabularyDiversityLevel,
+-                sessionSentenceExpansionLevel,
+-                sessionStrengths,
+-                sessionImprovementPoints,
+-                sessionParentGuide,
+-                sessionRecommendedActivities,
+-                sessionDevelopmentReference,
+-                sessionCautionLevel,
+-                sessionConsultationGuide,
+-                sessionSummary,
+-                row.analysisStatus(),
+-                row.analyzedAt()));
++        if (recentSessions.size() < resolvedSessionLimit) {
++          recentSessions.add(
++              new ReportCommunicationSessionSummaryResponse(
++                  row.sessionId(),
++                  row.startedAt(),
++                  row.endedAt(),
++                  utteranceCount,
++                  averageSentenceLength,
++                  toTopWordResponses(summary.path("frequentWords"), 5),
++                  sessionExpressionTypeCounts,
++                  sessionCommunicationLevel,
++                  sessionVocabularyDiversityLevel,
++                  sessionSentenceExpansionLevel,
++                  sessionStrengths,
++                  sessionImprovementPoints,
++                  sessionParentGuide,
++                  sessionRecommendedActivities,
++                  sessionDevelopmentReference,
++                  sessionCautionLevel,
++                  sessionConsultationGuide,
++                  sessionSummary,
++                  row.analysisStatus(),
++                  row.analyzedAt()));
++        }
+       }
+     }
+ 
+@@ -278,7 +285,7 @@ public class ReportService {
+     return new ReportCommunicationSummaryResponse(
+         childId,
+         status,
+-        totalSessionCount,
++        completedCount,
+         totalUtteranceCount,
+         averageSentenceLength,
+         toTopWordResponses(wordCounts, 5),
+@@ -641,6 +648,42 @@ public class ReportService {
+     }
+   }
+ 
++  private List<String> withFallbackStrengths(List<String> values, String summary) {
++    if (!values.isEmpty()) {
++      return values;
++    }
++
++    if (summary != null && !summary.isBlank()) {
++      return List.of("아이의 발화를 기록하고 표현 흐름을 확인할 수 있었어요.");
++    }
++
++    return List.of("소통 상황에서 아이의 목소리 표현이 기록되었어요.");
++  }
++
++  private List<String> withFallbackImprovementPoints(List<String> values) {
++    if (!values.isEmpty()) {
++      return values;
++    }
++
++    return List.of("아이의 말을 한 번 더 확장해서 되말해 주면 표현을 넓히는 데 도움이 돼요.");
++  }
++
++  private List<String> withFallbackParentGuide(List<String> values) {
++    if (!values.isEmpty()) {
++      return values;
++    }
++
++    return List.of("아이의 말을 그대로 인정한 뒤 한 단어를 덧붙여 짧게 다시 말해 주세요.", "대답을 기다릴 수 있게 3초 정도 여유를 주세요.");
++  }
++
++  private List<String> withFallbackRecommendedActivities(List<String> values) {
++    if (!values.isEmpty()) {
++      return values;
++    }
++
++    return List.of("그림책을 보며 아이가 말한 단어를 문장으로 이어 말하기", "좋아하는 놀이 중 원하는 것을 말로 고르게 하기");
++  }
++
+   private void mergeFrequentWords(Map<String, Integer> wordCounts, JsonNode frequentWords) {
+     if (frequentWords == null || !frequentWords.isArray()) {
+       return;
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt
+@@ -449,7 +449,14 @@ private fun CommunicationInsightSessionList(
+     selectedDate: LocalDate,
+     toggleResetKey: Int,
+ ) {
+-    var expandedSessionId by remember(toggleResetKey, selectedDate, summary.recentSessions) {
++    val sessionPages =
++        remember(summary.recentSessions) {
++            summary.recentSessions.chunked(HOME_COMMUNICATION_SESSIONS_PER_PAGE)
++        }
++    var currentPage by remember(toggleResetKey, selectedDate, sessionPages) {
++        mutableStateOf(0)
++    }
++    var expandedSessionId by remember(toggleResetKey, selectedDate, currentPage, sessionPages) {
+         mutableStateOf<Long?>(null)
+     }
+ 
+@@ -459,14 +466,22 @@ private fun CommunicationInsightSessionList(
+             selectedDate = selectedDate,
+         )
+ 
+-        if (summary.recentSessions.isEmpty()) {
++        if (sessionPages.isEmpty()) {
+             CommunicationInsightStatusCard(
+                 mascot = SudaMascot.Empty,
+                 title = "이 날짜에는 세션 분석이 없어요",
+                 description = "다른 날짜를 눌러 저장된 대화를 확인해 보세요.",
+             )
+         } else {
+-            summary.recentSessions.forEachIndexed { index, session ->
++            CommunicationSessionPageControls(
++                currentPage = currentPage,
++                totalPages = sessionPages.size,
++                onPreviousClick = { currentPage = (currentPage - 1).coerceAtLeast(0) },
++                onNextClick = {
++                    currentPage = (currentPage + 1).coerceAtMost(sessionPages.lastIndex)
++                },
++            )
++            sessionPages[currentPage].forEach { session ->
+                 CommunicationSessionAnalysisCard(
+                     session = session,
+                     expanded = expandedSessionId == session.sessionId,
+@@ -484,6 +499,50 @@ private fun CommunicationInsightSessionList(
+     }
+ }
+ 
++@Composable
++private fun CommunicationSessionPageControls(
++    currentPage: Int,
++    totalPages: Int,
++    onPreviousClick: () -> Unit,
++    onNextClick: () -> Unit,
++) {
++    if (totalPages <= 1) {
++        return
++    }
++
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = RoundedCornerShape(18.dp),
++        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
++        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
++    ) {
++        Row(
++            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
++            verticalAlignment = Alignment.CenterVertically,
++        ) {
++            TextButton(
++                onClick = onPreviousClick,
++                enabled = currentPage > 0,
++            ) {
++                Text(text = "이전")
++            }
++            Text(
++                text = "${currentPage + 1} / $totalPages",
++                style = MaterialTheme.typography.labelLarge,
++                fontWeight = FontWeight.Bold,
++                modifier = Modifier.weight(1f),
++                maxLines = 1,
++            )
++            TextButton(
++                onClick = onNextClick,
++                enabled = currentPage < totalPages - 1,
++            ) {
++                Text(text = "다음")
++            }
++        }
++    }
++}
++
+ @Composable
+ private fun CommunicationInsightOverviewCard(
+     summary: ReportCommunicationSummary,
+@@ -1369,6 +1428,7 @@ private const val DAYS_IN_WEEK = 7
+ private const val ISO_DATE_LENGTH = 10
+ private const val ISO_DATE_TIME_SEPARATOR_INDEX = 11
+ private const val ISO_TIME_LENGTH = 5
++private const val HOME_COMMUNICATION_SESSIONS_PER_PAGE = 3
+ private const val HOME_COMMUNICATION_TEXT_COUNT = 5
+ private const val HOME_COMMUNICATION_WORD_BAR_COUNT = 5
+ private const val LOW_LEVEL_PROGRESS = 0.34f
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeViewModel.kt
+@@ -16,6 +16,8 @@ import java.time.LocalDate
+ import java.time.temporal.TemporalAdjusters
+ import javax.inject.Inject
+ import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.delay
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.StateFlow
+ import kotlinx.coroutines.flow.asStateFlow
+@@ -89,6 +91,7 @@ class HomeViewModel
+     ) : ViewModel() {
+         private val _uiState = MutableStateFlow(HomeUiState())
+         val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
++        private var communicationInsightPollingJob: Job? = null
+ 
+         init {
+             loadActiveChildProfile()
+@@ -107,6 +110,7 @@ class HomeViewModel
+                         _uiState.value.communicationInsightToggleResetKey + 1,
+                     communicationInsightState = HomeCommunicationInsightState.Loading,
+                 )
++            communicationInsightPollingJob?.cancel()
+ 
+             val childState =
+                 _uiState.value.activeChildState as? ActiveChildProfileState.Selected
+@@ -243,6 +247,11 @@ class HomeViewModel
+                         result.communicationInsightResult.toCommunicationInsightState(),
+                     resumeQuizState = result.resumeQuizResult.toResumeQuizState(),
+                 )
++            startCommunicationInsightPollingIfNeeded(
++                childId = childId,
++                selectedDate = result.selectedCommunicationDate,
++                result = result.communicationInsightResult,
++            )
+         }
+ 
+         private fun loadCommunicationInsight(
+@@ -272,7 +281,68 @@ class HomeViewModel
+                     _uiState.value.copy(
+                         communicationInsightState = result.toCommunicationInsightState(),
+                     )
++                startCommunicationInsightPollingIfNeeded(
++                    childId = childId,
++                    selectedDate = selectedDate,
++                    result = result,
++                )
++            }
++        }
++
++        private fun startCommunicationInsightPollingIfNeeded(
++            childId: Long,
++            selectedDate: LocalDate,
++            result: Result<ReportCommunicationSummary>,
++        ) {
++            val status = result.getOrNull()?.analysisStatus
++            if (
++                status != ReportCommunicationAnalysisStatus.Pending &&
++                status != ReportCommunicationAnalysisStatus.Processing
++            ) {
++                communicationInsightPollingJob?.cancel()
++                communicationInsightPollingJob = null
++                return
+             }
++
++            communicationInsightPollingJob?.cancel()
++            communicationInsightPollingJob =
++                viewModelScope.launch {
++                    repeat(COMMUNICATION_ANALYSIS_POLLING_ATTEMPTS) {
++                        delay(COMMUNICATION_ANALYSIS_POLLING_INTERVAL_MS)
++
++                        val currentState = _uiState.value.activeChildState
++                        if (
++                            currentState !is ActiveChildProfileState.Selected ||
++                            currentState.profile.childId != childId ||
++                            _uiState.value.selectedCommunicationDate != selectedDate
++                        ) {
++                            return@launch
++                        }
++
++                        val refreshedResult =
++                            withContext(Dispatchers.IO) {
++                                reportRepository.getCommunicationSummary(
++                                    childId = childId,
++                                    filter = selectedDate.toSingleDateReportFilter(),
++                                    sessionLimit = HOME_COMMUNICATION_SESSION_LIMIT,
++                                )
++                            }
++
++                        _uiState.value =
++                            _uiState.value.copy(
++                                communicationInsightState =
++                                    refreshedResult.toCommunicationInsightState(),
++                            )
++
++                        val refreshedStatus = refreshedResult.getOrNull()?.analysisStatus
++                        if (
++                            refreshedStatus != ReportCommunicationAnalysisStatus.Pending &&
++                            refreshedStatus != ReportCommunicationAnalysisStatus.Processing
++                        ) {
++                            return@launch
++                        }
++                    }
++                }
+         }
+     }
+ 
+@@ -402,3 +472,5 @@ private const val LATEST_COMMUNICATION_SESSION_LIMIT = 1
+ private const val HOME_COMMUNICATION_SESSION_LIMIT = 20
+ private const val REPORT_DATE_LENGTH = 10
+ private const val QUIZ_STATUS_IN_PROGRESS = "IN_PROGRESS"
++private const val COMMUNICATION_ANALYSIS_POLLING_INTERVAL_MS = 3000L
++private const val COMMUNICATION_ANALYSIS_POLLING_ATTEMPTS = 5
+
+

@@ -1,0 +1,1043 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/controller/AuthController.java b/backend/src/main/java/com/ssafy/backend/domain/auth/controller/AuthController.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/auth/controller/AuthController.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/controller/AuthController.java
+@@ -4,12 +4,17 @@ import com.ssafy.backend.domain.auth.docs.AuthApiDocs;
+ import com.ssafy.backend.domain.auth.dto.LoginRequestDto;
+ import com.ssafy.backend.domain.auth.dto.LoginResponseDto;
+ import com.ssafy.backend.domain.auth.dto.OAuthLoginRequestDto;
++import com.ssafy.backend.domain.auth.dto.PasswordResetConfirmRequestDto;
++import com.ssafy.backend.domain.auth.dto.PasswordResetRequestDto;
++import com.ssafy.backend.domain.auth.dto.PasswordResetVerifyRequestDto;
++import com.ssafy.backend.domain.auth.dto.PasswordResetVerifyResponseDto;
+ import com.ssafy.backend.domain.auth.dto.RefreshTokenRequestDto;
+ import com.ssafy.backend.domain.auth.dto.RefreshTokenResponseDto;
+ import com.ssafy.backend.domain.auth.dto.SignupRequestDto;
+ import com.ssafy.backend.domain.auth.dto.SignupResponseDto;
+ import com.ssafy.backend.domain.auth.service.AuthService;
+ import com.ssafy.backend.domain.auth.service.OAuthService;
++import com.ssafy.backend.domain.auth.service.PasswordResetService;
+ import jakarta.servlet.http.HttpServletRequest;
+ import jakarta.validation.Valid;
+ import org.springframework.http.HttpStatus;
+@@ -28,10 +33,15 @@ public class AuthController implements AuthApiDocs {
+ 
+   private final AuthService authService;
+   private final OAuthService oAuthService;
++  private final PasswordResetService passwordResetService;
+ 
+-  public AuthController(AuthService authService, OAuthService oAuthService) {
++  public AuthController(
++      AuthService authService,
++      OAuthService oAuthService,
++      PasswordResetService passwordResetService) {
+     this.authService = authService;
+     this.oAuthService = oAuthService;
++    this.passwordResetService = passwordResetService;
+   }
+ 
+   @PostMapping("/signup")
+@@ -72,6 +82,29 @@ public class AuthController implements AuthApiDocs {
+     return ResponseEntity.ok(oAuthService.loginWithNaver(requestDto));
+   }
+ 
++  @PostMapping("/password-reset/request")
++  @Override
++  public ResponseEntity<Void> requestPasswordReset(
++      @Valid @RequestBody PasswordResetRequestDto requestDto) {
++    passwordResetService.request(requestDto.email());
++    return ResponseEntity.noContent().build();
++  }
++
++  @PostMapping("/password-reset/verify")
++  @Override
++  public ResponseEntity<PasswordResetVerifyResponseDto> verifyPasswordReset(
++      @Valid @RequestBody PasswordResetVerifyRequestDto requestDto) {
++    return ResponseEntity.ok(passwordResetService.verify(requestDto.email(), requestDto.code()));
++  }
++
++  @PostMapping("/password-reset/confirm")
++  @Override
++  public ResponseEntity<Void> confirmPasswordReset(
++      @Valid @RequestBody PasswordResetConfirmRequestDto requestDto) {
++    passwordResetService.confirm(requestDto.resetToken(), requestDto.newPassword());
++    return ResponseEntity.noContent().build();
++  }
++
+   private String resolveAccessToken(HttpServletRequest request) {
+     String authorizationHeader = request.getHeader(AUTHORIZATION_HEADER);
+     if (authorizationHeader == null || !authorizationHeader.startsWith(BEARER_PREFIX)) {
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthApiDocs.java b/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthApiDocs.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthApiDocs.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthApiDocs.java
+@@ -3,6 +3,10 @@ package com.ssafy.backend.domain.auth.docs;
+ import com.ssafy.backend.domain.auth.dto.LoginRequestDto;
+ import com.ssafy.backend.domain.auth.dto.LoginResponseDto;
+ import com.ssafy.backend.domain.auth.dto.OAuthLoginRequestDto;
++import com.ssafy.backend.domain.auth.dto.PasswordResetConfirmRequestDto;
++import com.ssafy.backend.domain.auth.dto.PasswordResetRequestDto;
++import com.ssafy.backend.domain.auth.dto.PasswordResetVerifyRequestDto;
++import com.ssafy.backend.domain.auth.dto.PasswordResetVerifyResponseDto;
+ import com.ssafy.backend.domain.auth.dto.RefreshTokenRequestDto;
+ import com.ssafy.backend.domain.auth.dto.RefreshTokenResponseDto;
+ import com.ssafy.backend.domain.auth.dto.SignupRequestDto;
+@@ -68,4 +72,30 @@ public interface AuthApiDocs {
+       description = "성공",
+       content = @Content(schema = @Schema(implementation = LoginResponseDto.class)))
+   ResponseEntity<LoginResponseDto> loginWithNaver(OAuthLoginRequestDto request);
++
++  @Operation(
++      summary = "비밀번호 재설정 인증 코드 요청",
++      description = "이메일로 비밀번호 재설정 인증 코드를 요청합니다. 가입 여부 노출을 막기 위해 동일한 성공 응답을 반환합니다.")
++  @ApiErrorCodes({"VALIDATION_INVALID_INPUT"})
++  @ApiResponse(responseCode = "204", description = "콘텐츠 없음")
++  ResponseEntity<Void> requestPasswordReset(PasswordResetRequestDto request);
++
++  @Operation(summary = "비밀번호 재설정 인증 코드 검증", description = "이메일과 인증 코드를 검증하고 새 비밀번호 설정용 토큰을 발급합니다.")
++  @ApiErrorCodes({"VALIDATION_INVALID_INPUT", "AUTH_INVALID_PASSWORD_RESET_CODE"})
++  @ApiResponse(
++      responseCode = "200",
++      description = "성공",
++      content = @Content(schema = @Schema(implementation = PasswordResetVerifyResponseDto.class)))
++  ResponseEntity<PasswordResetVerifyResponseDto> verifyPasswordReset(
++      PasswordResetVerifyRequestDto request);
++
++  @Operation(summary = "새 비밀번호 재설정 확정", description = "재설정 토큰으로 새 비밀번호를 설정합니다.")
++  @ApiErrorCodes({
++    "VALIDATION_INVALID_INPUT",
++    "AUTH_INVALID_PASSWORD_RESET_TOKEN",
++    "USER_NEW_PASSWORD_SAME_AS_CURRENT",
++    "USER_PASSWORD_LOGIN_NOT_ENABLED"
++  })
++  @ApiResponse(responseCode = "204", description = "콘텐츠 없음")
++  ResponseEntity<Void> confirmPasswordReset(PasswordResetConfirmRequestDto request);
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/dto/PasswordResetConfirmRequestDto.java b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/PasswordResetConfirmRequestDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/PasswordResetConfirmRequestDto.java
+@@ -0,0 +1,18 @@
++package com.ssafy.backend.domain.auth.dto;
++
++import io.swagger.v3.oas.annotations.media.Schema;
++import jakarta.validation.constraints.NotBlank;
++import jakarta.validation.constraints.Pattern;
++import jakarta.validation.constraints.Size;
++
++public record PasswordResetConfirmRequestDto(
++    @NotBlank(message = "재설정 토큰은 필수입니다.")
++        @Schema(description = "인증 코드 검증 후 발급된 재설정 토큰", example = "password-reset-token")
++        String resetToken,
++    @NotBlank(message = "새 비밀번호는 필수입니다.")
++        @Size(min = 8, max = 20, message = "비밀번호는 8자 이상 20자 이하로 입력해야 합니다.")
++        @Pattern(
++            regexp = "^(?=.*[A-Za-z])(?=.*\\d)(?=.*[!@#$%^&*])[A-Za-z\\d!@#$%^&*]+$",
++            message = "비밀번호는 영문, 숫자, 특수문자(!@#$%^&*)를 각각 1자 이상 포함해야 합니다.")
++        @Schema(description = "새 비밀번호", example = "NewPassword1!")
++        String newPassword) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/dto/PasswordResetRequestDto.java b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/PasswordResetRequestDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/PasswordResetRequestDto.java
+@@ -0,0 +1,11 @@
++package com.ssafy.backend.domain.auth.dto;
++
++import io.swagger.v3.oas.annotations.media.Schema;
++import jakarta.validation.constraints.Email;
++import jakarta.validation.constraints.NotBlank;
++
++public record PasswordResetRequestDto(
++    @NotBlank(message = "이메일은 필수입니다.")
++        @Email(message = "이메일 형식이 올바르지 않습니다.")
++        @Schema(description = "비밀번호 재설정을 요청할 이메일", example = "user@example.com")
++        String email) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/dto/PasswordResetVerifyRequestDto.java b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/PasswordResetVerifyRequestDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/PasswordResetVerifyRequestDto.java
+@@ -0,0 +1,16 @@
++package com.ssafy.backend.domain.auth.dto;
++
++import io.swagger.v3.oas.annotations.media.Schema;
++import jakarta.validation.constraints.Email;
++import jakarta.validation.constraints.NotBlank;
++import jakarta.validation.constraints.Pattern;
++
++public record PasswordResetVerifyRequestDto(
++    @NotBlank(message = "이메일은 필수입니다.")
++        @Email(message = "이메일 형식이 올바르지 않습니다.")
++        @Schema(description = "비밀번호 재설정을 요청한 이메일", example = "user@example.com")
++        String email,
++    @NotBlank(message = "인증 코드는 필수입니다.")
++        @Pattern(regexp = "^\\d{6}$", message = "인증 코드는 6자리 숫자입니다.")
++        @Schema(description = "인증 코드", example = "123456")
++        String code) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/dto/PasswordResetVerifyResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/PasswordResetVerifyResponseDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/PasswordResetVerifyResponseDto.java
+@@ -0,0 +1,8 @@
++package com.ssafy.backend.domain.auth.dto;
++
++import io.swagger.v3.oas.annotations.media.Schema;
++
++public record PasswordResetVerifyResponseDto(
++    @Schema(description = "새 비밀번호 설정에 사용할 재설정 토큰", example = "password-reset-token")
++        String resetToken,
++    @Schema(description = "재설정 토큰 만료까지 남은 시간(초)", example = "600") long expiresInSeconds) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/exception/AuthErrorCode.java b/backend/src/main/java/com/ssafy/backend/domain/auth/exception/AuthErrorCode.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/auth/exception/AuthErrorCode.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/exception/AuthErrorCode.java
+@@ -8,6 +8,12 @@ public enum AuthErrorCode implements ErrorCode {
+       "AUTH_INVALID_CREDENTIALS", HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다."),
+   INVALID_REFRESH_TOKEN(
+       "AUTH_INVALID_REFRESH_TOKEN", HttpStatus.UNAUTHORIZED, "유효하지 않은 리프레시 토큰입니다."),
++  INVALID_PASSWORD_RESET_CODE(
++      "AUTH_INVALID_PASSWORD_RESET_CODE", HttpStatus.BAD_REQUEST, "인증 코드가 올바르지 않거나 만료되었습니다."),
++  INVALID_PASSWORD_RESET_TOKEN(
++      "AUTH_INVALID_PASSWORD_RESET_TOKEN",
++      HttpStatus.UNAUTHORIZED,
++      "비밀번호 재설정 토큰이 올바르지 않거나 만료되었습니다."),
+   INACTIVE_ACCOUNT("AUTH_INACTIVE_ACCOUNT", HttpStatus.FORBIDDEN, "비활성화된 계정입니다."),
+   DUPLICATE_EMAIL("AUTH_DUPLICATE_EMAIL", HttpStatus.CONFLICT, "이미 사용 중인 이메일입니다.");
+ 
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/LoggingPasswordResetCodeSender.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/LoggingPasswordResetCodeSender.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/LoggingPasswordResetCodeSender.java
+@@ -0,0 +1,32 @@
++package com.ssafy.backend.domain.auth.service;
++
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.stereotype.Component;
++
++@Component
++public class LoggingPasswordResetCodeSender implements PasswordResetCodeSender {
++
++  private static final Logger log = LoggerFactory.getLogger(LoggingPasswordResetCodeSender.class);
++
++  private final PasswordResetProperties passwordResetProperties;
++
++  public LoggingPasswordResetCodeSender(PasswordResetProperties passwordResetProperties) {
++    this.passwordResetProperties = passwordResetProperties;
++  }
++
++  @Override
++  public void send(String email, String code, long expiresInSeconds) {
++    if (!passwordResetProperties.isLogCodeEnabled()) {
++      log.info(
++          "Password reset code generated. email={}, expiresInSeconds={}", email, expiresInSeconds);
++      return;
++    }
++
++    log.info(
++        "Password reset code generated. email={}, code={}, expiresInSeconds={}",
++        email,
++        code,
++        expiresInSeconds);
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/PasswordResetCodeGenerator.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/PasswordResetCodeGenerator.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/PasswordResetCodeGenerator.java
+@@ -0,0 +1,24 @@
++package com.ssafy.backend.domain.auth.service;
++
++import java.security.SecureRandom;
++import java.util.Base64;
++import org.springframework.stereotype.Component;
++
++@Component
++public class PasswordResetCodeGenerator {
++
++  private static final SecureRandom SECURE_RANDOM = new SecureRandom();
++  private static final int RESET_TOKEN_BYTE_LENGTH = 32;
++
++  public String generateCode(int length) {
++    int upperBound = (int) Math.pow(10, length);
++    int code = SECURE_RANDOM.nextInt(upperBound);
++    return String.format("%0" + length + "d", code);
++  }
++
++  public String generateResetToken() {
++    byte[] randomBytes = new byte[RESET_TOKEN_BYTE_LENGTH];
++    SECURE_RANDOM.nextBytes(randomBytes);
++    return Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/PasswordResetCodeSender.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/PasswordResetCodeSender.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/PasswordResetCodeSender.java
+@@ -0,0 +1,6 @@
++package com.ssafy.backend.domain.auth.service;
++
++public interface PasswordResetCodeSender {
++
++  void send(String email, String code, long expiresInSeconds);
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/PasswordResetProperties.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/PasswordResetProperties.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/PasswordResetProperties.java
+@@ -0,0 +1,70 @@
++package com.ssafy.backend.domain.auth.service;
++
++import jakarta.validation.constraints.Positive;
++import org.springframework.boot.context.properties.ConfigurationProperties;
++import org.springframework.validation.annotation.Validated;
++
++@Validated
++@ConfigurationProperties(prefix = "auth.password-reset")
++public class PasswordResetProperties {
++
++  @Positive private int codeLength = 6;
++
++  @Positive private long codeTtlSeconds = 300;
++
++  @Positive private long resetTokenTtlSeconds = 600;
++
++  @Positive private int maxVerifyAttempts = 5;
++
++  @Positive private long requestCooldownSeconds = 60;
++
++  private boolean logCodeEnabled = false;
++
++  public int getCodeLength() {
++    return codeLength;
++  }
++
++  public void setCodeLength(int codeLength) {
++    this.codeLength = codeLength;
++  }
++
++  public long getCodeTtlSeconds() {
++    return codeTtlSeconds;
++  }
++
++  public void setCodeTtlSeconds(long codeTtlSeconds) {
++    this.codeTtlSeconds = codeTtlSeconds;
++  }
++
++  public long getResetTokenTtlSeconds() {
++    return resetTokenTtlSeconds;
++  }
++
++  public void setResetTokenTtlSeconds(long resetTokenTtlSeconds) {
++    this.resetTokenTtlSeconds = resetTokenTtlSeconds;
++  }
++
++  public int getMaxVerifyAttempts() {
++    return maxVerifyAttempts;
++  }
++
++  public void setMaxVerifyAttempts(int maxVerifyAttempts) {
++    this.maxVerifyAttempts = maxVerifyAttempts;
++  }
++
++  public long getRequestCooldownSeconds() {
++    return requestCooldownSeconds;
++  }
++
++  public void setRequestCooldownSeconds(long requestCooldownSeconds) {
++    this.requestCooldownSeconds = requestCooldownSeconds;
++  }
++
++  public boolean isLogCodeEnabled() {
++    return logCodeEnabled;
++  }
++
++  public void setLogCodeEnabled(boolean logCodeEnabled) {
++    this.logCodeEnabled = logCodeEnabled;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/PasswordResetService.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/PasswordResetService.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/PasswordResetService.java
+@@ -0,0 +1,115 @@
++package com.ssafy.backend.domain.auth.service;
++
++import com.ssafy.backend.domain.auth.dto.PasswordResetVerifyResponseDto;
++import com.ssafy.backend.domain.auth.exception.AuthErrorCode;
++import com.ssafy.backend.domain.user.dto.UserAuthResponseDto;
++import com.ssafy.backend.domain.user.exception.UserErrorCode;
++import com.ssafy.backend.domain.user.service.UserService;
++import com.ssafy.backend.global.exception.BusinessException;
++import java.time.Duration;
++import java.util.Locale;
++import org.springframework.stereotype.Service;
++import org.springframework.transaction.annotation.Transactional;
++
++@Service
++@Transactional(readOnly = true)
++public class PasswordResetService {
++
++  private final UserService userService;
++  private final PasswordResetStore passwordResetStore;
++  private final PasswordResetCodeGenerator passwordResetCodeGenerator;
++  private final PasswordResetCodeSender passwordResetCodeSender;
++  private final PasswordResetProperties passwordResetProperties;
++  private final UserTokenInvalidationService userTokenInvalidationService;
++
++  public PasswordResetService(
++      UserService userService,
++      PasswordResetStore passwordResetStore,
++      PasswordResetCodeGenerator passwordResetCodeGenerator,
++      PasswordResetCodeSender passwordResetCodeSender,
++      PasswordResetProperties passwordResetProperties,
++      UserTokenInvalidationService userTokenInvalidationService) {
++    this.userService = userService;
++    this.passwordResetStore = passwordResetStore;
++    this.passwordResetCodeGenerator = passwordResetCodeGenerator;
++    this.passwordResetCodeSender = passwordResetCodeSender;
++    this.passwordResetProperties = passwordResetProperties;
++    this.userTokenInvalidationService = userTokenInvalidationService;
++  }
++
++  public void request(String email) {
++    String normalizedEmail = normalizeEmail(email);
++    if (!isResettableAccount(normalizedEmail)) {
++      return;
++    }
++    if (passwordResetStore.hasRequestCooldown(normalizedEmail)) {
++      return;
++    }
++
++    String code = passwordResetCodeGenerator.generateCode(passwordResetProperties.getCodeLength());
++    long ttlSeconds = passwordResetProperties.getCodeTtlSeconds();
++    passwordResetStore.saveCode(normalizedEmail, code, Duration.ofSeconds(ttlSeconds));
++    passwordResetStore.saveRequestCooldown(
++        normalizedEmail, Duration.ofSeconds(passwordResetProperties.getRequestCooldownSeconds()));
++    passwordResetCodeSender.send(normalizedEmail, code, ttlSeconds);
++  }
++
++  public PasswordResetVerifyResponseDto verify(String email, String code) {
++    String normalizedEmail = normalizeEmail(email);
++    String storedCode = passwordResetStore.findCodeByEmail(normalizedEmail);
++    if (storedCode == null || !storedCode.equals(code) || !isResettableAccount(normalizedEmail)) {
++      handleVerifyFailure(normalizedEmail, storedCode);
++      throw new BusinessException(AuthErrorCode.INVALID_PASSWORD_RESET_CODE);
++    }
++
++    passwordResetStore.deleteCode(normalizedEmail);
++    String resetToken = passwordResetCodeGenerator.generateResetToken();
++    long ttlSeconds = passwordResetProperties.getResetTokenTtlSeconds();
++    passwordResetStore.saveResetToken(resetToken, normalizedEmail, Duration.ofSeconds(ttlSeconds));
++    return new PasswordResetVerifyResponseDto(resetToken, ttlSeconds);
++  }
++
++  private void handleVerifyFailure(String email, String storedCode) {
++    if (storedCode == null) {
++      return;
++    }
++
++    long attempts =
++        passwordResetStore.incrementVerifyAttempt(
++            email, Duration.ofSeconds(passwordResetProperties.getCodeTtlSeconds()));
++    if (attempts >= passwordResetProperties.getMaxVerifyAttempts()) {
++      passwordResetStore.deleteCode(email);
++    }
++  }
++
++  @Transactional
++  public void confirm(String resetToken, String newPassword) {
++    String email = passwordResetStore.findEmailByResetToken(resetToken);
++    if (email == null) {
++      throw new BusinessException(AuthErrorCode.INVALID_PASSWORD_RESET_TOKEN);
++    }
++
++    Long userId = userService.resetPasswordByEmail(email, newPassword);
++    passwordResetStore.deleteResetToken(resetToken);
++    userTokenInvalidationService.invalidateAll(userId);
++  }
++
++  private boolean isResettableAccount(String email) {
++    try {
++      UserAuthResponseDto user = userService.getAuthInfoByEmail(email);
++      return user.active() && user.passwordLoginEnabled();
++    } catch (BusinessException exception) {
++      if (exception.getErrorCode() == UserErrorCode.USER_NOT_FOUND) {
++        return false;
++      }
++      throw exception;
++    }
++  }
++
++  private String normalizeEmail(String email) {
++    if (email == null) {
++      return "";
++    }
++    return email.trim().toLowerCase(Locale.ROOT);
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/PasswordResetStore.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/PasswordResetStore.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/PasswordResetStore.java
+@@ -0,0 +1,81 @@
++package com.ssafy.backend.domain.auth.service;
++
++import java.time.Duration;
++import java.util.Locale;
++import org.springframework.data.redis.core.StringRedisTemplate;
++import org.springframework.stereotype.Component;
++
++@Component
++public class PasswordResetStore {
++
++  private static final String CODE_KEY_PREFIX = "password-reset:code:";
++  private static final String TOKEN_KEY_PREFIX = "password-reset:token:";
++  private static final String ATTEMPT_KEY_PREFIX = "password-reset:attempt:";
++  private static final String REQUEST_COOLDOWN_KEY_PREFIX = "password-reset:request-cooldown:";
++
++  private final StringRedisTemplate redisTemplate;
++
++  public PasswordResetStore(StringRedisTemplate redisTemplate) {
++    this.redisTemplate = redisTemplate;
++  }
++
++  public void saveCode(String email, String code, Duration ttl) {
++    redisTemplate.opsForValue().set(toCodeKey(email), code, ttl);
++    redisTemplate.delete(toAttemptKey(email));
++  }
++
++  public String findCodeByEmail(String email) {
++    return redisTemplate.opsForValue().get(toCodeKey(email));
++  }
++
++  public void deleteCode(String email) {
++    redisTemplate.delete(toCodeKey(email));
++    redisTemplate.delete(toAttemptKey(email));
++  }
++
++  public long incrementVerifyAttempt(String email, Duration ttl) {
++    Long attempts = redisTemplate.opsForValue().increment(toAttemptKey(email));
++    redisTemplate.expire(toAttemptKey(email), ttl);
++    return attempts != null ? attempts : 0;
++  }
++
++  public boolean hasRequestCooldown(String email) {
++    return Boolean.TRUE.equals(redisTemplate.hasKey(toRequestCooldownKey(email)));
++  }
++
++  public void saveRequestCooldown(String email, Duration ttl) {
++    redisTemplate.opsForValue().set(toRequestCooldownKey(email), "1", ttl);
++  }
++
++  public void saveResetToken(String resetToken, String email, Duration ttl) {
++    redisTemplate.opsForValue().set(toTokenKey(resetToken), normalizeEmail(email), ttl);
++  }
++
++  public String findEmailByResetToken(String resetToken) {
++    return redisTemplate.opsForValue().get(toTokenKey(resetToken));
++  }
++
++  public void deleteResetToken(String resetToken) {
++    redisTemplate.delete(toTokenKey(resetToken));
++  }
++
++  private String toCodeKey(String email) {
++    return CODE_KEY_PREFIX + normalizeEmail(email);
++  }
++
++  private String toTokenKey(String resetToken) {
++    return TOKEN_KEY_PREFIX + resetToken;
++  }
++
++  private String toAttemptKey(String email) {
++    return ATTEMPT_KEY_PREFIX + normalizeEmail(email);
++  }
++
++  private String toRequestCooldownKey(String email) {
++    return REQUEST_COOLDOWN_KEY_PREFIX + normalizeEmail(email);
++  }
++
++  private String normalizeEmail(String email) {
++    return email.trim().toLowerCase(Locale.ROOT);
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/service/UserService.java b/backend/src/main/java/com/ssafy/backend/domain/user/service/UserService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/user/service/UserService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/service/UserService.java
+@@ -123,6 +123,28 @@ public class UserService {
+     userRepository.flush();
+   }
+ 
++  public Long resetPasswordByEmail(String email, String newPassword) {
++    String normalizedEmail = normalizeEmail(email);
++    User user =
++        userRepository
++            .findByEmailIgnoreCase(normalizedEmail)
++            .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
++
++    if (!user.isActive()) {
++      throw new BusinessException(UserErrorCode.USER_NOT_FOUND);
++    }
++    if (!user.isPasswordLoginEnabled()) {
++      throw new BusinessException(UserErrorCode.PASSWORD_LOGIN_NOT_ENABLED);
++    }
++    if (passwordEncoder.matches(newPassword, user.getPassword())) {
++      throw new BusinessException(UserErrorCode.NEW_PASSWORD_SAME_AS_CURRENT);
++    }
++
++    user.changePassword(passwordEncoder.encode(newPassword));
++    userRepository.flush();
++    return user.getId();
++  }
++
+   public void withdraw(Long userId, String password) {
+     User user =
+         userRepository
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/config/SecurityConfig.java b/backend/src/main/java/com/ssafy/backend/global/config/SecurityConfig.java
+--- a/backend/src/main/java/com/ssafy/backend/global/config/SecurityConfig.java
++++ b/backend/src/main/java/com/ssafy/backend/global/config/SecurityConfig.java
+@@ -1,5 +1,6 @@
+ package com.ssafy.backend.global.config;
+ 
++import com.ssafy.backend.domain.auth.service.PasswordResetProperties;
+ import com.ssafy.backend.global.security.ProblemDetailAccessDeniedHandler;
+ import com.ssafy.backend.global.security.ProblemDetailAuthenticationEntryPoint;
+ import com.ssafy.backend.global.security.jwt.JwtAuthenticationFilter;
+@@ -24,7 +25,11 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+ 
+ @Configuration
+ @EnableMethodSecurity
+-@EnableConfigurationProperties({CorsProperties.class, JwtProperties.class})
++@EnableConfigurationProperties({
++  CorsProperties.class,
++  JwtProperties.class,
++  PasswordResetProperties.class
++})
+ public class SecurityConfig {
+ 
+   private final ProblemDetailAuthenticationEntryPoint authenticationEntryPoint;
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/auth/service/PasswordResetServiceTest.java b/backend/src/test/java/com/ssafy/backend/domain/auth/service/PasswordResetServiceTest.java
+--- /dev/null
++++ b/backend/src/test/java/com/ssafy/backend/domain/auth/service/PasswordResetServiceTest.java
+@@ -0,0 +1,249 @@
++package com.ssafy.backend.domain.auth.service;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
++import static org.mockito.Mockito.never;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.when;
++
++import com.ssafy.backend.domain.auth.dto.PasswordResetVerifyResponseDto;
++import com.ssafy.backend.domain.auth.exception.AuthErrorCode;
++import com.ssafy.backend.domain.user.dto.UserAuthResponseDto;
++import com.ssafy.backend.domain.user.exception.UserErrorCode;
++import com.ssafy.backend.domain.user.service.UserService;
++import com.ssafy.backend.global.exception.BusinessException;
++import com.ssafy.backend.global.security.Role;
++import java.time.Duration;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.extension.ExtendWith;
++import org.mockito.Mock;
++import org.mockito.Mockito;
++import org.mockito.junit.jupiter.MockitoExtension;
++
++@ExtendWith(MockitoExtension.class)
++class PasswordResetServiceTest {
++
++  private static final Long USER_ID = 1L;
++  private static final String EMAIL = "guardian@example.com";
++  private static final String RAW_EMAIL = " Guardian@Example.com ";
++  private static final String ENCODED_PASSWORD = "encoded-password";
++  private static final String CODE = "123456";
++  private static final String RESET_TOKEN = "reset-token";
++  private static final String NEW_PASSWORD = "NewPassword1!";
++  private static final long CODE_TTL_SECONDS = 300L;
++  private static final long RESET_TOKEN_TTL_SECONDS = 600L;
++  private static final long REQUEST_COOLDOWN_SECONDS = 60L;
++
++  @Mock private UserService userService;
++  @Mock private PasswordResetStore passwordResetStore;
++  @Mock private PasswordResetCodeGenerator passwordResetCodeGenerator;
++  @Mock private PasswordResetCodeSender passwordResetCodeSender;
++  @Mock private UserTokenInvalidationService userTokenInvalidationService;
++
++  private PasswordResetService passwordResetService;
++
++  @BeforeEach
++  void setUp() {
++    PasswordResetProperties passwordResetProperties = new PasswordResetProperties();
++    passwordResetProperties.setCodeLength(6);
++    passwordResetProperties.setCodeTtlSeconds(CODE_TTL_SECONDS);
++    passwordResetProperties.setResetTokenTtlSeconds(RESET_TOKEN_TTL_SECONDS);
++    passwordResetProperties.setMaxVerifyAttempts(5);
++    passwordResetProperties.setRequestCooldownSeconds(REQUEST_COOLDOWN_SECONDS);
++
++    passwordResetService =
++        new PasswordResetService(
++            userService,
++            passwordResetStore,
++            passwordResetCodeGenerator,
++            passwordResetCodeSender,
++            passwordResetProperties,
++            userTokenInvalidationService);
++  }
++
++  @Test
++  @DisplayName("활성 비밀번호 계정이면 인증 코드를 저장하고 전달한다")
++  void requestStoresAndSendsCodeForPasswordUser() {
++    when(userService.getAuthInfoByEmail(EMAIL)).thenReturn(activePasswordUser());
++    when(passwordResetCodeGenerator.generateCode(6)).thenReturn(CODE);
++
++    passwordResetService.request(RAW_EMAIL);
++
++    verify(passwordResetStore).saveCode(EMAIL, CODE, Duration.ofSeconds(CODE_TTL_SECONDS));
++    verify(passwordResetStore)
++        .saveRequestCooldown(EMAIL, Duration.ofSeconds(REQUEST_COOLDOWN_SECONDS));
++    verify(passwordResetCodeSender).send(EMAIL, CODE, CODE_TTL_SECONDS);
++  }
++
++  @Test
++  @DisplayName("재설정 요청 쿨다운 중이면 인증 코드를 다시 만들지 않는다")
++  void requestSkipsWhenCooldownExists() {
++    when(userService.getAuthInfoByEmail(EMAIL)).thenReturn(activePasswordUser());
++    when(passwordResetStore.hasRequestCooldown(EMAIL)).thenReturn(true);
++
++    passwordResetService.request(RAW_EMAIL);
++
++    verify(passwordResetCodeGenerator, never()).generateCode(Mockito.anyInt());
++    verify(passwordResetStore, never()).saveCode(Mockito.any(), Mockito.any(), Mockito.any());
++    verify(passwordResetCodeSender, never()).send(Mockito.any(), Mockito.any(), Mockito.anyLong());
++  }
++
++  @Test
++  @DisplayName("존재하지 않는 이메일이어도 성공처럼 처리하고 인증 코드를 만들지 않는다")
++  void requestSkipsMissingEmailWithoutRevealingAccountExistence() {
++    when(userService.getAuthInfoByEmail(EMAIL))
++        .thenThrow(new BusinessException(UserErrorCode.USER_NOT_FOUND));
++
++    passwordResetService.request(RAW_EMAIL);
++
++    verify(passwordResetCodeGenerator, never()).generateCode(Mockito.anyInt());
++    verify(passwordResetStore, never()).saveCode(Mockito.any(), Mockito.any(), Mockito.any());
++    verify(passwordResetCodeSender, never()).send(Mockito.any(), Mockito.any(), Mockito.anyLong());
++  }
++
++  @Test
++  @DisplayName("비활성 계정은 인증 코드를 만들지 않는다")
++  void requestSkipsInactiveUser() {
++    when(userService.getAuthInfoByEmail(EMAIL)).thenReturn(inactivePasswordUser());
++
++    passwordResetService.request(RAW_EMAIL);
++
++    verify(passwordResetCodeGenerator, never()).generateCode(Mockito.anyInt());
++    verify(passwordResetStore, never()).saveCode(Mockito.any(), Mockito.any(), Mockito.any());
++    verify(passwordResetCodeSender, never()).send(Mockito.any(), Mockito.any(), Mockito.anyLong());
++  }
++
++  @Test
++  @DisplayName("소셜 전용 계정은 인증 코드를 만들지 않는다")
++  void requestSkipsPasswordDisabledUser() {
++    when(userService.getAuthInfoByEmail(EMAIL)).thenReturn(passwordDisabledUser());
++
++    passwordResetService.request(RAW_EMAIL);
++
++    verify(passwordResetCodeGenerator, never()).generateCode(Mockito.anyInt());
++    verify(passwordResetStore, never()).saveCode(Mockito.any(), Mockito.any(), Mockito.any());
++    verify(passwordResetCodeSender, never()).send(Mockito.any(), Mockito.any(), Mockito.anyLong());
++  }
++
++  @Test
++  @DisplayName("인증 코드가 일치하면 코드를 삭제하고 재설정 토큰을 발급한다")
++  void verifyDeletesCodeAndIssuesResetToken() {
++    when(passwordResetStore.findCodeByEmail(EMAIL)).thenReturn(CODE);
++    when(userService.getAuthInfoByEmail(EMAIL)).thenReturn(activePasswordUser());
++    when(passwordResetCodeGenerator.generateResetToken()).thenReturn(RESET_TOKEN);
++
++    PasswordResetVerifyResponseDto response = passwordResetService.verify(RAW_EMAIL, CODE);
++
++    assertThat(response.resetToken()).isEqualTo(RESET_TOKEN);
++    assertThat(response.expiresInSeconds()).isEqualTo(RESET_TOKEN_TTL_SECONDS);
++    verify(passwordResetStore).deleteCode(EMAIL);
++    verify(passwordResetStore)
++        .saveResetToken(RESET_TOKEN, EMAIL, Duration.ofSeconds(RESET_TOKEN_TTL_SECONDS));
++  }
++
++  @Test
++  @DisplayName("인증 코드가 없거나 일치하지 않으면 재설정 토큰을 발급하지 않는다")
++  void verifyRejectsInvalidCode() {
++    when(passwordResetStore.findCodeByEmail(EMAIL)).thenReturn("000000");
++
++    assertAuthError(
++        () -> passwordResetService.verify(RAW_EMAIL, CODE),
++        AuthErrorCode.INVALID_PASSWORD_RESET_CODE);
++
++    verify(passwordResetStore, never()).deleteCode(Mockito.any());
++    verify(passwordResetStore).incrementVerifyAttempt(EMAIL, Duration.ofSeconds(CODE_TTL_SECONDS));
++    verify(passwordResetCodeGenerator, never()).generateResetToken();
++    verify(passwordResetStore, never()).saveResetToken(Mockito.any(), Mockito.any(), Mockito.any());
++  }
++
++  @Test
++  @DisplayName("인증 코드 실패 횟수가 제한에 도달하면 인증 코드를 삭제한다")
++  void verifyDeletesCodeWhenMaxAttemptsExceeded() {
++    when(passwordResetStore.findCodeByEmail(EMAIL)).thenReturn("000000");
++    when(passwordResetStore.incrementVerifyAttempt(EMAIL, Duration.ofSeconds(CODE_TTL_SECONDS)))
++        .thenReturn(5L);
++
++    assertAuthError(
++        () -> passwordResetService.verify(RAW_EMAIL, CODE),
++        AuthErrorCode.INVALID_PASSWORD_RESET_CODE);
++
++    verify(passwordResetStore).deleteCode(EMAIL);
++    verify(passwordResetCodeGenerator, never()).generateResetToken();
++    verify(passwordResetStore, never()).saveResetToken(Mockito.any(), Mockito.any(), Mockito.any());
++  }
++
++  @Test
++  @DisplayName("재설정 토큰이 유효하면 새 비밀번호를 저장하고 토큰을 무효화한다")
++  void confirmResetsPasswordAndInvalidatesTokens() {
++    when(passwordResetStore.findEmailByResetToken(RESET_TOKEN)).thenReturn(EMAIL);
++    when(userService.resetPasswordByEmail(EMAIL, NEW_PASSWORD)).thenReturn(USER_ID);
++
++    passwordResetService.confirm(RESET_TOKEN, NEW_PASSWORD);
++
++    verify(userService).resetPasswordByEmail(EMAIL, NEW_PASSWORD);
++    verify(passwordResetStore).deleteResetToken(RESET_TOKEN);
++    verify(userTokenInvalidationService).invalidateAll(USER_ID);
++  }
++
++  @Test
++  @DisplayName("재설정 토큰이 유효하지 않으면 비밀번호를 변경하지 않는다")
++  void confirmRejectsInvalidResetToken() {
++    when(passwordResetStore.findEmailByResetToken(RESET_TOKEN)).thenReturn(null);
++
++    assertAuthError(
++        () -> passwordResetService.confirm(RESET_TOKEN, NEW_PASSWORD),
++        AuthErrorCode.INVALID_PASSWORD_RESET_TOKEN);
++
++    verify(userService, never()).resetPasswordByEmail(Mockito.any(), Mockito.any());
++    verify(passwordResetStore, never()).deleteResetToken(Mockito.any());
++    verify(userTokenInvalidationService, never()).invalidateAll(Mockito.any());
++  }
++
++  @Test
++  @DisplayName("새 비밀번호 저장이 실패하면 재설정 토큰을 유지하고 토큰 무효화를 하지 않는다")
++  void confirmKeepsResetTokenWhenPasswordResetFails() {
++    when(passwordResetStore.findEmailByResetToken(RESET_TOKEN)).thenReturn(EMAIL);
++    when(userService.resetPasswordByEmail(EMAIL, NEW_PASSWORD))
++        .thenThrow(new BusinessException(UserErrorCode.NEW_PASSWORD_SAME_AS_CURRENT));
++
++    assertUserError(
++        () -> passwordResetService.confirm(RESET_TOKEN, NEW_PASSWORD),
++        UserErrorCode.NEW_PASSWORD_SAME_AS_CURRENT);
++
++    verify(passwordResetStore, never()).deleteResetToken(Mockito.any());
++    verify(userTokenInvalidationService, never()).invalidateAll(Mockito.any());
++  }
++
++  private UserAuthResponseDto activePasswordUser() {
++    return new UserAuthResponseDto(USER_ID, EMAIL, ENCODED_PASSWORD, true, true, Role.USER);
++  }
++
++  private UserAuthResponseDto inactivePasswordUser() {
++    return new UserAuthResponseDto(USER_ID, EMAIL, ENCODED_PASSWORD, true, false, Role.USER);
++  }
++
++  private UserAuthResponseDto passwordDisabledUser() {
++    return new UserAuthResponseDto(USER_ID, EMAIL, ENCODED_PASSWORD, false, true, Role.USER);
++  }
++
++  private void assertAuthError(ThrowingCall call, AuthErrorCode expectedErrorCode) {
++    assertThatThrownBy(call::invoke)
++        .isInstanceOfSatisfying(
++            BusinessException.class,
++            exception -> assertThat(exception.getErrorCode()).isEqualTo(expectedErrorCode));
++  }
++
++  private void assertUserError(ThrowingCall call, UserErrorCode expectedErrorCode) {
++    assertThatThrownBy(call::invoke)
++        .isInstanceOfSatisfying(
++            BusinessException.class,
++            exception -> assertThat(exception.getErrorCode()).isEqualTo(expectedErrorCode));
++  }
++
++  @FunctionalInterface
++  private interface ThrowingCall {
++    void invoke();
++  }
++}
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/child/service/ChildOwnershipServiceTest.java b/backend/src/test/java/com/ssafy/backend/domain/child/service/ChildOwnershipServiceTest.java
+--- a/backend/src/test/java/com/ssafy/backend/domain/child/service/ChildOwnershipServiceTest.java
++++ b/backend/src/test/java/com/ssafy/backend/domain/child/service/ChildOwnershipServiceTest.java
+@@ -13,6 +13,7 @@ import com.ssafy.backend.domain.child.dto.ChildProfileUpdateRequestDto;
+ import com.ssafy.backend.domain.child.entity.ChildProfile;
+ import com.ssafy.backend.domain.child.exception.ChildProfileErrorCode;
+ import com.ssafy.backend.domain.child.repository.ChildProfileRepository;
++import com.ssafy.backend.domain.comms.repository.CommunicationSessionAnalysisRepository;
+ import com.ssafy.backend.domain.comms.service.ClovaSttClient;
+ import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
+ import com.ssafy.backend.domain.learn.quiz.dto.request.QuizSessionCreateRequest;
+@@ -61,6 +62,7 @@ class ChildOwnershipServiceTest {
+   @Mock private QuizGradingService quizGradingService;
+   @Mock private AssetUrlResolver assetUrlResolver;
+   @Mock private ReportQuizSessionQueryRepository reportQuizSessionQueryRepository;
++  @Mock private CommunicationSessionAnalysisRepository communicationSessionAnalysisRepository;
+ 
+   private ChildProfileService childProfileService;
+   private QuizService quizService;
+@@ -79,7 +81,11 @@ class ChildOwnershipServiceTest {
+             clovaSttClient,
+             quizGradingService,
+             assetUrlResolver);
+-    reportService = new ReportService(childProfileRepository, reportQuizSessionQueryRepository);
++    reportService =
++        new ReportService(
++            childProfileRepository,
++            reportQuizSessionQueryRepository,
++            communicationSessionAnalysisRepository);
+   }
+ 
+   @Test
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/report/service/ReportServiceQueryValidationTest.java b/backend/src/test/java/com/ssafy/backend/domain/report/service/ReportServiceQueryValidationTest.java
+--- a/backend/src/test/java/com/ssafy/backend/domain/report/service/ReportServiceQueryValidationTest.java
++++ b/backend/src/test/java/com/ssafy/backend/domain/report/service/ReportServiceQueryValidationTest.java
+@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
+ 
+ import com.ssafy.backend.domain.child.entity.ChildProfile;
+ import com.ssafy.backend.domain.child.repository.ChildProfileRepository;
++import com.ssafy.backend.domain.comms.repository.CommunicationSessionAnalysisRepository;
+ import com.ssafy.backend.domain.learn.entity.LearnDifficulty;
+ import com.ssafy.backend.domain.learn.quiz.entity.QuizSessionStatus;
+ import com.ssafy.backend.domain.report.dto.ReportCategoryListResponse;
+@@ -47,12 +48,17 @@ class ReportServiceQueryValidationTest {
+ 
+   @Mock private ChildProfileRepository childProfileRepository;
+   @Mock private ReportQuizSessionQueryRepository reportQuizSessionQueryRepository;
++  @Mock private CommunicationSessionAnalysisRepository communicationSessionAnalysisRepository;
+ 
+   private ReportService reportService;
+ 
+   @BeforeEach
+   void setUp() {
+-    reportService = new ReportService(childProfileRepository, reportQuizSessionQueryRepository);
++    reportService =
++        new ReportService(
++            childProfileRepository,
++            reportQuizSessionQueryRepository,
++            communicationSessionAnalysisRepository);
+   }
+ 
+   @Test
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/domain/user/service/UserServicePasswordChangeTest.java b/backend/src/test/java/com/ssafy/backend/domain/user/service/UserServicePasswordChangeTest.java
+--- a/backend/src/test/java/com/ssafy/backend/domain/user/service/UserServicePasswordChangeTest.java
++++ b/backend/src/test/java/com/ssafy/backend/domain/user/service/UserServicePasswordChangeTest.java
+@@ -20,6 +20,7 @@ import org.mockito.Mock;
+ import org.mockito.Mockito;
+ import org.mockito.junit.jupiter.MockitoExtension;
+ import org.springframework.security.crypto.password.PasswordEncoder;
++import org.springframework.test.util.ReflectionTestUtils;
+ 
+ @ExtendWith(MockitoExtension.class)
+ class UserServicePasswordChangeTest {
+@@ -118,6 +119,73 @@ class UserServicePasswordChangeTest {
+     verify(userRepository, never()).flush();
+   }
+ 
++  @Test
++  @DisplayName("재설정 토큰 기반 비밀번호 변경은 새 비밀번호를 인코딩하고 저장한다")
++  void resetPasswordByEmailEncodesAndStoresNewPassword() {
++    User user = user();
++    ReflectionTestUtils.setField(user, "id", USER_ID);
++    when(userRepository.findByEmailIgnoreCase("guardian@example.com"))
++        .thenReturn(Optional.of(user));
++    when(passwordEncoder.matches(NEW_PASSWORD, ENCODED_CURRENT_PASSWORD)).thenReturn(false);
++    when(passwordEncoder.encode(NEW_PASSWORD)).thenReturn(ENCODED_NEW_PASSWORD);
++
++    Long userId = userService.resetPasswordByEmail(" Guardian@Example.com ", NEW_PASSWORD);
++
++    assertThat(userId).isEqualTo(USER_ID);
++    assertThat(user.getPassword()).isEqualTo(ENCODED_NEW_PASSWORD);
++    verify(userRepository).flush();
++  }
++
++  @Test
++  @DisplayName("재설정 토큰 기반 비밀번호 변경은 비활성 계정을 거부한다")
++  void resetPasswordByEmailRejectsInactiveUser() {
++    User user = user();
++    user.withdraw();
++    when(userRepository.findByEmailIgnoreCase("guardian@example.com"))
++        .thenReturn(Optional.of(user));
++
++    assertUserError(
++        () -> userService.resetPasswordByEmail(" Guardian@Example.com ", NEW_PASSWORD),
++        UserErrorCode.USER_NOT_FOUND);
++
++    verify(passwordEncoder, never()).matches(Mockito.any(), Mockito.any());
++    verify(passwordEncoder, never()).encode(Mockito.any());
++    verify(userRepository, never()).flush();
++  }
++
++  @Test
++  @DisplayName("재설정 토큰 기반 비밀번호 변경은 소셜 전용 계정을 거부한다")
++  void resetPasswordByEmailRejectsPasswordDisabledUser() {
++    User user = oauthOnlyUser();
++    when(userRepository.findByEmailIgnoreCase("guardian@example.com"))
++        .thenReturn(Optional.of(user));
++
++    assertUserError(
++        () -> userService.resetPasswordByEmail(" Guardian@Example.com ", NEW_PASSWORD),
++        UserErrorCode.PASSWORD_LOGIN_NOT_ENABLED);
++
++    verify(passwordEncoder, never()).matches(Mockito.any(), Mockito.any());
++    verify(passwordEncoder, never()).encode(Mockito.any());
++    verify(userRepository, never()).flush();
++  }
++
++  @Test
++  @DisplayName("재설정 토큰 기반 비밀번호 변경은 기존 비밀번호와 같은 새 비밀번호를 거부한다")
++  void resetPasswordByEmailRejectsSameAsCurrentPassword() {
++    User user = user();
++    when(userRepository.findByEmailIgnoreCase("guardian@example.com"))
++        .thenReturn(Optional.of(user));
++    when(passwordEncoder.matches(NEW_PASSWORD, ENCODED_CURRENT_PASSWORD)).thenReturn(true);
++
++    assertUserError(
++        () -> userService.resetPasswordByEmail(" Guardian@Example.com ", NEW_PASSWORD),
++        UserErrorCode.NEW_PASSWORD_SAME_AS_CURRENT);
++
++    assertThat(user.getPassword()).isEqualTo(ENCODED_CURRENT_PASSWORD);
++    verify(passwordEncoder, never()).encode(Mockito.any());
++    verify(userRepository, never()).flush();
++  }
++
+   private User user() {
+     return User.create("guardian@example.com", ENCODED_CURRENT_PASSWORD, "보호자");
+   }
+
+

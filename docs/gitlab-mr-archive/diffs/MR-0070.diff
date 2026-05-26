@@ -1,0 +1,515 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/auth/AuthSessionManager.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/auth/AuthSessionManager.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/auth/AuthSessionManager.kt
+@@ -0,0 +1,34 @@
++package com.ssafy.mobile.core.auth
++
++import com.ssafy.mobile.core.session.ActiveChildStorage
++import javax.inject.Inject
++import javax.inject.Singleton
++
++@Singleton
++class AuthSessionManager
++    @Inject
++    constructor(
++        private val tokenStorage: TokenStorage,
++        private val activeChildStorage: ActiveChildStorage,
++    ) {
++        suspend fun restoreSession(): AuthState {
++            val accessToken = tokenStorage.getAccessToken()
++
++            if (accessToken.isNullOrEmpty()) {
++                return AuthState.Unauthenticated
++            }
++
++            val childId = activeChildStorage.getActiveChildId()
++
++            return if (childId != null) {
++                AuthState.AuthenticatedWithChild(childId)
++            } else {
++                AuthState.AuthenticatedWithoutChild
++            }
++        }
++
++        suspend fun clearSession() {
++            tokenStorage.clearTokens()
++            activeChildStorage.clearActiveChildId()
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/auth/AuthState.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/auth/AuthState.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/auth/AuthState.kt
+@@ -0,0 +1,15 @@
++package com.ssafy.mobile.core.auth
++
++sealed interface AuthState {
++    data object Restoring : AuthState
++
++    data object RestoreFailed : AuthState
++
++    data object Unauthenticated : AuthState
++
++    data object AuthenticatedWithoutChild : AuthState
++
++    data class AuthenticatedWithChild(
++        val childId: Long,
++    ) : AuthState
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -7,20 +7,56 @@ import androidx.navigation.NavHostController
+ import androidx.navigation.compose.NavHost
+ import androidx.navigation.compose.composable
+ import com.ssafy.mobile.BuildConfig
++import com.ssafy.mobile.feature.appentry.AppEntryRoute
+ import com.ssafy.mobile.feature.conversation.presentation.conversationRoute
++import com.ssafy.mobile.feature.placeholder.ChildSelectPlaceholderRoute
++import com.ssafy.mobile.feature.placeholder.HomePlaceholderRoute
++import com.ssafy.mobile.feature.placeholder.LoginPlaceholderRoute
+ import com.ssafy.mobile.feature.sign.presentation.SignDebugRoute
+ 
+ @Composable
+ fun MobileNavHost(
+     navController: NavHostController,
+     modifier: Modifier = Modifier,
+-    startDestination: String = Screen.Conversation.route,
++    startDestination: String = Screen.AppEntry.route,
+ ) {
+     NavHost(
+         navController = navController,
+         startDestination = startDestination,
+         modifier = modifier,
+     ) {
++        composable(Screen.AppEntry.route) {
++            AppEntryRoute(
++                onNavigateToLogin = {
++                    navController.navigate(Screen.Login.route) {
++                        popUpTo(Screen.AppEntry.route) { inclusive = true }
++                    }
++                },
++                onNavigateToChildSelect = {
++                    navController.navigate(Screen.ChildSelect.route) {
++                        popUpTo(Screen.AppEntry.route) { inclusive = true }
++                    }
++                },
++                onNavigateToHome = {
++                    navController.navigate(Screen.Home.route) {
++                        popUpTo(Screen.AppEntry.route) { inclusive = true }
++                    }
++                },
++            )
++        }
++
++        composable(Screen.Login.route) {
++            LoginPlaceholderRoute(modifier = Modifier.fillMaxSize())
++        }
++
++        composable(Screen.ChildSelect.route) {
++            ChildSelectPlaceholderRoute(modifier = Modifier.fillMaxSize())
++        }
++
++        composable(Screen.Home.route) {
++            HomePlaceholderRoute(modifier = Modifier.fillMaxSize())
++        }
++
+         composable(Screen.Conversation.route) {
+             val onOpenSignDebug: (() -> Unit)? =
+                 if (BuildConfig.DEBUG) {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+@@ -3,6 +3,14 @@ package com.ssafy.mobile.core.navigation
+ sealed class Screen(
+     val route: String,
+ ) {
++    data object AppEntry : Screen("app_entry_route")
++
++    data object Login : Screen("login_route")
++
++    data object ChildSelect : Screen("child_select_route")
++
++    data object Home : Screen("home_route")
++
+     data object Conversation : Screen("conversation_route")
+ 
+     data object Sign : Screen("sign_route")
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/session/di/SessionModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/session/di/SessionModule.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/session/di/SessionModule.kt
+@@ -0,0 +1,19 @@
++package com.ssafy.mobile.core.session.di
++
++import com.ssafy.mobile.core.session.ActiveChildStorage
++import com.ssafy.mobile.core.session.DataStoreActiveChildStorage
++import dagger.Binds
++import dagger.Module
++import dagger.hilt.InstallIn
++import dagger.hilt.components.SingletonComponent
++import javax.inject.Singleton
++
++@Module
++@InstallIn(SingletonComponent::class)
++abstract class SessionModule {
++    @Binds
++    @Singleton
++    abstract fun bindActiveChildStorage(
++        dataStoreActiveChildStorage: DataStoreActiveChildStorage,
++    ): ActiveChildStorage
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/session/ActiveChildStorage.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/session/ActiveChildStorage.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/session/ActiveChildStorage.kt
+@@ -0,0 +1,9 @@
++package com.ssafy.mobile.core.session
++
++interface ActiveChildStorage {
++    suspend fun getActiveChildId(): Long?
++
++    suspend fun saveActiveChildId(childId: Long)
++
++    suspend fun clearActiveChildId()
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/session/DataStoreActiveChildStorage.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/session/DataStoreActiveChildStorage.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/session/DataStoreActiveChildStorage.kt
+@@ -0,0 +1,43 @@
++package com.ssafy.mobile.core.session
++
++import android.content.Context
++import androidx.datastore.core.DataStore
++import androidx.datastore.preferences.core.Preferences
++import androidx.datastore.preferences.core.edit
++import androidx.datastore.preferences.core.longPreferencesKey
++import androidx.datastore.preferences.preferencesDataStore
++import dagger.hilt.android.qualifiers.ApplicationContext
++import javax.inject.Inject
++import kotlinx.coroutines.flow.first
++import kotlinx.coroutines.flow.map
++
++private val Context.activeChildDataStore: DataStore<Preferences> by preferencesDataStore(
++    name = "active_child_prefs",
++)
++
++class DataStoreActiveChildStorage
++    @Inject
++    constructor(
++        @ApplicationContext private val context: Context,
++    ) : ActiveChildStorage {
++        companion object {
++            private val KEY_ACTIVE_CHILD_ID = longPreferencesKey("active_child_id")
++        }
++
++        override suspend fun getActiveChildId(): Long? =
++            context.activeChildDataStore.data
++                .map { preferences -> preferences[KEY_ACTIVE_CHILD_ID] }
++                .first()
++
++        override suspend fun saveActiveChildId(childId: Long) {
++            context.activeChildDataStore.edit { preferences ->
++                preferences[KEY_ACTIVE_CHILD_ID] = childId
++            }
++        }
++
++        override suspend fun clearActiveChildId() {
++            context.activeChildDataStore.edit { preferences ->
++                preferences.remove(KEY_ACTIVE_CHILD_ID)
++            }
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/appentry/AppEntryRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/appentry/AppEntryRoute.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/appentry/AppEntryRoute.kt
+@@ -0,0 +1,121 @@
++package com.ssafy.mobile.feature.appentry
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.material3.Button
++import androidx.compose.material3.CircularProgressIndicator
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.OutlinedButton
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.unit.dp
++import androidx.hilt.navigation.compose.hiltViewModel
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.auth.AuthState
++
++@Composable
++fun AppEntryRoute(
++    onNavigateToLogin: () -> Unit,
++    onNavigateToChildSelect: () -> Unit,
++    onNavigateToHome: () -> Unit,
++    modifier: Modifier = Modifier,
++    viewModel: AppEntryViewModel = hiltViewModel(),
++) {
++    val authState by viewModel.authState.collectAsStateWithLifecycle()
++
++    LaunchedEffect(authState) {
++        when (authState) {
++            is AuthState.Restoring -> Unit
++            is AuthState.RestoreFailed -> Unit
++            is AuthState.Unauthenticated -> onNavigateToLogin()
++            is AuthState.AuthenticatedWithoutChild -> onNavigateToChildSelect()
++            is AuthState.AuthenticatedWithChild -> onNavigateToHome()
++        }
++    }
++
++    when (authState) {
++        is AuthState.Restoring -> {
++            RestoringContent(modifier = modifier)
++        }
++        is AuthState.RestoreFailed -> {
++            RestoreFailedContent(
++                onRetry = viewModel::retryRestoreSession,
++                onNavigateToLogin = onNavigateToLogin,
++                modifier = modifier,
++            )
++        }
++        else -> Unit
++    }
++}
++
++@Composable
++private fun RestoringContent(modifier: Modifier = Modifier) {
++    Column(
++        modifier = modifier.fillMaxSize(),
++        horizontalAlignment = Alignment.CenterHorizontally,
++        verticalArrangement = Arrangement.Center,
++    ) {
++        CircularProgressIndicator()
++        Spacer(modifier = Modifier.height(16.dp))
++        Text(
++            text = "세션을 복원하고 있어요.",
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            textAlign = TextAlign.Center,
++        )
++    }
++}
++
++@Composable
++private fun RestoreFailedContent(
++    onRetry: () -> Unit,
++    onNavigateToLogin: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Column(
++        modifier =
++            modifier
++                .fillMaxSize()
++                .padding(24.dp),
++        horizontalAlignment = Alignment.CenterHorizontally,
++        verticalArrangement = Arrangement.Center,
++    ) {
++        Text(
++            text = "세션을 복원하지 못했어요",
++            style = MaterialTheme.typography.headlineSmall,
++            color = MaterialTheme.colorScheme.onSurface,
++            textAlign = TextAlign.Center,
++        )
++        Spacer(modifier = Modifier.height(8.dp))
++        Text(
++            text = "잠시 후 다시 시도하거나\n로그인 화면으로 이동해 주세요.",
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            textAlign = TextAlign.Center,
++        )
++        Spacer(modifier = Modifier.height(24.dp))
++        Button(
++            onClick = onRetry,
++            modifier = Modifier.fillMaxWidth(),
++        ) {
++            Text(text = "다시 시도")
++        }
++        Spacer(modifier = Modifier.height(8.dp))
++        OutlinedButton(
++            onClick = onNavigateToLogin,
++            modifier = Modifier.fillMaxWidth(),
++        ) {
++            Text(text = "로그인 화면으로 이동")
++        }
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/appentry/AppEntryViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/appentry/AppEntryViewModel.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/appentry/AppEntryViewModel.kt
+@@ -0,0 +1,63 @@
++package com.ssafy.mobile.feature.appentry
++
++import android.util.Log
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.core.auth.AuthSessionManager
++import com.ssafy.mobile.core.auth.AuthState
++import dagger.hilt.android.lifecycle.HiltViewModel
++import javax.inject.Inject
++import kotlin.coroutines.cancellation.CancellationException
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++import kotlinx.coroutines.withTimeoutOrNull
++
++@HiltViewModel
++class AppEntryViewModel
++    @Inject
++    constructor(
++        private val authSessionManager: AuthSessionManager,
++    ) : ViewModel() {
++        companion object {
++            private const val TAG = "AppEntryViewModel"
++            private const val SESSION_RESTORE_TIMEOUT_MS = 3000L
++        }
++
++        private val _authState = MutableStateFlow<AuthState>(AuthState.Restoring)
++        val authState: StateFlow<AuthState> = _authState.asStateFlow()
++
++        init {
++            restoreSession()
++        }
++
++        fun retryRestoreSession() {
++            restoreSession()
++        }
++
++        private fun restoreSession() {
++            _authState.value = AuthState.Restoring
++
++            viewModelScope.launch {
++                val result =
++                    runCatching {
++                        withTimeoutOrNull(SESSION_RESTORE_TIMEOUT_MS) {
++                            withContext(Dispatchers.IO) {
++                                authSessionManager.restoreSession()
++                            }
++                        } ?: AuthState.RestoreFailed
++                    }.getOrElse { throwable ->
++                        if (throwable is CancellationException) throw throwable
++
++                        Log.e(TAG, "Session restore failed")
++                        AuthState.RestoreFailed
++                    }
++
++                // timeout 또는 예외 발생 시에도 토큰/childId를 삭제하지 않음
++                _authState.value = result
++            }
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/placeholder/PlaceholderRoutes.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/placeholder/PlaceholderRoutes.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/placeholder/PlaceholderRoutes.kt
+@@ -0,0 +1,80 @@
++package com.ssafy.mobile.feature.placeholder
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.style.TextAlign
++
++// [S14P31A404-210] 후속 티켓에서 실제 로그인 화면으로 교체
++@Composable
++fun LoginPlaceholderRoute(modifier: Modifier = Modifier) {
++    Column(
++        modifier = modifier.fillMaxSize(),
++        horizontalAlignment = Alignment.CenterHorizontally,
++        verticalArrangement = Arrangement.Center,
++    ) {
++        Text(
++            text = "로그인 화면",
++            style = MaterialTheme.typography.headlineMedium,
++            color = MaterialTheme.colorScheme.onSurface,
++            textAlign = TextAlign.Center,
++        )
++        Text(
++            text = "로그인 기능은 후속 티켓에서 구현됩니다.",
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            textAlign = TextAlign.Center,
++        )
++    }
++}
++
++// [S14P31A404-210] 후속 티켓에서 실제 아이 프로필 선택 화면으로 교체
++@Composable
++fun ChildSelectPlaceholderRoute(modifier: Modifier = Modifier) {
++    Column(
++        modifier = modifier.fillMaxSize(),
++        horizontalAlignment = Alignment.CenterHorizontally,
++        verticalArrangement = Arrangement.Center,
++    ) {
++        Text(
++            text = "아이 프로필 선택",
++            style = MaterialTheme.typography.headlineMedium,
++            color = MaterialTheme.colorScheme.onSurface,
++            textAlign = TextAlign.Center,
++        )
++        Text(
++            text = "아이 프로필 선택은 후속 티켓에서 구현됩니다.",
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            textAlign = TextAlign.Center,
++        )
++    }
++}
++
++// [S14P31A404-210] 후속 티켓에서 실제 홈 화면으로 교체
++@Composable
++fun HomePlaceholderRoute(modifier: Modifier = Modifier) {
++    Column(
++        modifier = modifier.fillMaxSize(),
++        horizontalAlignment = Alignment.CenterHorizontally,
++        verticalArrangement = Arrangement.Center,
++    ) {
++        Text(
++            text = "홈 화면",
++            style = MaterialTheme.typography.headlineMedium,
++            color = MaterialTheme.colorScheme.onSurface,
++            textAlign = TextAlign.Center,
++        )
++        Text(
++            text = "메인 홈은 후속 티켓에서 구현됩니다.",
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            textAlign = TextAlign.Center,
++        )
++    }
++}
+
+

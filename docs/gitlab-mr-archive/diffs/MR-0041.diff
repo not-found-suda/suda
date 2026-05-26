@@ -1,0 +1,606 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/NoHandsDetectionTracker.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/NoHandsDetectionTracker.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/NoHandsDetectionTracker.kt
+@@ -0,0 +1,44 @@
++package com.ssafy.mobile.core.vision
++
++import com.ssafy.mobile.core.model.SignRecognitionEvent
++import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
++
++class NoHandsDetectionTracker(
++    private val detectionDelayMs: Long = DEFAULT_DETECTION_DELAY_MS,
++) {
++    private var noHandsStartedAtMs: Long? = null
++    private var hasEmittedNoHands = false
++
++    init {
++        require(detectionDelayMs >= 0L) {
++            "손 미검출 기준 시간은 0 이상이어야 합니다."
++        }
++    }
++
++    fun onFrame(frame: LandmarkFrameResult): SignRecognitionEvent.NoHandsDetected? {
++        if (frame.hasHands) {
++            reset()
++            return null
++        }
++
++        val startedAtMs = noHandsStartedAtMs ?: frame.timestampMs
++        noHandsStartedAtMs = startedAtMs
++
++        val elapsedMs = (frame.timestampMs - startedAtMs).coerceAtLeast(0L)
++        return if (!hasEmittedNoHands && elapsedMs >= detectionDelayMs) {
++            hasEmittedNoHands = true
++            SignRecognitionEvent.NoHandsDetected
++        } else {
++            null
++        }
++    }
++
++    fun reset() {
++        noHandsStartedAtMs = null
++        hasEmittedNoHands = false
++    }
++
++    private companion object {
++        const val DEFAULT_DETECTION_DELAY_MS = 1_000L
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngine.kt
+@@ -17,12 +17,16 @@ class RealSignRecognitionEngine(
+     private val featureEncoder: LandmarkFeatureEncoder = LandmarkFeatureEncoder(),
+     private val sequenceBuffer: SignSequenceBuffer = SignSequenceBuffer(),
+     private val inferenceAdapter: SignInferenceAdapter = FakeSignInferenceAdapter(),
++    private val noHandsDetectionTracker: NoHandsDetectionTracker = NoHandsDetectionTracker(),
++    private val predictionStabilizer: SignPredictionStabilizer = SignPredictionStabilizer(),
+ ) : SignRecognitionEngine {
+     @Inject
+     constructor() : this(
+         featureEncoder = LandmarkFeatureEncoder(),
+         sequenceBuffer = SignSequenceBuffer(),
+         inferenceAdapter = FakeSignInferenceAdapter(),
++        noHandsDetectionTracker = NoHandsDetectionTracker(),
++        predictionStabilizer = SignPredictionStabilizer(),
+     )
+ 
+     private val isStarted = AtomicBoolean(false)
+@@ -58,27 +62,54 @@ class RealSignRecognitionEngine(
+             return
+         }
+ 
+-        runCatching {
+-            val feature = featureEncoder.encode(frame)
+-            sequenceBuffer.add(feature)
+-            val sequence = sequenceBuffer.buildSequenceInput() ?: return
+-            val result = inferenceAdapter.predict(sequence)
++        runCatching { processFrame(frame) }
++            .onFailure { throwable ->
++                _events.tryEmit(
++                    SignRecognitionEvent.Error(
++                        message = "수어 인식 처리 중 오류가 발생했습니다.",
++                        cause = throwable,
++                    ),
++                )
++            }
++    }
++
++    private fun processFrame(frame: LandmarkFrameResult) {
++        if (handleNoHandsFrame(frame)) {
++            return
++        }
++
++        createPredictionEvent(frame)?.let { event ->
++            _events.tryEmit(event)
++        }
++    }
+ 
+-            _events.tryEmit(
++    private fun createPredictionEvent(
++        frame: LandmarkFrameResult,
++    ): SignRecognitionEvent.Prediction? {
++        val feature = featureEncoder.encode(frame)
++        sequenceBuffer.add(feature)
++        val sequence = sequenceBuffer.buildSequenceInput() ?: return null
++        val result = inferenceAdapter.predict(sequence)
++        return predictionStabilizer
++            .onPrediction(result)
++            ?.let { stablePrediction ->
+                 SignRecognitionEvent.Prediction(
+-                    gloss = result.gloss,
+-                    confidence = result.confidence,
++                    gloss = stablePrediction.gloss,
++                    confidence = stablePrediction.confidence,
+                     timestampMs = frame.timestampMs,
+-                ),
+-            )
+-        }.onFailure { throwable ->
+-            _events.tryEmit(
+-                SignRecognitionEvent.Error(
+-                    message = "수어 인식 처리 중 오류가 발생했습니다.",
+-                    cause = throwable,
+-                ),
+-            )
++                )
++            }
++    }
++
++    private fun handleNoHandsFrame(frame: LandmarkFrameResult): Boolean {
++        val noHandsEvent = noHandsDetectionTracker.onFrame(frame)
++        if (frame.hasHands) {
++            return false
+         }
++
++        resetRecognitionState()
++        noHandsEvent?.let { event -> _events.tryEmit(event) }
++        return true
+     }
+ 
+     fun close() {
+@@ -87,8 +118,14 @@ class RealSignRecognitionEngine(
+     }
+ 
+     private fun resetSessionState() {
++        noHandsDetectionTracker.reset()
++        resetRecognitionState()
++    }
++
++    private fun resetRecognitionState() {
+         featureEncoder.reset()
+         sequenceBuffer.clear()
++        predictionStabilizer.reset()
+     }
+ 
+     private companion object {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPredictionStabilizer.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPredictionStabilizer.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/SignPredictionStabilizer.kt
+@@ -0,0 +1,102 @@
++package com.ssafy.mobile.core.vision
++
++import com.ssafy.mobile.core.vision.inference.SignInferenceResult
++import com.ssafy.mobile.core.vision.inference.SignModelContract
++import java.util.ArrayDeque
++
++class SignPredictionStabilizer(
++    private val confidenceThreshold: Float = SignModelContract.CONFIDENCE_THRESHOLD,
++    private val windowSize: Int = DEFAULT_WINDOW_SIZE,
++    private val requiredVotes: Int = DEFAULT_REQUIRED_VOTES,
++    private val ignoredGlosses: Set<String> = DEFAULT_IGNORED_GLOSSES,
++) {
++    private val recentPredictions = ArrayDeque<SignInferenceResult>(windowSize)
++    private var lastEmittedGloss: String? = null
++
++    init {
++        require(confidenceThreshold in MIN_CONFIDENCE..MAX_CONFIDENCE) {
++            "신뢰도 기준값은 $MIN_CONFIDENCE 이상 $MAX_CONFIDENCE 이하이어야 합니다."
++        }
++        require(windowSize > 0) {
++            "예측 결과 window 크기는 1 이상이어야 합니다."
++        }
++        require(requiredVotes in 1..windowSize) {
++            "확정에 필요한 vote 수는 1 이상 window 크기 이하이어야 합니다."
++        }
++    }
++
++    fun onPrediction(result: SignInferenceResult): StableSignPrediction? {
++        var stablePrediction: StableSignPrediction? = null
++        if (isUsable(result)) {
++            addPrediction(result)
++            val candidate = findStableCandidate()
++            if (candidate != null && candidate.gloss != lastEmittedGloss) {
++                recentPredictions.clear()
++                lastEmittedGloss = candidate.gloss
++                stablePrediction = candidate
++            }
++        }
++
++        return stablePrediction
++    }
++
++    fun reset() {
++        recentPredictions.clear()
++        lastEmittedGloss = null
++    }
++
++    private fun isUsable(result: SignInferenceResult): Boolean =
++        result.confidence >= confidenceThreshold &&
++            result.gloss.trim().lowercase() !in ignoredGlosses
++
++    private fun addPrediction(result: SignInferenceResult) {
++        if (recentPredictions.size == windowSize) {
++            recentPredictions.removeFirst()
++        }
++        recentPredictions.addLast(result)
++    }
++
++    private fun findStableCandidate(): StableSignPrediction? =
++        recentPredictions
++            .groupBy { prediction -> prediction.gloss }
++            .mapValues { (_, predictions) ->
++                PredictionVote(
++                    gloss = predictions.first().gloss,
++                    count = predictions.size,
++                    confidence =
++                        predictions
++                            .map { prediction -> prediction.confidence }
++                            .average()
++                            .toFloat(),
++                )
++            }.values
++            .filter { vote -> vote.count >= requiredVotes }
++            .maxWithOrNull(
++                compareBy<PredictionVote> { vote -> vote.count }
++                    .thenBy { vote -> vote.confidence },
++            )?.let { vote ->
++                StableSignPrediction(
++                    gloss = vote.gloss,
++                    confidence = vote.confidence,
++                )
++            }
++
++    private data class PredictionVote(
++        val gloss: String,
++        val count: Int,
++        val confidence: Float,
++    )
++
++    private companion object {
++        const val DEFAULT_WINDOW_SIZE = 5
++        const val DEFAULT_REQUIRED_VOTES = 3
++        const val MIN_CONFIDENCE = 0f
++        const val MAX_CONFIDENCE = 1f
++        val DEFAULT_IGNORED_GLOSSES = setOf("none", "unknown", "<none>", "<unknown>")
++    }
++}
++
++data class StableSignPrediction(
++    val gloss: String,
++    val confidence: Float,
++)
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/NoHandsDetectionTrackerTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/NoHandsDetectionTrackerTest.kt
+--- /dev/null
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/NoHandsDetectionTrackerTest.kt
+@@ -0,0 +1,92 @@
++package com.ssafy.mobile.core.vision
++
++import com.ssafy.mobile.core.model.SignRecognitionEvent
++import com.ssafy.mobile.core.vision.landmark.HandLandmarks
++import com.ssafy.mobile.core.vision.landmark.HandSide
++import com.ssafy.mobile.core.vision.landmark.LandmarkFrameResult
++import com.ssafy.mobile.core.vision.landmark.LandmarkGroup
++import com.ssafy.mobile.core.vision.landmark.LandmarkGroupType
++import com.ssafy.mobile.core.vision.landmark.LandmarkPoint
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNull
++import org.junit.Test
++
++class NoHandsDetectionTrackerTest {
++    @Test
++    fun doesNotEmitBeforeDetectionDelay() {
++        val tracker = NoHandsDetectionTracker(detectionDelayMs = DETECTION_DELAY_MS)
++
++        assertNull(tracker.onFrame(createNoHandsFrame(timestampMs = 0L)))
++        assertNull(tracker.onFrame(createNoHandsFrame(timestampMs = DETECTION_DELAY_MS - 1L)))
++    }
++
++    @Test
++    fun emitsNoHandsDetectedAfterDetectionDelay() {
++        val tracker = NoHandsDetectionTracker(detectionDelayMs = DETECTION_DELAY_MS)
++
++        tracker.onFrame(createNoHandsFrame(timestampMs = 0L))
++
++        assertEquals(
++            SignRecognitionEvent.NoHandsDetected,
++            tracker.onFrame(createNoHandsFrame(timestampMs = DETECTION_DELAY_MS)),
++        )
++    }
++
++    @Test
++    fun doesNotEmitRepeatedNoHandsEventsUntilHandsReturn() {
++        val tracker = NoHandsDetectionTracker(detectionDelayMs = DETECTION_DELAY_MS)
++
++        tracker.onFrame(createNoHandsFrame(timestampMs = 0L))
++        tracker.onFrame(createNoHandsFrame(timestampMs = DETECTION_DELAY_MS))
++
++        assertNull(tracker.onFrame(createNoHandsFrame(timestampMs = DETECTION_DELAY_MS * 2L)))
++    }
++
++    @Test
++    fun resetsNoHandsStateWhenHandsReturn() {
++        val tracker = NoHandsDetectionTracker(detectionDelayMs = DETECTION_DELAY_MS)
++
++        tracker.onFrame(createNoHandsFrame(timestampMs = 0L))
++        tracker.onFrame(createNoHandsFrame(timestampMs = DETECTION_DELAY_MS))
++        assertNull(tracker.onFrame(createHandsFrame(timestampMs = DETECTION_DELAY_MS + 1L)))
++        assertNull(tracker.onFrame(createNoHandsFrame(timestampMs = DETECTION_DELAY_MS + 2L)))
++
++        assertEquals(
++            SignRecognitionEvent.NoHandsDetected,
++            tracker.onFrame(createNoHandsFrame(timestampMs = DETECTION_DELAY_MS * 2L + 2L)),
++        )
++    }
++
++    private fun createNoHandsFrame(timestampMs: Long): LandmarkFrameResult =
++        LandmarkFrameResult(
++            timestampMs = timestampMs,
++            pose = LandmarkGroup.empty(LandmarkGroupType.POSE),
++            leftHand = HandLandmarks.empty(HandSide.LEFT),
++            rightHand = HandLandmarks.empty(HandSide.RIGHT),
++            lips = LandmarkGroup.empty(LandmarkGroupType.LIPS),
++        )
++
++    private fun createHandsFrame(timestampMs: Long): LandmarkFrameResult =
++        LandmarkFrameResult(
++            timestampMs = timestampMs,
++            pose = LandmarkGroup.empty(LandmarkGroupType.POSE),
++            leftHand =
++                HandLandmarks(
++                    side = HandSide.LEFT,
++                    landmarks =
++                        listOf(
++                            LandmarkPoint(
++                                x = 0f,
++                                y = 0f,
++                                z = 0f,
++                            ),
++                        ),
++                ),
++            rightHand = HandLandmarks.empty(HandSide.RIGHT),
++            lips = LandmarkGroup.empty(LandmarkGroupType.LIPS),
++        )
++
++    private companion object {
++        const val DETECTION_DELAY_MS = 1_000L
++    }
++}
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngineTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngineTest.kt
+--- a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngineTest.kt
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/RealSignRecognitionEngineTest.kt
+@@ -78,11 +78,13 @@ class RealSignRecognitionEngineTest {
+             engine.start()
+             engine.onLandmarkFrame(createFrame(timestampMs = 1L))
+             engine.onLandmarkFrame(createFrame(timestampMs = 2L))
++            engine.onLandmarkFrame(createFrame(timestampMs = 3L))
++            engine.onLandmarkFrame(createFrame(timestampMs = 4L))
+ 
+             val prediction = predictionDeferred.await()
+             assertEquals(TEST_GLOSS, prediction.gloss)
+             assertEquals(TEST_CONFIDENCE, prediction.confidence, FLOAT_DELTA)
+-            assertEquals(2L, prediction.timestampMs)
++            assertEquals(4L, prediction.timestampMs)
+         }
+ 
+     @Test
+@@ -145,6 +147,66 @@ class RealSignRecognitionEngineTest {
+             assertTrue(error.cause is IllegalStateException)
+         }
+ 
++    @Test
++    fun emitsNoHandsDetectedAfterContinuousNoHandsFrames() =
++        runBlocking {
++            val engine = createEngine()
++            val noHandsDeferred =
++                async {
++                    withTimeout(TIMEOUT_MS) {
++                        engine.events.first { event ->
++                            event == SignRecognitionEvent.NoHandsDetected
++                        }
++                    }
++                }
++
++            yield()
++            engine.start()
++            engine.onLandmarkFrame(createNoHandsFrame(timestampMs = 0L))
++            engine.onLandmarkFrame(createNoHandsFrame(timestampMs = NO_HANDS_DELAY_MS))
++
++            assertEquals(SignRecognitionEvent.NoHandsDetected, noHandsDeferred.await())
++        }
++
++    @Test
++    fun clearsSequenceWhenHandsAreMissing() =
++        runBlocking {
++            val inferenceAdapter = RecordingInferenceAdapter()
++            val engine = createEngine(inferenceAdapter = inferenceAdapter)
++
++            engine.start()
++            engine.onLandmarkFrame(createFrame(timestampMs = 1L))
++            engine.onLandmarkFrame(createNoHandsFrame(timestampMs = 2L))
++            engine.onLandmarkFrame(createFrame(timestampMs = 3L))
++
++            assertEquals(0, inferenceAdapter.predictCallCount)
++        }
++
++    @Test
++    fun allowsSameGlossAfterHandsAreDetectedAgain() =
++        runBlocking {
++            val engine = createEngine()
++            val predictionsDeferred =
++                async {
++                    withTimeout(TIMEOUT_MS) {
++                        engine.events
++                            .filterIsInstance<SignRecognitionEvent.Prediction>()
++                            .take(2)
++                            .toList()
++                    }
++                }
++
++            yield()
++            engine.start()
++            repeatStablePredictionFrames(startTimestampMs = 1L, engine = engine)
++            engine.onLandmarkFrame(createNoHandsFrame(timestampMs = 10L))
++            repeatStablePredictionFrames(startTimestampMs = 20L, engine = engine)
++
++            val predictions = predictionsDeferred.await()
++            assertEquals(TEST_GLOSS, predictions[0].gloss)
++            assertEquals(TEST_GLOSS, predictions[1].gloss)
++        }
++
+     private fun createEngine(
+         inferenceAdapter: SignInferenceAdapter = RecordingInferenceAdapter(),
+     ): RealSignRecognitionEngine =
+@@ -152,6 +214,16 @@ class RealSignRecognitionEngineTest {
+             featureEncoder = LandmarkFeatureEncoder(),
+             sequenceBuffer = SignSequenceBuffer(sequenceLength = TEST_SEQUENCE_LENGTH),
+             inferenceAdapter = inferenceAdapter,
++            noHandsDetectionTracker =
++                NoHandsDetectionTracker(
++                    detectionDelayMs = NO_HANDS_DELAY_MS,
++                ),
++            predictionStabilizer =
++                SignPredictionStabilizer(
++                    confidenceThreshold = TEST_CONFIDENCE_THRESHOLD,
++                    windowSize = TEST_PREDICTION_WINDOW_SIZE,
++                    requiredVotes = TEST_REQUIRED_VOTES,
++                ),
+         )
+ 
+     private class RecordingInferenceAdapter(
+@@ -197,6 +269,32 @@ class RealSignRecognitionEngineTest {
+                 ),
+         )
+ 
++    private fun repeatStablePredictionFrames(
++        startTimestampMs: Long,
++        engine: RealSignRecognitionEngine,
++    ) {
++        repeat(TEST_SEQUENCE_LENGTH + TEST_REQUIRED_VOTES - 1) { index ->
++            engine.onLandmarkFrame(createFrame(timestampMs = startTimestampMs + index))
++        }
++    }
++
++    private fun createNoHandsFrame(timestampMs: Long): LandmarkFrameResult =
++        LandmarkFrameResult(
++            timestampMs = timestampMs,
++            pose =
++                LandmarkGroup(
++                    type = LandmarkGroupType.POSE,
++                    landmarks = createPoseLandmarks(),
++                ),
++            leftHand = HandLandmarks.empty(HandSide.LEFT),
++            rightHand = HandLandmarks.empty(HandSide.RIGHT),
++            lips =
++                LandmarkGroup(
++                    type = LandmarkGroupType.LIPS,
++                    landmarks = createLandmarks(SignFeatureSpec.LIPS_LANDMARK_COUNT),
++                ),
++        )
++
+     private fun createPoseLandmarks(): List<LandmarkPoint> =
+         createLandmarks(SignFeatureSpec.POSE_LANDMARK_COUNT).toMutableList().also { landmarks ->
+             landmarks[SignFeatureSpec.LEFT_SHOULDER_INDEX] = LandmarkPoint(0f, 0f, 0f)
+@@ -216,6 +314,10 @@ class RealSignRecognitionEngineTest {
+         const val TEST_SEQUENCE_LENGTH = 2
+         const val TEST_GLOSS = "엄마"
+         const val TEST_CONFIDENCE = 0.91f
++        const val TEST_CONFIDENCE_THRESHOLD = 0.85f
++        const val TEST_PREDICTION_WINDOW_SIZE = 5
++        const val TEST_REQUIRED_VOTES = 3
++        const val NO_HANDS_DELAY_MS = 1_000L
+         const val FLOAT_DELTA = 0.0001f
+         const val TIMEOUT_MS = 1_000L
+     }
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/SignPredictionStabilizerTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/SignPredictionStabilizerTest.kt
+--- /dev/null
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/SignPredictionStabilizerTest.kt
+@@ -0,0 +1,87 @@
++package com.ssafy.mobile.core.vision
++
++import com.ssafy.mobile.core.vision.inference.SignInferenceResult
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNull
++import org.junit.Test
++
++class SignPredictionStabilizerTest {
++    @Test
++    fun ignoresLowConfidencePrediction() {
++        val stabilizer = createStabilizer()
++
++        assertNull(stabilizer.onPrediction(createPrediction(confidence = LOW_CONFIDENCE)))
++    }
++
++    @Test
++    fun ignoresNoneOrUnknownPrediction() {
++        val stabilizer = createStabilizer()
++
++        assertNull(stabilizer.onPrediction(createPrediction(gloss = "none")))
++        assertNull(stabilizer.onPrediction(createPrediction(gloss = "UNKNOWN")))
++    }
++
++    @Test
++    fun emitsStablePredictionWhenRequiredVotesAreSatisfied() {
++        val stabilizer = createStabilizer()
++
++        assertNull(stabilizer.onPrediction(createPrediction(gloss = "엄마")))
++        assertNull(stabilizer.onPrediction(createPrediction(gloss = "아빠")))
++        val stablePrediction = stabilizer.onPrediction(createPrediction(gloss = "엄마"))
++
++        assertEquals("엄마", stablePrediction?.gloss)
++        assertEquals(DEFAULT_CONFIDENCE, stablePrediction?.confidence ?: 0f, FLOAT_DELTA)
++    }
++
++    @Test
++    fun suppressesRepeatedSameGloss() {
++        val stabilizer = createStabilizer()
++
++        stabilizer.onPrediction(createPrediction(gloss = "엄마"))
++        stabilizer.onPrediction(createPrediction(gloss = "아빠"))
++        stabilizer.onPrediction(createPrediction(gloss = "엄마"))
++        stabilizer.onPrediction(createPrediction(gloss = "엄마"))
++
++        assertNull(stabilizer.onPrediction(createPrediction(gloss = "엄마")))
++    }
++
++    @Test
++    fun allowsSameGlossAfterReset() {
++        val stabilizer = createStabilizer()
++
++        stabilizer.onPrediction(createPrediction(gloss = "엄마"))
++        stabilizer.onPrediction(createPrediction(gloss = "아빠"))
++        stabilizer.onPrediction(createPrediction(gloss = "엄마"))
++        stabilizer.reset()
++        stabilizer.onPrediction(createPrediction(gloss = "엄마"))
++        stabilizer.onPrediction(createPrediction(gloss = "아빠"))
++        val stablePrediction = stabilizer.onPrediction(createPrediction(gloss = "엄마"))
++
++        assertEquals("엄마", stablePrediction?.gloss)
++    }
++
++    private fun createStabilizer(): SignPredictionStabilizer =
++        SignPredictionStabilizer(
++            confidenceThreshold = CONFIDENCE_THRESHOLD,
++            windowSize = WINDOW_SIZE,
++            requiredVotes = REQUIRED_VOTES,
++        )
++
++    private fun createPrediction(
++        gloss: String = "엄마",
++        confidence: Float = DEFAULT_CONFIDENCE,
++    ): SignInferenceResult =
++        SignInferenceResult(
++            gloss = gloss,
++            confidence = confidence,
++        )
++
++    private companion object {
++        const val CONFIDENCE_THRESHOLD = 0.85f
++        const val DEFAULT_CONFIDENCE = 0.9f
++        const val LOW_CONFIDENCE = 0.84f
++        const val FLOAT_DELTA = 0.0001f
++        const val WINDOW_SIZE = 5
++        const val REQUIRED_VOTES = 2
++    }
++}
+
+

@@ -1,0 +1,228 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ai/.gitkeep b/mobile/app/src/main/java/com/ssafy/mobile/core/ai/.gitkeep
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ai/.gitkeep
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/.gitkeep b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/.gitkeep
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/.gitkeep
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/camera/.gitkeep b/mobile/app/src/main/java/com/ssafy/mobile/core/camera/.gitkeep
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/camera/.gitkeep
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/model/SignRecognitionEvent.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/model/SignRecognitionEvent.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/model/SignRecognitionEvent.kt
+@@ -0,0 +1,26 @@
++package com.ssafy.mobile.core.model
++
++sealed interface SignRecognitionEvent {
++    // 단일 단어 추론 결과
++    data class Prediction(
++        val gloss: String,
++        val confidence: Float,
++        val timestampMs: Long,
++    ) : SignRecognitionEvent
++
++    // 단어들이 모여 문장이 될 때 (선택적 사용)
++    data class Utterance(
++        val glosses: List<String>,
++        val confidence: Float,
++        val startedAtMs: Long,
++        val endedAtMs: Long,
++    ) : SignRecognitionEvent
++
++    data object NoHandsDetected : SignRecognitionEvent
++
++    data object ModelLoading : SignRecognitionEvent
++
++    data class Error(
++        val message: String,
++    ) : SignRecognitionEvent
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/model/TranslateResult.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/model/TranslateResult.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/model/TranslateResult.kt
+@@ -0,0 +1,10 @@
++package com.ssafy.mobile.core.model
++
++data class SignTranslateResult(
++    val correctedText: String,
++    val audioUrl: String? = null,
++)
++
++data class VoiceTranslateResult(
++    val translatedText: String,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/.gitkeep b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/.gitkeep
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/.gitkeep
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/network/di/NetworkModule.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/network/di/NetworkModule.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/network/di/NetworkModule.kt
+@@ -0,0 +1,49 @@
++package com.ssafy.mobile.core.network.di
++
++import dagger.Module
++import dagger.Provides
++import dagger.hilt.InstallIn
++import dagger.hilt.components.SingletonComponent
++import okhttp3.OkHttpClient
++import okhttp3.logging.HttpLoggingInterceptor
++import retrofit2.Retrofit
++import retrofit2.converter.gson.GsonConverterFactory
++import java.util.concurrent.TimeUnit
++import javax.inject.Singleton
++
++@Module
++@InstallIn(SingletonComponent::class)
++object NetworkModule {
++    // TODO: 백엔드 서버 URL 확정 시 변경 필요
++    private const val BASE_URL = "http://localhost:8080/api/"
++
++    @Provides
++    @Singleton
++    fun provideHttpLoggingInterceptor(): HttpLoggingInterceptor =
++        HttpLoggingInterceptor().apply {
++            // BuildConfig.DEBUG 가 없으므로 현재는 기본적으로 BODY 로깅
++            // 실제 상용화 시에는 구분 필요
++            level = HttpLoggingInterceptor.Level.BODY
++        }
++
++    @Provides
++    @Singleton
++    fun provideOkHttpClient(loggingInterceptor: HttpLoggingInterceptor): OkHttpClient =
++        OkHttpClient
++            .Builder()
++            .addInterceptor(loggingInterceptor)
++            .connectTimeout(30, TimeUnit.SECONDS)
++            .readTimeout(30, TimeUnit.SECONDS)
++            .writeTimeout(30, TimeUnit.SECONDS)
++            .build()
++
++    @Provides
++    @Singleton
++    fun provideRetrofit(okHttpClient: OkHttpClient): Retrofit =
++        Retrofit
++            .Builder()
++            .baseUrl(BASE_URL)
++            .client(okHttpClient)
++            .addConverterFactory(GsonConverterFactory.create())
++            .build()
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/network/TranslateRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/network/TranslateRepository.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/network/TranslateRepository.kt
+@@ -0,0 +1,10 @@
++package com.ssafy.mobile.core.network
++
++import com.ssafy.mobile.core.model.SignTranslateResult
++import com.ssafy.mobile.core.model.VoiceTranslateResult
++
++interface TranslateRepository {
++    suspend fun translateSign(glosses: List<String>): SignTranslateResult
++
++    suspend fun translateVoice(rawText: String): VoiceTranslateResult
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/permission/.gitkeep b/mobile/app/src/main/java/com/ssafy/mobile/core/permission/.gitkeep
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/permission/.gitkeep
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/stt/.gitkeep b/mobile/app/src/main/java/com/ssafy/mobile/core/stt/.gitkeep
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/stt/.gitkeep
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/ui/.gitkeep b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/.gitkeep
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/ui/.gitkeep
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/.gitkeep b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/.gitkeep
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/.gitkeep
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/.gitkeep b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/.gitkeep
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/.gitkeep
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/.gitkeep b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/.gitkeep
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/sign/.gitkeep
+
+diff --git a/.gitignore b/.gitignore
+--- a/.gitignore
++++ b/.gitignore
+@@ -1 +1,63 @@
++# =========================
++# Common & Security
++# =========================
+ .env
++*.pem
++*.key
++local.properties
++keystore.properties
++secrets.xml
++
++# =========================
++# Build & Gradle
++# =========================
++build/
++*/build/
++.gradle/
++!gradle/wrapper/gradle-wrapper.jar
++out/
++bin/
++target/
++
++# =========================
++# Android & Kotlin
++# =========================
++*.apk
++*.ap_
++*.aab
++*.dex
++*.class
++captures/
++.externalNativeBuild/
++.cxx/
++lint-baseline.xml
++
++# =========================
++# Spring Boot & Java
++# =========================
++*.log
++*.jar
++*.war
++*.ear
++hs_err_pid*
++
++# =========================
++# Python & AI (MediaPipe/TFLite)
++# =========================
++__pycache__/
++*.py[cod]
++*$py.class
++venv/
++.venv/
++env/
++.env/
++
++# =========================
++# IDE & OS
++# =========================
++.idea/
++*.iml
++*.iws
++.vscode/
++.DS_Store
++Thumbs.db
+
+

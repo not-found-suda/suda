@@ -1,0 +1,391 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -11,8 +11,9 @@ import com.ssafy.mobile.feature.appentry.AppEntryRoute
+ import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileEditRoute
+ import com.ssafy.mobile.feature.childprofile.presentation.ChildProfileSelectRoute
+ import com.ssafy.mobile.feature.conversation.presentation.conversationRoute
++import com.ssafy.mobile.feature.home.presentation.HomeRoute
+ import com.ssafy.mobile.feature.login.presentation.LoginRoute
+-import com.ssafy.mobile.feature.placeholder.HomePlaceholderRoute
++import com.ssafy.mobile.feature.mypage.presentation.MyPageRoute
+ import com.ssafy.mobile.feature.quiz.presentation.quizQuestionRoute
+ import com.ssafy.mobile.feature.sign.presentation.SignDebugRoute
+ import com.ssafy.mobile.feature.signup.presentation.SignupRoute
+@@ -107,7 +108,19 @@ fun MobileNavHost(
+         }
+ 
+         composable(Screen.Home.route) {
+-            HomePlaceholderRoute(modifier = Modifier.fillMaxSize())
++            HomeRoute(
++                onStartLearning = {
++                    navController.navigate(Screen.Quiz.route) {
++                        launchSingleTop = true
++                    }
++                },
++                onStartConversation = {
++                    navController.navigate(Screen.Conversation.route) {
++                        launchSingleTop = true
++                    }
++                },
++                modifier = Modifier.fillMaxSize(),
++            )
+         }
+ 
+         composable(Screen.Quiz.route) {
+@@ -130,6 +143,12 @@ fun MobileNavHost(
+             )
+         }
+ 
++        composable(Screen.MyPage.route) {
++            MyPageRoute(
++                modifier = Modifier.fillMaxSize(),
++            )
++        }
++
+         if (BuildConfig.DEBUG) {
+             composable(Screen.Sign.route) {
+                 SignDebugRoute(
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/Screen.kt
+@@ -19,5 +19,7 @@ sealed class Screen(
+ 
+     data object Conversation : Screen("conversation_route")
+ 
++    data object MyPage : Screen("my_page_route")
++
+     data object Sign : Screen("sign_route")
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt
+@@ -0,0 +1,68 @@
++package com.ssafy.mobile.feature.home.presentation
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.core.ui.components.AppPrimaryButton
++import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++
++@Composable
++fun HomeRoute(
++    onStartLearning: () -> Unit,
++    onStartConversation: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Surface(
++        modifier = modifier.fillMaxSize(),
++        color = MaterialTheme.colorScheme.background,
++    ) {
++        Column(
++            modifier =
++                Modifier
++                    .fillMaxSize()
++                    .padding(horizontal = 24.dp, vertical = 32.dp),
++            horizontalAlignment = Alignment.CenterHorizontally,
++            verticalArrangement = Arrangement.Center,
++        ) {
++            Text(
++                text = "SUDA",
++                style = MaterialTheme.typography.displayMedium,
++                color = MaterialTheme.colorScheme.primary,
++                fontWeight = FontWeight.Black,
++                textAlign = TextAlign.Center,
++            )
++            Spacer(modifier = Modifier.height(12.dp))
++            Text(
++                text = "오늘도 즐겁게 말하고 배워볼까요?",
++                style = MaterialTheme.typography.titleMedium,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++                textAlign = TextAlign.Center,
++            )
++            Spacer(modifier = Modifier.height(32.dp))
++            AppPrimaryButton(
++                text = "학습 시작",
++                onClick = onStartLearning,
++                modifier = Modifier.fillMaxWidth(),
++            )
++            Spacer(modifier = Modifier.height(12.dp))
++            AppSecondaryButton(
++                text = "소통 시작",
++                onClick = onStartConversation,
++                modifier = Modifier.fillMaxWidth(),
++            )
++        }
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/mypage/presentation/MyPageRoute.kt
+@@ -0,0 +1,86 @@
++package com.ssafy.mobile.feature.mypage.presentation
++
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.unit.dp
++
++@Composable
++fun MyPageRoute(modifier: Modifier = Modifier) {
++    Surface(
++        modifier = modifier.fillMaxSize(),
++        color = MaterialTheme.colorScheme.background,
++    ) {
++        Column(
++            modifier =
++                Modifier
++                    .fillMaxSize()
++                    .padding(24.dp),
++            verticalArrangement = Arrangement.spacedBy(16.dp),
++        ) {
++            Text(
++                text = "마이페이지",
++                style = MaterialTheme.typography.headlineSmall,
++                fontWeight = FontWeight.Bold,
++            )
++            Text(
++                text = "보호자 계정과 아이 프로필 설정이 이곳에 표시됩니다.",
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++            )
++            MyPageMenuItem(title = "아이 프로필", description = "프로필 선택과 전환")
++            MyPageMenuItem(title = "앱 설정", description = "권한, 알림, 학습 환경")
++            MyPageMenuItem(title = "로그아웃", description = "로컬 세션 초기화")
++        }
++    }
++}
++
++@Composable
++private fun MyPageMenuItem(
++    title: String,
++    description: String,
++    modifier: Modifier = Modifier,
++) {
++    Row(
++        modifier =
++            modifier
++                .fillMaxWidth()
++                .background(
++                    color = MaterialTheme.colorScheme.surface,
++                    shape = RoundedCornerShape(8.dp),
++                ).padding(horizontal = 18.dp, vertical = 16.dp),
++        horizontalArrangement = Arrangement.SpaceBetween,
++        verticalAlignment = Alignment.CenterVertically,
++    ) {
++        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
++            Text(
++                text = title,
++                style = MaterialTheme.typography.titleMedium,
++                fontWeight = FontWeight.SemiBold,
++            )
++            Text(
++                text = description,
++                style = MaterialTheme.typography.bodySmall,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++            )
++        }
++        Text(
++            text = ">",
++            style = MaterialTheme.typography.titleMedium,
++            color = MaterialTheme.colorScheme.primary,
++            fontWeight = FontWeight.Bold,
++        )
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt b/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/MainActivity.kt
+@@ -11,23 +11,32 @@ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.systemBarsPadding
+ import androidx.compose.material3.CircularProgressIndicator
+ import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.NavigationBar
++import androidx.compose.material3.NavigationBarItem
++import androidx.compose.material3.Scaffold
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.DisposableEffect
++import androidx.compose.runtime.Immutable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+ import androidx.lifecycle.Lifecycle
+ import androidx.lifecycle.LifecycleEventObserver
+ import androidx.lifecycle.compose.LocalLifecycleOwner
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import androidx.navigation.NavHostController
++import androidx.navigation.compose.currentBackStackEntryAsState
+ import androidx.navigation.compose.rememberNavController
+ import com.ssafy.mobile.core.navigation.MobileNavHost
++import com.ssafy.mobile.core.navigation.Screen
+ import com.ssafy.mobile.core.permission.PermissionGuide
+ import com.ssafy.mobile.core.permission.PermissionHandler
+ import com.ssafy.mobile.core.permission.PermissionRequestState
+@@ -84,11 +93,15 @@ private fun PermissionGate(
+     onRequestPermissions: () -> Unit,
+     onOpenSettings: () -> Unit,
+ ) {
+-    Box(modifier = Modifier.fillMaxSize()) {
++    Box(
++        modifier =
++            Modifier
++                .fillMaxSize()
++                .systemBarsPadding(),
++    ) {
+         when (permissionState) {
+             PermissionRequestState.Granted -> {
+-                val navController = rememberNavController()
+-                MobileNavHost(navController = navController)
++                MobileAppShell(modifier = Modifier.fillMaxSize())
+             }
+             PermissionRequestState.Denied -> {
+                 PermissionGuide(
+@@ -121,6 +134,69 @@ private fun PermissionGate(
+     }
+ }
+ 
++@Composable
++private fun MobileAppShell(modifier: Modifier = Modifier) {
++    val navController = rememberNavController()
++    val navBackStackEntry by navController.currentBackStackEntryAsState()
++    val currentRoute = navBackStackEntry?.destination?.route
++
++    Scaffold(
++        modifier = modifier.fillMaxSize(),
++        bottomBar = {
++            if (bottomNavigationItems.any { it.screen.route == currentRoute }) {
++                AppBottomNavigationBar(
++                    navController = navController,
++                    currentRoute = currentRoute,
++                )
++            }
++        },
++    ) { innerPadding ->
++        MobileNavHost(
++            navController = navController,
++            modifier =
++                Modifier
++                    .fillMaxSize()
++                    .padding(innerPadding),
++        )
++    }
++}
++
++@Composable
++private fun AppBottomNavigationBar(
++    navController: NavHostController,
++    currentRoute: String?,
++) {
++    NavigationBar {
++        bottomNavigationItems.forEach { item ->
++            val selected = currentRoute == item.screen.route
++            NavigationBarItem(
++                selected = selected,
++                onClick = {
++                    if (!selected) {
++                        navController.navigate(item.screen.route) {
++                            launchSingleTop = true
++                            restoreState = true
++                            popUpTo(Screen.Home.route) {
++                                saveState = true
++                            }
++                        }
++                    }
++                },
++                icon = {
++                    Text(
++                        text = item.iconText,
++                        style = MaterialTheme.typography.titleMedium,
++                        fontWeight = FontWeight.Bold,
++                    )
++                },
++                label = {
++                    Text(text = item.label)
++                },
++            )
++        }
++    }
++}
++
+ @Composable
+ private fun PermissionCheckingContent(modifier: Modifier = Modifier) {
+     Column(
+@@ -138,3 +214,34 @@ private fun PermissionCheckingContent(modifier: Modifier = Modifier) {
+         )
+     }
+ }
++
++@Immutable
++private data class BottomNavigationItem(
++    val screen: Screen,
++    val label: String,
++    val iconText: String,
++)
++
++private val bottomNavigationItems =
++    listOf(
++        BottomNavigationItem(
++            screen = Screen.Home,
++            label = "홈",
++            iconText = "홈",
++        ),
++        BottomNavigationItem(
++            screen = Screen.Quiz,
++            label = "학습",
++            iconText = "학습",
++        ),
++        BottomNavigationItem(
++            screen = Screen.Conversation,
++            label = "소통",
++            iconText = "소통",
++        ),
++        BottomNavigationItem(
++            screen = Screen.MyPage,
++            label = "마이",
++            iconText = "마이",
++        ),
++    )
+
+

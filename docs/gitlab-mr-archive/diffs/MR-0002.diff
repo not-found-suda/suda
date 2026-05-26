@@ -1,0 +1,4311 @@
+﻿diff --git a/backend/gradle/wrapper/gradle-wrapper.jar b/backend/gradle/wrapper/gradle-wrapper.jar
+--- /dev/null
++++ b/backend/gradle/wrapper/gradle-wrapper.jar
+Binary files /dev/null and b/backend/gradle/wrapper/gradle-wrapper.jar differ
+
+
+diff --git a/backend/gradle/wrapper/gradle-wrapper.properties b/backend/gradle/wrapper/gradle-wrapper.properties
+--- /dev/null
++++ b/backend/gradle/wrapper/gradle-wrapper.properties
+@@ -0,0 +1,7 @@
++distributionBase=GRADLE_USER_HOME
++distributionPath=wrapper/dists
++distributionUrl=https\://services.gradle.org/distributions/gradle-9.4.1-bin.zip
++networkTimeout=10000
++validateDistributionUrl=true
++zipStoreBase=GRADLE_USER_HOME
++zipStorePath=wrapper/dists
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/controller/AuthController.java b/backend/src/main/java/com/ssafy/backend/domain/auth/controller/AuthController.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/controller/AuthController.java
+@@ -0,0 +1,83 @@
++package com.ssafy.backend.domain.auth.controller;
++
++import com.ssafy.backend.domain.auth.docs.AuthApiDocs;
++import com.ssafy.backend.domain.auth.dto.LoginRequestDto;
++import com.ssafy.backend.domain.auth.dto.LoginResponseDto;
++import com.ssafy.backend.domain.auth.dto.RefreshTokenResponseDto;
++import com.ssafy.backend.domain.auth.dto.SignupRequestDto;
++import com.ssafy.backend.domain.auth.dto.SignupResponseDto;
++import com.ssafy.backend.domain.auth.service.AuthService;
++import com.ssafy.backend.domain.auth.service.RefreshTokenCookieManager;
++import jakarta.servlet.http.HttpServletRequest;
++import jakarta.validation.Valid;
++import org.springframework.http.HttpHeaders;
++import org.springframework.http.HttpStatus;
++import org.springframework.http.ResponseEntity;
++import org.springframework.web.bind.annotation.PostMapping;
++import org.springframework.web.bind.annotation.RequestBody;
++import org.springframework.web.bind.annotation.RequestMapping;
++import org.springframework.web.bind.annotation.RestController;
++
++@RestController
++@RequestMapping("/api/v1/auth")
++public class AuthController implements AuthApiDocs {
++
++  private static final String AUTHORIZATION_HEADER = "Authorization";
++  private static final String BEARER_PREFIX = "Bearer ";
++
++  private final AuthService authService;
++  private final RefreshTokenCookieManager refreshTokenCookieManager;
++
++  public AuthController(
++      AuthService authService, RefreshTokenCookieManager refreshTokenCookieManager) {
++    this.authService = authService;
++    this.refreshTokenCookieManager = refreshTokenCookieManager;
++  }
++
++  @PostMapping("/signup")
++  @Override
++  public ResponseEntity<SignupResponseDto> signup(@Valid @RequestBody SignupRequestDto requestDto) {
++    SignupResponseDto responseDto = authService.signup(requestDto);
++    return ResponseEntity.status(HttpStatus.CREATED).body(responseDto);
++  }
++
++  @PostMapping("/login")
++  @Override
++  public ResponseEntity<LoginResponseDto> login(@Valid @RequestBody LoginRequestDto requestDto) {
++    AuthService.LoginResult loginResult = authService.login(requestDto);
++    HttpHeaders headers = new HttpHeaders();
++    refreshTokenCookieManager.addRefreshTokenCookie(headers, loginResult.refreshToken());
++    return ResponseEntity.ok().headers(headers).body(loginResult.response());
++  }
++
++  @PostMapping("/refresh")
++  @Override
++  public ResponseEntity<RefreshTokenResponseDto> refresh(HttpServletRequest request) {
++    String refreshToken = refreshTokenCookieManager.resolveRefreshToken(request);
++    AuthService.RefreshTokenResult refreshResult = authService.refresh(refreshToken);
++
++    HttpHeaders headers = new HttpHeaders();
++    refreshTokenCookieManager.addRefreshTokenCookie(headers, refreshResult.refreshToken());
++    return ResponseEntity.ok().headers(headers).body(refreshResult.response());
++  }
++
++  @PostMapping("/logout")
++  @Override
++  public ResponseEntity<Void> logout(HttpServletRequest request) {
++    String refreshToken = refreshTokenCookieManager.resolveRefreshToken(request);
++    String accessToken = resolveAccessToken(request);
++    authService.logout(refreshToken, accessToken);
++
++    HttpHeaders headers = new HttpHeaders();
++    refreshTokenCookieManager.expireRefreshTokenCookie(headers);
++    return ResponseEntity.noContent().headers(headers).build();
++  }
++
++  private String resolveAccessToken(HttpServletRequest request) {
++    String authorizationHeader = request.getHeader(AUTHORIZATION_HEADER);
++    if (authorizationHeader == null || !authorizationHeader.startsWith(BEARER_PREFIX)) {
++      return null;
++    }
++    return authorizationHeader.substring(BEARER_PREFIX.length());
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/controller/AuthStatusController.java b/backend/src/main/java/com/ssafy/backend/domain/auth/controller/AuthStatusController.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/controller/AuthStatusController.java
+@@ -0,0 +1,19 @@
++package com.ssafy.backend.domain.auth.controller;
++
++import com.ssafy.backend.domain.auth.docs.AuthStatusApiDocs;
++import com.ssafy.backend.domain.auth.dto.AuthStatusResponseDto;
++import org.springframework.http.ResponseEntity;
++import org.springframework.web.bind.annotation.GetMapping;
++import org.springframework.web.bind.annotation.RequestMapping;
++import org.springframework.web.bind.annotation.RestController;
++
++@RestController
++@RequestMapping("/api/v1/auth")
++public class AuthStatusController implements AuthStatusApiDocs {
++
++  @GetMapping("/status")
++  @Override
++  public ResponseEntity<AuthStatusResponseDto> getAuthStatus() {
++    return ResponseEntity.ok(new AuthStatusResponseDto("authenticated"));
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthApiDocs.java b/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthApiDocs.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthApiDocs.java
+@@ -0,0 +1,94 @@
++package com.ssafy.backend.domain.auth.docs;
++
++import com.ssafy.backend.domain.auth.dto.LoginRequestDto;
++import com.ssafy.backend.domain.auth.dto.LoginResponseDto;
++import com.ssafy.backend.domain.auth.dto.RefreshTokenResponseDto;
++import com.ssafy.backend.domain.auth.dto.SignupRequestDto;
++import com.ssafy.backend.domain.auth.dto.SignupResponseDto;
++import io.swagger.v3.oas.annotations.Operation;
++import io.swagger.v3.oas.annotations.media.Content;
++import io.swagger.v3.oas.annotations.media.ExampleObject;
++import io.swagger.v3.oas.annotations.media.Schema;
++import io.swagger.v3.oas.annotations.responses.ApiResponse;
++import io.swagger.v3.oas.annotations.responses.ApiResponses;
++import io.swagger.v3.oas.annotations.security.SecurityRequirement;
++import io.swagger.v3.oas.annotations.tags.Tag;
++import jakarta.servlet.http.HttpServletRequest;
++import org.springframework.http.ProblemDetail;
++import org.springframework.http.ResponseEntity;
++
++@Tag(name = "인증 API", description = "회원가입, 로그인, 토큰 재발급, 로그아웃 API")
++public interface AuthApiDocs {
++
++  @Operation(summary = "회원가입", description = "새 사용자 계정을 생성합니다.")
++  @ApiResponses(
++      value = {
++        @ApiResponse(
++            responseCode = "201",
++            description = "생성됨",
++            content =
++                @Content(
++                    schema = @Schema(implementation = SignupResponseDto.class),
++                    examples = @ExampleObject(value = AuthSwaggerExamples.SIGNUP_SUCCESS))),
++        @ApiResponse(
++            responseCode = "400",
++            description = "잘못된 요청",
++            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
++        @ApiResponse(
++            responseCode = "409",
++            description = "중복 이메일",
++            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
++      })
++  ResponseEntity<SignupResponseDto> signup(SignupRequestDto request);
++
++  @Operation(summary = "로그인", description = "액세스/리프레시 토큰을 발급합니다.")
++  @ApiResponses(
++      value = {
++        @ApiResponse(
++            responseCode = "200",
++            description = "성공",
++            content =
++                @Content(
++                    schema = @Schema(implementation = LoginResponseDto.class),
++                    examples = @ExampleObject(value = AuthSwaggerExamples.LOGIN_SUCCESS))),
++        @ApiResponse(
++            responseCode = "401",
++            description = "인증 실패",
++            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
++      })
++  ResponseEntity<LoginResponseDto> login(LoginRequestDto request);
++
++  @Operation(summary = "토큰 재발급", description = "리프레시 토큰 쿠키를 사용해 액세스 토큰을 재발급합니다.")
++  @ApiResponses(
++      value = {
++        @ApiResponse(
++            responseCode = "200",
++            description = "성공",
++            content =
++                @Content(
++                    schema = @Schema(implementation = RefreshTokenResponseDto.class),
++                    examples = @ExampleObject(value = AuthSwaggerExamples.REFRESH_SUCCESS))),
++        @ApiResponse(
++            responseCode = "401",
++            description = "유효하지 않은 리프레시 토큰",
++            content =
++                @Content(
++                    schema = @Schema(implementation = ProblemDetail.class),
++                    examples = @ExampleObject(value = AuthSwaggerExamples.INVALID_REFRESH_TOKEN)))
++      })
++  ResponseEntity<RefreshTokenResponseDto> refresh(HttpServletRequest request);
++
++  @Operation(
++      summary = "로그아웃",
++      description = "리프레시 토큰을 무효화하고 현재 액세스 토큰을 블랙리스트 처리합니다.",
++      security = {@SecurityRequirement(name = "bearerAuth")})
++  @ApiResponses(
++      value = {
++        @ApiResponse(responseCode = "204", description = "콘텐츠 없음"),
++        @ApiResponse(
++            responseCode = "401",
++            description = "인증 필요",
++            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
++      })
++  ResponseEntity<Void> logout(HttpServletRequest request);
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthStatusApiDocs.java b/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthStatusApiDocs.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthStatusApiDocs.java
+@@ -0,0 +1,56 @@
++package com.ssafy.backend.domain.auth.docs;
++
++import com.ssafy.backend.domain.auth.dto.AuthStatusResponseDto;
++import io.swagger.v3.oas.annotations.Operation;
++import io.swagger.v3.oas.annotations.media.Content;
++import io.swagger.v3.oas.annotations.media.ExampleObject;
++import io.swagger.v3.oas.annotations.media.Schema;
++import io.swagger.v3.oas.annotations.responses.ApiResponse;
++import io.swagger.v3.oas.annotations.responses.ApiResponses;
++import io.swagger.v3.oas.annotations.security.SecurityRequirement;
++import io.swagger.v3.oas.annotations.tags.Tag;
++import org.springframework.http.ProblemDetail;
++import org.springframework.http.ResponseEntity;
++
++@Tag(name = "인증 상태 API", description = "인증된 사용자 상태 확인 API")
++public interface AuthStatusApiDocs {
++
++  @Operation(
++      summary = "인증 상태 확인",
++      description = "JWT 인증이 필요한 엔드포인트 동작 여부를 확인합니다.",
++      security = {@SecurityRequirement(name = "bearerAuth")})
++  @ApiResponses(
++      value = {
++        @ApiResponse(
++            responseCode = "200",
++            description = "성공",
++            content =
++                @Content(
++                    schema = @Schema(implementation = AuthStatusResponseDto.class),
++                    examples =
++                        @ExampleObject(value = AuthStatusSwaggerExamples.AUTH_STATUS_SUCCESS))),
++        @ApiResponse(
++            responseCode = "401",
++            description = "인증 필요",
++            content =
++                @Content(
++                    schema = @Schema(implementation = ProblemDetail.class),
++                    examples = @ExampleObject(value = AuthStatusSwaggerExamples.UNAUTHORIZED))),
++        @ApiResponse(
++            responseCode = "403",
++            description = "접근 권한 없음",
++            content =
++                @Content(
++                    schema = @Schema(implementation = ProblemDetail.class),
++                    examples = @ExampleObject(value = AuthStatusSwaggerExamples.FORBIDDEN))),
++        @ApiResponse(
++            responseCode = "500",
++            description = "서버 내부 오류",
++            content =
++                @Content(
++                    schema = @Schema(implementation = ProblemDetail.class),
++                    examples =
++                        @ExampleObject(value = AuthStatusSwaggerExamples.INTERNAL_SERVER_ERROR)))
++      })
++  ResponseEntity<AuthStatusResponseDto> getAuthStatus();
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthStatusSwaggerExamples.java b/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthStatusSwaggerExamples.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthStatusSwaggerExamples.java
+@@ -0,0 +1,52 @@
++package com.ssafy.backend.domain.auth.docs;
++
++public final class AuthStatusSwaggerExamples {
++
++  private AuthStatusSwaggerExamples() {}
++
++  public static final String AUTH_STATUS_SUCCESS =
++      """
++        {
++          "message": "인증되었습니다."
++        }
++        """;
++
++  public static final String UNAUTHORIZED =
++      """
++        {
++          "type": "urn:s14p31a404:error:common-unauthorized",
++          "title": "인증이 필요합니다.",
++          "status": 401,
++          "detail": "인증이 필요합니다.",
++          "instance": "/api/v1/auth/status",
++          "code": "COMMON_UNAUTHORIZED",
++          "traceId": "9f8d7c6b5a4e3210"
++        }
++        """;
++
++  public static final String FORBIDDEN =
++      """
++        {
++          "type": "urn:s14p31a404:error:common-forbidden",
++          "title": "접근 권한이 없습니다.",
++          "status": 403,
++          "detail": "접근 권한이 없습니다.",
++          "instance": "/api/v1/auth/status",
++          "code": "COMMON_FORBIDDEN",
++          "traceId": "9f8d7c6b5a4e3210"
++        }
++        """;
++
++  public static final String INTERNAL_SERVER_ERROR =
++      """
++        {
++          "type": "urn:s14p31a404:error:common-internal-server-error",
++          "title": "서버 내부 오류가 발생했습니다.",
++          "status": 500,
++          "detail": "서버 내부 오류가 발생했습니다.",
++          "instance": "/api/v1/auth/status",
++          "code": "COMMON_INTERNAL_SERVER_ERROR",
++          "traceId": "9f8d7c6b5a4e3210"
++        }
++        """;
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthSwaggerExamples.java b/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthSwaggerExamples.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/docs/AuthSwaggerExamples.java
+@@ -0,0 +1,45 @@
++package com.ssafy.backend.domain.auth.docs;
++
++public final class AuthSwaggerExamples {
++
++  private AuthSwaggerExamples() {}
++
++  public static final String SIGNUP_SUCCESS =
++      """
++        {
++          "userId": 1,
++          "email": "user1@test.com"
++        }
++        """;
++
++  public static final String LOGIN_SUCCESS =
++      """
++        {
++          "accessToken": "<JWT>",
++          "tokenType": "Bearer",
++          "expiresIn": 900
++        }
++        """;
++
++  public static final String REFRESH_SUCCESS =
++      """
++        {
++          "accessToken": "<JWT>",
++          "tokenType": "Bearer",
++          "expiresIn": 900
++        }
++        """;
++
++  public static final String INVALID_REFRESH_TOKEN =
++      """
++        {
++          "type": "urn:s14p31a404:error:auth-invalid-refresh-token",
++          "title": "유효하지 않은 리프레시 토큰입니다.",
++          "status": 401,
++          "detail": "유효하지 않은 리프레시 토큰입니다.",
++          "instance": "/api/v1/auth/refresh",
++          "code": "AUTH_INVALID_REFRESH_TOKEN",
++          "traceId": "9f8d7c6b5a4e3210"
++        }
++        """;
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/dto/AuthStatusResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/AuthStatusResponseDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/AuthStatusResponseDto.java
+@@ -0,0 +1,7 @@
++package com.ssafy.backend.domain.auth.dto;
++
++import io.swagger.v3.oas.annotations.media.Schema;
++
++public record AuthStatusResponseDto(
++    @Schema(description = "Authentication status message", example = "authenticated")
++        String message) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/dto/LoginRequestDto.java b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/LoginRequestDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/LoginRequestDto.java
+@@ -0,0 +1,8 @@
++package com.ssafy.backend.domain.auth.dto;
++
++import jakarta.validation.constraints.Email;
++import jakarta.validation.constraints.NotBlank;
++
++public record LoginRequestDto(
++    @NotBlank(message = "이메일은 필수입니다.") @Email(message = "이메일 형식이 올바르지 않습니다.") String email,
++    @NotBlank(message = "비밀번호는 필수입니다.") String password) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/dto/LoginResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/LoginResponseDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/LoginResponseDto.java
+@@ -0,0 +1,3 @@
++package com.ssafy.backend.domain.auth.dto;
++
++public record LoginResponseDto(String accessToken, String tokenType, long expiresIn) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/dto/RefreshTokenResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/RefreshTokenResponseDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/RefreshTokenResponseDto.java
+@@ -0,0 +1,3 @@
++package com.ssafy.backend.domain.auth.dto;
++
++public record RefreshTokenResponseDto(String accessToken, String tokenType, long expiresIn) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/dto/SignupRequestDto.java b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/SignupRequestDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/SignupRequestDto.java
+@@ -0,0 +1,16 @@
++package com.ssafy.backend.domain.auth.dto;
++
++import jakarta.validation.constraints.Email;
++import jakarta.validation.constraints.NotBlank;
++import jakarta.validation.constraints.Pattern;
++import jakarta.validation.constraints.Size;
++
++public record SignupRequestDto(
++    @NotBlank(message = "이메일은 필수입니다.") @Email(message = "이메일 형식이 올바르지 않습니다.") String email,
++    @NotBlank(message = "비밀번호는 필수입니다.")
++        @Size(min = 8, max = 20, message = "비밀번호는 8자 이상 20자 이하로 입력해야 합니다.")
++        @Pattern(
++            regexp =
++                "^(?=.*[A-Za-z])(?=.*\\d)(?=.*[!@#$%^&*()_+\\-={}\\[\\]:;,.?/~])[A-Za-z\\d!@#$%^&*()_+\\-={}\\[\\]:;,.?/~]+$",
++            message = "비밀번호는 영문, 숫자, 특수문자를 각각 1자 이상 포함해야 합니다.")
++        String password) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/dto/SignupResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/SignupResponseDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/dto/SignupResponseDto.java
+@@ -0,0 +1,3 @@
++package com.ssafy.backend.domain.auth.dto;
++
++public record SignupResponseDto(Long userId, String email) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/exception/AuthErrorCode.java b/backend/src/main/java/com/ssafy/backend/domain/auth/exception/AuthErrorCode.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/exception/AuthErrorCode.java
+@@ -0,0 +1,38 @@
++package com.ssafy.backend.domain.auth.exception;
++
++import com.ssafy.backend.global.exception.ErrorCode;
++import org.springframework.http.HttpStatus;
++
++public enum AuthErrorCode implements ErrorCode {
++  INVALID_CREDENTIALS(
++      "AUTH_INVALID_CREDENTIALS", HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다."),
++  INVALID_REFRESH_TOKEN(
++      "AUTH_INVALID_REFRESH_TOKEN", HttpStatus.UNAUTHORIZED, "유효하지 않은 리프레시 토큰입니다."),
++  INACTIVE_ACCOUNT("AUTH_INACTIVE_ACCOUNT", HttpStatus.FORBIDDEN, "비활성화된 계정입니다."),
++  DUPLICATE_EMAIL("AUTH_DUPLICATE_EMAIL", HttpStatus.CONFLICT, "이미 사용 중인 이메일입니다.");
++
++  private final String code;
++  private final HttpStatus httpStatus;
++  private final String message;
++
++  AuthErrorCode(String code, HttpStatus httpStatus, String message) {
++    this.code = code;
++    this.httpStatus = httpStatus;
++    this.message = message;
++  }
++
++  @Override
++  public String getCode() {
++    return code;
++  }
++
++  @Override
++  public HttpStatus getHttpStatus() {
++    return httpStatus;
++  }
++
++  @Override
++  public String getMessage() {
++    return message;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/AccessTokenBlacklistStore.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/AccessTokenBlacklistStore.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/AccessTokenBlacklistStore.java
+@@ -0,0 +1,32 @@
++package com.ssafy.backend.domain.auth.service;
++
++import java.time.Duration;
++import org.springframework.data.redis.core.StringRedisTemplate;
++import org.springframework.stereotype.Component;
++
++@Component
++public class AccessTokenBlacklistStore {
++
++  private static final String ACCESS_BLACKLIST_KEY_PREFIX = "blacklist:access:jti:";
++
++  private final StringRedisTemplate redisTemplate;
++
++  public AccessTokenBlacklistStore(StringRedisTemplate redisTemplate) {
++    this.redisTemplate = redisTemplate;
++  }
++
++  public void blacklist(String jti, Duration ttl) {
++    if (ttl.isZero() || ttl.isNegative()) {
++      return;
++    }
++    redisTemplate.opsForValue().set(toKey(jti), "1", ttl);
++  }
++
++  public boolean isBlacklisted(String jti) {
++    return Boolean.TRUE.equals(redisTemplate.hasKey(toKey(jti)));
++  }
++
++  private String toKey(String jti) {
++    return ACCESS_BLACKLIST_KEY_PREFIX + jti;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/AuthService.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/AuthService.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/AuthService.java
+@@ -0,0 +1,188 @@
++package com.ssafy.backend.domain.auth.service;
++
++import com.ssafy.backend.domain.auth.dto.LoginRequestDto;
++import com.ssafy.backend.domain.auth.dto.LoginResponseDto;
++import com.ssafy.backend.domain.auth.dto.RefreshTokenResponseDto;
++import com.ssafy.backend.domain.auth.dto.SignupRequestDto;
++import com.ssafy.backend.domain.auth.dto.SignupResponseDto;
++import com.ssafy.backend.domain.auth.exception.AuthErrorCode;
++import com.ssafy.backend.domain.user.dto.UserAuthResponseDto;
++import com.ssafy.backend.domain.user.exception.UserErrorCode;
++import com.ssafy.backend.domain.user.service.UserService;
++import com.ssafy.backend.global.exception.BusinessException;
++import com.ssafy.backend.global.security.Role;
++import com.ssafy.backend.global.security.jwt.JwtProperties;
++import com.ssafy.backend.global.security.jwt.JwtTokenProvider;
++import java.time.Duration;
++import org.springframework.security.crypto.password.PasswordEncoder;
++import org.springframework.stereotype.Service;
++import org.springframework.transaction.annotation.Transactional;
++
++@Service
++@Transactional(readOnly = true)
++public class AuthService {
++
++  private final UserService userService;
++  private final PasswordEncoder passwordEncoder;
++  private final JwtTokenProvider jwtTokenProvider;
++  private final JwtProperties jwtProperties;
++  private final RefreshTokenStore refreshTokenStore;
++  private final AccessTokenBlacklistStore accessTokenBlacklistStore;
++
++  public AuthService(
++      UserService userService,
++      PasswordEncoder passwordEncoder,
++      JwtTokenProvider jwtTokenProvider,
++      JwtProperties jwtProperties,
++      RefreshTokenStore refreshTokenStore,
++      AccessTokenBlacklistStore accessTokenBlacklistStore) {
++    this.userService = userService;
++    this.passwordEncoder = passwordEncoder;
++    this.jwtTokenProvider = jwtTokenProvider;
++    this.jwtProperties = jwtProperties;
++    this.refreshTokenStore = refreshTokenStore;
++    this.accessTokenBlacklistStore = accessTokenBlacklistStore;
++  }
++
++  @Transactional
++  public SignupResponseDto signup(SignupRequestDto requestDto) {
++    if (userService.existsByEmail(requestDto.email())) {
++      throw new BusinessException(AuthErrorCode.DUPLICATE_EMAIL);
++    }
++
++    Long userId = userService.register(requestDto.email(), requestDto.password());
++    return new SignupResponseDto(userId, requestDto.email());
++  }
++
++  @Transactional
++  public LoginResult login(LoginRequestDto requestDto) {
++    UserAuthResponseDto user = getUserForLogin(requestDto.email());
++    if (!user.active()) {
++      throw new BusinessException(AuthErrorCode.INACTIVE_ACCOUNT);
++    }
++
++    if (!isValidPassword(requestDto.password(), user.password())) {
++      throw new BusinessException(AuthErrorCode.INVALID_CREDENTIALS);
++    }
++
++    TokenPair tokenPair = createTokenPair(user.id(), user.role());
++    persistRefreshToken(tokenPair.refreshToken());
++
++    LoginResponseDto response =
++        new LoginResponseDto(
++            tokenPair.accessToken(), "Bearer", jwtProperties.getAccessTokenTtlSeconds());
++    return new LoginResult(response, tokenPair.refreshToken());
++  }
++
++  @Transactional
++  public RefreshTokenResult refresh(String refreshToken) {
++    if (refreshToken == null || refreshToken.isBlank()) {
++      throw new BusinessException(AuthErrorCode.INVALID_REFRESH_TOKEN);
++    }
++    if (!jwtTokenProvider.validateToken(refreshToken)
++        || !jwtTokenProvider.isRefreshToken(refreshToken)) {
++      throw new BusinessException(AuthErrorCode.INVALID_REFRESH_TOKEN);
++    }
++
++    String oldJti = jwtTokenProvider.getJti(refreshToken);
++    if (oldJti == null || oldJti.isBlank()) {
++      throw new BusinessException(AuthErrorCode.INVALID_REFRESH_TOKEN);
++    }
++
++    Long userId = jwtTokenProvider.getUserId(refreshToken);
++    Long storedUserId = refreshTokenStore.findUserIdByJti(oldJti);
++    if (storedUserId == null || !storedUserId.equals(userId)) {
++      throw new BusinessException(AuthErrorCode.INVALID_REFRESH_TOKEN);
++    }
++
++    refreshTokenStore.delete(oldJti);
++    UserAuthResponseDto user = getUserForRefresh(userId);
++    if (!user.active()) {
++      throw new BusinessException(AuthErrorCode.INACTIVE_ACCOUNT);
++    }
++    TokenPair tokenPair = createTokenPair(user.id(), user.role());
++    persistRefreshToken(tokenPair.refreshToken());
++
++    RefreshTokenResponseDto response =
++        new RefreshTokenResponseDto(
++            tokenPair.accessToken(), "Bearer", jwtProperties.getAccessTokenTtlSeconds());
++    return new RefreshTokenResult(response, tokenPair.refreshToken());
++  }
++
++  @Transactional
++  public void logout(String refreshToken, String accessToken) {
++    if (refreshToken != null
++        && !refreshToken.isBlank()
++        && jwtTokenProvider.validateToken(refreshToken)
++        && jwtTokenProvider.isRefreshToken(refreshToken)) {
++      String refreshJti = jwtTokenProvider.getJti(refreshToken);
++      if (refreshJti != null && !refreshJti.isBlank()) {
++        refreshTokenStore.delete(refreshJti);
++      }
++    }
++
++    if (accessToken == null || accessToken.isBlank()) {
++      return;
++    }
++    if (!jwtTokenProvider.validateToken(accessToken)
++        || !jwtTokenProvider.isAccessToken(accessToken)) {
++      return;
++    }
++
++    String accessJti = jwtTokenProvider.getJti(accessToken);
++    if (accessJti == null || accessJti.isBlank()) {
++      return;
++    }
++
++    long ttlSeconds = jwtTokenProvider.getRemainingValiditySeconds(accessToken);
++    accessTokenBlacklistStore.blacklist(accessJti, Duration.ofSeconds(ttlSeconds));
++  }
++
++  private boolean isValidPassword(String rawPassword, String storedPassword) {
++    if (rawPassword == null || storedPassword == null) {
++      return false;
++    }
++    return passwordEncoder.matches(rawPassword, storedPassword);
++  }
++
++  private UserAuthResponseDto getUserForLogin(String email) {
++    try {
++      return userService.getAuthInfoByEmail(email);
++    } catch (BusinessException exception) {
++      if (exception.getErrorCode() == UserErrorCode.USER_NOT_FOUND) {
++        throw new BusinessException(AuthErrorCode.INVALID_CREDENTIALS);
++      }
++      throw exception;
++    }
++  }
++
++  private UserAuthResponseDto getUserForRefresh(Long userId) {
++    try {
++      return userService.getAuthInfoById(userId);
++    } catch (BusinessException exception) {
++      if (exception.getErrorCode() == UserErrorCode.USER_NOT_FOUND) {
++        throw new BusinessException(AuthErrorCode.INVALID_REFRESH_TOKEN);
++      }
++      throw exception;
++    }
++  }
++
++  private TokenPair createTokenPair(Long userId, Role role) {
++    String accessToken = jwtTokenProvider.generateAccessToken(userId, role);
++    String refreshToken = jwtTokenProvider.generateRefreshToken(userId);
++    return new TokenPair(accessToken, refreshToken);
++  }
++
++  private void persistRefreshToken(String refreshToken) {
++    String refreshJti = jwtTokenProvider.getJti(refreshToken);
++    Long userId = jwtTokenProvider.getUserId(refreshToken);
++    refreshTokenStore.save(
++        refreshJti, userId, Duration.ofSeconds(jwtProperties.getRefreshTokenTtlSeconds()));
++  }
++
++  public record LoginResult(LoginResponseDto response, String refreshToken) {}
++
++  public record RefreshTokenResult(RefreshTokenResponseDto response, String refreshToken) {}
++
++  private record TokenPair(String accessToken, String refreshToken) {}
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/RefreshTokenCookieManager.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/RefreshTokenCookieManager.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/RefreshTokenCookieManager.java
+@@ -0,0 +1,57 @@
++package com.ssafy.backend.domain.auth.service;
++
++import com.ssafy.backend.global.security.jwt.JwtProperties;
++import jakarta.servlet.http.Cookie;
++import jakarta.servlet.http.HttpServletRequest;
++import org.springframework.http.HttpHeaders;
++import org.springframework.http.ResponseCookie;
++import org.springframework.stereotype.Component;
++
++@Component
++public class RefreshTokenCookieManager {
++
++  private final JwtProperties jwtProperties;
++
++  public RefreshTokenCookieManager(JwtProperties jwtProperties) {
++    this.jwtProperties = jwtProperties;
++  }
++
++  public void addRefreshTokenCookie(HttpHeaders headers, String refreshToken) {
++    ResponseCookie cookie =
++        ResponseCookie.from(jwtProperties.getRefreshTokenCookieName(), refreshToken)
++            .httpOnly(true)
++            .secure(jwtProperties.isRefreshTokenCookieSecure())
++            .path(jwtProperties.getRefreshTokenCookiePath())
++            .maxAge(jwtProperties.getRefreshTokenTtlSeconds())
++            .sameSite(jwtProperties.getRefreshTokenCookieSameSite())
++            .build();
++    headers.add(HttpHeaders.SET_COOKIE, cookie.toString());
++  }
++
++  public void expireRefreshTokenCookie(HttpHeaders headers) {
++    ResponseCookie cookie =
++        ResponseCookie.from(jwtProperties.getRefreshTokenCookieName(), "")
++            .httpOnly(true)
++            .secure(jwtProperties.isRefreshTokenCookieSecure())
++            .path(jwtProperties.getRefreshTokenCookiePath())
++            .maxAge(0)
++            .sameSite(jwtProperties.getRefreshTokenCookieSameSite())
++            .build();
++    headers.add(HttpHeaders.SET_COOKIE, cookie.toString());
++  }
++
++  public String resolveRefreshToken(HttpServletRequest request) {
++    Cookie[] cookies = request.getCookies();
++    if (cookies == null || cookies.length == 0) {
++      return null;
++    }
++
++    String cookieName = jwtProperties.getRefreshTokenCookieName();
++    for (Cookie cookie : cookies) {
++      if (cookieName.equals(cookie.getName())) {
++        return cookie.getValue();
++      }
++    }
++    return null;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/auth/service/RefreshTokenStore.java b/backend/src/main/java/com/ssafy/backend/domain/auth/service/RefreshTokenStore.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/auth/service/RefreshTokenStore.java
+@@ -0,0 +1,34 @@
++package com.ssafy.backend.domain.auth.service;
++
++import java.time.Duration;
++import org.springframework.data.redis.core.StringRedisTemplate;
++import org.springframework.stereotype.Component;
++
++@Component
++public class RefreshTokenStore {
++
++  private static final String REFRESH_TOKEN_KEY_PREFIX = "refresh:jti:";
++
++  private final StringRedisTemplate redisTemplate;
++
++  public RefreshTokenStore(StringRedisTemplate redisTemplate) {
++    this.redisTemplate = redisTemplate;
++  }
++
++  public void save(String jti, Long userId, Duration ttl) {
++    redisTemplate.opsForValue().set(toKey(jti), String.valueOf(userId), ttl);
++  }
++
++  public Long findUserIdByJti(String jti) {
++    String value = redisTemplate.opsForValue().get(toKey(jti));
++    return value != null ? Long.parseLong(value) : null;
++  }
++
++  public void delete(String jti) {
++    redisTemplate.delete(toKey(jti));
++  }
++
++  private String toKey(String jti) {
++    return REFRESH_TOKEN_KEY_PREFIX + jti;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/controller/UserController.java b/backend/src/main/java/com/ssafy/backend/domain/user/controller/UserController.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/controller/UserController.java
+@@ -0,0 +1,34 @@
++package com.ssafy.backend.domain.user.controller;
++
++import com.ssafy.backend.domain.user.docs.UserApiDocs;
++import com.ssafy.backend.domain.user.dto.UserResponseDto;
++import com.ssafy.backend.domain.user.service.UserService;
++import com.ssafy.backend.global.exception.BusinessException;
++import com.ssafy.backend.global.exception.CommonErrorCode;
++import org.springframework.http.ResponseEntity;
++import org.springframework.security.core.Authentication;
++import org.springframework.web.bind.annotation.GetMapping;
++import org.springframework.web.bind.annotation.RequestMapping;
++import org.springframework.web.bind.annotation.RestController;
++
++@RestController
++@RequestMapping("/api/v1/users")
++public class UserController implements UserApiDocs {
++
++  private final UserService userService;
++
++  public UserController(UserService userService) {
++    this.userService = userService;
++  }
++
++  @GetMapping("/me")
++  @Override
++  public ResponseEntity<UserResponseDto> me(Authentication authentication) {
++    if (authentication == null || !(authentication.getPrincipal() instanceof Long userId)) {
++      throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
++    }
++
++    UserResponseDto responseDto = userService.getUserById(userId);
++    return ResponseEntity.ok(responseDto);
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/docs/UserApiDocs.java b/backend/src/main/java/com/ssafy/backend/domain/user/docs/UserApiDocs.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/docs/UserApiDocs.java
+@@ -0,0 +1,39 @@
++package com.ssafy.backend.domain.user.docs;
++
++import com.ssafy.backend.domain.user.dto.UserResponseDto;
++import io.swagger.v3.oas.annotations.Operation;
++import io.swagger.v3.oas.annotations.Parameter;
++import io.swagger.v3.oas.annotations.media.Content;
++import io.swagger.v3.oas.annotations.media.ExampleObject;
++import io.swagger.v3.oas.annotations.media.Schema;
++import io.swagger.v3.oas.annotations.responses.ApiResponse;
++import io.swagger.v3.oas.annotations.responses.ApiResponses;
++import io.swagger.v3.oas.annotations.security.SecurityRequirement;
++import io.swagger.v3.oas.annotations.tags.Tag;
++import org.springframework.http.ProblemDetail;
++import org.springframework.http.ResponseEntity;
++import org.springframework.security.core.Authentication;
++
++@Tag(name = "사용자 API", description = "사용자 관련 API")
++public interface UserApiDocs {
++
++  @Operation(
++      summary = "내 정보 조회",
++      description = "인증된 사용자의 정보를 조회합니다.",
++      security = {@SecurityRequirement(name = "bearerAuth")})
++  @ApiResponses(
++      value = {
++        @ApiResponse(
++            responseCode = "200",
++            description = "성공",
++            content =
++                @Content(
++                    schema = @Schema(implementation = UserResponseDto.class),
++                    examples = @ExampleObject(value = UserSwaggerExamples.ME_SUCCESS))),
++        @ApiResponse(
++            responseCode = "401",
++            description = "인증 필요",
++            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
++      })
++  ResponseEntity<UserResponseDto> me(@Parameter(hidden = true) Authentication authentication);
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/docs/UserSwaggerExamples.java b/backend/src/main/java/com/ssafy/backend/domain/user/docs/UserSwaggerExamples.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/docs/UserSwaggerExamples.java
+@@ -0,0 +1,16 @@
++package com.ssafy.backend.domain.user.docs;
++
++public final class UserSwaggerExamples {
++
++  private UserSwaggerExamples() {}
++
++  public static final String ME_SUCCESS =
++      """
++        {
++          "userId": 1,
++          "email": "user1@test.com",
++          "active": true,
++          "role": "USER"
++        }
++        """;
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserAuthResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserAuthResponseDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserAuthResponseDto.java
+@@ -0,0 +1,6 @@
++package com.ssafy.backend.domain.user.dto;
++
++import com.ssafy.backend.global.security.Role;
++
++public record UserAuthResponseDto(
++    Long id, String email, String password, boolean active, Role role) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserResponseDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/dto/UserResponseDto.java
+@@ -0,0 +1,5 @@
++package com.ssafy.backend.domain.user.dto;
++
++import com.ssafy.backend.global.security.Role;
++
++public record UserResponseDto(Long userId, String email, boolean active, Role role) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/entity/User.java b/backend/src/main/java/com/ssafy/backend/domain/user/entity/User.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/entity/User.java
+@@ -0,0 +1,67 @@
++package com.ssafy.backend.domain.user.entity;
++
++import com.ssafy.backend.global.entity.BaseEntity;
++import com.ssafy.backend.global.security.Role;
++import jakarta.persistence.Column;
++import jakarta.persistence.Entity;
++import jakarta.persistence.EnumType;
++import jakarta.persistence.Enumerated;
++import jakarta.persistence.GeneratedValue;
++import jakarta.persistence.GenerationType;
++import jakarta.persistence.Id;
++import jakarta.persistence.Table;
++
++@Entity
++@Table(name = "users")
++public class User extends BaseEntity {
++
++  @Id
++  @GeneratedValue(strategy = GenerationType.IDENTITY)
++  private Long id;
++
++  @Column(nullable = false, unique = true, length = 255)
++  private String email;
++
++  @Column(nullable = false, length = 255)
++  private String password;
++
++  @Column(nullable = false)
++  private boolean active;
++
++  @Enumerated(EnumType.STRING)
++  @Column(nullable = false, length = 20)
++  private Role role;
++
++  protected User() {}
++
++  private User(String email, String password) {
++    this.email = email;
++    this.password = password;
++    this.active = true;
++    this.role = Role.USER;
++  }
++
++  public static User create(String email, String password) {
++    return new User(email, password);
++  }
++
++  public Long getId() {
++    return id;
++  }
++
++  public String getEmail() {
++    return email;
++  }
++
++  public String getPassword() {
++    return password;
++  }
++
++  public boolean isActive() {
++    return active;
++  }
++
++  public Role getRole() {
++    return role;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/exception/UserErrorCode.java b/backend/src/main/java/com/ssafy/backend/domain/user/exception/UserErrorCode.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/exception/UserErrorCode.java
+@@ -0,0 +1,33 @@
++package com.ssafy.backend.domain.user.exception;
++
++import com.ssafy.backend.global.exception.ErrorCode;
++import org.springframework.http.HttpStatus;
++
++public enum UserErrorCode implements ErrorCode {
++  USER_NOT_FOUND("USER_NOT_FOUND", HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다.");
++
++  private final String code;
++  private final HttpStatus httpStatus;
++  private final String message;
++
++  UserErrorCode(String code, HttpStatus httpStatus, String message) {
++    this.code = code;
++    this.httpStatus = httpStatus;
++    this.message = message;
++  }
++
++  @Override
++  public String getCode() {
++    return code;
++  }
++
++  @Override
++  public HttpStatus getHttpStatus() {
++    return httpStatus;
++  }
++
++  @Override
++  public String getMessage() {
++    return message;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/repository/UserRepository.java b/backend/src/main/java/com/ssafy/backend/domain/user/repository/UserRepository.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/repository/UserRepository.java
+@@ -0,0 +1,12 @@
++package com.ssafy.backend.domain.user.repository;
++
++import com.ssafy.backend.domain.user.entity.User;
++import java.util.Optional;
++import org.springframework.data.jpa.repository.JpaRepository;
++
++public interface UserRepository extends JpaRepository<User, Long> {
++
++  Optional<User> findByEmailIgnoreCase(String email);
++
++  boolean existsByEmailIgnoreCase(String email);
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/user/service/UserService.java b/backend/src/main/java/com/ssafy/backend/domain/user/service/UserService.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/user/service/UserService.java
+@@ -0,0 +1,78 @@
++package com.ssafy.backend.domain.user.service;
++
++import com.ssafy.backend.domain.user.dto.UserAuthResponseDto;
++import com.ssafy.backend.domain.user.dto.UserResponseDto;
++import com.ssafy.backend.domain.user.entity.User;
++import com.ssafy.backend.domain.user.exception.UserErrorCode;
++import com.ssafy.backend.domain.user.repository.UserRepository;
++import com.ssafy.backend.global.exception.BusinessException;
++import java.util.Locale;
++import org.springframework.security.crypto.password.PasswordEncoder;
++import org.springframework.stereotype.Service;
++import org.springframework.transaction.annotation.Transactional;
++
++@Service
++@Transactional
++public class UserService {
++
++  private final UserRepository userRepository;
++  private final PasswordEncoder passwordEncoder;
++
++  public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
++    this.userRepository = userRepository;
++    this.passwordEncoder = passwordEncoder;
++  }
++
++  @Transactional(readOnly = true)
++  public UserAuthResponseDto getAuthInfoByEmail(String email) {
++    String normalizedEmail = normalizeEmail(email);
++    User user =
++        userRepository
++            .findByEmailIgnoreCase(normalizedEmail)
++            .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
++    return new UserAuthResponseDto(
++        user.getId(), user.getEmail(), user.getPassword(), user.isActive(), user.getRole());
++  }
++
++  @Transactional(readOnly = true)
++  public UserAuthResponseDto getAuthInfoById(Long userId) {
++    User user =
++        userRepository
++            .findById(userId)
++            .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
++    return new UserAuthResponseDto(
++        user.getId(), user.getEmail(), user.getPassword(), user.isActive(), user.getRole());
++  }
++
++  @Transactional(readOnly = true)
++  public boolean existsByEmail(String email) {
++    String normalizedEmail = normalizeEmail(email);
++    if (normalizedEmail.isBlank()) {
++      return false;
++    }
++    return userRepository.existsByEmailIgnoreCase(normalizedEmail);
++  }
++
++  public Long register(String email, String password) {
++    String normalizedEmail = normalizeEmail(email);
++    User saved =
++        userRepository.save(User.create(normalizedEmail, passwordEncoder.encode(password)));
++    return saved.getId();
++  }
++
++  @Transactional(readOnly = true)
++  public UserResponseDto getUserById(Long userId) {
++    User user =
++        userRepository
++            .findById(userId)
++            .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
++    return new UserResponseDto(user.getId(), user.getEmail(), user.isActive(), user.getRole());
++  }
++
++  private String normalizeEmail(String email) {
++    if (email == null) {
++      return "";
++    }
++    return email.trim().toLowerCase(Locale.ROOT);
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/config/CorsProperties.java b/backend/src/main/java/com/ssafy/backend/global/config/CorsProperties.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/config/CorsProperties.java
+@@ -0,0 +1,69 @@
++package com.ssafy.backend.global.config;
++
++import java.util.List;
++import org.springframework.boot.context.properties.ConfigurationProperties;
++
++@ConfigurationProperties(prefix = "security.cors")
++public class CorsProperties {
++
++  private List<String> allowedOriginPatterns = List.of();
++
++  private List<String> allowedMethods = List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS");
++
++  private List<String> allowedHeaders = List.of("*");
++
++  private List<String> exposedHeaders = List.of("Authorization", "X-Trace-Id");
++
++  private boolean allowCredentials = true;
++
++  private long maxAge = 3600L;
++
++  public List<String> getAllowedOriginPatterns() {
++    return List.copyOf(allowedOriginPatterns);
++  }
++
++  public void setAllowedOriginPatterns(List<String> allowedOriginPatterns) {
++    this.allowedOriginPatterns =
++        allowedOriginPatterns == null ? List.of() : List.copyOf(allowedOriginPatterns);
++  }
++
++  public List<String> getAllowedMethods() {
++    return List.copyOf(allowedMethods);
++  }
++
++  public void setAllowedMethods(List<String> allowedMethods) {
++    this.allowedMethods = allowedMethods == null ? List.of() : List.copyOf(allowedMethods);
++  }
++
++  public List<String> getAllowedHeaders() {
++    return List.copyOf(allowedHeaders);
++  }
++
++  public void setAllowedHeaders(List<String> allowedHeaders) {
++    this.allowedHeaders = allowedHeaders == null ? List.of() : List.copyOf(allowedHeaders);
++  }
++
++  public List<String> getExposedHeaders() {
++    return List.copyOf(exposedHeaders);
++  }
++
++  public void setExposedHeaders(List<String> exposedHeaders) {
++    this.exposedHeaders = exposedHeaders == null ? List.of() : List.copyOf(exposedHeaders);
++  }
++
++  public boolean isAllowCredentials() {
++    return allowCredentials;
++  }
++
++  public void setAllowCredentials(boolean allowCredentials) {
++    this.allowCredentials = allowCredentials;
++  }
++
++  public long getMaxAge() {
++    return maxAge;
++  }
++
++  public void setMaxAge(long maxAge) {
++    this.maxAge = maxAge;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/config/JpaAuditingConfig.java b/backend/src/main/java/com/ssafy/backend/global/config/JpaAuditingConfig.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/config/JpaAuditingConfig.java
+@@ -0,0 +1,8 @@
++package com.ssafy.backend.global.config;
++
++import org.springframework.context.annotation.Configuration;
++import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
++
++@Configuration
++@EnableJpaAuditing
++public class JpaAuditingConfig {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/config/SecurityConfig.java b/backend/src/main/java/com/ssafy/backend/global/config/SecurityConfig.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/config/SecurityConfig.java
+@@ -0,0 +1,110 @@
++package com.ssafy.backend.global.config;
++
++import com.ssafy.backend.global.security.ProblemDetailAccessDeniedHandler;
++import com.ssafy.backend.global.security.ProblemDetailAuthenticationEntryPoint;
++import com.ssafy.backend.global.security.jwt.JwtAuthenticationFilter;
++import com.ssafy.backend.global.security.jwt.JwtProperties;
++import java.util.List;
++import org.springframework.boot.context.properties.EnableConfigurationProperties;
++import org.springframework.context.annotation.Bean;
++import org.springframework.context.annotation.Configuration;
++import org.springframework.http.HttpMethod;
++import org.springframework.security.config.Customizer;
++import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
++import org.springframework.security.config.annotation.web.builders.HttpSecurity;
++import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
++import org.springframework.security.config.http.SessionCreationPolicy;
++import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
++import org.springframework.security.crypto.password.PasswordEncoder;
++import org.springframework.security.web.SecurityFilterChain;
++import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
++import org.springframework.web.cors.CorsConfiguration;
++import org.springframework.web.cors.CorsConfigurationSource;
++import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
++
++@Configuration
++@EnableMethodSecurity
++@EnableConfigurationProperties({CorsProperties.class, JwtProperties.class})
++public class SecurityConfig {
++
++  private final ProblemDetailAuthenticationEntryPoint authenticationEntryPoint;
++  private final ProblemDetailAccessDeniedHandler accessDeniedHandler;
++  private final JwtAuthenticationFilter jwtAuthenticationFilter;
++  private final CorsProperties corsProperties;
++
++  public SecurityConfig(
++      ProblemDetailAuthenticationEntryPoint authenticationEntryPoint,
++      ProblemDetailAccessDeniedHandler accessDeniedHandler,
++      JwtAuthenticationFilter jwtAuthenticationFilter,
++      CorsProperties corsProperties) {
++    this.authenticationEntryPoint = authenticationEntryPoint;
++    this.accessDeniedHandler = accessDeniedHandler;
++    this.jwtAuthenticationFilter = jwtAuthenticationFilter;
++    this.corsProperties = corsProperties;
++  }
++
++  @Bean
++  public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
++    http.csrf(AbstractHttpConfigurer::disable)
++        .cors(Customizer.withDefaults())
++        .httpBasic(AbstractHttpConfigurer::disable)
++        .formLogin(AbstractHttpConfigurer::disable)
++        .sessionManagement(
++            session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
++        .exceptionHandling(
++            exception ->
++                exception
++                    .authenticationEntryPoint(authenticationEntryPoint)
++                    .accessDeniedHandler(accessDeniedHandler))
++        .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
++        .authorizeHttpRequests(
++            auth ->
++                auth.requestMatchers(HttpMethod.OPTIONS, "/**")
++                    .permitAll()
++                    .requestMatchers("/api/v1/health")
++                    .permitAll()
++                    .requestMatchers("/api/v1/auth/logout")
++                    .authenticated()
++                    .requestMatchers("/api/v1/auth/status")
++                    .authenticated()
++                    .requestMatchers("/api/v1/auth/**")
++                    .permitAll()
++                    .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**")
++                    .permitAll()
++                    .requestMatchers("/error")
++                    .permitAll()
++                    .anyRequest()
++                    .authenticated());
++
++    return http.build();
++  }
++
++  @Bean
++  public PasswordEncoder passwordEncoder() {
++    return new BCryptPasswordEncoder();
++  }
++
++  @Bean
++  public CorsConfigurationSource corsConfigurationSource() {
++    CorsConfiguration config = new CorsConfiguration();
++    config.setAllowedOriginPatterns(corsProperties.getAllowedOriginPatterns());
++    config.setAllowedMethods(
++        corsProperties.getAllowedMethods().isEmpty()
++            ? List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
++            : corsProperties.getAllowedMethods());
++    config.setAllowedHeaders(
++        corsProperties.getAllowedHeaders().isEmpty()
++            ? List.of("*")
++            : corsProperties.getAllowedHeaders());
++    config.setExposedHeaders(
++        corsProperties.getExposedHeaders().isEmpty()
++            ? List.of("Authorization", "X-Trace-Id")
++            : corsProperties.getExposedHeaders());
++    config.setAllowCredentials(corsProperties.isAllowCredentials());
++    config.setMaxAge(corsProperties.getMaxAge());
++
++    UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
++    source.registerCorsConfiguration("/**", config);
++    return source;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/controller/HealthController.java b/backend/src/main/java/com/ssafy/backend/global/controller/HealthController.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/controller/HealthController.java
+@@ -0,0 +1,19 @@
++package com.ssafy.backend.global.controller;
++
++import com.ssafy.backend.global.docs.HealthApiDocs;
++import com.ssafy.backend.global.dto.HealthResponseDto;
++import org.springframework.http.ResponseEntity;
++import org.springframework.web.bind.annotation.GetMapping;
++import org.springframework.web.bind.annotation.RequestMapping;
++import org.springframework.web.bind.annotation.RestController;
++
++@RestController
++@RequestMapping("/api/v1")
++public class HealthController implements HealthApiDocs {
++
++  @GetMapping("/health")
++  @Override
++  public ResponseEntity<HealthResponseDto> health() {
++    return ResponseEntity.ok(new HealthResponseDto("UP"));
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/docs/HealthApiDocs.java b/backend/src/main/java/com/ssafy/backend/global/docs/HealthApiDocs.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/docs/HealthApiDocs.java
+@@ -0,0 +1,36 @@
++package com.ssafy.backend.global.docs;
++
++import com.ssafy.backend.global.dto.HealthResponseDto;
++import io.swagger.v3.oas.annotations.Operation;
++import io.swagger.v3.oas.annotations.media.Content;
++import io.swagger.v3.oas.annotations.media.ExampleObject;
++import io.swagger.v3.oas.annotations.media.Schema;
++import io.swagger.v3.oas.annotations.responses.ApiResponse;
++import io.swagger.v3.oas.annotations.responses.ApiResponses;
++import io.swagger.v3.oas.annotations.tags.Tag;
++import org.springframework.http.ProblemDetail;
++import org.springframework.http.ResponseEntity;
++
++@Tag(name = "헬스체크 API", description = "서비스 상태 확인 API")
++public interface HealthApiDocs {
++
++  @Operation(summary = "헬스체크", description = "백엔드 서비스 상태를 확인합니다.")
++  @ApiResponses(
++      value = {
++        @ApiResponse(
++            responseCode = "200",
++            description = "성공",
++            content =
++                @Content(
++                    schema = @Schema(implementation = HealthResponseDto.class),
++                    examples = @ExampleObject(value = HealthSwaggerExamples.HEALTH_SUCCESS))),
++        @ApiResponse(
++            responseCode = "500",
++            description = "서버 내부 오류",
++            content =
++                @Content(
++                    schema = @Schema(implementation = ProblemDetail.class),
++                    examples = @ExampleObject(value = HealthSwaggerExamples.INTERNAL_SERVER_ERROR)))
++      })
++  ResponseEntity<HealthResponseDto> health();
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/docs/HealthSwaggerExamples.java b/backend/src/main/java/com/ssafy/backend/global/docs/HealthSwaggerExamples.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/docs/HealthSwaggerExamples.java
+@@ -0,0 +1,26 @@
++package com.ssafy.backend.global.docs;
++
++public final class HealthSwaggerExamples {
++
++  private HealthSwaggerExamples() {}
++
++  public static final String HEALTH_SUCCESS =
++      """
++        {
++          "status": "UP"
++        }
++        """;
++
++  public static final String INTERNAL_SERVER_ERROR =
++      """
++        {
++          "type": "urn:s14p31a404:error:common-internal-server-error",
++          "title": "서버 내부 오류가 발생했습니다.",
++          "status": 500,
++          "detail": "서버 내부 오류가 발생했습니다.",
++          "instance": "/api/v1/health",
++          "code": "COMMON_INTERNAL_SERVER_ERROR",
++          "traceId": "9f8d7c6b5a4e3210"
++        }
++        """;
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/docs/OpenApiSecurityConfig.java b/backend/src/main/java/com/ssafy/backend/global/docs/OpenApiSecurityConfig.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/docs/OpenApiSecurityConfig.java
+@@ -0,0 +1,18 @@
++package com.ssafy.backend.global.docs;
++
++import io.swagger.v3.oas.annotations.OpenAPIDefinition;
++import io.swagger.v3.oas.annotations.enums.SecuritySchemeIn;
++import io.swagger.v3.oas.annotations.enums.SecuritySchemeType;
++import io.swagger.v3.oas.annotations.info.Info;
++import io.swagger.v3.oas.annotations.security.SecurityScheme;
++import org.springframework.context.annotation.Configuration;
++
++@Configuration
++@OpenAPIDefinition(info = @Info(title = "백엔드 API", version = "v1", description = "백엔드 API 문서"))
++@SecurityScheme(
++    name = "bearerAuth",
++    type = SecuritySchemeType.HTTP,
++    scheme = "bearer",
++    bearerFormat = "JWT",
++    in = SecuritySchemeIn.HEADER)
++public class OpenApiSecurityConfig {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/dto/HealthResponseDto.java b/backend/src/main/java/com/ssafy/backend/global/dto/HealthResponseDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/dto/HealthResponseDto.java
+@@ -0,0 +1,6 @@
++package com.ssafy.backend.global.dto;
++
++import io.swagger.v3.oas.annotations.media.Schema;
++
++public record HealthResponseDto(
++    @Schema(description = "Service status", example = "UP") String status) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/entity/BaseEntity.java b/backend/src/main/java/com/ssafy/backend/global/entity/BaseEntity.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/entity/BaseEntity.java
+@@ -0,0 +1,30 @@
++package com.ssafy.backend.global.entity;
++
++import jakarta.persistence.Column;
++import jakarta.persistence.EntityListeners;
++import jakarta.persistence.MappedSuperclass;
++import java.time.LocalDateTime;
++import org.springframework.data.annotation.CreatedDate;
++import org.springframework.data.annotation.LastModifiedDate;
++import org.springframework.data.jpa.domain.support.AuditingEntityListener;
++
++@MappedSuperclass
++@EntityListeners(AuditingEntityListener.class)
++public abstract class BaseEntity {
++
++  @CreatedDate
++  @Column(name = "created_at", nullable = false, updatable = false)
++  private LocalDateTime createdAt;
++
++  @LastModifiedDate
++  @Column(name = "updated_at", nullable = false)
++  private LocalDateTime updatedAt;
++
++  public LocalDateTime getCreatedAt() {
++    return createdAt;
++  }
++
++  public LocalDateTime getUpdatedAt() {
++    return updatedAt;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/exception/BusinessException.java b/backend/src/main/java/com/ssafy/backend/global/exception/BusinessException.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/exception/BusinessException.java
+@@ -0,0 +1,20 @@
++package com.ssafy.backend.global.exception;
++
++public class BusinessException extends RuntimeException {
++
++  private final ErrorCode errorCode;
++
++  public BusinessException(ErrorCode errorCode) {
++    super(errorCode.getMessage());
++    this.errorCode = errorCode;
++  }
++
++  public BusinessException(ErrorCode errorCode, String detailMessage) {
++    super(detailMessage);
++    this.errorCode = errorCode;
++  }
++
++  public ErrorCode getErrorCode() {
++    return errorCode;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/exception/CommonErrorCode.java b/backend/src/main/java/com/ssafy/backend/global/exception/CommonErrorCode.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/exception/CommonErrorCode.java
+@@ -0,0 +1,37 @@
++package com.ssafy.backend.global.exception;
++
++import org.springframework.http.HttpStatus;
++
++public enum CommonErrorCode implements ErrorCode {
++  INVALID_REQUEST("COMMON_INVALID_REQUEST", HttpStatus.BAD_REQUEST, "잘못된 요청입니다."),
++  UNAUTHORIZED("COMMON_UNAUTHORIZED", HttpStatus.UNAUTHORIZED, "인증이 필요합니다."),
++  FORBIDDEN("COMMON_FORBIDDEN", HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
++  NOT_FOUND("COMMON_NOT_FOUND", HttpStatus.NOT_FOUND, "리소스를 찾을 수 없습니다."),
++  INTERNAL_SERVER_ERROR(
++      "COMMON_INTERNAL_SERVER_ERROR", HttpStatus.INTERNAL_SERVER_ERROR, "서버 내부 오류가 발생했습니다.");
++
++  private final String code;
++  private final HttpStatus httpStatus;
++  private final String message;
++
++  CommonErrorCode(String code, HttpStatus httpStatus, String message) {
++    this.code = code;
++    this.httpStatus = httpStatus;
++    this.message = message;
++  }
++
++  @Override
++  public String getCode() {
++    return code;
++  }
++
++  @Override
++  public HttpStatus getHttpStatus() {
++    return httpStatus;
++  }
++
++  @Override
++  public String getMessage() {
++    return message;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/exception/ErrorCode.java b/backend/src/main/java/com/ssafy/backend/global/exception/ErrorCode.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/exception/ErrorCode.java
+@@ -0,0 +1,12 @@
++package com.ssafy.backend.global.exception;
++
++import org.springframework.http.HttpStatus;
++
++public interface ErrorCode {
++
++  String getCode();
++
++  HttpStatus getHttpStatus();
++
++  String getMessage();
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/exception/GlobalExceptionHandler.java b/backend/src/main/java/com/ssafy/backend/global/exception/GlobalExceptionHandler.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/exception/GlobalExceptionHandler.java
+@@ -0,0 +1,230 @@
++package com.ssafy.backend.global.exception;
++
++import com.ssafy.backend.domain.auth.exception.AuthErrorCode;
++import jakarta.servlet.http.HttpServletRequest;
++import jakarta.validation.ConstraintViolation;
++import jakarta.validation.ConstraintViolationException;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Map;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.dao.DataIntegrityViolationException;
++import org.springframework.http.ProblemDetail;
++import org.springframework.http.ResponseEntity;
++import org.springframework.http.converter.HttpMessageNotReadableException;
++import org.springframework.validation.BindException;
++import org.springframework.validation.BindingResult;
++import org.springframework.validation.FieldError;
++import org.springframework.web.bind.MethodArgumentNotValidException;
++import org.springframework.web.bind.annotation.ExceptionHandler;
++import org.springframework.web.bind.annotation.RestControllerAdvice;
++
++@RestControllerAdvice
++public class GlobalExceptionHandler {
++
++  private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
++  private static final int MAX_VALIDATION_ERRORS = 5;
++
++  @ExceptionHandler(BusinessException.class)
++  public ResponseEntity<ProblemDetail> handleBusinessException(
++      BusinessException exception, HttpServletRequest request) {
++    ErrorCode errorCode = exception.getErrorCode();
++    log.warn(
++        "Business exception: method={}, uri={}, code={}, message={}",
++        request.getMethod(),
++        request.getRequestURI(),
++        errorCode.getCode(),
++        exception.getMessage());
++    return ResponseEntity.status(errorCode.getHttpStatus())
++        .body(ProblemDetails.of(errorCode, request.getRequestURI(), exception.getMessage()));
++  }
++
++  @ExceptionHandler(MethodArgumentNotValidException.class)
++  public ResponseEntity<ProblemDetail> handleMethodArgumentNotValidException(
++      MethodArgumentNotValidException exception, HttpServletRequest request) {
++    return handleValidationException(exception.getBindingResult(), request);
++  }
++
++  @ExceptionHandler(BindException.class)
++  public ResponseEntity<ProblemDetail> handleBindException(
++      BindException exception, HttpServletRequest request) {
++    return handleValidationException(exception.getBindingResult(), request);
++  }
++
++  private ResponseEntity<ProblemDetail> handleValidationException(
++      BindingResult bindingResult, HttpServletRequest request) {
++    List<FieldError> fieldErrors = bindingResult.getFieldErrors();
++
++    ValidationErrorCode errorCode =
++        fieldErrors.isEmpty()
++            ? ValidationErrorCode.INVALID_INPUT
++            : ValidationErrorCode.from(fieldErrors.get(0));
++    String message =
++        fieldErrors.isEmpty()
++            ? errorCode.getMessage()
++            : resolveValidationMessage(fieldErrors.get(0), errorCode);
++    log.warn(
++        "Validation exception: method={}, uri={}, code={}, message={}",
++        request.getMethod(),
++        request.getRequestURI(),
++        errorCode.getCode(),
++        message);
++
++    List<Map<String, String>> errors =
++        fieldErrors.stream().limit(MAX_VALIDATION_ERRORS).map(this::toValidationErrorItem).toList();
++
++    ProblemDetail problemDetail = ProblemDetails.of(errorCode, request.getRequestURI(), message);
++    problemDetail.setProperty("errors", errors);
++    problemDetail.setProperty("errorCount", fieldErrors.size());
++    if (fieldErrors.size() > MAX_VALIDATION_ERRORS) {
++      problemDetail.setProperty("truncated", true);
++    }
++
++    return ResponseEntity.status(errorCode.getHttpStatus()).body(problemDetail);
++  }
++
++  @ExceptionHandler(ConstraintViolationException.class)
++  public ResponseEntity<ProblemDetail> handleConstraintViolationException(
++      ConstraintViolationException exception, HttpServletRequest request) {
++    List<ConstraintViolation<?>> violations = exception.getConstraintViolations().stream().toList();
++    ValidationErrorCode errorCode =
++        violations.isEmpty()
++            ? ValidationErrorCode.INVALID_INPUT
++            : resolveConstraintViolationCode(violations.get(0));
++    String message = violations.isEmpty() ? errorCode.getMessage() : violations.get(0).getMessage();
++    log.warn(
++        "Constraint violation: method={}, uri={}, code={}, message={}",
++        request.getMethod(),
++        request.getRequestURI(),
++        errorCode.getCode(),
++        message);
++
++    ProblemDetail problemDetail = ProblemDetails.of(errorCode, request.getRequestURI(), message);
++    problemDetail.setProperty(
++        "errors",
++        violations.stream()
++            .limit(MAX_VALIDATION_ERRORS)
++            .map(
++                violation -> {
++                  ValidationErrorCode violationCode = resolveConstraintViolationCode(violation);
++                  Map<String, String> item = new LinkedHashMap<>();
++                  item.put("field", violation.getPropertyPath().toString());
++                  item.put("code", violationCode.getCode());
++                  item.put("message", violation.getMessage());
++                  return item;
++                })
++            .toList());
++    problemDetail.setProperty("errorCount", violations.size());
++    if (violations.size() > MAX_VALIDATION_ERRORS) {
++      problemDetail.setProperty("truncated", true);
++    }
++
++    return ResponseEntity.status(errorCode.getHttpStatus()).body(problemDetail);
++  }
++
++  @ExceptionHandler(HttpMessageNotReadableException.class)
++  public ResponseEntity<ProblemDetail> handleInvalidRequest(
++      HttpMessageNotReadableException exception, HttpServletRequest request) {
++    CommonErrorCode errorCode = CommonErrorCode.INVALID_REQUEST;
++    log.warn(
++        "Invalid request body: method={}, uri={}, code={}, message={}",
++        request.getMethod(),
++        request.getRequestURI(),
++        errorCode.getCode(),
++        errorCode.getMessage());
++    return ResponseEntity.status(errorCode.getHttpStatus())
++        .body(ProblemDetails.of(errorCode, request.getRequestURI()));
++  }
++
++  @ExceptionHandler(DataIntegrityViolationException.class)
++  public ResponseEntity<ProblemDetail> handleDataIntegrityViolation(
++      DataIntegrityViolationException exception, HttpServletRequest request) {
++    if (isDuplicateEmailViolation(exception)) {
++      AuthErrorCode errorCode = AuthErrorCode.DUPLICATE_EMAIL;
++      log.warn(
++          "Duplicate email violation: method={}, uri={}, code={}, message={}",
++          request.getMethod(),
++          request.getRequestURI(),
++          errorCode.getCode(),
++          errorCode.getMessage());
++      return ResponseEntity.status(errorCode.getHttpStatus())
++          .body(ProblemDetails.of(errorCode, request.getRequestURI()));
++    }
++
++    CommonErrorCode errorCode = CommonErrorCode.INTERNAL_SERVER_ERROR;
++    log.error(
++        "Data integrity violation(unmapped): method={}, uri={}, code={}, message={}",
++        request.getMethod(),
++        request.getRequestURI(),
++        errorCode.getCode(),
++        exception.getMessage(),
++        exception);
++    return ResponseEntity.status(errorCode.getHttpStatus())
++        .body(ProblemDetails.of(errorCode, request.getRequestURI()));
++  }
++
++  @ExceptionHandler(Exception.class)
++  public ResponseEntity<ProblemDetail> handleUnhandledException(
++      Exception exception, HttpServletRequest request) {
++    CommonErrorCode errorCode = CommonErrorCode.INTERNAL_SERVER_ERROR;
++    log.error(
++        "Unhandled exception: method={}, uri={}, message={}",
++        request.getMethod(),
++        request.getRequestURI(),
++        exception.getMessage(),
++        exception);
++    return ResponseEntity.status(errorCode.getHttpStatus())
++        .body(ProblemDetails.of(errorCode, request.getRequestURI()));
++  }
++
++  private boolean isDuplicateEmailViolation(Throwable throwable) {
++    Throwable current = throwable;
++    while (current != null) {
++      String message = current.getMessage();
++      if (message != null) {
++        String lower = message.toLowerCase();
++        boolean duplicateKey =
++            lower.contains("duplicate key") || lower.contains("unique constraint");
++        boolean emailKey =
++            lower.contains("users_email_key")
++                || lower.contains("ux_users_email_lower")
++                || lower.contains("lower(email)")
++                || lower.contains("(email)")
++                || lower.contains(" email ");
++        if (duplicateKey && emailKey) {
++          return true;
++        }
++      }
++      current = current.getCause();
++    }
++    return false;
++  }
++
++  private Map<String, String> toValidationErrorItem(FieldError fieldError) {
++    ValidationErrorCode errorCode = ValidationErrorCode.from(fieldError);
++    String message = resolveValidationMessage(fieldError, errorCode);
++    Map<String, String> item = new LinkedHashMap<>();
++    item.put("field", fieldError.getField());
++    item.put("code", errorCode.getCode());
++    item.put("message", message);
++    return item;
++  }
++
++  private ValidationErrorCode resolveConstraintViolationCode(ConstraintViolation<?> violation) {
++    if (violation == null || violation.getConstraintDescriptor() == null) {
++      return ValidationErrorCode.INVALID_INPUT;
++    }
++    String validationType =
++        violation.getConstraintDescriptor().getAnnotation().annotationType().getSimpleName();
++    String fieldName =
++        violation.getPropertyPath() != null ? violation.getPropertyPath().toString() : "";
++    return ValidationErrorCode.from(validationType, fieldName);
++  }
++
++  private String resolveValidationMessage(FieldError fieldError, ValidationErrorCode errorCode) {
++    return fieldError.getDefaultMessage() != null
++        ? fieldError.getDefaultMessage()
++        : errorCode.getMessage();
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/exception/ProblemDetails.java b/backend/src/main/java/com/ssafy/backend/global/exception/ProblemDetails.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/exception/ProblemDetails.java
+@@ -0,0 +1,36 @@
++package com.ssafy.backend.global.exception;
++
++import java.net.URI;
++import java.util.Locale;
++import org.slf4j.MDC;
++import org.springframework.http.ProblemDetail;
++
++public final class ProblemDetails {
++
++  private ProblemDetails() {}
++
++  public static ProblemDetail of(ErrorCode errorCode, String instance) {
++    return of(errorCode, instance, errorCode.getMessage());
++  }
++
++  public static ProblemDetail of(ErrorCode errorCode, String instance, String detailMessage) {
++    ProblemDetail problemDetail =
++        ProblemDetail.forStatusAndDetail(errorCode.getHttpStatus(), detailMessage);
++    problemDetail.setType(URI.create("urn:s14p31a404:error:" + toKebabCase(errorCode.getCode())));
++    problemDetail.setTitle(errorCode.getMessage());
++    if (instance != null) {
++      problemDetail.setInstance(URI.create(instance));
++    }
++    problemDetail.setProperty("code", errorCode.getCode());
++
++    String traceId = MDC.get("traceId");
++    if (traceId != null && !traceId.isBlank()) {
++      problemDetail.setProperty("traceId", traceId);
++    }
++    return problemDetail;
++  }
++
++  private static String toKebabCase(String value) {
++    return value.toLowerCase(Locale.ROOT).replace('_', '-');
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/exception/ValidationErrorCode.java b/backend/src/main/java/com/ssafy/backend/global/exception/ValidationErrorCode.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/exception/ValidationErrorCode.java
+@@ -0,0 +1,74 @@
++package com.ssafy.backend.global.exception;
++
++import java.util.Locale;
++import org.springframework.http.HttpStatus;
++import org.springframework.validation.FieldError;
++
++public enum ValidationErrorCode implements ErrorCode {
++  REQUIRED_FIELD("VALIDATION_REQUIRED_FIELD", HttpStatus.BAD_REQUEST, "필수 값이 누락되었습니다."),
++  INVALID_EMAIL_FORMAT(
++      "VALIDATION_INVALID_EMAIL_FORMAT", HttpStatus.BAD_REQUEST, "이메일 형식이 올바르지 않습니다."),
++  INVALID_LENGTH("VALIDATION_INVALID_LENGTH", HttpStatus.BAD_REQUEST, "길이가 올바르지 않습니다."),
++  INVALID_PATTERN("VALIDATION_INVALID_PATTERN", HttpStatus.BAD_REQUEST, "형식이 올바르지 않습니다."),
++  PASSWORD_LENGTH("VALIDATION_PASSWORD_LENGTH", HttpStatus.BAD_REQUEST, "비밀번호 길이가 올바르지 않습니다."),
++  PASSWORD_CHARSET("VALIDATION_PASSWORD_CHARSET", HttpStatus.BAD_REQUEST, "비밀번호 형식이 올바르지 않습니다."),
++  INVALID_INPUT("VALIDATION_INVALID_INPUT", HttpStatus.BAD_REQUEST, "요청 값 검증에 실패했습니다.");
++
++  private final String code;
++  private final HttpStatus httpStatus;
++  private final String message;
++
++  ValidationErrorCode(String code, HttpStatus httpStatus, String message) {
++    this.code = code;
++    this.httpStatus = httpStatus;
++    this.message = message;
++  }
++
++  public static ValidationErrorCode from(FieldError fieldError) {
++    if (fieldError == null) {
++      return INVALID_INPUT;
++    }
++    return from(fieldError.getCode(), fieldError.getField());
++  }
++
++  public static ValidationErrorCode from(String validationType, String fieldName) {
++    if ("NotBlank".equals(validationType) || "NotNull".equals(validationType)) {
++      return REQUIRED_FIELD;
++    }
++    if ("Email".equals(validationType)) {
++      return INVALID_EMAIL_FORMAT;
++    }
++    if ("Size".equals(validationType)) {
++      return isPasswordField(fieldName) ? PASSWORD_LENGTH : INVALID_LENGTH;
++    }
++    if ("Pattern".equals(validationType)) {
++      return isPasswordField(fieldName) ? PASSWORD_CHARSET : INVALID_PATTERN;
++    }
++
++    return INVALID_INPUT;
++  }
++
++  private static boolean isPasswordField(String fieldName) {
++    if (fieldName == null) {
++      return false;
++    }
++
++    String normalized = fieldName.toLowerCase(Locale.ROOT);
++    return "password".equals(normalized) || normalized.endsWith(".password");
++  }
++
++  @Override
++  public String getCode() {
++    return code;
++  }
++
++  @Override
++  public HttpStatus getHttpStatus() {
++    return httpStatus;
++  }
++
++  @Override
++  public String getMessage() {
++    return message;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/logging/TraceIdFilter.java b/backend/src/main/java/com/ssafy/backend/global/logging/TraceIdFilter.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/logging/TraceIdFilter.java
+@@ -0,0 +1,43 @@
++package com.ssafy.backend.global.logging;
++
++import jakarta.servlet.FilterChain;
++import jakarta.servlet.ServletException;
++import jakarta.servlet.http.HttpServletRequest;
++import jakarta.servlet.http.HttpServletResponse;
++import java.io.IOException;
++import java.util.UUID;
++import org.slf4j.MDC;
++import org.springframework.core.Ordered;
++import org.springframework.core.annotation.Order;
++import org.springframework.stereotype.Component;
++import org.springframework.web.filter.OncePerRequestFilter;
++
++@Component
++@Order(Ordered.HIGHEST_PRECEDENCE)
++public class TraceIdFilter extends OncePerRequestFilter {
++
++  public static final String TRACE_ID_KEY = "traceId";
++  public static final String TRACE_ID_HEADER = "X-Trace-Id";
++
++  @Override
++  protected void doFilterInternal(
++      HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
++      throws ServletException, IOException {
++    String traceId = resolveOrCreateTraceId(request);
++    MDC.put(TRACE_ID_KEY, traceId);
++    response.setHeader(TRACE_ID_HEADER, traceId);
++    try {
++      filterChain.doFilter(request, response);
++    } finally {
++      MDC.remove(TRACE_ID_KEY);
++    }
++  }
++
++  private String resolveOrCreateTraceId(HttpServletRequest request) {
++    String incoming = request.getHeader(TRACE_ID_HEADER);
++    if (incoming != null && !incoming.isBlank()) {
++      return incoming;
++    }
++    return UUID.randomUUID().toString().replace("-", "");
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtAuthenticationFilter.java b/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtAuthenticationFilter.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtAuthenticationFilter.java
+@@ -0,0 +1,68 @@
++package com.ssafy.backend.global.security.jwt;
++
++import com.ssafy.backend.domain.auth.service.AccessTokenBlacklistStore;
++import com.ssafy.backend.global.security.Role;
++import jakarta.servlet.FilterChain;
++import jakarta.servlet.ServletException;
++import jakarta.servlet.http.HttpServletRequest;
++import jakarta.servlet.http.HttpServletResponse;
++import java.io.IOException;
++import java.util.List;
++import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
++import org.springframework.security.core.authority.SimpleGrantedAuthority;
++import org.springframework.security.core.context.SecurityContextHolder;
++import org.springframework.stereotype.Component;
++import org.springframework.web.filter.OncePerRequestFilter;
++
++@Component
++public class JwtAuthenticationFilter extends OncePerRequestFilter {
++
++  private static final String AUTHORIZATION_HEADER = "Authorization";
++  private static final String BEARER_PREFIX = "Bearer ";
++
++  private final JwtTokenProvider jwtTokenProvider;
++  private final AccessTokenBlacklistStore accessTokenBlacklistStore;
++
++  public JwtAuthenticationFilter(
++      JwtTokenProvider jwtTokenProvider, AccessTokenBlacklistStore accessTokenBlacklistStore) {
++    this.jwtTokenProvider = jwtTokenProvider;
++    this.accessTokenBlacklistStore = accessTokenBlacklistStore;
++  }
++
++  @Override
++  protected void doFilterInternal(
++      HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
++      throws ServletException, IOException {
++    String token = resolveToken(request);
++
++    if (token != null
++        && jwtTokenProvider.validateToken(token)
++        && jwtTokenProvider.isAccessToken(token)
++        && SecurityContextHolder.getContext().getAuthentication() == null) {
++      String jti = jwtTokenProvider.getJti(token);
++      if (jti != null && accessTokenBlacklistStore.isBlacklisted(jti)) {
++        filterChain.doFilter(request, response);
++        return;
++      }
++
++      Long userId = jwtTokenProvider.getUserId(token);
++      Role role = jwtTokenProvider.getRole(token);
++
++      UsernamePasswordAuthenticationToken authenticationToken =
++          new UsernamePasswordAuthenticationToken(
++              userId, null, List.of(new SimpleGrantedAuthority("ROLE_" + role.name())));
++
++      SecurityContextHolder.getContext().setAuthentication(authenticationToken);
++    }
++
++    filterChain.doFilter(request, response);
++  }
++
++  private String resolveToken(HttpServletRequest request) {
++    String authorizationHeader = request.getHeader(AUTHORIZATION_HEADER);
++    if (authorizationHeader == null || !authorizationHeader.startsWith(BEARER_PREFIX)) {
++      return null;
++    }
++    return authorizationHeader.substring(BEARER_PREFIX.length());
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtProperties.java b/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtProperties.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtProperties.java
+@@ -0,0 +1,91 @@
++package com.ssafy.backend.global.security.jwt;
++
++import jakarta.validation.constraints.NotBlank;
++import jakarta.validation.constraints.Positive;
++import org.springframework.boot.context.properties.ConfigurationProperties;
++import org.springframework.validation.annotation.Validated;
++
++@Validated
++@ConfigurationProperties(prefix = "auth.jwt")
++public class JwtProperties {
++
++  @NotBlank private String secret;
++
++  @NotBlank private String issuer;
++
++  @Positive private long accessTokenTtlSeconds;
++
++  @Positive private long refreshTokenTtlSeconds;
++
++  @NotBlank private String refreshTokenCookieName;
++
++  private boolean refreshTokenCookieSecure;
++
++  @NotBlank private String refreshTokenCookieSameSite;
++
++  @NotBlank private String refreshTokenCookiePath;
++
++  public String getSecret() {
++    return secret;
++  }
++
++  public void setSecret(String secret) {
++    this.secret = secret;
++  }
++
++  public String getIssuer() {
++    return issuer;
++  }
++
++  public void setIssuer(String issuer) {
++    this.issuer = issuer;
++  }
++
++  public long getAccessTokenTtlSeconds() {
++    return accessTokenTtlSeconds;
++  }
++
++  public void setAccessTokenTtlSeconds(long accessTokenTtlSeconds) {
++    this.accessTokenTtlSeconds = accessTokenTtlSeconds;
++  }
++
++  public long getRefreshTokenTtlSeconds() {
++    return refreshTokenTtlSeconds;
++  }
++
++  public void setRefreshTokenTtlSeconds(long refreshTokenTtlSeconds) {
++    this.refreshTokenTtlSeconds = refreshTokenTtlSeconds;
++  }
++
++  public String getRefreshTokenCookieName() {
++    return refreshTokenCookieName;
++  }
++
++  public void setRefreshTokenCookieName(String refreshTokenCookieName) {
++    this.refreshTokenCookieName = refreshTokenCookieName;
++  }
++
++  public boolean isRefreshTokenCookieSecure() {
++    return refreshTokenCookieSecure;
++  }
++
++  public void setRefreshTokenCookieSecure(boolean refreshTokenCookieSecure) {
++    this.refreshTokenCookieSecure = refreshTokenCookieSecure;
++  }
++
++  public String getRefreshTokenCookieSameSite() {
++    return refreshTokenCookieSameSite;
++  }
++
++  public void setRefreshTokenCookieSameSite(String refreshTokenCookieSameSite) {
++    this.refreshTokenCookieSameSite = refreshTokenCookieSameSite;
++  }
++
++  public String getRefreshTokenCookiePath() {
++    return refreshTokenCookiePath;
++  }
++
++  public void setRefreshTokenCookiePath(String refreshTokenCookiePath) {
++    this.refreshTokenCookiePath = refreshTokenCookiePath;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtTokenProvider.java b/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtTokenProvider.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/security/jwt/JwtTokenProvider.java
+@@ -0,0 +1,117 @@
++package com.ssafy.backend.global.security.jwt;
++
++import com.ssafy.backend.global.security.Role;
++import io.jsonwebtoken.Claims;
++import io.jsonwebtoken.Jwts;
++import io.jsonwebtoken.security.Keys;
++import jakarta.annotation.PostConstruct;
++import java.nio.charset.StandardCharsets;
++import java.time.Instant;
++import java.util.Date;
++import java.util.UUID;
++import javax.crypto.SecretKey;
++import org.springframework.stereotype.Component;
++
++@Component
++public class JwtTokenProvider {
++
++  private static final String ROLE_CLAIM = "role";
++  private static final String TOKEN_TYPE_CLAIM = "token_type";
++  private static final String JTI_CLAIM = "jti";
++  private static final String ACCESS_TOKEN_TYPE = "access";
++  private static final String REFRESH_TOKEN_TYPE = "refresh";
++
++  private final JwtProperties jwtProperties;
++  private SecretKey secretKey;
++
++  public JwtTokenProvider(JwtProperties jwtProperties) {
++    this.jwtProperties = jwtProperties;
++  }
++
++  @PostConstruct
++  void initialize() {
++    byte[] keyBytes = jwtProperties.getSecret().getBytes(StandardCharsets.UTF_8);
++    this.secretKey = Keys.hmacShaKeyFor(keyBytes);
++  }
++
++  public String generateAccessToken(Long userId, Role role) {
++    Instant now = Instant.now();
++    Instant expiresAt = now.plusSeconds(jwtProperties.getAccessTokenTtlSeconds());
++    String jti = UUID.randomUUID().toString();
++
++    return Jwts.builder()
++        .subject(String.valueOf(userId))
++        .issuer(jwtProperties.getIssuer())
++        .claim(ROLE_CLAIM, role.name())
++        .claim(TOKEN_TYPE_CLAIM, ACCESS_TOKEN_TYPE)
++        .claim(JTI_CLAIM, jti)
++        .issuedAt(Date.from(now))
++        .expiration(Date.from(expiresAt))
++        .signWith(secretKey)
++        .compact();
++  }
++
++  public String generateRefreshToken(Long userId) {
++    Instant now = Instant.now();
++    Instant expiresAt = now.plusSeconds(jwtProperties.getRefreshTokenTtlSeconds());
++    String jti = UUID.randomUUID().toString();
++
++    return Jwts.builder()
++        .subject(String.valueOf(userId))
++        .issuer(jwtProperties.getIssuer())
++        .claim(TOKEN_TYPE_CLAIM, REFRESH_TOKEN_TYPE)
++        .claim(JTI_CLAIM, jti)
++        .issuedAt(Date.from(now))
++        .expiration(Date.from(expiresAt))
++        .signWith(secretKey)
++        .compact();
++  }
++
++  public boolean validateToken(String token) {
++    try {
++      parseClaims(token);
++      return true;
++    } catch (Exception ignored) {
++      return false;
++    }
++  }
++
++  public Long getUserId(String token) {
++    Claims claims = parseClaims(token);
++    return Long.parseLong(claims.getSubject());
++  }
++
++  public Role getRole(String token) {
++    Claims claims = parseClaims(token);
++    String roleName = claims.get(ROLE_CLAIM, String.class);
++    return Role.valueOf(roleName);
++  }
++
++  public boolean isAccessToken(String token) {
++    Claims claims = parseClaims(token);
++    String tokenType = claims.get(TOKEN_TYPE_CLAIM, String.class);
++    return ACCESS_TOKEN_TYPE.equals(tokenType);
++  }
++
++  public boolean isRefreshToken(String token) {
++    Claims claims = parseClaims(token);
++    String tokenType = claims.get(TOKEN_TYPE_CLAIM, String.class);
++    return REFRESH_TOKEN_TYPE.equals(tokenType);
++  }
++
++  public String getJti(String token) {
++    Claims claims = parseClaims(token);
++    return claims.get(JTI_CLAIM, String.class);
++  }
++
++  public long getRemainingValiditySeconds(String token) {
++    Claims claims = parseClaims(token);
++    Date expiration = claims.getExpiration();
++    long remainingMillis = expiration.getTime() - System.currentTimeMillis();
++    return Math.max(0L, remainingMillis / 1000L);
++  }
++
++  private Claims parseClaims(String token) {
++    return Jwts.parser().verifyWith(secretKey).build().parseSignedClaims(token).getPayload();
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/security/ProblemDetailAccessDeniedHandler.java b/backend/src/main/java/com/ssafy/backend/global/security/ProblemDetailAccessDeniedHandler.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/security/ProblemDetailAccessDeniedHandler.java
+@@ -0,0 +1,35 @@
++package com.ssafy.backend.global.security;
++
++import com.fasterxml.jackson.databind.ObjectMapper;
++import com.ssafy.backend.global.exception.CommonErrorCode;
++import com.ssafy.backend.global.exception.ProblemDetails;
++import jakarta.servlet.ServletException;
++import jakarta.servlet.http.HttpServletRequest;
++import jakarta.servlet.http.HttpServletResponse;
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import org.springframework.http.MediaType;
++import org.springframework.security.access.AccessDeniedException;
++import org.springframework.security.web.access.AccessDeniedHandler;
++import org.springframework.stereotype.Component;
++
++@Component
++public class ProblemDetailAccessDeniedHandler implements AccessDeniedHandler {
++
++  private final ObjectMapper objectMapper = new ObjectMapper();
++
++  @Override
++  public void handle(
++      HttpServletRequest request,
++      HttpServletResponse response,
++      AccessDeniedException accessDeniedException)
++      throws IOException, ServletException {
++    CommonErrorCode errorCode = CommonErrorCode.FORBIDDEN;
++
++    response.setStatus(errorCode.getHttpStatus().value());
++    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
++    response.setCharacterEncoding(StandardCharsets.UTF_8.name());
++    objectMapper.writeValue(
++        response.getWriter(), ProblemDetails.of(errorCode, request.getRequestURI()));
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/security/ProblemDetailAuthenticationEntryPoint.java b/backend/src/main/java/com/ssafy/backend/global/security/ProblemDetailAuthenticationEntryPoint.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/security/ProblemDetailAuthenticationEntryPoint.java
+@@ -0,0 +1,34 @@
++package com.ssafy.backend.global.security;
++
++import com.fasterxml.jackson.databind.ObjectMapper;
++import com.ssafy.backend.global.exception.CommonErrorCode;
++import com.ssafy.backend.global.exception.ProblemDetails;
++import jakarta.servlet.http.HttpServletRequest;
++import jakarta.servlet.http.HttpServletResponse;
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import org.springframework.http.MediaType;
++import org.springframework.security.core.AuthenticationException;
++import org.springframework.security.web.AuthenticationEntryPoint;
++import org.springframework.stereotype.Component;
++
++@Component
++public class ProblemDetailAuthenticationEntryPoint implements AuthenticationEntryPoint {
++
++  private final ObjectMapper objectMapper = new ObjectMapper();
++
++  @Override
++  public void commence(
++      HttpServletRequest request,
++      HttpServletResponse response,
++      AuthenticationException authException)
++      throws IOException {
++    CommonErrorCode errorCode = CommonErrorCode.UNAUTHORIZED;
++
++    response.setStatus(errorCode.getHttpStatus().value());
++    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
++    response.setCharacterEncoding(StandardCharsets.UTF_8.name());
++    objectMapper.writeValue(
++        response.getWriter(), ProblemDetails.of(errorCode, request.getRequestURI()));
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/security/Role.java b/backend/src/main/java/com/ssafy/backend/global/security/Role.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/global/security/Role.java
+@@ -0,0 +1,6 @@
++package com.ssafy.backend.global.security;
++
++public enum Role {
++  USER,
++  ADMIN
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/BackendApplication.java b/backend/src/main/java/com/ssafy/backend/BackendApplication.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/BackendApplication.java
+@@ -0,0 +1,12 @@
++package com.ssafy.backend;
++
++import org.springframework.boot.SpringApplication;
++import org.springframework.boot.autoconfigure.SpringBootApplication;
++
++@SpringBootApplication
++public class BackendApplication {
++
++  public static void main(String[] args) {
++    SpringApplication.run(BackendApplication.class, args);
++  }
++}
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260413153000__create_users_table.sql b/backend/src/main/resources/db/migration/V20260413153000__create_users_table.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260413153000__create_users_table.sql
+@@ -0,0 +1,11 @@
++CREATE TABLE IF NOT EXISTS users (
++    id BIGSERIAL PRIMARY KEY,
++    email VARCHAR(255) NOT NULL,
++    password VARCHAR(255) NOT NULL,
++    active BOOLEAN NOT NULL DEFAULT TRUE,
++    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    role VARCHAR(20) NOT NULL DEFAULT 'USER'
++);
++
++CREATE UNIQUE INDEX IF NOT EXISTS ux_users_email_lower ON users (lower(email));
+
+
+diff --git a/backend/src/main/resources/application-dev.yml b/backend/src/main/resources/application-dev.yml
+--- /dev/null
++++ b/backend/src/main/resources/application-dev.yml
+@@ -0,0 +1,27 @@
++security:
++  cors:
++    allowed-origin-patterns: "${SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS}"
++
++spring:
++  datasource:
++    url: "${DB_URL}"
++    username: "${DB_USERNAME}"
++    password: "${DB_PASSWORD}"
++  data:
++    redis:
++      host: "${REDIS_HOST}"
++      port: "${REDIS_PORT}"
++      password: "${REDIS_PASSWORD}"
++  flyway:
++    out-of-order: true
++
++auth:
++  jwt:
++    secret: "${AUTH_JWT_SECRET}"
++    issuer: "${AUTH_JWT_ISSUER}"
++    access-token-ttl-seconds: "${AUTH_ACCESS_TOKEN_TTL_SECONDS}"
++    refresh-token-ttl-seconds: "${AUTH_REFRESH_TOKEN_TTL_SECONDS}"
++    refresh-token-cookie-name: "${AUTH_REFRESH_COOKIE_NAME}"
++    refresh-token-cookie-secure: "${AUTH_REFRESH_COOKIE_SECURE}"
++    refresh-token-cookie-same-site: "${AUTH_REFRESH_COOKIE_SAME_SITE}"
++    refresh-token-cookie-path: "${AUTH_REFRESH_COOKIE_PATH}"
+
+
+diff --git a/backend/src/main/resources/application-prod.yml b/backend/src/main/resources/application-prod.yml
+--- /dev/null
++++ b/backend/src/main/resources/application-prod.yml
+@@ -0,0 +1,14 @@
++spring:
++  flyway:
++    out-of-order: false
++
++auth:
++  jwt:
++    secret: "${AUTH_JWT_SECRET}"
++    issuer: "${AUTH_JWT_ISSUER}"
++    access-token-ttl-seconds: "${AUTH_ACCESS_TOKEN_TTL_SECONDS}"
++    refresh-token-ttl-seconds: "${AUTH_REFRESH_TOKEN_TTL_SECONDS}"
++    refresh-token-cookie-name: "${AUTH_REFRESH_COOKIE_NAME}"
++    refresh-token-cookie-secure: "${AUTH_REFRESH_COOKIE_SECURE}"
++    refresh-token-cookie-same-site: "${AUTH_REFRESH_COOKIE_SAME_SITE}"
++    refresh-token-cookie-path: "${AUTH_REFRESH_COOKIE_PATH}"
+
+
+diff --git a/backend/src/main/resources/application.yml b/backend/src/main/resources/application.yml
+--- /dev/null
++++ b/backend/src/main/resources/application.yml
+@@ -0,0 +1,21 @@
++spring:
++  application:
++    name: backend
++  profiles:
++    default: dev
++  datasource:
++    url: "${DB_URL}"
++    username: "${DB_USERNAME}"
++    password: "${DB_PASSWORD}"
++    driver-class-name: org.postgresql.Driver
++  jpa:
++    hibernate:
++      ddl-auto: none
++  data:
++    redis:
++      host: "${REDIS_HOST}"
++      port: "${REDIS_PORT}"
++      password: "${REDIS_PASSWORD}"
++  flyway:
++    enabled: true
++    locations: classpath:db/migration
+
+
+diff --git a/backend/src/test/java/com/ssafy/backend/BackendApplicationTests.java b/backend/src/test/java/com/ssafy/backend/BackendApplicationTests.java
+--- /dev/null
++++ b/backend/src/test/java/com/ssafy/backend/BackendApplicationTests.java
+@@ -0,0 +1,11 @@
++package com.ssafy.backend;
++
++import org.junit.jupiter.api.Test;
++import org.springframework.boot.test.context.SpringBootTest;
++
++@SpringBootTest
++class BackendApplicationTests {
++
++  @Test
++  void contextLoads() {}
++}
+
+
+diff --git a/backend/.dockerignore b/backend/.dockerignore
+--- /dev/null
++++ b/backend/.dockerignore
+@@ -0,0 +1,7 @@
++.gradle
++build
++.idea
++out
++.git
++.gitignore
++*.iml
+
+
+diff --git a/backend/.gitattributes b/backend/.gitattributes
+--- /dev/null
++++ b/backend/.gitattributes
+@@ -0,0 +1,3 @@
++/gradlew text eol=lf
++*.bat text eol=crlf
++*.jar binary
+
+
+diff --git a/backend/.gitignore b/backend/.gitignore
+--- /dev/null
++++ b/backend/.gitignore
+@@ -0,0 +1,37 @@
++HELP.md
++.gradle
++build/
++!gradle/wrapper/gradle-wrapper.jar
++!**/src/main/**/build/
++!**/src/test/**/build/
++
++### STS ###
++.apt_generated
++.classpath
++.factorypath
++.project
++.settings
++.springBeans
++.sts4-cache
++bin/
++!**/src/main/**/bin/
++!**/src/test/**/bin/
++
++### IntelliJ IDEA ###
++.idea
++*.iws
++*.iml
++*.ipr
++out/
++!**/src/main/**/out/
++!**/src/test/**/out/
++
++### NetBeans ###
++/nbproject/private/
++/nbbuild/
++/dist/
++/nbdist/
++/.nb-gradle/
++
++### VS Code ###
++.vscode/
+
+
+diff --git a/backend/Dockerfile b/backend/Dockerfile
+--- /dev/null
++++ b/backend/Dockerfile
+@@ -0,0 +1,17 @@
++FROM eclipse-temurin:21-jdk-alpine AS build
++WORKDIR /app
++
++COPY gradlew gradlew.bat settings.gradle build.gradle ./
++COPY gradle ./gradle
++COPY src ./src
++
++RUN chmod +x ./gradlew
++RUN ./gradlew bootJar --no-daemon
++
++FROM eclipse-temurin:21-jre-alpine
++WORKDIR /app
++
++COPY --from=build /app/build/libs/*.jar app.jar
++
++EXPOSE 8080
++ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+
+
+diff --git a/backend/build.gradle b/backend/build.gradle
+--- /dev/null
++++ b/backend/build.gradle
+@@ -0,0 +1,53 @@
++plugins {
++    id 'java'
++    id 'org.springframework.boot' version '4.0.5'
++    id 'io.spring.dependency-management' version '1.1.7'
++    id 'com.diffplug.spotless' version '6.25.0'
++}
++
++group = 'com.ssafy'
++version = '0.0.1-SNAPSHOT'
++description = 'backend'
++
++java {
++    toolchain {
++        languageVersion = JavaLanguageVersion.of(21)
++    }
++}
++
++repositories {
++    mavenCentral()
++}
++
++dependencies {
++    implementation 'org.springframework.boot:spring-boot-starter-validation'
++    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
++    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
++    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
++    implementation 'org.springframework.boot:spring-boot-starter-flyway'
++    implementation 'org.springframework.boot:spring-boot-starter-security'
++    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2'
++    implementation 'org.flywaydb:flyway-database-postgresql'
++    implementation 'io.jsonwebtoken:jjwt-api:0.13.0'
++    developmentOnly 'org.springframework.boot:spring-boot-devtools'
++    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.13.0'
++    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.13.0'
++    runtimeOnly 'org.postgresql:postgresql'
++    testImplementation 'org.springframework.boot:spring-boot-starter-test'
++    testImplementation 'org.springframework.security:spring-security-test'
++    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
++}
++
++tasks.named('test') {
++    useJUnitPlatform()
++}
++
++spotless {
++    java {
++        target 'src/*/java/**/*.java'
++        googleJavaFormat()
++        removeUnusedImports()
++        trimTrailingWhitespace()
++        endWithNewline()
++    }
++}
+
+
+diff --git a/backend/gradlew b/backend/gradlew
+--- /dev/null
++++ b/backend/gradlew
+@@ -0,0 +1,248 @@
++#!/bin/sh
++
++#
++# Copyright © 2015 the original authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#      https://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++#
++# SPDX-License-Identifier: Apache-2.0
++#
++
++##############################################################################
++#
++#   Gradle start up script for POSIX generated by Gradle.
++#
++#   Important for running:
++#
++#   (1) You need a POSIX-compliant shell to run this script. If your /bin/sh is
++#       noncompliant, but you have some other compliant shell such as ksh or
++#       bash, then to run this script, type that shell name before the whole
++#       command line, like:
++#
++#           ksh Gradle
++#
++#       Busybox and similar reduced shells will NOT work, because this script
++#       requires all of these POSIX shell features:
++#         * functions;
++#         * expansions «$var», «${var}», «${var:-default}», «${var+SET}»,
++#           «${var#prefix}», «${var%suffix}», and «$( cmd )»;
++#         * compound commands having a testable exit status, especially «case»;
++#         * various built-in commands including «command», «set», and «ulimit».
++#
++#   Important for patching:
++#
++#   (2) This script targets any POSIX shell, so it avoids extensions provided
++#       by Bash, Ksh, etc; in particular arrays are avoided.
++#
++#       The "traditional" practice of packing multiple parameters into a
++#       space-separated string is a well documented source of bugs and security
++#       problems, so this is (mostly) avoided, by progressively accumulating
++#       options in "$@", and eventually passing that to Java.
++#
++#       Where the inherited environment variables (DEFAULT_JVM_OPTS, JAVA_OPTS,
++#       and GRADLE_OPTS) rely on word-splitting, this is performed explicitly;
++#       see the in-line comments for details.
++#
++#       There are tweaks for specific operating systems such as AIX, CygWin,
++#       Darwin, MinGW, and NonStop.
++#
++#   (3) This script is generated from the Groovy template
++#       https://github.com/gradle/gradle/blob/2d6327017519d23b96af35865dc997fcb544fb40/platforms/jvm/plugins-application/src/main/resources/org/gradle/api/internal/plugins/unixStartScript.txt
++#       within the Gradle project.
++#
++#       You can find Gradle at https://github.com/gradle/gradle/.
++#
++##############################################################################
++
++# Attempt to set APP_HOME
++
++# Resolve links: $0 may be a link
++app_path=$0
++
++# Need this for daisy-chained symlinks.
++while
++    APP_HOME=${app_path%"${app_path##*/}"}  # leaves a trailing /; empty if no leading path
++    [ -h "$app_path" ]
++do
++    ls=$( ls -ld "$app_path" )
++    link=${ls#*' -> '}
++    case $link in             #(
++      /*)   app_path=$link ;; #(
++      *)    app_path=$APP_HOME$link ;;
++    esac
++done
++
++# This is normally unused
++# shellcheck disable=SC2034
++APP_BASE_NAME=${0##*/}
++# Discard cd standard output in case $CDPATH is set (https://github.com/gradle/gradle/issues/25036)
++APP_HOME=$( cd -P "${APP_HOME:-./}" > /dev/null && printf '%s\n' "$PWD" ) || exit
++
++# Use the maximum available, or set MAX_FD != -1 to use that value.
++MAX_FD=maximum
++
++warn () {
++    echo "$*"
++} >&2
++
++die () {
++    echo
++    echo "$*"
++    echo
++    exit 1
++} >&2
++
++# OS specific support (must be 'true' or 'false').
++cygwin=false
++msys=false
++darwin=false
++nonstop=false
++case "$( uname )" in                #(
++  CYGWIN* )         cygwin=true  ;; #(
++  Darwin* )         darwin=true  ;; #(
++  MSYS* | MINGW* )  msys=true    ;; #(
++  NONSTOP* )        nonstop=true ;;
++esac
++
++
++
++# Determine the Java command to use to start the JVM.
++if [ -n "$JAVA_HOME" ] ; then
++    if [ -x "$JAVA_HOME/jre/sh/java" ] ; then
++        # IBM's JDK on AIX uses strange locations for the executables
++        JAVACMD=$JAVA_HOME/jre/sh/java
++    else
++        JAVACMD=$JAVA_HOME/bin/java
++    fi
++    if [ ! -x "$JAVACMD" ] ; then
++        die "ERROR: JAVA_HOME is set to an invalid directory: $JAVA_HOME
++
++Please set the JAVA_HOME variable in your environment to match the
++location of your Java installation."
++    fi
++else
++    JAVACMD=java
++    if ! command -v java >/dev/null 2>&1
++    then
++        die "ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH.
++
++Please set the JAVA_HOME variable in your environment to match the
++location of your Java installation."
++    fi
++fi
++
++# Increase the maximum file descriptors if we can.
++if ! "$cygwin" && ! "$darwin" && ! "$nonstop" ; then
++    case $MAX_FD in #(
++      max*)
++        # In POSIX sh, ulimit -H is undefined. That's why the result is checked to see if it worked.
++        # shellcheck disable=SC2039,SC3045
++        MAX_FD=$( ulimit -H -n ) ||
++            warn "Could not query maximum file descriptor limit"
++    esac
++    case $MAX_FD in  #(
++      '' | soft) :;; #(
++      *)
++        # In POSIX sh, ulimit -n is undefined. That's why the result is checked to see if it worked.
++        # shellcheck disable=SC2039,SC3045
++        ulimit -n "$MAX_FD" ||
++            warn "Could not set maximum file descriptor limit to $MAX_FD"
++    esac
++fi
++
++# Collect all arguments for the java command, stacking in reverse order:
++#   * args from the command line
++#   * the main class name
++#   * -classpath
++#   * -D...appname settings
++#   * --module-path (only if needed)
++#   * DEFAULT_JVM_OPTS, JAVA_OPTS, and GRADLE_OPTS environment variables.
++
++# For Cygwin or MSYS, switch paths to Windows format before running java
++if "$cygwin" || "$msys" ; then
++    APP_HOME=$( cygpath --path --mixed "$APP_HOME" )
++
++    JAVACMD=$( cygpath --unix "$JAVACMD" )
++
++    # Now convert the arguments - kludge to limit ourselves to /bin/sh
++    for arg do
++        if
++            case $arg in                                #(
++              -*)   false ;;                            # don't mess with options #(
++              /?*)  t=${arg#/} t=/${t%%/*}              # looks like a POSIX filepath
++                    [ -e "$t" ] ;;                      #(
++              *)    false ;;
++            esac
++        then
++            arg=$( cygpath --path --ignore --mixed "$arg" )
++        fi
++        # Roll the args list around exactly as many times as the number of
++        # args, so each arg winds up back in the position where it started, but
++        # possibly modified.
++        #
++        # NB: a `for` loop captures its iteration list before it begins, so
++        # changing the positional parameters here affects neither the number of
++        # iterations, nor the values presented in `arg`.
++        shift                   # remove old arg
++        set -- "$@" "$arg"      # push replacement arg
++    done
++fi
++
++
++# Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
++DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
++
++# Collect all arguments for the java command:
++#   * DEFAULT_JVM_OPTS, JAVA_OPTS, and optsEnvironmentVar are not allowed to contain shell fragments,
++#     and any embedded shellness will be escaped.
++#   * For example: A user cannot expect ${Hostname} to be expanded, as it is an environment variable and will be
++#     treated as '${Hostname}' itself on the command line.
++
++set -- \
++        "-Dorg.gradle.appname=$APP_BASE_NAME" \
++        -jar "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" \
++        "$@"
++
++# Stop when "xargs" is not available.
++if ! command -v xargs >/dev/null 2>&1
++then
++    die "xargs is not available"
++fi
++
++# Use "xargs" to parse quoted args.
++#
++# With -n1 it outputs one arg per line, with the quotes and backslashes removed.
++#
++# In Bash we could simply go:
++#
++#   readarray ARGS < <( xargs -n1 <<<"$var" ) &&
++#   set -- "${ARGS[@]}" "$@"
++#
++# but POSIX shell has neither arrays nor command substitution, so instead we
++# post-process each arg (as a line of input to sed) to backslash-escape any
++# character that might be a shell metacharacter, then use eval to reverse
++# that process (while maintaining the separation between arguments), and wrap
++# the whole thing up as a single "set" statement.
++#
++# This will of course break if any of these variables contains a newline or
++# an unmatched quote.
++#
++
++eval "set -- $(
++        printf '%s\n' "$DEFAULT_JVM_OPTS $JAVA_OPTS $GRADLE_OPTS" |
++        xargs -n1 |
++        sed ' s~[^-[:alnum:]+,./:=@_]~\\&~g; ' |
++        tr '\n' ' '
++    )" '"$@"'
++
++exec "$JAVACMD" "$@"
+
+
+diff --git a/backend/gradlew.bat b/backend/gradlew.bat
+--- /dev/null
++++ b/backend/gradlew.bat
+@@ -0,0 +1,93 @@
++@rem
++@rem Copyright 2015 the original author or authors.
++@rem
++@rem Licensed under the Apache License, Version 2.0 (the "License");
++@rem you may not use this file except in compliance with the License.
++@rem You may obtain a copy of the License at
++@rem
++@rem      https://www.apache.org/licenses/LICENSE-2.0
++@rem
++@rem Unless required by applicable law or agreed to in writing, software
++@rem distributed under the License is distributed on an "AS IS" BASIS,
++@rem WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++@rem See the License for the specific language governing permissions and
++@rem limitations under the License.
++@rem
++@rem SPDX-License-Identifier: Apache-2.0
++@rem
++
++@if "%DEBUG%"=="" @echo off
++@rem ##########################################################################
++@rem
++@rem  Gradle startup script for Windows
++@rem
++@rem ##########################################################################
++
++@rem Set local scope for the variables with windows NT shell
++if "%OS%"=="Windows_NT" setlocal
++
++set DIRNAME=%~dp0
++if "%DIRNAME%"=="" set DIRNAME=.
++@rem This is normally unused
++set APP_BASE_NAME=%~n0
++set APP_HOME=%DIRNAME%
++
++@rem Resolve any "." and ".." in APP_HOME to make it shorter.
++for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
++
++@rem Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
++set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m"
++
++@rem Find java.exe
++if defined JAVA_HOME goto findJavaFromJavaHome
++
++set JAVA_EXE=java.exe
++%JAVA_EXE% -version >NUL 2>&1
++if %ERRORLEVEL% equ 0 goto execute
++
++echo. 1>&2
++echo ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH. 1>&2
++echo. 1>&2
++echo Please set the JAVA_HOME variable in your environment to match the 1>&2
++echo location of your Java installation. 1>&2
++
++goto fail
++
++:findJavaFromJavaHome
++set JAVA_HOME=%JAVA_HOME:"=%
++set JAVA_EXE=%JAVA_HOME%/bin/java.exe
++
++if exist "%JAVA_EXE%" goto execute
++
++echo. 1>&2
++echo ERROR: JAVA_HOME is set to an invalid directory: %JAVA_HOME% 1>&2
++echo. 1>&2
++echo Please set the JAVA_HOME variable in your environment to match the 1>&2
++echo location of your Java installation. 1>&2
++
++goto fail
++
++:execute
++@rem Setup the command line
++
++
++
++@rem Execute Gradle
++"%JAVA_EXE%" %DEFAULT_JVM_OPTS% %JAVA_OPTS% %GRADLE_OPTS% "-Dorg.gradle.appname=%APP_BASE_NAME%" -jar "%APP_HOME%\gradle\wrapper\gradle-wrapper.jar" %*
++
++:end
++@rem End local scope for the variables with windows NT shell
++if %ERRORLEVEL% equ 0 goto mainEnd
++
++:fail
++rem Set variable GRADLE_EXIT_CONSOLE if you need the _script_ return code instead of
++rem the _cmd.exe /c_ return code!
++set EXIT_CODE=%ERRORLEVEL%
++if %EXIT_CODE% equ 0 set EXIT_CODE=1
++if not ""=="%GRADLE_EXIT_CONSOLE%" exit %EXIT_CODE%
++exit /b %EXIT_CODE%
++
++:mainEnd
++if "%OS%"=="Windows_NT" endlocal
++
++:omega
+
+
+diff --git a/backend/settings.gradle b/backend/settings.gradle
+--- /dev/null
++++ b/backend/settings.gradle
+@@ -0,0 +1 @@
++rootProject.name = 'backend'
+
+
+diff --git a/frontend/public/favicon.svg b/frontend/public/favicon.svg
+--- /dev/null
++++ b/frontend/public/favicon.svg
+@@ -0,0 +1 @@
++<svg xmlns="http://www.w3.org/2000/svg" width="48" height="46" fill="none" viewBox="0 0 48 46"><path fill="#863bff" d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z" style="fill:#863bff;fill:color(display-p3 .5252 .23 1);fill-opacity:1"/><mask id="a" width="48" height="46" x="0" y="0" maskUnits="userSpaceOnUse" style="mask-type:alpha"><path fill="#000" d="M25.842 44.938c-.664.844-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.183c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.498 0-3.579-1.842-3.579H1.133c-.92 0-1.456-1.04-.92-1.787L9.91.473c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.578 1.842 3.578h11.377c.943 0 1.473 1.088.89 1.832L25.843 44.94z" style="fill:#000;fill-opacity:1"/></mask><g mask="url(#a)"><g filter="url(#b)"><ellipse cx="5.508" cy="14.704" fill="#ede6ff" rx="5.508" ry="14.704" style="fill:#ede6ff;fill:color(display-p3 .9275 .9033 1);fill-opacity:1" transform="matrix(.00324 1 1 -.00324 -4.47 31.516)"/></g><g filter="url(#c)"><ellipse cx="10.399" cy="29.851" fill="#ede6ff" rx="10.399" ry="29.851" style="fill:#ede6ff;fill:color(display-p3 .9275 .9033 1);fill-opacity:1" transform="matrix(.00324 1 1 -.00324 -39.328 7.883)"/></g><g filter="url(#d)"><ellipse cx="5.508" cy="30.487" fill="#7e14ff" rx="5.508" ry="30.487" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(89.814 -25.913 -14.639)scale(1 -1)"/></g><g filter="url(#e)"><ellipse cx="5.508" cy="30.599" fill="#7e14ff" rx="5.508" ry="30.599" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(89.814 -32.644 -3.334)scale(1 -1)"/></g><g filter="url(#f)"><ellipse cx="5.508" cy="30.599" fill="#7e14ff" rx="5.508" ry="30.599" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="matrix(.00324 1 1 -.00324 -34.34 30.47)"/></g><g filter="url(#g)"><ellipse cx="14.072" cy="22.078" fill="#ede6ff" rx="14.072" ry="22.078" style="fill:#ede6ff;fill:color(display-p3 .9275 .9033 1);fill-opacity:1" transform="rotate(93.35 24.506 48.493)scale(-1 1)"/></g><g filter="url(#h)"><ellipse cx="3.47" cy="21.501" fill="#7e14ff" rx="3.47" ry="21.501" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(89.009 28.708 47.59)scale(-1 1)"/></g><g filter="url(#i)"><ellipse cx="3.47" cy="21.501" fill="#7e14ff" rx="3.47" ry="21.501" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(89.009 28.708 47.59)scale(-1 1)"/></g><g filter="url(#j)"><ellipse cx=".387" cy="8.972" fill="#7e14ff" rx="4.407" ry="29.108" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(39.51 .387 8.972)"/></g><g filter="url(#k)"><ellipse cx="47.523" cy="-6.092" fill="#7e14ff" rx="4.407" ry="29.108" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(37.892 47.523 -6.092)"/></g><g filter="url(#l)"><ellipse cx="41.412" cy="6.333" fill="#47bfff" rx="5.971" ry="9.665" style="fill:#47bfff;fill:color(display-p3 .2799 .748 1);fill-opacity:1" transform="rotate(37.892 41.412 6.333)"/></g><g filter="url(#m)"><ellipse cx="-1.879" cy="38.332" fill="#7e14ff" rx="4.407" ry="29.108" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(37.892 -1.88 38.332)"/></g><g filter="url(#n)"><ellipse cx="-1.879" cy="38.332" fill="#7e14ff" rx="4.407" ry="29.108" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(37.892 -1.88 38.332)"/></g><g filter="url(#o)"><ellipse cx="35.651" cy="29.907" fill="#7e14ff" rx="4.407" ry="29.108" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(37.892 35.651 29.907)"/></g><g filter="url(#p)"><ellipse cx="38.418" cy="32.4" fill="#47bfff" rx="5.971" ry="15.297" style="fill:#47bfff;fill:color(display-p3 .2799 .748 1);fill-opacity:1" transform="rotate(37.892 38.418 32.4)"/></g></g><defs><filter id="b" width="60.045" height="41.654" x="-19.77" y="16.149" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="7.659"/></filter><filter id="c" width="90.34" height="51.437" x="-54.613" y="-7.533" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="7.659"/></filter><filter id="d" width="79.355" height="29.4" x="-49.64" y="2.03" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="e" width="79.579" height="29.4" x="-45.045" y="20.029" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="f" width="79.579" height="29.4" x="-43.513" y="21.178" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="g" width="74.749" height="58.852" x="15.756" y="-17.901" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="7.659"/></filter><filter id="h" width="61.377" height="25.362" x="23.548" y="2.284" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="i" width="61.377" height="25.362" x="23.548" y="2.284" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="j" width="56.045" height="63.649" x="-27.636" y="-22.853" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="k" width="54.814" height="64.646" x="20.116" y="-38.415" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="l" width="33.541" height="35.313" x="24.641" y="-11.323" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="m" width="54.814" height="64.646" x="-29.286" y="6.009" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="n" width="54.814" height="64.646" x="-29.286" y="6.009" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="o" width="54.814" height="64.646" x="8.244" y="-2.416" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="p" width="39.409" height="43.623" x="18.713" y="10.588" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter></defs></svg>
+\ No newline at end of file
+
+
+diff --git a/frontend/public/icons.svg b/frontend/public/icons.svg
+--- /dev/null
++++ b/frontend/public/icons.svg
+@@ -0,0 +1,24 @@
++<svg xmlns="http://www.w3.org/2000/svg">
++  <symbol id="bluesky-icon" viewBox="0 0 16 17">
++    <g clip-path="url(#bluesky-clip)"><path fill="#08060d" d="M7.75 7.735c-.693-1.348-2.58-3.86-4.334-5.097-1.68-1.187-2.32-.981-2.74-.79C.188 2.065.1 2.812.1 3.251s.241 3.602.398 4.13c.52 1.744 2.367 2.333 4.07 2.145-2.495.37-4.71 1.278-1.805 4.512 3.196 3.309 4.38-.71 4.987-2.746.608 2.036 1.307 5.91 4.93 2.746 2.72-2.746.747-4.143-1.747-4.512 1.702.189 3.55-.4 4.07-2.145.156-.528.397-3.691.397-4.13s-.088-1.186-.575-1.406c-.42-.19-1.06-.395-2.741.79-1.755 1.24-3.64 3.752-4.334 5.099"/></g>
++    <defs><clipPath id="bluesky-clip"><path fill="#fff" d="M.1.85h15.3v15.3H.1z"/></clipPath></defs>
++  </symbol>
++  <symbol id="discord-icon" viewBox="0 0 20 19">
++    <path fill="#08060d" d="M16.224 3.768a14.5 14.5 0 0 0-3.67-1.153c-.158.286-.343.67-.47.976a13.5 13.5 0 0 0-4.067 0c-.128-.306-.317-.69-.476-.976A14.4 14.4 0 0 0 3.868 3.77C1.546 7.28.916 10.703 1.231 14.077a14.7 14.7 0 0 0 4.5 2.306q.545-.748.965-1.587a9.5 9.5 0 0 1-1.518-.74q.191-.14.372-.293c2.927 1.369 6.107 1.369 8.999 0q.183.152.372.294-.723.437-1.52.74.418.838.963 1.588a14.6 14.6 0 0 0 4.504-2.308c.37-3.911-.63-7.302-2.644-10.309m-9.13 8.234c-.878 0-1.599-.82-1.599-1.82 0-.998.705-1.82 1.6-1.82.894 0 1.614.82 1.599 1.82.001 1-.705 1.82-1.6 1.82m5.91 0c-.878 0-1.599-.82-1.599-1.82 0-.998.705-1.82 1.6-1.82.893 0 1.614.82 1.599 1.82 0 1-.706 1.82-1.6 1.82"/>
++  </symbol>
++  <symbol id="documentation-icon" viewBox="0 0 21 20">
++    <path fill="none" stroke="#aa3bff" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.35" d="m15.5 13.333 1.533 1.322c.645.555.967.833.967 1.178s-.322.623-.967 1.179L15.5 18.333m-3.333-5-1.534 1.322c-.644.555-.966.833-.966 1.178s.322.623.966 1.179l1.534 1.321"/>
++    <path fill="none" stroke="#aa3bff" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.35" d="M17.167 10.836v-4.32c0-1.41 0-2.117-.224-2.68-.359-.906-1.118-1.621-2.08-1.96-.599-.21-1.349-.21-2.848-.21-2.623 0-3.935 0-4.983.369-1.684.591-3.013 1.842-3.641 3.428C3 6.449 3 7.684 3 10.154v2.122c0 2.558 0 3.838.706 4.726q.306.383.713.671c.76.536 1.79.64 3.581.66"/>
++    <path fill="none" stroke="#aa3bff" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.35" d="M3 10a2.78 2.78 0 0 1 2.778-2.778c.555 0 1.209.097 1.748-.047.48-.129.854-.503.982-.982.145-.54.048-1.194.048-1.749a2.78 2.78 0 0 1 2.777-2.777"/>
++  </symbol>
++  <symbol id="github-icon" viewBox="0 0 19 19">
++    <path fill="#08060d" fill-rule="evenodd" d="M9.356 1.85C5.05 1.85 1.57 5.356 1.57 9.694a7.84 7.84 0 0 0 5.324 7.44c.387.079.528-.168.528-.376 0-.182-.013-.805-.013-1.454-2.165.467-2.616-.935-2.616-.935-.349-.91-.864-1.143-.864-1.143-.71-.48.051-.48.051-.48.787.051 1.2.805 1.2.805.695 1.194 1.817.857 2.268.649.064-.507.27-.857.49-1.052-1.728-.182-3.545-.857-3.545-3.87 0-.857.31-1.558.8-2.104-.078-.195-.349-1 .077-2.078 0 0 .657-.208 2.14.805a7.5 7.5 0 0 1 1.946-.26c.657 0 1.328.092 1.946.26 1.483-1.013 2.14-.805 2.14-.805.426 1.078.155 1.883.078 2.078.502.546.799 1.247.799 2.104 0 3.013-1.818 3.675-3.558 3.87.284.247.528.714.528 1.454 0 1.052-.012 1.896-.012 2.156 0 .208.142.455.528.377a7.84 7.84 0 0 0 5.324-7.441c.013-4.338-3.48-7.844-7.773-7.844" clip-rule="evenodd"/>
++  </symbol>
++  <symbol id="social-icon" viewBox="0 0 20 20">
++    <path fill="none" stroke="#aa3bff" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.35" d="M12.5 6.667a4.167 4.167 0 1 0-8.334 0 4.167 4.167 0 0 0 8.334 0"/>
++    <path fill="none" stroke="#aa3bff" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.35" d="M2.5 16.667a5.833 5.833 0 0 1 8.75-5.053m3.837.474.513 1.035c.07.144.257.282.414.309l.93.155c.596.1.736.536.307.965l-.723.73a.64.64 0 0 0-.152.531l.207.903c.164.715-.213.991-.84.618l-.872-.52a.63.63 0 0 0-.577 0l-.872.52c-.624.373-1.003.094-.84-.618l.207-.903a.64.64 0 0 0-.152-.532l-.723-.729c-.426-.43-.289-.864.306-.964l.93-.156a.64.64 0 0 0 .412-.31l.513-1.034c.28-.562.735-.562 1.012 0"/>
++  </symbol>
++  <symbol id="x-icon" viewBox="0 0 19 19">
++    <path fill="#08060d" fill-rule="evenodd" d="M1.893 1.98c.052.072 1.245 1.769 2.653 3.77l2.892 4.114c.183.261.333.48.333.486s-.068.089-.152.183l-.522.593-.765.867-3.597 4.087c-.375.426-.734.834-.798.905a1 1 0 0 0-.118.148c0 .01.236.017.664.017h.663l.729-.83c.4-.457.796-.906.879-.999a692 692 0 0 0 1.794-2.038c.034-.037.301-.34.594-.675l.551-.624.345-.392a7 7 0 0 1 .34-.374c.006 0 .93 1.306 2.052 2.903l2.084 2.965.045.063h2.275c1.87 0 2.273-.003 2.266-.021-.008-.02-1.098-1.572-3.894-5.547-2.013-2.862-2.28-3.246-2.273-3.266.008-.019.282-.332 2.085-2.38l2-2.274 1.567-1.782c.022-.028-.016-.03-.65-.03h-.674l-.3.342a871 871 0 0 1-1.782 2.025c-.067.075-.405.458-.75.852a100 100 0 0 1-.803.91c-.148.172-.299.344-.99 1.127-.304.343-.32.358-.345.327-.015-.019-.904-1.282-1.976-2.808L6.365 1.85H1.8zm1.782.91 8.078 11.294c.772 1.08 1.413 1.973 1.425 1.984.016.017.241.02 1.05.017l1.03-.004-2.694-3.766L7.796 5.75 5.722 2.852l-1.039-.004-1.039-.004z" clip-rule="evenodd"/>
++  </symbol>
++</svg>
+
+
+diff --git a/frontend/scripts/check-encoding.mjs b/frontend/scripts/check-encoding.mjs
+--- /dev/null
++++ b/frontend/scripts/check-encoding.mjs
+@@ -0,0 +1,142 @@
++import fs from 'node:fs/promises'
++import path from 'node:path'
++
++const ROOT = process.cwd()
++const SCAN_ROOTS = ['src', 'scripts']
++const IGNORE_DIRS = new Set(['node_modules', 'dist', 'build', 'coverage', '.git', '.gradle'])
++const ALLOWED_EXTENSIONS = new Set([
++  '.ts',
++  '.tsx',
++  '.js',
++  '.jsx',
++  '.mjs',
++  '.cjs',
++  '.json',
++  '.css',
++  '.md',
++  '.yml',
++  '.yaml',
++  '.html',
++])
++
++const EXTRA_FILES = new Set([
++  'eslint.config.js',
++  'vite.config.ts',
++  'tsconfig.json',
++  'tsconfig.app.json',
++  'tsconfig.node.json',
++  'index.html',
++])
++
++function isIgnoredPath(relativePath) {
++  return relativePath.split(path.sep).some((segment) => IGNORE_DIRS.has(segment))
++}
++
++async function* walk(dir) {
++  let entries = []
++  try {
++    entries = await fs.readdir(dir, { withFileTypes: true })
++  } catch {
++    return
++  }
++
++  for (const entry of entries) {
++    const absolute = path.join(dir, entry.name)
++    const relative = path.relative(ROOT, absolute)
++    if (isIgnoredPath(relative)) {
++      continue
++    }
++
++    if (entry.isDirectory()) {
++      yield* walk(absolute)
++      continue
++    }
++
++    if (!entry.isFile()) {
++      continue
++    }
++
++    const extension = path.extname(entry.name)
++    if (!ALLOWED_EXTENSIONS.has(extension) && !EXTRA_FILES.has(entry.name)) {
++      continue
++    }
++
++    yield absolute
++  }
++}
++
++function findIssues(content, relativePath) {
++  const lines = content.split(/\r?\n/)
++  const issues = []
++
++  const patterns = [
++    { name: 'replacement-char', regex: /\uFFFD/g },
++    { name: 'question-mark-before-korean', regex: /\?[ㄱ-ㅎ가-힣ㅏ-ㅣ]/g },
++  ]
++
++  lines.forEach((line, index) => {
++    for (const pattern of patterns) {
++      if (!pattern.regex.test(line)) {
++        continue
++      }
++      issues.push({
++        file: relativePath,
++        line: index + 1,
++        type: pattern.name,
++        text: line.trim(),
++      })
++    }
++  })
++
++  return issues
++}
++
++async function main() {
++  const collected = []
++  const seen = new Set()
++
++  for (const scanRoot of SCAN_ROOTS) {
++    const absoluteRoot = path.join(ROOT, scanRoot)
++    for await (const file of walk(absoluteRoot)) {
++      const relative = path.relative(ROOT, file)
++      if (seen.has(relative)) {
++        continue
++      }
++      seen.add(relative)
++
++      const content = await fs.readFile(file, 'utf8')
++      const issues = findIssues(content, relative)
++      collected.push(...issues)
++    }
++  }
++
++  for (const file of EXTRA_FILES) {
++    const absolute = path.join(ROOT, file)
++    const relative = path.relative(ROOT, absolute)
++    if (seen.has(relative)) {
++      continue
++    }
++
++    try {
++      const content = await fs.readFile(absolute, 'utf8')
++      const issues = findIssues(content, relative)
++      collected.push(...issues)
++      seen.add(relative)
++    } catch {
++      // 파일이 없는 경우는 무시
++    }
++  }
++
++  if (collected.length === 0) {
++    console.log('check:encoding passed (깨짐 문자열 없음)')
++    return
++  }
++
++  console.error(`check:encoding failed (${collected.length}건)`)
++  for (const issue of collected) {
++    console.error(`${issue.file}:${issue.line} [${issue.type}] ${issue.text}`)
++  }
++  process.exitCode = 1
++}
++
++await main()
+
+
+diff --git a/frontend/src/app/layouts/MainLayout.tsx b/frontend/src/app/layouts/MainLayout.tsx
+--- /dev/null
++++ b/frontend/src/app/layouts/MainLayout.tsx
+@@ -0,0 +1,53 @@
++﻿import { NavLink, Outlet } from 'react-router-dom'
++import { ROUTES } from '@/shared/constants/routes'
++import { H1 } from '@/shared/ui'
++
++const navigation = [
++  { label: 'Home', to: ROUTES.home },
++  { label: 'Programs', to: ROUTES.programs },
++  { label: 'Resources', to: ROUTES.resources },
++  { label: 'FAQ', to: ROUTES.faq },
++]
++
++function MainLayout() {
++  return (
++    <div className="min-h-screen bg-bg text-text-primary">
++      <header className="border-b border-border bg-surface">
++        <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-5 md:px-6">
++          <p className="text-xs font-medium tracking-wide text-text-secondary">
++            CODA SUPPORT PLATFORM
++          </p>
++          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
++            <H1 className="text-2xl md:text-3xl">Family Education Support</H1>
++            <nav className="flex flex-wrap gap-2" aria-label="Main menu">
++              {navigation.map((item) => (
++                <NavLink
++                  key={item.to}
++                  to={item.to}
++                  end={item.to === ROUTES.home}
++                  className={({ isActive }) =>
++                    [
++                      'rounded-md px-3 py-2 text-sm font-medium transition-colors',
++                      isActive
++                        ? 'bg-brand text-text-inverse'
++                        : 'bg-surface text-text-secondary hover:bg-brand-subtle hover:text-text-primary',
++                    ].join(' ')
++                  }
++                >
++                  {item.label}
++                </NavLink>
++              ))}
++            </nav>
++          </div>
++        </div>
++      </header>
++
++      <main className="mx-auto w-full max-w-5xl px-4 py-8 md:px-6 md:py-10">
++        <Outlet />
++      </main>
++    </div>
++  )
++}
++
++export default MainLayout
++
+
+
+diff --git a/frontend/src/app/providers/AppProviders.tsx b/frontend/src/app/providers/AppProviders.tsx
+--- /dev/null
++++ b/frontend/src/app/providers/AppProviders.tsx
+@@ -0,0 +1,7 @@
++import type { PropsWithChildren } from 'react'
++
++function AppProviders({ children }: PropsWithChildren) {
++  return <>{children}</>
++}
++
++export default AppProviders
+
+
+diff --git a/frontend/src/app/router/AppRouter.tsx b/frontend/src/app/router/AppRouter.tsx
+--- /dev/null
++++ b/frontend/src/app/router/AppRouter.tsx
+@@ -0,0 +1,20 @@
++import MainLayout from '@/app/layouts/MainLayout'
++import { FaqPage, HomePage, NotFoundPage, ProgramsPage, ResourcesPage } from '@/pages'
++import { ROUTES } from '@/shared/constants/routes'
++import { Route, Routes } from 'react-router-dom'
++
++function AppRouter() {
++  return (
++    <Routes>
++      <Route element={<MainLayout />}>
++        <Route path={ROUTES.home} element={<HomePage />} />
++        <Route path={ROUTES.programs} element={<ProgramsPage />} />
++        <Route path={ROUTES.resources} element={<ResourcesPage />} />
++        <Route path={ROUTES.faq} element={<FaqPage />} />
++        <Route path="*" element={<NotFoundPage />} />
++      </Route>
++    </Routes>
++  )
++}
++
++export default AppRouter
+
+
+diff --git a/frontend/src/assets/hero.png b/frontend/src/assets/hero.png
+--- /dev/null
++++ b/frontend/src/assets/hero.png
+Binary files /dev/null and b/frontend/src/assets/hero.png differ
+
+
+diff --git a/frontend/src/assets/react.svg b/frontend/src/assets/react.svg
+--- /dev/null
++++ b/frontend/src/assets/react.svg
+@@ -0,0 +1 @@
++<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" class="iconify iconify--logos" width="35.93" height="32" preserveAspectRatio="xMidYMid meet" viewBox="0 0 256 228"><path fill="#00D8FF" d="M210.483 73.824a171.49 171.49 0 0 0-8.24-2.597c.465-1.9.893-3.777 1.273-5.621c6.238-30.281 2.16-54.676-11.769-62.708c-13.355-7.7-35.196.329-57.254 19.526a171.23 171.23 0 0 0-6.375 5.848a155.866 155.866 0 0 0-4.241-3.917C100.759 3.829 77.587-4.822 63.673 3.233C50.33 10.957 46.379 33.89 51.995 62.588a170.974 170.974 0 0 0 1.892 8.48c-3.28.932-6.445 1.924-9.474 2.98C17.309 83.498 0 98.307 0 113.668c0 15.865 18.582 31.778 46.812 41.427a145.52 145.52 0 0 0 6.921 2.165a167.467 167.467 0 0 0-2.01 9.138c-5.354 28.2-1.173 50.591 12.134 58.266c13.744 7.926 36.812-.22 59.273-19.855a145.567 145.567 0 0 0 5.342-4.923a168.064 168.064 0 0 0 6.92 6.314c21.758 18.722 43.246 26.282 56.54 18.586c13.731-7.949 18.194-32.003 12.4-61.268a145.016 145.016 0 0 0-1.535-6.842c1.62-.48 3.21-.974 4.76-1.488c29.348-9.723 48.443-25.443 48.443-41.52c0-15.417-17.868-30.326-45.517-39.844Zm-6.365 70.984c-1.4.463-2.836.91-4.3 1.345c-3.24-10.257-7.612-21.163-12.963-32.432c5.106-11 9.31-21.767 12.459-31.957c2.619.758 5.16 1.557 7.61 2.4c23.69 8.156 38.14 20.213 38.14 29.504c0 9.896-15.606 22.743-40.946 31.14Zm-10.514 20.834c2.562 12.94 2.927 24.64 1.23 33.787c-1.524 8.219-4.59 13.698-8.382 15.893c-8.067 4.67-25.32-1.4-43.927-17.412a156.726 156.726 0 0 1-6.437-5.87c7.214-7.889 14.423-17.06 21.459-27.246c12.376-1.098 24.068-2.894 34.671-5.345a134.17 134.17 0 0 1 1.386 6.193ZM87.276 214.515c-7.882 2.783-14.16 2.863-17.955.675c-8.075-4.657-11.432-22.636-6.853-46.752a156.923 156.923 0 0 1 1.869-8.499c10.486 2.32 22.093 3.988 34.498 4.994c7.084 9.967 14.501 19.128 21.976 27.15a134.668 134.668 0 0 1-4.877 4.492c-9.933 8.682-19.886 14.842-28.658 17.94ZM50.35 144.747c-12.483-4.267-22.792-9.812-29.858-15.863c-6.35-5.437-9.555-10.836-9.555-15.216c0-9.322 13.897-21.212 37.076-29.293c2.813-.98 5.757-1.905 8.812-2.773c3.204 10.42 7.406 21.315 12.477 32.332c-5.137 11.18-9.399 22.249-12.634 32.792a134.718 134.718 0 0 1-6.318-1.979Zm12.378-84.26c-4.811-24.587-1.616-43.134 6.425-47.789c8.564-4.958 27.502 2.111 47.463 19.835a144.318 144.318 0 0 1 3.841 3.545c-7.438 7.987-14.787 17.08-21.808 26.988c-12.04 1.116-23.565 2.908-34.161 5.309a160.342 160.342 0 0 1-1.76-7.887Zm110.427 27.268a347.8 347.8 0 0 0-7.785-12.803c8.168 1.033 15.994 2.404 23.343 4.08c-2.206 7.072-4.956 14.465-8.193 22.045a381.151 381.151 0 0 0-7.365-13.322Zm-45.032-43.861c5.044 5.465 10.096 11.566 15.065 18.186a322.04 322.04 0 0 0-30.257-.006c4.974-6.559 10.069-12.652 15.192-18.18ZM82.802 87.83a323.167 323.167 0 0 0-7.227 13.238c-3.184-7.553-5.909-14.98-8.134-22.152c7.304-1.634 15.093-2.97 23.209-3.984a321.524 321.524 0 0 0-7.848 12.897Zm8.081 65.352c-8.385-.936-16.291-2.203-23.593-3.793c2.26-7.3 5.045-14.885 8.298-22.6a321.187 321.187 0 0 0 7.257 13.246c2.594 4.48 5.28 8.868 8.038 13.147Zm37.542 31.03c-5.184-5.592-10.354-11.779-15.403-18.433c4.902.192 9.899.29 14.978.29c5.218 0 10.376-.117 15.453-.343c-4.985 6.774-10.018 12.97-15.028 18.486Zm52.198-57.817c3.422 7.8 6.306 15.345 8.596 22.52c-7.422 1.694-15.436 3.058-23.88 4.071a382.417 382.417 0 0 0 7.859-13.026a347.403 347.403 0 0 0 7.425-13.565Zm-16.898 8.101a358.557 358.557 0 0 1-12.281 19.815a329.4 329.4 0 0 1-23.444.823c-7.967 0-15.716-.248-23.178-.732a310.202 310.202 0 0 1-12.513-19.846h.001a307.41 307.41 0 0 1-10.923-20.627a310.278 310.278 0 0 1 10.89-20.637l-.001.001a307.318 307.318 0 0 1 12.413-19.761c7.613-.576 15.42-.876 23.31-.876H128c7.926 0 15.743.303 23.354.883a329.357 329.357 0 0 1 12.335 19.695a358.489 358.489 0 0 1 11.036 20.54a329.472 329.472 0 0 1-11 20.722Zm22.56-122.124c8.572 4.944 11.906 24.881 6.52 51.026c-.344 1.668-.73 3.367-1.15 5.09c-10.622-2.452-22.155-4.275-34.23-5.408c-7.034-10.017-14.323-19.124-21.64-27.008a160.789 160.789 0 0 1 5.888-5.4c18.9-16.447 36.564-22.941 44.612-18.3ZM128 90.808c12.625 0 22.86 10.235 22.86 22.86s-10.235 22.86-22.86 22.86s-22.86-10.235-22.86-22.86s10.235-22.86 22.86-22.86Z"></path></svg>
+\ No newline at end of file
+
+
+diff --git a/frontend/src/assets/vite.svg b/frontend/src/assets/vite.svg
+--- /dev/null
++++ b/frontend/src/assets/vite.svg
+@@ -0,0 +1 @@
++<svg xmlns="http://www.w3.org/2000/svg" width="77" height="47" fill="none" aria-labelledby="vite-logo-title" viewBox="0 0 77 47"><title id="vite-logo-title">Vite</title><style>.parenthesis{fill:#000}@media (prefers-color-scheme:dark){.parenthesis{fill:#fff}}</style><path fill="#9135ff" d="M40.151 45.71c-.663.844-2.02.374-2.02-.699V34.708a2.26 2.26 0 0 0-2.262-2.262H24.493c-.92 0-1.457-1.04-.92-1.788l7.479-10.471c1.07-1.498 0-3.578-1.842-3.578H15.443c-.92 0-1.456-1.04-.92-1.788l9.696-13.576c.213-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.472c-1.07 1.497 0 3.578 1.842 3.578h11.376c.944 0 1.474 1.087.89 1.83L40.153 45.712z"/><mask id="a" width="48" height="47" x="14" y="0" maskUnits="userSpaceOnUse" style="mask-type:alpha"><path fill="#000" d="M40.047 45.71c-.663.843-2.02.374-2.02-.699V34.708a2.26 2.26 0 0 0-2.262-2.262H24.389c-.92 0-1.457-1.04-.92-1.788l7.479-10.472c1.07-1.497 0-3.578-1.842-3.578H15.34c-.92 0-1.456-1.04-.92-1.788l9.696-13.575c.213-.297.556-.474.92-.474H53.93c.92 0 1.456 1.04.92 1.788L47.37 13.03c-1.07 1.498 0 3.578 1.842 3.578h11.376c.944 0 1.474 1.088.89 1.831L40.049 45.712z"/></mask><g mask="url(#a)"><g filter="url(#b)"><ellipse cx="5.508" cy="14.704" fill="#eee6ff" rx="5.508" ry="14.704" transform="rotate(269.814 20.96 11.29)scale(-1 1)"/></g><g filter="url(#c)"><ellipse cx="10.399" cy="29.851" fill="#eee6ff" rx="10.399" ry="29.851" transform="rotate(89.814 -16.902 -8.275)scale(1 -1)"/></g><g filter="url(#d)"><ellipse cx="5.508" cy="30.487" fill="#8900ff" rx="5.508" ry="30.487" transform="rotate(89.814 -19.197 -7.127)scale(1 -1)"/></g><g filter="url(#e)"><ellipse cx="5.508" cy="30.599" fill="#8900ff" rx="5.508" ry="30.599" transform="rotate(89.814 -25.928 4.177)scale(1 -1)"/></g><g filter="url(#f)"><ellipse cx="5.508" cy="30.599" fill="#8900ff" rx="5.508" ry="30.599" transform="rotate(89.814 -25.738 5.52)scale(1 -1)"/></g><g filter="url(#g)"><ellipse cx="14.072" cy="22.078" fill="#eee6ff" rx="14.072" ry="22.078" transform="rotate(93.35 31.245 55.578)scale(-1 1)"/></g><g filter="url(#h)"><ellipse cx="3.47" cy="21.501" fill="#8900ff" rx="3.47" ry="21.501" transform="rotate(89.009 35.419 55.202)scale(-1 1)"/></g><g filter="url(#i)"><ellipse cx="3.47" cy="21.501" fill="#8900ff" rx="3.47" ry="21.501" transform="rotate(89.009 35.419 55.202)scale(-1 1)"/></g><g filter="url(#j)"><ellipse cx="14.592" cy="9.743" fill="#8900ff" rx="4.407" ry="29.108" transform="rotate(39.51 14.592 9.743)"/></g><g filter="url(#k)"><ellipse cx="61.728" cy="-5.321" fill="#8900ff" rx="4.407" ry="29.108" transform="rotate(37.892 61.728 -5.32)"/></g><g filter="url(#l)"><ellipse cx="55.618" cy="7.104" fill="#00c2ff" rx="5.971" ry="9.665" transform="rotate(37.892 55.618 7.104)"/></g><g filter="url(#m)"><ellipse cx="12.326" cy="39.103" fill="#8900ff" rx="4.407" ry="29.108" transform="rotate(37.892 12.326 39.103)"/></g><g filter="url(#n)"><ellipse cx="12.326" cy="39.103" fill="#8900ff" rx="4.407" ry="29.108" transform="rotate(37.892 12.326 39.103)"/></g><g filter="url(#o)"><ellipse cx="49.857" cy="30.678" fill="#8900ff" rx="4.407" ry="29.108" transform="rotate(37.892 49.857 30.678)"/></g><g filter="url(#p)"><ellipse cx="52.623" cy="33.171" fill="#00c2ff" rx="5.971" ry="15.297" transform="rotate(37.892 52.623 33.17)"/></g></g><path d="M6.919 0c-9.198 13.166-9.252 33.575 0 46.789h6.215c-9.25-13.214-9.196-33.623 0-46.789zm62.424 0h-6.215c9.198 13.166 9.252 33.575 0 46.789h6.215c9.25-13.214 9.196-33.623 0-46.789" class="parenthesis"/><defs><filter id="b" width="60.045" height="41.654" x="-5.564" y="16.92" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="7.659"/></filter><filter id="c" width="90.34" height="51.437" x="-40.407" y="-6.762" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="7.659"/></filter><filter id="d" width="79.355" height="29.4" x="-35.435" y="2.801" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="e" width="79.579" height="29.4" x="-30.84" y="20.8" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="f" width="79.579" height="29.4" x="-29.307" y="21.949" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="g" width="74.749" height="58.852" x="29.961" y="-17.13" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="7.659"/></filter><filter id="h" width="61.377" height="25.362" x="37.754" y="3.055" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="i" width="61.377" height="25.362" x="37.754" y="3.055" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="j" width="56.045" height="63.649" x="-13.43" y="-22.082" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="k" width="54.814" height="64.646" x="34.321" y="-37.644" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="l" width="33.541" height="35.313" x="38.847" y="-10.552" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="m" width="54.814" height="64.646" x="-15.081" y="6.78" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="n" width="54.814" height="64.646" x="-15.081" y="6.78" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="o" width="54.814" height="64.646" x="22.45" y="-1.645" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter><filter id="p" width="39.409" height="43.623" x="32.919" y="11.36" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17286" stdDeviation="4.596"/></filter></defs></svg>
+
+
+diff --git a/frontend/src/features/auth/api/authApi.ts b/frontend/src/features/auth/api/authApi.ts
+--- /dev/null
++++ b/frontend/src/features/auth/api/authApi.ts
+@@ -0,0 +1,16 @@
++import { clearAuthState, setAuthTokens } from '@/features/auth/model/authStore'
++import type { LoginPayload, TokenPair } from '@/features/auth/model/types'
++import { httpRequest } from '@/shared/lib/http/httpClient'
++
++export async function login(payload: LoginPayload) {
++  const tokenPair = await httpRequest<TokenPair>('/auth/login', {
++    method: 'POST',
++    data: payload,
++  })
++  setAuthTokens(tokenPair)
++  return tokenPair
++}
++
++export function logout() {
++  clearAuthState()
++}
+
+
+diff --git a/frontend/src/features/auth/model/authStore.ts b/frontend/src/features/auth/model/authStore.ts
+--- /dev/null
++++ b/frontend/src/features/auth/model/authStore.ts
+@@ -0,0 +1,58 @@
++import {
++  clearTokens,
++  getAccessToken,
++  getRefreshToken,
++  setTokens,
++} from '@/features/auth/model/tokenStore'
++import type { AuthState, TokenPair, User } from '@/features/auth/model/types'
++
++const listeners = new Set<() => void>()
++
++let state: AuthState = {
++  accessToken: getAccessToken(),
++  refreshToken: getRefreshToken(),
++  user: null,
++}
++
++function notify() {
++  for (const listener of listeners) {
++    listener()
++  }
++}
++
++export function getAuthState() {
++  return state
++}
++
++export function subscribeAuth(listener: () => void) {
++  listeners.add(listener)
++  return () => listeners.delete(listener)
++}
++
++export function setAuthTokens(tokenPair: TokenPair) {
++  setTokens(tokenPair)
++  state = {
++    ...state,
++    accessToken: tokenPair.accessToken,
++    refreshToken: tokenPair.refreshToken ?? null,
++  }
++  notify()
++}
++
++export function setAuthUser(user: User | null) {
++  state = {
++    ...state,
++    user,
++  }
++  notify()
++}
++
++export function clearAuthState() {
++  clearTokens()
++  state = {
++    accessToken: null,
++    refreshToken: null,
++    user: null,
++  }
++  notify()
++}
+
+
+diff --git a/frontend/src/features/auth/model/index.ts b/frontend/src/features/auth/model/index.ts
+--- /dev/null
++++ b/frontend/src/features/auth/model/index.ts
+@@ -0,0 +1,10 @@
++export {
++  clearAuthState,
++  getAuthState,
++  setAuthTokens,
++  setAuthUser,
++  subscribeAuth,
++} from './authStore'
++export { clearTokens, getAccessToken, getRefreshToken, setTokens } from './tokenStore'
++export type { AuthState, LoginPayload, TokenPair, User } from './types'
++export { useAuth } from './useAuth'
+
+
+diff --git a/frontend/src/features/auth/model/tokenStore.ts b/frontend/src/features/auth/model/tokenStore.ts
+--- /dev/null
++++ b/frontend/src/features/auth/model/tokenStore.ts
+@@ -0,0 +1,24 @@
++import type { TokenPair } from '@/features/auth/model/types'
++
++const ACCESS_TOKEN_KEY = 'auth.access_token'
++const REFRESH_TOKEN_KEY = 'auth.refresh_token'
++
++export function getAccessToken() {
++  return localStorage.getItem(ACCESS_TOKEN_KEY)
++}
++
++export function getRefreshToken() {
++  return localStorage.getItem(REFRESH_TOKEN_KEY)
++}
++
++export function setTokens({ accessToken, refreshToken }: TokenPair) {
++  localStorage.setItem(ACCESS_TOKEN_KEY, accessToken)
++  if (refreshToken) {
++    localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken)
++  }
++}
++
++export function clearTokens() {
++  localStorage.removeItem(ACCESS_TOKEN_KEY)
++  localStorage.removeItem(REFRESH_TOKEN_KEY)
++}
+
+
+diff --git a/frontend/src/features/auth/model/types.ts b/frontend/src/features/auth/model/types.ts
+--- /dev/null
++++ b/frontend/src/features/auth/model/types.ts
+@@ -0,0 +1,21 @@
++export interface TokenPair {
++  accessToken: string
++  refreshToken?: string
++}
++
++export interface LoginPayload {
++  email: string
++  password: string
++}
++
++export interface User {
++  id: string
++  name: string
++  email: string
++}
++
++export interface AuthState {
++  accessToken: string | null
++  refreshToken: string | null
++  user: User | null
++}
+
+
+diff --git a/frontend/src/features/auth/model/useAuth.ts b/frontend/src/features/auth/model/useAuth.ts
+--- /dev/null
++++ b/frontend/src/features/auth/model/useAuth.ts
+@@ -0,0 +1,16 @@
++import {
++  clearAuthState,
++  getAuthState,
++  subscribeAuth,
++} from '@/features/auth/model/authStore'
++import { useSyncExternalStore } from 'react'
++
++export function useAuth() {
++  const authState = useSyncExternalStore(subscribeAuth, getAuthState, getAuthState)
++
++  return {
++    ...authState,
++    isAuthenticated: Boolean(authState.accessToken),
++    logout: clearAuthState,
++  }
++}
+
+
+diff --git a/frontend/src/features/auth/ui/LoginForm.tsx b/frontend/src/features/auth/ui/LoginForm.tsx
+--- /dev/null
++++ b/frontend/src/features/auth/ui/LoginForm.tsx
+@@ -0,0 +1,63 @@
++﻿import { login } from '@/features/auth/api/authApi'
++import { Button, Input } from '@/shared/ui'
++import type { FormEvent } from 'react'
++import { useState } from 'react'
++
++function LoginForm() {
++  const [email, setEmail] = useState('')
++  const [password, setPassword] = useState('')
++  const [isLoading, setIsLoading] = useState(false)
++  const [message, setMessage] = useState('')
++
++  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
++    event.preventDefault()
++    setIsLoading(true)
++    setMessage('')
++
++    try {
++      await login({ email, password })
++      setMessage('Login success.')
++    } catch {
++      setMessage('Login failed. Please check your credentials.')
++    } finally {
++      setIsLoading(false)
++    }
++  }
++
++  return (
++    <form
++      className="grid gap-3"
++      onSubmit={(event) => {
++        void handleSubmit(event)
++      }}
++    >
++      <label className="grid gap-1 text-sm">
++        <span>Email</span>
++        <Input
++          type="email"
++          value={email}
++          onChange={(event) => setEmail(event.target.value)}
++          required
++        />
++      </label>
++      <label className="grid gap-1 text-sm">
++        <span>Password</span>
++        <Input
++          type="password"
++          value={password}
++          onChange={(event) => setPassword(event.target.value)}
++          required
++        />
++      </label>
++      <Button type="submit" disabled={isLoading} className="disabled:opacity-60">
++        {isLoading ? 'Signing in...' : 'Sign in'}
++      </Button>
++      {message ? (
++        <p className="text-sm text-text-secondary">{message}</p>
++      ) : null}
++    </form>
++  )
++}
++
++export default LoginForm
++
+
+
+diff --git a/frontend/src/features/auth/index.ts b/frontend/src/features/auth/index.ts
+--- /dev/null
++++ b/frontend/src/features/auth/index.ts
+@@ -0,0 +1,15 @@
++export { login, logout } from '@/features/auth/api/authApi'
++export {
++  clearAuthState,
++  clearTokens,
++  getAccessToken,
++  getAuthState,
++  getRefreshToken,
++  setAuthTokens,
++  setAuthUser,
++  setTokens,
++  subscribeAuth,
++  useAuth,
++} from '@/features/auth/model'
++export type { AuthState, LoginPayload, TokenPair, User } from '@/features/auth/model'
++export { default as LoginForm } from '@/features/auth/ui/LoginForm'
+
+
+diff --git a/frontend/src/pages/faq/ui/FaqPage.tsx b/frontend/src/pages/faq/ui/FaqPage.tsx
+--- /dev/null
++++ b/frontend/src/pages/faq/ui/FaqPage.tsx
+@@ -0,0 +1,44 @@
++﻿const faqs = [
++  {
++    question: '이 사이트는 누구를 위한 서비스인가요?',
++    answer:
++      '청각장애인 부모 가정에서 자라는 CODA 아동과 보호자, 교사를 위한 교육 정보 플랫폼입니다.',
++  },
++  {
++    question: '자료는 어떤 순서로 활용하면 좋나요?',
++    answer:
++      '가정의 현재 상황을 먼저 점검한 뒤, 입문 자료부터 단계적으로 학습하는 방식을 권장합니다.',
++  },
++  {
++    question: '학교나 상담 연계가 필요할 때는 어떻게 하나요?',
++    answer:
++      '상담 준비 문서와 가정·학교 소통 가이드를 먼저 참고한 뒤 필요한 기관과 연계해 보세요.',
++  },
++]
++
++function FaqPage() {
++  return (
++    <section className="space-y-6">
++      <div className="space-y-2">
++        <h2 className="text-3xl font-bold leading-tight">자주 묻는 질문</h2>
++        <p className="text-text-secondary">
++          서비스 이용 전 가장 많이 궁금해하는 내용을 정리했습니다.
++        </p>
++      </div>
++
++      <div className="space-y-3">
++        {faqs.map((faq) => (
++          <article
++            key={faq.question}
++            className="rounded-xl border border-border bg-surface p-5"
++          >
++            <h3 className="text-lg font-semibold">{faq.question}</h3>
++            <p className="mt-2 text-text-secondary">{faq.answer}</p>
++          </article>
++        ))}
++      </div>
++    </section>
++  )
++}
++
++export default FaqPage
+
+
+diff --git a/frontend/src/pages/faq/index.ts b/frontend/src/pages/faq/index.ts
+--- /dev/null
++++ b/frontend/src/pages/faq/index.ts
+@@ -0,0 +1 @@
++export { default as FaqPage } from './ui/FaqPage'
+
+
+diff --git a/frontend/src/pages/home/ui/HomePage.tsx b/frontend/src/pages/home/ui/HomePage.tsx
+--- /dev/null
++++ b/frontend/src/pages/home/ui/HomePage.tsx
+@@ -0,0 +1,70 @@
++import { Link } from 'react-router-dom'
++
++const highlights = [
++  {
++    title: 'Family communication',
++    description:
++      'Practical communication guides for daily situations at home.',
++    className: 'bg-brand-subtle',
++  },
++  {
++    title: 'Learning support',
++    description:
++      'Age-based language and school support checklists for CODA families.',
++    className: 'bg-point-subtle',
++  },
++  {
++    title: 'Emotional care',
++    description:
++      'Simple routines to support emotional stability for parents and children.',
++    className: 'bg-info-subtle',
++  },
++]
++
++function HomePage() {
++  return (
++    <section className="space-y-8">
++      <div className="space-y-4">
++        <span className="inline-flex rounded-full bg-brand-subtle px-3 py-1 text-xs font-semibold text-brand">
++          Learning together platform
++        </span>
++        <h2 className="text-3xl font-bold leading-tight md:text-4xl">
++          Find what you need quickly and apply it right away.
++        </h2>
++        <p className="max-w-3xl text-text-secondary">
++          This platform gathers education resources for children in deaf-parent
++          families and helps families and schools collaborate with confidence.
++        </p>
++      </div>
++
++      <div className="grid gap-4 md:grid-cols-3">
++        {highlights.map((item) => (
++          <article
++            key={item.title}
++            className={`rounded-xl border border-border p-5 ${item.className}`}
++          >
++            <h3 className="text-lg font-semibold">{item.title}</h3>
++            <p className="mt-2 text-sm text-text-secondary">{item.description}</p>
++          </article>
++        ))}
++      </div>
++
++      <div className="flex flex-wrap gap-3">
++        <Link
++          to="/programs"
++          className="rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-text-inverse transition-colors hover:bg-brand-hover"
++        >
++          View programs
++        </Link>
++        <Link
++          to="/resources"
++          className="rounded-lg border border-border bg-surface px-4 py-2.5 text-sm font-semibold text-text-primary transition-colors hover:border-border-strong"
++        >
++          Browse resources
++        </Link>
++      </div>
++    </section>
++  )
++}
++
++export default HomePage
+
+
+diff --git a/frontend/src/pages/home/index.ts b/frontend/src/pages/home/index.ts
+--- /dev/null
++++ b/frontend/src/pages/home/index.ts
+@@ -0,0 +1 @@
++export { default as HomePage } from './ui/HomePage'
+
+
+diff --git a/frontend/src/pages/not-found/ui/NotFoundPage.tsx b/frontend/src/pages/not-found/ui/NotFoundPage.tsx
+--- /dev/null
++++ b/frontend/src/pages/not-found/ui/NotFoundPage.tsx
+@@ -0,0 +1,23 @@
++﻿import { Link } from 'react-router-dom'
++
++function NotFoundPage() {
++  return (
++    <section className="rounded-xl border border-border bg-surface p-8 text-center">
++      <p className="text-sm font-semibold text-text-secondary">404</p>
++      <h2 className="mt-2 text-3xl font-bold leading-tight">페이지를 찾을 수 없습니다.</h2>
++      <p className="mt-3 text-text-secondary">
++        주소가 변경되었거나 존재하지 않는 페이지입니다.
++      </p>
++      <div className="mt-6">
++        <Link
++          to="/"
++          className="inline-flex rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-text-inverse transition-colors hover:bg-brand-hover"
++        >
++          홈으로 이동
++        </Link>
++      </div>
++    </section>
++  )
++}
++
++export default NotFoundPage
+
+
+diff --git a/frontend/src/pages/not-found/index.ts b/frontend/src/pages/not-found/index.ts
+--- /dev/null
++++ b/frontend/src/pages/not-found/index.ts
+@@ -0,0 +1 @@
++export { default as NotFoundPage } from './ui/NotFoundPage'
+
+
+diff --git a/frontend/src/pages/programs/ui/ProgramsPage.tsx b/frontend/src/pages/programs/ui/ProgramsPage.tsx
+--- /dev/null
++++ b/frontend/src/pages/programs/ui/ProgramsPage.tsx
+@@ -0,0 +1,52 @@
++const programs = [
++  {
++    title: 'Basic communication program',
++    summary:
++      'Learn essential signs and expressions used most often in family life.',
++    level: 'Intro',
++  },
++  {
++    title: 'School-age learning coaching',
++    summary:
++      'Guidance for homework, school notices, and parent-teacher communication.',
++    level: 'Core',
++  },
++  {
++    title: 'Family collaboration workshop',
++    summary:
++      'Practice role sharing and decision-making routines for family teamwork.',
++    level: 'Advanced',
++  },
++]
++
++function ProgramsPage() {
++  return (
++    <section className="space-y-6">
++      <div className="space-y-2">
++        <h2 className="text-3xl font-bold leading-tight">Programs</h2>
++        <p className="text-text-secondary">
++          Program tracks focused on real situations you can apply immediately.
++        </p>
++      </div>
++
++      <div className="grid gap-4">
++        {programs.map((program) => (
++          <article
++            key={program.title}
++            className="rounded-xl border border-border bg-surface p-5"
++          >
++            <div className="flex flex-wrap items-center gap-2">
++              <h3 className="text-xl font-semibold">{program.title}</h3>
++              <span className="rounded-md bg-info-subtle px-2 py-1 text-xs font-semibold text-info">
++                {program.level}
++              </span>
++            </div>
++            <p className="mt-2 text-text-secondary">{program.summary}</p>
++          </article>
++        ))}
++      </div>
++    </section>
++  )
++}
++
++export default ProgramsPage
+
+
+diff --git a/frontend/src/pages/programs/index.ts b/frontend/src/pages/programs/index.ts
+--- /dev/null
++++ b/frontend/src/pages/programs/index.ts
+@@ -0,0 +1 @@
++export { default as ProgramsPage } from './ui/ProgramsPage'
+
+
+diff --git a/frontend/src/pages/resources/ui/ResourcesPage.tsx b/frontend/src/pages/resources/ui/ResourcesPage.tsx
+--- /dev/null
++++ b/frontend/src/pages/resources/ui/ResourcesPage.tsx
+@@ -0,0 +1,52 @@
++const resourceGroups = [
++  {
++    title: 'Home communication kit',
++    description:
++      'Scenario scripts, sign cards, and daily conversation checklists.',
++    tagColor: 'text-brand bg-brand-subtle',
++  },
++  {
++    title: 'School collaboration kit',
++    description:
++      'Notice-response guides, teacher collaboration templates, and meeting notes.',
++    tagColor: 'text-point bg-point-subtle',
++  },
++  {
++    title: 'Emotional support kit',
++    description:
++      'Emotion logs, family conversation routines, and counseling resources.',
++    tagColor: 'text-info bg-info-subtle',
++  },
++]
++
++function ResourcesPage() {
++  return (
++    <section className="space-y-6">
++      <div className="space-y-2">
++        <h2 className="text-3xl font-bold leading-tight">Resources</h2>
++        <p className="text-text-secondary">
++          Materials are grouped by purpose so teams can find things fast.
++        </p>
++      </div>
++
++      <div className="grid gap-4 md:grid-cols-3">
++        {resourceGroups.map((group) => (
++          <article
++            key={group.title}
++            className="rounded-xl border border-border bg-surface p-5"
++          >
++            <span
++              className={`inline-flex rounded-md px-2 py-1 text-xs font-semibold ${group.tagColor}`}
++            >
++              Resource set
++            </span>
++            <h3 className="mt-3 text-lg font-semibold">{group.title}</h3>
++            <p className="mt-2 text-sm text-text-secondary">{group.description}</p>
++          </article>
++        ))}
++      </div>
++    </section>
++  )
++}
++
++export default ResourcesPage
+
+
+diff --git a/frontend/src/pages/resources/index.ts b/frontend/src/pages/resources/index.ts
+--- /dev/null
++++ b/frontend/src/pages/resources/index.ts
+@@ -0,0 +1 @@
++export { default as ResourcesPage } from './ui/ResourcesPage'
+
+
+diff --git a/frontend/src/pages/index.ts b/frontend/src/pages/index.ts
+--- /dev/null
++++ b/frontend/src/pages/index.ts
+@@ -0,0 +1,5 @@
++export { FaqPage } from '@/pages/faq'
++export { HomePage } from '@/pages/home'
++export { NotFoundPage } from '@/pages/not-found'
++export { ProgramsPage } from '@/pages/programs'
++export { ResourcesPage } from '@/pages/resources'
+
+
+diff --git a/frontend/src/shared/constants/routes.ts b/frontend/src/shared/constants/routes.ts
+--- /dev/null
++++ b/frontend/src/shared/constants/routes.ts
+@@ -0,0 +1,6 @@
++export const ROUTES = {
++  home: '/',
++  programs: '/programs',
++  resources: '/resources',
++  faq: '/faq',
++} as const
+
+
+diff --git a/frontend/src/shared/hooks/useBoolean.ts b/frontend/src/shared/hooks/useBoolean.ts
+--- /dev/null
++++ b/frontend/src/shared/hooks/useBoolean.ts
+@@ -0,0 +1,16 @@
++import { useCallback, useState } from 'react'
++
++export function useBoolean(initialValue = false) {
++  const [value, setValue] = useState(initialValue)
++
++  const setTrue = useCallback(() => setValue(true), [])
++  const setFalse = useCallback(() => setValue(false), [])
++  const toggle = useCallback(() => setValue((prev) => !prev), [])
++
++  return {
++    value,
++    setTrue,
++    setFalse,
++    toggle,
++  }
++}
+
+
+diff --git a/frontend/src/shared/lib/http/httpClient.ts b/frontend/src/shared/lib/http/httpClient.ts
+--- /dev/null
++++ b/frontend/src/shared/lib/http/httpClient.ts
+@@ -0,0 +1,92 @@
++﻿type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
++
++interface HttpRequestOptions extends Omit<RequestInit, 'body' | 'method'> {
++  method?: HttpMethod
++  data?: unknown
++}
++
++const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
++const DEFAULT_API_TIMEOUT_MS = 10_000
++const configuredTimeout = Number(import.meta.env.VITE_API_TIMEOUT_MS)
++const API_TIMEOUT_MS =
++  Number.isFinite(configuredTimeout) && configuredTimeout > 0
++    ? configuredTimeout
++    : DEFAULT_API_TIMEOUT_MS
++
++function createRequestSignal(timeoutMs: number, externalSignal?: AbortSignal) {
++  const controller = new AbortController()
++  let timedOut = false
++
++  const timeoutId = setTimeout(() => {
++    timedOut = true
++    controller.abort()
++  }, timeoutMs)
++
++  const onExternalAbort = () => {
++    controller.abort()
++  }
++
++  if (externalSignal) {
++    if (externalSignal.aborted) {
++      controller.abort()
++    } else {
++      externalSignal.addEventListener('abort', onExternalAbort, { once: true })
++    }
++  }
++
++  const cleanup = () => {
++    clearTimeout(timeoutId)
++    if (externalSignal) {
++      externalSignal.removeEventListener('abort', onExternalAbort)
++    }
++  }
++
++  return {
++    signal: controller.signal,
++    didTimeout: () => timedOut,
++    cleanup,
++  }
++}
++
++export async function httpRequest<T>(
++  path: string,
++  options: HttpRequestOptions = {},
++): Promise<T> {
++  const { data, headers, method = 'GET', signal: externalSignal, ...rest } = options
++  const { signal, didTimeout, cleanup } = createRequestSignal(
++    API_TIMEOUT_MS,
++    externalSignal ?? undefined,
++  )
++
++  let response: Response
++  try {
++    response = await fetch(`${API_BASE_URL}${path}`, {
++      method,
++      headers: {
++        'Content-Type': 'application/json',
++        ...headers,
++      },
++      body: data ? JSON.stringify(data) : undefined,
++      signal,
++      ...rest,
++    })
++  } catch (error) {
++    if (didTimeout()) {
++      throw new Error(`요청 시간이 초과되었습니다. (${API_TIMEOUT_MS}ms)`)
++    }
++    throw error
++  } finally {
++    cleanup()
++  }
++
++  if (!response.ok) {
++    throw new Error(`Request failed: ${response.status}`)
++  }
++
++  const contentType = response.headers.get('content-type') ?? ''
++  if (contentType.includes('application/json')) {
++    return (await response.json()) as T
++  }
++
++  return (await response.text()) as T
++}
+
+
+diff --git a/frontend/src/shared/ui/Button/Button.tsx b/frontend/src/shared/ui/Button/Button.tsx
+--- /dev/null
++++ b/frontend/src/shared/ui/Button/Button.tsx
+@@ -0,0 +1,29 @@
++﻿import type { ButtonHTMLAttributes } from 'react'
++
++type ButtonVariant = 'brand' | 'outline'
++
++interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
++  variant?: ButtonVariant
++}
++
++const baseClassName =
++  'inline-flex items-center justify-center rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors'
++
++const variantClassName: Record<ButtonVariant, string> = {
++  brand:
++    'bg-brand text-text-inverse hover:bg-brand-hover',
++  outline:
++    'border border-border bg-surface text-text-primary hover:border-border-strong',
++}
++
++function Button({ className = '', variant = 'brand', ...props }: ButtonProps) {
++  return (
++    <button
++      className={`${baseClassName} ${variantClassName[variant]} ${className}`}
++      {...props}
++    />
++  )
++}
++
++export default Button
++
+
+
+diff --git a/frontend/src/shared/ui/Button/index.ts b/frontend/src/shared/ui/Button/index.ts
+--- /dev/null
++++ b/frontend/src/shared/ui/Button/index.ts
+@@ -0,0 +1 @@
++export { default as Button } from './Button'
+
+
+diff --git a/frontend/src/shared/ui/Input/Input.tsx b/frontend/src/shared/ui/Input/Input.tsx
+--- /dev/null
++++ b/frontend/src/shared/ui/Input/Input.tsx
+@@ -0,0 +1,15 @@
++﻿import type { InputHTMLAttributes } from 'react'
++
++type InputProps = InputHTMLAttributes<HTMLInputElement>
++
++function Input({ className = '', ...props }: InputProps) {
++  return (
++    <input
++      className={`w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary focus:border-brand focus:outline-none ${className}`}
++      {...props}
++    />
++  )
++}
++
++export default Input
++
+
+
+diff --git a/frontend/src/shared/ui/Input/index.ts b/frontend/src/shared/ui/Input/index.ts
+--- /dev/null
++++ b/frontend/src/shared/ui/Input/index.ts
+@@ -0,0 +1 @@
++export { default as Input } from './Input'
+
+
+diff --git a/frontend/src/shared/ui/Typography/H1.tsx b/frontend/src/shared/ui/Typography/H1.tsx
+--- /dev/null
++++ b/frontend/src/shared/ui/Typography/H1.tsx
+@@ -0,0 +1,15 @@
++﻿import type { HTMLAttributes } from 'react'
++
++type H1Props = HTMLAttributes<HTMLHeadingElement>
++
++function H1({ className = '', ...props }: H1Props) {
++  return (
++    <h1
++      className={`text-3xl font-bold leading-tight text-text-primary md:text-4xl ${className}`}
++      {...props}
++    />
++  )
++}
++
++export default H1
++
+
+
+diff --git a/frontend/src/shared/ui/Typography/H2.tsx b/frontend/src/shared/ui/Typography/H2.tsx
+--- /dev/null
++++ b/frontend/src/shared/ui/Typography/H2.tsx
+
+diff --git a/frontend/src/shared/ui/Typography/index.ts b/frontend/src/shared/ui/Typography/index.ts
+--- /dev/null
++++ b/frontend/src/shared/ui/Typography/index.ts
+
+diff --git a/frontend/src/shared/ui/index.ts b/frontend/src/shared/ui/index.ts
+--- /dev/null
++++ b/frontend/src/shared/ui/index.ts
+
+diff --git a/frontend/src/App.tsx b/frontend/src/App.tsx
+--- /dev/null
++++ b/frontend/src/App.tsx
+
+diff --git a/frontend/src/index.css b/frontend/src/index.css
+--- /dev/null
++++ b/frontend/src/index.css
+
+diff --git a/frontend/src/main.tsx b/frontend/src/main.tsx
+--- /dev/null
++++ b/frontend/src/main.tsx
+
+diff --git a/frontend/.dockerignore b/frontend/.dockerignore
+--- /dev/null
++++ b/frontend/.dockerignore
+
+diff --git a/frontend/.gitignore b/frontend/.gitignore
+--- /dev/null
++++ b/frontend/.gitignore
+
+diff --git a/frontend/Dockerfile b/frontend/Dockerfile
+--- /dev/null
++++ b/frontend/Dockerfile
+
+diff --git a/frontend/eslint.config.js b/frontend/eslint.config.js
+--- /dev/null
++++ b/frontend/eslint.config.js
+
+diff --git a/frontend/index.html b/frontend/index.html
+--- /dev/null
++++ b/frontend/index.html
+
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+--- /dev/null
++++ b/frontend/package-lock.json
+
+diff --git a/frontend/package.json b/frontend/package.json
+--- /dev/null
++++ b/frontend/package.json
+
+diff --git a/frontend/tsconfig.app.json b/frontend/tsconfig.app.json
+--- /dev/null
++++ b/frontend/tsconfig.app.json
+
+diff --git a/frontend/tsconfig.json b/frontend/tsconfig.json
+--- /dev/null
++++ b/frontend/tsconfig.json
+
+diff --git a/frontend/tsconfig.node.json b/frontend/tsconfig.node.json
+--- /dev/null
++++ b/frontend/tsconfig.node.json
+
+diff --git a/frontend/vite.config.ts b/frontend/vite.config.ts
+--- /dev/null
++++ b/frontend/vite.config.ts
+
+diff --git a/.editorconfig b/.editorconfig
+--- /dev/null
++++ b/.editorconfig
+
+diff --git a/.env.example b/.env.example
+--- /dev/null
++++ b/.env.example
+
+diff --git a/.gitignore b/.gitignore
+--- /dev/null
++++ b/.gitignore
+
+diff --git a/.gitlab-ci.yml b/.gitlab-ci.yml
+--- a/.gitlab-ci.yml
++++ b/.gitlab-ci.yml
+
+diff --git a/.nvmrc b/.nvmrc
+--- /dev/null
++++ b/.nvmrc
+
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+
+diff --git a/docker-compose.yml b/docker-compose.yml
+--- /dev/null
++++ b/docker-compose.yml
+

@@ -1,0 +1,1746 @@
+﻿diff --git a/ai/models/tcn_mobile/best_sign_model_v6_float16.tflite b/ai/models/tcn_mobile/best_sign_model_v6_float16.tflite
+--- a/ai/models/tcn_mobile/best_sign_model_v6_float16.tflite
++++ /dev/null
+Binary files a/ai/models/tcn_mobile/best_sign_model_v6_float16.tflite and /dev/null differ
+
+
+diff --git a/ai/models/tcn_mobile/best_sign_model_v6_float32.tflite b/ai/models/tcn_mobile/best_sign_model_v6_float32.tflite
+--- a/ai/models/tcn_mobile/best_sign_model_v6_float32.tflite
++++ /dev/null
+Binary files a/ai/models/tcn_mobile/best_sign_model_v6_float32.tflite and /dev/null differ
+
+
+diff --git a/ai/models/tcn_mobile/best_sign_model_v7_float16.tflite b/ai/models/tcn_mobile/best_sign_model_v7_float16.tflite
+--- /dev/null
++++ b/ai/models/tcn_mobile/best_sign_model_v7_float16.tflite
+Binary files /dev/null and b/ai/models/tcn_mobile/best_sign_model_v7_float16.tflite differ
+
+
+diff --git a/ai/models/tcn_mobile/label_map_v6.json b/ai/models/tcn_mobile/label_map_v6.json
+--- a/ai/models/tcn_mobile/label_map_v6.json
++++ /dev/null
+@@ -1,25 +0,0 @@
+-{
+-    "0": "걷다",
+-    "1": "가다",
+-    "2": "주다",
+-    "3": "돕다",
+-    "4": "배고프다",
+-    "5": "아기",
+-    "6": "좋다",
+-    "7": "싫다",
+-    "8": "감기",
+-    "9": "기차",
+-    "10": "놀다",
+-    "11": "목마르다",
+-    "12": "무섭다",
+-    "13": "밥",
+-    "14": "손",
+-    "15": "아프다",
+-    "16": "웃다",
+-    "17": "장난감",
+-    "18": "조심",
+-    "19": "병원",
+-    "20": "엄마",
+-    "21": "감사",
+-    "22": "none"
+-}
+\ No newline at end of file
+
+
+diff --git a/ai/models/tcn_mobile/label_map_v7.json b/ai/models/tcn_mobile/label_map_v7.json
+--- /dev/null
++++ b/ai/models/tcn_mobile/label_map_v7.json
+@@ -0,0 +1,119 @@
++{
++    "0": "걷다",
++    "1": "가다",
++    "2": "주다",
++    "3": "돕다",
++    "4": "배고프다",
++    "5": "아기",
++    "6": "좋다",
++    "7": "싫다",
++    "8": "감기",
++    "9": "기차",
++    "10": "놀다",
++    "11": "목마르다",
++    "12": "무섭다",
++    "13": "밥",
++    "14": "손",
++    "15": "아프다",
++    "16": "웃다",
++    "17": "장난감",
++    "18": "조심",
++    "19": "병원",
++    "20": "엄마",
++    "21": "감사",
++    "22": "슬프다",
++    "23": "고민",
++    "24": "화나다",
++    "25": "당황",
++    "26": "귀엽다",
++    "27": "안타깝다",
++    "28": "창피하다",
++    "29": "소심",
++    "30": "불행",
++    "31": "침착",
++    "32": "자다",
++    "33": "서다",
++    "34": "일어나다",
++    "35": "달리다",
++    "36": "듣다",
++    "37": "쓰다",
++    "38": "포기",
++    "39": "집중",
++    "40": "눈",
++    "41": "몸",
++    "42": "팔",
++    "43": "라면",
++    "44": "딸기",
++    "45": "사과",
++    "46": "두부",
++    "47": "커피",
++    "48": "콜라",
++    "49": "우유",
++    "50": "소주",
++    "51": "식당",
++    "52": "돼지고기",
++    "53": "비빔밥",
++    "54": "냄비",
++    "55": "음료수",
++    "56": "에어컨",
++    "57": "이불",
++    "58": "운동화",
++    "59": "치약",
++    "60": "마스크",
++    "61": "남자",
++    "62": "여자",
++    "63": "남녀",
++    "64": "손자",
++    "65": "손녀",
++    "66": "외국인",
++    "67": "장애인",
++    "68": "농인",
++    "69": "의사",
++    "70": "교수",
++    "71": "간호사",
++    "72": "요리사",
++    "73": "경찰서",
++    "74": "가수",
++    "75": "코치",
++    "76": "통역사",
++    "77": "기차역",
++    "78": "주차장",
++    "79": "터미널",
++    "80": "서점",
++    "81": "백화점",
++    "82": "주유소",
++    "83": "하늘",
++    "84": "강",
++    "85": "파도",
++    "86": "강아지",
++    "87": "입원",
++    "88": "치료",
++    "89": "퇴원",
++    "90": "당뇨병",
++    "91": "불면증",
++    "92": "모르다",
++    "93": "알다",
++    "94": "없다",
++    "95": "오다",
++    "96": "받다",
++    "97": "행복",
++    "98": "즐겁다",
++    "99": "피곤하다",
++    "100": "바쁘다",
++    "101": "친구",
++    "102": "여동생",
++    "103": "할머니",
++    "104": "할아버지",
++    "105": "비",
++    "106": "바람",
++    "107": "연구",
++    "108": "회복",
++    "109": "시험",
++    "110": "학습",
++    "111": "독서",
++    "112": "실수",
++    "113": "위로",
++    "114": "소개",
++    "115": "성실",
++    "116": "none"
++}
+\ No newline at end of file
+
+
+diff --git a/ai/models/tcn_mobile/train_config_v6.json b/ai/models/tcn_mobile/train_config_v6.json
+--- a/ai/models/tcn_mobile/train_config_v6.json
++++ /dev/null
+@@ -1,240 +0,0 @@
+-{
+-    "run_idx": 2,
+-    "data_dir": "/home/j-k14a404/Kim/Ondevice_training_v6/processed_npy_v6",
+-    "model_dir_name": "v6_24words_tcn",
+-    "model_type": "tcn",
+-    "epochs": 120,
+-    "batch_size": 16,
+-    "learning_rate": 0.001,
+-    "weight_decay": 0.0,
+-    "input_dim": 332,
+-    "max_len": 30,
+-    "d_model": 128,
+-    "num_heads": 8,
+-    "num_layers": 3,
+-    "num_workers": 2,
+-    "pin_memory": true,
+-    "persistent_workers": true,
+-    "use_class_weights": false,
+-    "use_scheduler": false,
+-    "scheduler_factor": 0.5,
+-    "scheduler_patience": 12,
+-    "use_balanced_sampler": false,
+-    "single_batch_check_steps": 200,
+-    "use_early_stopping": true,
+-    "early_stopping_patience": 25,
+-    "early_stopping_min_delta": 0.001,
+-    "classes": [
+-        "걷다",
+-        "가다",
+-        "주다",
+-        "돕다",
+-        "배고프다",
+-        "아기",
+-        "좋다",
+-        "싫다",
+-        "감기",
+-        "기차",
+-        "놀다",
+-        "목마르다",
+-        "무섭다",
+-        "밥",
+-        "손",
+-        "아프다",
+-        "웃다",
+-        "장난감",
+-        "조심",
+-        "병원",
+-        "엄마",
+-        "감사",
+-        "none"
+-    ],
+-    "stats": {
+-        "class_counts": {
+-            "걷다": 80,
+-            "가다": 80,
+-            "주다": 80,
+-            "돕다": 80,
+-            "배고프다": 80,
+-            "아기": 80,
+-            "좋다": 80,
+-            "싫다": 80,
+-            "감기": 80,
+-            "기차": 80,
+-            "놀다": 80,
+-            "목마르다": 80,
+-            "무섭다": 80,
+-            "밥": 80,
+-            "손": 80,
+-            "아프다": 80,
+-            "웃다": 80,
+-            "장난감": 80,
+-            "조심": 80,
+-            "병원": 75,
+-            "엄마": 75,
+-            "감사": 80,
+-            "none": 60
+-        },
+-        "variant_counts": {
+-            "걷다/걷다": 80,
+-            "가다/가다": 80,
+-            "주다/주다": 80,
+-            "돕다/돕다": 80,
+-            "배고프다/배고프다": 80,
+-            "아기/아기": 80,
+-            "좋다/좋다": 80,
+-            "싫다/싫다": 80,
+-            "감기/감기": 80,
+-            "기차/기차": 80,
+-            "놀다/놀다": 80,
+-            "목마르다/목마르다": 80,
+-            "무섭다/무섭다": 80,
+-            "밥/밥": 80,
+-            "손/손": 80,
+-            "아프다/아프다": 80,
+-            "웃다/웃다": 80,
+-            "장난감/장난감": 80,
+-            "조심/조심": 80,
+-            "병원/병원": 75,
+-            "엄마/엄마": 75,
+-            "감사/감사": 80,
+-            "none/none": 60
+-        },
+-        "priority_file_keywords": [
+-            "_FRONT",
+-            "_LEFT",
+-            "_RIGHT"
+-        ],
+-        "priority_file_counts": {
+-            "걷다": 0,
+-            "가다": 0,
+-            "주다": 0,
+-            "돕다": 0,
+-            "배고프다": 0,
+-            "아기": 0,
+-            "좋다": 0,
+-            "싫다": 0,
+-            "감기": 0,
+-            "기차": 0,
+-            "놀다": 0,
+-            "목마르다": 0,
+-            "무섭다": 0,
+-            "밥": 0,
+-            "손": 0,
+-            "아프다": 0,
+-            "웃다": 0,
+-            "장난감": 0,
+-            "조심": 0,
+-            "병원": 0,
+-            "엄마": 0,
+-            "감사": 0,
+-            "none": 60
+-        },
+-        "train_class_counts": {
+-            "걷다": 120,
+-            "가다": 120,
+-            "주다": 120,
+-            "돕다": 120,
+-            "배고프다": 120,
+-            "아기": 120,
+-            "좋다": 120,
+-            "싫다": 120,
+-            "감기": 120,
+-            "기차": 120,
+-            "놀다": 120,
+-            "목마르다": 120,
+-            "무섭다": 120,
+-            "밥": 120,
+-            "손": 120,
+-            "아프다": 120,
+-            "웃다": 120,
+-            "장난감": 120,
+-            "조심": 120,
+-            "병원": 120,
+-            "엄마": 120,
+-            "감사": 120,
+-            "none": 120
+-        },
+-        "val_class_counts": {
+-            "걷다": 16,
+-            "가다": 16,
+-            "주다": 16,
+-            "돕다": 16,
+-            "배고프다": 16,
+-            "아기": 16,
+-            "좋다": 16,
+-            "싫다": 16,
+-            "감기": 16,
+-            "기차": 16,
+-            "놀다": 16,
+-            "목마르다": 16,
+-            "무섭다": 16,
+-            "밥": 16,
+-            "손": 16,
+-            "아프다": 16,
+-            "웃다": 16,
+-            "장난감": 16,
+-            "조심": 16,
+-            "병원": 15,
+-            "엄마": 15,
+-            "감사": 16,
+-            "none": 12
+-        },
+-        "target_variants": {},
+-        "max_files_per_class": {},
+-        "file_sample_seed": 42,
+-        "total_size": 3122,
+-        "original_total_size": 1810,
+-        "train_size": 2760,
+-        "original_train_size": 1448,
+-        "val_size": 362,
+-        "stratified_split": true,
+-        "balanced_sampling": false,
+-        "use_augmentation": true,
+-        "normalize_mode": "none",
+-        "target_samples_per_class": 120,
+-        "augmentation_counts": {
+-            "걷다": 56,
+-            "가다": 56,
+-            "주다": 56,
+-            "돕다": 56,
+-            "배고프다": 56,
+-            "아기": 56,
+-            "좋다": 56,
+-            "싫다": 56,
+-            "감기": 56,
+-            "기차": 56,
+-            "놀다": 56,
+-            "목마르다": 56,
+-            "무섭다": 56,
+-            "밥": 56,
+-            "손": 56,
+-            "아프다": 56,
+-            "웃다": 56,
+-            "장난감": 56,
+-            "조심": 56,
+-            "병원": 60,
+-            "엄마": 60,
+-            "감사": 56,
+-            "none": 72
+-        },
+-        "augmentation": {
+-            "seed": 2026,
+-            "noise_std": 0.005,
+-            "time_scale_range": [
+-                0.95,
+-                1.05
+-            ],
+-            "time_shift_range": [
+-                -2,
+-                2
+-            ]
+-        },
+-        "dataloader": {
+-            "num_workers": 2,
+-            "pin_memory": true,
+-            "persistent_workers": true
+-        },
+-        "skipped_file_count": 0
+-    }
+-}
+\ No newline at end of file
+
+
+diff --git a/ai/models/tcn_mobile/train_config_v7.json b/ai/models/tcn_mobile/train_config_v7.json
+--- /dev/null
++++ b/ai/models/tcn_mobile/train_config_v7.json
+
+diff --git a/ai/src/sign2text_tcn/aihub_to_local_npy_pipeline.py b/ai/src/sign2text_tcn/aihub_to_local_npy_pipeline.py
+--- a/ai/src/sign2text_tcn/aihub_to_local_npy_pipeline.py
++++ b/ai/src/sign2text_tcn/aihub_to_local_npy_pipeline.py
+@@ -15,8 +15,8 @@ import mediapipe as mp
+ import numpy as np
+ 
+ 
+-DEFAULT_MAPPING = "AI_Hub_Video_Mapping_v6.json"
+-DEFAULT_OUTPUT_DIR = "processed_npy_v6"
++DEFAULT_MAPPING = "AI_Hub_Video_Mapping_v7.json"
++DEFAULT_OUTPUT_DIR = "processed_npy_v7"
+ DEFAULT_MAX_WORKERS = 2
+ DEFAULT_BATCH_SIZE = 4
+ DEFAULT_TASKS_PER_CHILD = 1
+@@ -289,7 +289,7 @@ def parse_args():
+     parser.add_argument("--filekey-range", help="Inclusive range, e.g. 39547:39577.")
+     parser.add_argument("--aihubshell", default="./aihubshell", help="Path to aihubshell.")
+     parser.add_argument("--aihub-api-key", default=os.environ.get("AIHUB_API_KEY"))
+-    parser.add_argument("--download-dir", default="./aihub_downloads_v6")
++    parser.add_argument("--download-dir", default="./aihub_downloads_v7")
+     parser.add_argument("--mapping", default=DEFAULT_MAPPING)
+     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+     parser.add_argument("--overwrite", action="store_true")
+
+
+diff --git a/ai/src/sign2text_tcn/convert_to_tflite.py b/ai/src/sign2text_tcn/convert_to_tflite.py
+--- a/ai/src/sign2text_tcn/convert_to_tflite.py
++++ b/ai/src/sign2text_tcn/convert_to_tflite.py
+@@ -26,12 +26,7 @@ from model import build_ksl_model_v6
+ SCRIPT_DIR = Path(__file__).resolve().parent
+ MODELS_ROOT = SCRIPT_DIR / "models"
+ DEFAULT_MODEL_DIR_NAMES = [
+-    "v6_24words_mlp_1",
+-    "v6_24words_mlp",
+-    "v6_24words_transformer_1",
+-    "v6_24words_transformer",
+-    "v6_24words_transformer_baseline",
+-    "attempt1_v6_24words_baseline",
++    "v7_117words_tcn_2",
+ ]
+ DEFAULT_MODEL_DIR = MODELS_ROOT / DEFAULT_MODEL_DIR_NAMES[0]
+ 
+@@ -75,7 +70,7 @@ def resolve_model_dir(model_dir=None):
+             return candidate
+ 
+     numbered_dirs = [
+-        path for path in MODELS_ROOT.glob("v6_24words_*_*")
++        path for path in MODELS_ROOT.glob("v7_117words_*_*")
+         if path.is_dir() and path.name.rsplit("_", 1)[-1].isdigit()
+     ]
+     if numbered_dirs:
+@@ -88,8 +83,7 @@ def find_latest_numbered_pair(model_dir):
+     pairs = []
+ 
+     for model_prefix, label_prefix, config_prefix in (
+-        ("best_sign_model_v6_", "label_map_v6_", "train_config_v6_"),
+-        ("best_sign_model_v5_", "label_map_v5_", "train_config_v5_"),
++        ("best_sign_model_v7_", "label_map_v7_", "train_config_v7_"),
+     ):
+         for model_path in model_dir.glob(f"{model_prefix}*.pt"):
+             suffix = model_path.stem.replace(model_prefix, "")
+@@ -106,8 +100,7 @@ def find_latest_numbered_pair(model_dir):
+                 pairs.append((int(suffix), model_path, config_path))
+ 
+     for legacy_model_name, legacy_label_name in (
+-        ("best_sign_model_v6.pt", "label_map_v6.json"),
+-        ("best_sign_model_v5.pt", "label_map_v5.json"),
++        ("best_sign_model_v7.pt", "label_map_v7.json"),
+     ):
+         legacy_model_path = model_dir / legacy_model_name
+         legacy_label_map_path = model_dir / legacy_label_name
+@@ -122,7 +115,7 @@ def find_latest_numbered_pair(model_dir):
+ 
+ 
+ def load_train_config(model_path):
+-    config_path = model_path.parent / "train_config_v6.json"
++    config_path = model_path.parent / "train_config_v7.json"
+     if not config_path.exists():
+         return {}
+     with config_path.open("r", encoding="utf-8") as f:
+@@ -333,10 +326,10 @@ def convert_pt_to_tflite(
+ 
+ 
+ def parse_args():
+-    parser = argparse.ArgumentParser(description="Convert V6 PyTorch model to TFLite.")
+-    parser.add_argument("--model-dir", default=None, help="Model directory name/path. Defaults to the V6 24-word model.")
+-    parser.add_argument("--model", default=None, help="Path to .pt model. Defaults to latest numbered V6 model.")
+-    parser.add_argument("--label-map", default=None, help="Path to label_map_v6_*.json. Defaults to matching latest model.")
++    parser = argparse.ArgumentParser(description="Convert V7 PyTorch model to TFLite.")
++    parser.add_argument("--model-dir", default=None, help="Model directory name/path. Defaults to the V7 117-class model.")
++    parser.add_argument("--model", default=None, help="Path to .pt model. Defaults to latest numbered V7 model.")
++    parser.add_argument("--label-map", default=None, help="Path to label_map_v7_*.json. Defaults to matching latest model.")
+     parser.add_argument("--onnx", default=None, help="Output .onnx path")
+     parser.add_argument("--tflite", default=None, help="Output .tflite base path")
+     parser.add_argument(
+@@ -358,10 +351,10 @@ if __name__ == "__main__":
+     label_map_path = Path(args.label_map) if args.label_map else latest_label_map_path
+ 
+     if model_path is None or label_map_path is None:
+-        model_path = model_dir / "best_sign_model_v6.pt"
+-        label_map_path = model_dir / "label_map_v6.json"
++        model_path = model_dir / "best_sign_model_v7.pt"
++        label_map_path = model_dir / "label_map_v7.json"
+ 
+-    output_stem = model_path.stem if model_path is not None else "best_sign_model_v6"
++    output_stem = model_path.stem if model_path is not None else "best_sign_model_v7"
+     onnx_path = Path(args.onnx) if args.onnx else model_dir / f"{output_stem}.onnx"
+     tflite_path = Path(args.tflite) if args.tflite else model_dir / f"{output_stem}.tflite"
+ 
+
+
+diff --git a/ai/src/sign2text_tcn/dataset.py b/ai/src/sign2text_tcn/dataset.py
+--- a/ai/src/sign2text_tcn/dataset.py
++++ b/ai/src/sign2text_tcn/dataset.py
+@@ -7,13 +7,22 @@ import torch
+ from sklearn.model_selection import train_test_split
+ from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
+ 
+-from target_words_v6 import TARGET_WORDS
++from target_words_v7 import TARGET_WORDS
+ 
+ TARGET_CLASSES = TARGET_WORDS
+ TARGET_VARIANTS = {}
+-MAX_FILES_PER_CLASS_VALUE = int(os.environ.get("V6_MAX_FILES_PER_CLASS", "0"))
++MAX_FILES_PER_CLASS_VALUE = int(os.environ.get("V6_MAX_FILES_PER_CLASS", "80"))
++MAX_FILES_EXEMPT_CLASSES = {
++    class_name.strip()
++    for class_name in os.environ.get("V6_MAX_FILES_EXEMPT_CLASSES", "병원,엄마,none").split(",")
++    if class_name.strip()
++}
+ MAX_FILES_PER_CLASS = (
+-    {class_name: MAX_FILES_PER_CLASS_VALUE for class_name in TARGET_CLASSES}
++    {
++        class_name: MAX_FILES_PER_CLASS_VALUE
++        for class_name in TARGET_CLASSES
++        if class_name not in MAX_FILES_EXEMPT_CLASSES
++    }
+     if MAX_FILES_PER_CLASS_VALUE > 0
+     else {}
+ )
+@@ -212,7 +221,7 @@ class KSLDatasetV6(Dataset):
+         return np.array(padded, dtype=np.float32), self.max_len
+ 
+ 
+-# Backward-compatible alias for older helper scripts. New V6 training uses KSLDatasetV6.
++# Backward-compatible alias for older helper scripts.
+ KSLDatasetV5 = KSLDatasetV6
+ 
+ 
+@@ -463,6 +472,7 @@ def create_dataloaders_v6(
+         "balanced_sampling": balanced_sampling,
+         "target_variants": target_variants,
+         "max_files_per_class": MAX_FILES_PER_CLASS,
++        "max_files_exempt_classes": sorted(MAX_FILES_EXEMPT_CLASSES),
+         "file_sample_seed": FILE_SAMPLE_SEED,
+         "use_augmentation": USE_AUGMENTATION,
+         "normalize_mode": NORMALIZE_MODE,
+@@ -484,5 +494,5 @@ def create_dataloaders_v6(
+     return train_loader, val_loader, classes, class_weights_tensor, stats
+ 
+ 
+-# Backward-compatible alias for older scripts. Prefer create_dataloaders_v6 in new code.
++# Backward-compatible alias for older scripts.
+ create_dataloaders_v5 = create_dataloaders_v6
+
+
+diff --git a/ai/src/sign2text_tcn/inference_realtime_tflite_v6.py b/ai/src/sign2text_tcn/inference_realtime_tflite_v6.py
+--- a/ai/src/sign2text_tcn/inference_realtime_tflite_v6.py
++++ /dev/null
+@@ -1,511 +0,0 @@
+-import argparse
+-import json
+-import time
+-from collections import Counter, deque
+-from datetime import datetime
+-from pathlib import Path
+-
+-import cv2
+-import mediapipe as mp
+-import numpy as np
+-
+-try:
+-    import tensorflow as tf
+-except ImportError:
+-    print("TensorFlow is not installed. Please install it with `pip install tensorflow`.")
+-    raise SystemExit(1)
+-
+-from PIL import Image, ImageDraw, ImageFont
+-
+-INPUT_DIM = 332
+-LANDMARK_DIM = 282
+-MAX_LEN = 30
+-CONFIDENCE_THRESHOLD = 0.80
+-PREDICTION_SMOOTHING = 5
+-STABLE_MIN_COUNT = 4
+-
+-BASE_DIR = Path(__file__).resolve().parent / "models"
+-DEFAULT_MODEL_DIR = "v6_24words_tcn_2"
+-
+-NEUTRAL_FACE_WINDOW = 45
+-MIN_NEUTRAL_FACE_SAMPLES = 15
+-QUESTION_EYEBROW_DELTA_THRESHOLD = 0.055
+-
+-LEFT_EYEBROW_IDXS = [70, 63, 105, 66]
+-RIGHT_EYEBROW_IDXS = [336, 296, 334, 293]
+-LEFT_EYE_CENTER_IDXS = [33, 133]
+-RIGHT_EYE_CENTER_IDXS = [362, 263]
+-
+-BASE_FACE_IDXS = [
+-    70, 63, 105, 66,
+-    336, 296, 334, 293,
+-    33, 160, 158, 133, 153, 144,
+-    362, 385, 387, 263, 373, 380,
+-    61, 146, 91, 181, 84, 17, 314, 405, 321, 375,
+-]
+-FACEPLUS_IDXS = [
+-    1, 4,
+-    152,
+-    234, 454,
+-    172, 397,
+-    148, 377,
+-    13, 14,
+-    78, 308,
+-    82, 312,
+-]
+-FACE_IDXS = BASE_FACE_IDXS + FACEPLUS_IDXS
+-POSE_IDXS = [0, 7, 8, 11, 12, 13, 14]
+-HAND_TIP_IDXS = [4, 8, 12, 16, 20]
+-FACE_ANCHOR_IDXS = [1, 13, 152, 234, 454]
+-
+-LEFT_SHOULDER_IDX = 90
+-RIGHT_SHOULDER_IDX = 91
+-
+-
+-def resolve_from_base(path):
+-    path = Path(path)
+-    if path.is_absolute():
+-        return path
+-    return (BASE_DIR / path).resolve()
+-
+-
+-def _flatten_landmarks(landmarks, idxs):
+-    return np.array(
+-        [[landmarks[idx].x, landmarks[idx].y, landmarks[idx].z] for idx in idxs],
+-        dtype=np.float32,
+-    ).flatten()
+-
+-
+-def _hand_array(hand_landmarks):
+-    if not hand_landmarks:
+-        return np.zeros((21, 3), dtype=np.float32), False
+-    points = np.array([[lm.x, lm.y, lm.z] for lm in hand_landmarks.landmark], dtype=np.float32)
+-    return points, True
+-
+-
+-def _hand_face_distances(left_hand, left_present, right_hand, right_present, face_landmarks):
+-    if not face_landmarks:
+-        return np.zeros(len(HAND_TIP_IDXS) * 2 * len(FACE_ANCHOR_IDXS), dtype=np.float32)
+-
+-    anchors = np.array(
+-        [
+-            [face_landmarks.landmark[idx].x, face_landmarks.landmark[idx].y, face_landmarks.landmark[idx].z]
+-            for idx in FACE_ANCHOR_IDXS
+-        ],
+-        dtype=np.float32,
+-    )
+-
+-    features = []
+-    for hand_points, is_present in ((left_hand, left_present), (right_hand, right_present)):
+-        if not is_present:
+-            features.extend([0.0] * (len(HAND_TIP_IDXS) * len(FACE_ANCHOR_IDXS)))
+-            continue
+-
+-        for tip_idx in HAND_TIP_IDXS:
+-            tip = hand_points[tip_idx]
+-            features.extend(np.linalg.norm(anchors - tip, axis=1).tolist())
+-
+-    return np.array(features, dtype=np.float32)
+-
+-
+-def extract_keypoints(results, last_pose, last_face, normalize_mode):
+-    left_hand, left_present = _hand_array(results.left_hand_landmarks)
+-    right_hand, right_present = _hand_array(results.right_hand_landmarks)
+-    lh = left_hand.flatten()
+-    rh = right_hand.flatten()
+-
+-    if results.face_landmarks:
+-        face = _flatten_landmarks(results.face_landmarks.landmark, FACE_IDXS)
+-        last_face = face
+-    else:
+-        face = last_face if last_face is not None else np.zeros(len(FACE_IDXS) * 3, dtype=np.float32)
+-
+-    if results.pose_landmarks:
+-        pose = _flatten_landmarks(results.pose_landmarks.landmark, POSE_IDXS)
+-        last_pose = pose
+-    else:
+-        pose = last_pose if last_pose is not None else np.zeros(len(POSE_IDXS) * 3, dtype=np.float32)
+-
+-    distances = _hand_face_distances(
+-        left_hand,
+-        left_present,
+-        right_hand,
+-        right_present,
+-        results.face_landmarks,
+-    )
+-
+-    feature = np.concatenate([lh, rh, face, pose, distances]).astype(np.float32)
+-    if feature.shape[0] != INPUT_DIM:
+-        raise ValueError(f"Unexpected feature dim: {feature.shape[0]} != {INPUT_DIM}")
+-
+-    return normalize_features(feature, normalize_mode), last_pose, last_face
+-
+-
+-def normalize_features(feature, normalize_mode):
+-    if normalize_mode in ("none", "raw", "off"):
+-        return np.array(feature, dtype=np.float32)
+-
+-    landmarks = feature[:LANDMARK_DIM].reshape(-1, 3)
+-    distances = feature[LANDMARK_DIM:]
+-
+-    l_shoulder = landmarks[LEFT_SHOULDER_IDX]
+-    r_shoulder = landmarks[RIGHT_SHOULDER_IDX]
+-    shoulder_center = (l_shoulder + r_shoulder) / 2.0
+-
+-    shoulder_width = np.linalg.norm(l_shoulder - r_shoulder)
+-    if shoulder_width < 1e-6:
+-        shoulder_width = 1.0
+-
+-    normalized_landmarks = (landmarks - shoulder_center) / shoulder_width
+-    normalized_distances = distances / shoulder_width
+-    return np.concatenate([normalized_landmarks.flatten(), normalized_distances]).astype(np.float32)
+-
+-
+-def get_normalized_eyebrow_gap(results):
+-    if not results.face_landmarks:
+-        return None
+-
+-    landmarks = results.face_landmarks.landmark
+-    left_eye = np.mean([[landmarks[idx].x, landmarks[idx].y] for idx in LEFT_EYE_CENTER_IDXS], axis=0)
+-    right_eye = np.mean([[landmarks[idx].x, landmarks[idx].y] for idx in RIGHT_EYE_CENTER_IDXS], axis=0)
+-    eye_distance = np.linalg.norm(left_eye - right_eye)
+-    if eye_distance < 1e-6:
+-        return None
+-
+-    eyebrow_y = np.mean([landmarks[idx].y for idx in LEFT_EYEBROW_IDXS + RIGHT_EYEBROW_IDXS])
+-    eye_y = np.mean([landmarks[idx].y for idx in LEFT_EYE_CENTER_IDXS + RIGHT_EYE_CENTER_IDXS])
+-    return float((eye_y - eyebrow_y) / eye_distance)
+-
+-
+-def classify_sentence_type(current_gap, neutral_gaps):
+-    if current_gap is None or len(neutral_gaps) < MIN_NEUTRAL_FACE_SAMPLES:
+-        return "평서문", 0.0, None
+-
+-    neutral_gap = float(np.median(neutral_gaps))
+-    eyebrow_delta = current_gap - neutral_gap
+-
+-    if eyebrow_delta >= QUESTION_EYEBROW_DELTA_THRESHOLD:
+-        return "의문문", eyebrow_delta, neutral_gap
+-
+-    return "평서문", eyebrow_delta, neutral_gap
+-
+-
+-def has_visible_hand(results):
+-    return results.left_hand_landmarks is not None or results.right_hand_landmarks is not None
+-
+-
+-def pad_sequence(sequence, max_len=MAX_LEN):
+-    frames = np.array(sequence, dtype=np.float32)
+-    if len(frames) == 0:
+-        return np.zeros((max_len, INPUT_DIM), dtype=np.float32)
+-
+-    if len(frames) > max_len:
+-        indices = np.linspace(0, len(frames) - 1, max_len, dtype=int)
+-        return frames[indices]
+-
+-    if len(frames) < 15:
+-        indices = np.linspace(0, len(frames) - 1, max_len)
+-        upsampled = np.zeros((max_len, INPUT_DIM), dtype=np.float32)
+-        for i, float_idx in enumerate(indices):
+-            low = int(np.floor(float_idx))
+-            high = int(np.ceil(float_idx))
+-            weight = float_idx - low
+-            if low == high:
+-                upsampled[i] = frames[low]
+-            else:
+-                upsampled[i] = frames[low] * (1 - weight) + frames[high] * weight
+-        return upsampled
+-
+-    pad_len = max_len - len(frames)
+-    padding = np.repeat(frames[-1:], pad_len, axis=0)
+-    return np.vstack((frames, padding)).astype(np.float32)
+-
+-
+-def draw_text(frame, lines):
+-    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+-    draw = ImageDraw.Draw(image)
+-
+-    try:
+-        font = ImageFont.truetype("malgun.ttf", 30)
+-    except Exception:
+-        font = ImageFont.load_default()
+-
+-    y = 25
+-    for line in lines:
+-        draw.text((25, y), line, font=font, fill=(0, 255, 0))
+-        y += 38
+-
+-    return cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+-
+-
+-def build_inference_payload(probs, label_map, confidence_threshold):
+-    max_idx = int(np.argmax(probs))
+-    top_indices = np.argsort(probs)[::-1]
+-    second_idx = int(top_indices[1]) if len(top_indices) > 1 else None
+-
+-    confidence = float(probs[max_idx])
+-    second_confidence = float(probs[second_idx]) if second_idx is not None else None
+-    margin = confidence - second_confidence if second_confidence is not None else confidence
+-    raw_gloss = label_map[max_idx]
+-    accepted = confidence >= confidence_threshold
+-
+-    return {
+-        "gloss": raw_gloss if accepted else "unknown",
+-        "rawGloss": raw_gloss,
+-        "confidence": confidence,
+-        "margin": float(margin),
+-        "classIndex": max_idx,
+-        "secondGloss": label_map[second_idx] if second_idx is not None else None,
+-        "secondConfidence": second_confidence,
+-        "accepted": accepted,
+-        "rejectionReason": None if accepted else "low_confidence",
+-    }
+-
+-
+-def dump_utterance(output_dir, glosses, sentence_type, segment_frames, sequence_snapshot, inference_result):
+-    if not glosses or not segment_frames or sequence_snapshot is None:
+-        return
+-
+-    output_dir.mkdir(parents=True, exist_ok=True)
+-    payload = {
+-        "createdAt": datetime.now().isoformat(timespec="milliseconds"),
+-        "glosses": list(glosses),
+-        "sentenceType": sentence_type,
+-        "segmentFrameCount": len(segment_frames),
+-        "segmentHandFrameCount": sum(1 for frame in segment_frames if frame["hasHands"]),
+-        "segmentTimestampsMs": [frame["timestampMs"] for frame in segment_frames],
+-        "segmentHasHands": [frame["hasHands"] for frame in segment_frames],
+-        "sequenceTimestampsMs": sequence_snapshot["timestampsMs"],
+-        "inference": inference_result,
+-        "sequenceFrames": sequence_snapshot["frames"],
+-    }
+-
+-    safe_glosses = "_".join(glosses) if glosses else "empty"
+-    filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]}_{safe_glosses}.json"
+-    target_path = output_dir / filename
+-    target_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+-    print(f"Debug dump saved: {target_path}")
+-
+-
+-def parse_args():
+-    parser = argparse.ArgumentParser(description="Realtime webcam inference for V6 TFLite models.")
+-    parser.add_argument("--model-dir", default=DEFAULT_MODEL_DIR, help="Model directory")
+-    parser.add_argument(
+-        "--precision",
+-        choices=["float32", "float16"],
+-        default="float16",
+-        help="Precision of the tflite model to load",
+-    )
+-    parser.add_argument(
+-        "--dump-dir",
+-        default=None,
+-        help="Optional directory for PC TFLite utterance dumps. Defaults to <model_dir>/pc-sign-pipeline-dumps",
+-    )
+-    return parser.parse_args()
+-
+-
+-def main():
+-    args = parse_args()
+-    model_dir = resolve_from_base(args.model_dir)
+-    dump_dir = Path(args.dump_dir).resolve() if args.dump_dir else (model_dir / "pc-sign-pipeline-dumps")
+-
+-    tflite_path = model_dir / f"best_sign_model_v6_{args.precision}.tflite"
+-    config_path = model_dir / "train_config_v6.json"
+-    label_map_path = model_dir / "label_map_v6.json"
+-
+-    if not tflite_path.exists() or not config_path.exists() or not label_map_path.exists():
+-        print(f"Model files not found in {model_dir}. Please make sure you copied the .tflite files here!")
+-        print(f"Missing: {tflite_path}")
+-        return
+-
+-    with open(config_path, "r", encoding="utf-8") as f:
+-        config = json.load(f)
+-
+-    with open(label_map_path, "r", encoding="utf-8") as f:
+-        label_map_raw = json.load(f)
+-        label_map = {int(k): v for k, v in label_map_raw.items()}
+-
+-    normalize_mode = config["stats"].get("normalize_mode", "shoulder")
+-    num_classes = len(label_map)
+-
+-    print(f"Loading TFLite model from {tflite_path} ...")
+-    interpreter = tf.lite.Interpreter(model_path=str(tflite_path))
+-    interpreter.allocate_tensors()
+-    input_details = interpreter.get_input_details()
+-    output_details = interpreter.get_output_details()
+-
+-    print(f"Loaded {args.precision} TFLite model!")
+-    print(f"Normalize Mode: {normalize_mode}")
+-    print(f"Classes: {num_classes}")
+-    print(f"Dump Dir: {dump_dir}")
+-
+-    mp_holistic = mp.solutions.holistic
+-    mp_drawing = mp.solutions.drawing_utils
+-    cap = cv2.VideoCapture(0)
+-
+-    frame_window = deque(maxlen=MAX_LEN)
+-    prediction_window = deque(maxlen=PREDICTION_SMOOTHING)
+-
+-    current_action = "none"
+-    current_confidence = 0.0
+-    last_pose = None
+-    last_face = None
+-
+-    locked_action = "none"
+-    locked_time = 0.0
+-    last_logged_action = None
+-
+-    missing_hand_frames = 0
+-    sentence_buffer = []
+-    segment_frames = []
+-    last_sequence_snapshot = None
+-    last_inference_result = None
+-
+-    neutral_gaps = deque(maxlen=NEUTRAL_FACE_WINDOW)
+-    sentence_is_question = False
+-
+-    with mp_holistic.Holistic(
+-        static_image_mode=False,
+-        min_detection_confidence=0.5,
+-        min_tracking_confidence=0.5,
+-    ) as holistic:
+-        while cap.isOpened():
+-            success, frame = cap.read()
+-            if not success:
+-                break
+-
+-            image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+-            results = holistic.process(image_rgb)
+-
+-            hand_visible = has_visible_hand(results)
+-            eyebrow_gap = get_normalized_eyebrow_gap(results)
+-            frame_timestamp_ms = int(time.time() * 1000)
+-            segment_frames.append({
+-                "timestampMs": frame_timestamp_ms,
+-                "hasHands": hand_visible,
+-            })
+-
+-            if not hand_visible:
+-                missing_hand_frames += 1
+-                if eyebrow_gap is not None:
+-                    neutral_gaps.append(eyebrow_gap)
+-            else:
+-                missing_hand_frames = 0
+-                current_sentence_type, _, _ = classify_sentence_type(eyebrow_gap, neutral_gaps)
+-                if current_sentence_type == "의문문":
+-                    sentence_is_question = True
+-
+-            if missing_hand_frames > 15:
+-                if sentence_buffer:
+-                    final_type = "의문문" if sentence_is_question else "평서문"
+-                    print(f"\n✨ === 최종 문장: {' '.join(sentence_buffer)} ({final_type}) === ✨\n")
+-                    dump_utterance(
+-                        output_dir=dump_dir,
+-                        glosses=sentence_buffer,
+-                        sentence_type=final_type,
+-                        segment_frames=segment_frames,
+-                        sequence_snapshot=last_sequence_snapshot,
+-                        inference_result=last_inference_result,
+-                    )
+-                    sentence_buffer.clear()
+-                    sentence_is_question = False
+-
+-                frame_window.clear()
+-                prediction_window.clear()
+-                current_action = "none"
+-                current_confidence = 0.0
+-                last_pose = None
+-                last_face = None
+-                last_logged_action = None
+-                segment_frames.clear()
+-                last_sequence_snapshot = None
+-                last_inference_result = None
+-            else:
+-                keypoints, last_pose, last_face = extract_keypoints(results, last_pose, last_face, normalize_mode)
+-                frame_window.append(keypoints)
+-
+-            if len(frame_window) >= 15:
+-                input_array = pad_sequence(frame_window)
+-                input_tensor = np.expand_dims(input_array, axis=0).astype(np.float32)
+-
+-                interpreter.set_tensor(input_details[0]["index"], input_tensor)
+-                interpreter.invoke()
+-                probs = interpreter.get_tensor(output_details[0]["index"])[0]
+-
+-                inference_payload = build_inference_payload(probs, label_map, CONFIDENCE_THRESHOLD)
+-                predicted_label = inference_payload["rawGloss"]
+-                current_confidence = inference_payload["confidence"]
+-                last_inference_result = inference_payload
+-                last_sequence_snapshot = {
+-                    "timestampsMs": [frame["timestampMs"] for frame in segment_frames[-len(input_array):]],
+-                    "frames": input_array.astype(np.float32).tolist(),
+-                }
+-
+-                if current_confidence >= CONFIDENCE_THRESHOLD:
+-                    prediction_window.append(predicted_label)
+-                else:
+-                    prediction_window.clear()
+-                    prediction_window.append("none")
+-
+-                if prediction_window:
+-                    candidate, count = Counter(prediction_window).most_common(1)[0]
+-                    if candidate == "none" or count >= STABLE_MIN_COUNT:
+-                        current_action = candidate
+-
+-                        if current_action != "none":
+-                            if current_action != last_logged_action:
+-                                print(f"👉 Detected: {current_action} (Confidence: {current_confidence:.3f})")
+-                                locked_action = current_action
+-                                locked_time = time.time()
+-                                last_logged_action = current_action
+-
+-                                if not sentence_buffer or sentence_buffer[-1] != current_action:
+-                                    sentence_buffer.append(current_action)
+-                        else:
+-                            last_logged_action = None
+-
+-            if time.time() - locked_time > 2.0:
+-                locked_action = "none"
+-
+-            mp_drawing.draw_landmarks(frame, results.pose_landmarks, mp_holistic.POSE_CONNECTIONS)
+-            mp_drawing.draw_landmarks(frame, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
+-            mp_drawing.draw_landmarks(frame, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
+-
+-            sentence_str = " ".join(sentence_buffer) if sentence_buffer else ""
+-            type_str = "의문문" if sentence_is_question else "평서문"
+-
+-            display_frame = cv2.flip(frame, 1)
+-            display_frame = draw_text(
+-                display_frame,
+-                [
+-                    f"Model: TFLite V6 ({args.precision})",
+-                    f"Live Pred: {current_action} ({current_confidence:.2f})",
+-                    f"Result: {locked_action if locked_action != 'none' else ''}",
+-                    f"Buffer: {sentence_str} ({type_str})",
+-                    f"Frames: {len(frame_window)}/{MAX_LEN}",
+-                    "Quit: q",
+-                ],
+-            )
+-
+-            cv2.imshow("V6 TFLite Real-time Inference", display_frame)
+-
+-            if cv2.waitKey(1) & 0xFF == ord("q"):
+-                break
+-
+-    if sentence_buffer:
+-        final_type = "의문문" if sentence_is_question else "평서문"
+-        dump_utterance(
+-            output_dir=dump_dir,
+-            glosses=sentence_buffer,
+-            sentence_type=final_type,
+-            segment_frames=segment_frames,
+-            sequence_snapshot=last_sequence_snapshot,
+-            inference_result=last_inference_result,
+-        )
+-
+-    cap.release()
+-    cv2.destroyAllWindows()
+-
+-
+-if __name__ == "__main__":
+-    main()
+
+
+diff --git a/ai/src/sign2text_tcn/inference_realtime_v6.py b/ai/src/sign2text_tcn/inference_realtime_tflite_v7.py
+--- a/ai/src/sign2text_tcn/inference_realtime_v6.py
++++ b/ai/src/sign2text_tcn/inference_realtime_tflite_v7.py
+@@ -8,20 +8,25 @@ from pathlib import Path
+ import cv2
+ import mediapipe as mp
+ import numpy as np
+-import torch
+-from PIL import Image, ImageDraw, ImageFont
+ 
+-from model import build_ksl_model_v6
++# TensorFlow Lite 사용 (모바일 환경 모사)
++try:
++    import tensorflow as tf
++except ImportError:
++    print("TensorFlow가 설치되어 있지 않습니다. pip install tensorflow 를 실행해주세요.")
++    exit(1)
++
++from PIL import Image, ImageDraw, ImageFont
+ 
+ INPUT_DIM = 332
+ LANDMARK_DIM = 282
+ MAX_LEN = 30
+ CONFIDENCE_THRESHOLD = 0.80
+-PREDICTION_SMOOTHING = 5
+-STABLE_MIN_COUNT = 4
++PREDICTION_SMOOTHING = 7
++STABLE_MIN_COUNT = 5
+ 
+ BASE_DIR = Path(__file__).resolve().parent / "models"
+-DEFAULT_MODEL_DIR = "v6_24words_tcn_2"
++DEFAULT_MODEL_DIR = "v7_117words_tcn_2"
+ 
+ NEUTRAL_FACE_WINDOW = 45
+ MIN_NEUTRAL_FACE_SAMPLES = 15
+@@ -219,20 +224,22 @@ def draw_text(frame, lines):
+     return cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+ 
+ def parse_args():
+-    parser = argparse.ArgumentParser(description="Realtime webcam inference for V6 PyTorch models.")
+-    parser.add_argument("--model-dir", default=DEFAULT_MODEL_DIR, help="Model directory under Transformer_v5_Impl/models")
++    parser = argparse.ArgumentParser(description="Realtime webcam inference for V7 TFLite models.")
++    parser.add_argument("--model-dir", default=DEFAULT_MODEL_DIR, help="Model directory")
++    parser.add_argument("--precision", choices=["float32", "float16"], default="float16", help="Precision of the tflite model to load")
+     return parser.parse_args()
+ 
+ def main():
+     args = parse_args()
+     model_dir = resolve_from_base(args.model_dir)
+ 
+-    model_path = model_dir / "best_sign_model_v6.pt"
+-    config_path = model_dir / "train_config_v6.json"
+-    label_map_path = model_dir / "label_map_v6.json"
++    tflite_path = model_dir / f"best_sign_model_v7_{args.precision}.tflite"
++    config_path = model_dir / "train_config_v7.json"
++    label_map_path = model_dir / "label_map_v7.json"
+ 
+-    if not model_path.exists() or not config_path.exists() or not label_map_path.exists():
+-        print(f"Model files not found in {model_dir}.")
++    if not tflite_path.exists() or not config_path.exists() or not label_map_path.exists():
++        print(f"Model files not found in {model_dir}. Please make sure you copied the .tflite files here!")
++        print(f"Missing: {tflite_path}")
+         return
+ 
+     with open(config_path, "r", encoding="utf-8") as f:
+@@ -246,13 +253,14 @@ def main():
+     normalize_mode = config["stats"].get("normalize_mode", "shoulder")
+     num_classes = len(label_map)
+ 
+-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+-    model = build_ksl_model_v6(model_type=model_type, num_classes=num_classes)
+-    model.load_state_dict(torch.load(model_path, map_location=device))
+-    model.to(device)
+-    model.eval()
++    # Load TFLite Model
++    print(f"Loading TFLite model from {tflite_path} ...")
++    interpreter = tf.lite.Interpreter(model_path=str(tflite_path))
++    interpreter.allocate_tensors()
++    input_details = interpreter.get_input_details()
++    output_details = interpreter.get_output_details()
+ 
+-    print(f"Loaded {model_type} model from {model_dir}")
++    print(f"Loaded {args.precision} TFLite model!")
+     print(f"Normalize Mode: {normalize_mode}")
+     print(f"Classes: {num_classes}")
+ 
+@@ -310,7 +318,7 @@ def main():
+                 # 손이 사라지면 지금까지 모은 단어들을 문장으로 출력
+                 if sentence_buffer:
+                     final_type = "의문문" if sentence_is_question else "평서문"
+-                    print(f"\n✨ === 최종 문장: {' '.join(sentence_buffer)} ({final_type}) === ✨\n")
++                    print(f"\\n✨ === 최종 문장: {' '.join(sentence_buffer)} ({final_type}) === ✨\\n")
+                     sentence_buffer.clear()
+                     sentence_is_question = False
+ 
+@@ -326,14 +334,15 @@ def main():
+                 keypoints, last_pose, last_face = extract_keypoints(results, last_pose, last_face, normalize_mode)
+                 frame_window.append(keypoints)
+ 
+-            # 30프레임을 다 기다리지 않고 15프레임(0.5초)만 모여도 바로 보간(upsample)하여 추론 시작
+-            if len(frame_window) >= 15:
++            # 22프레임(~0.73초) 이상 모여야 추론 시작 (15→22: 부분 제스처 오인식 방지)
++            if len(frame_window) >= 22:
+                 input_array = pad_sequence(frame_window)
+-                input_tensor = torch.tensor(input_array, dtype=torch.float32).unsqueeze(0).to(device)
++                input_tensor = np.expand_dims(input_array, axis=0).astype(np.float32)
+                 
+-                with torch.no_grad():
+-                    outputs = model(input_tensor, return_probs=True)
+-                    probs = outputs[0].cpu().numpy()
++                # TFLite Inference
++                interpreter.set_tensor(input_details[0]['index'], input_tensor)
++                interpreter.invoke()
++                probs = interpreter.get_tensor(output_details[0]['index'])[0]
+                 
+                 max_idx = np.argmax(probs)
+                 predicted_label = label_map[max_idx]
+@@ -357,10 +366,16 @@ def main():
+                                 locked_action = current_action
+                                 locked_time = time.time()
+                                 last_logged_action = current_action
+-                                
++
+                                 # 문장 버퍼에 단어 추가 (중복 방지)
+                                 if not sentence_buffer or sentence_buffer[-1] != current_action:
+                                     sentence_buffer.append(current_action)
++
++                                # 감지 후 윈도우 초기화
++                                # 이전 동작 프레임이 다음 추론에 섞이지 않도록 완전 리셋
++                                # → 동작 후 가만히 있을 때 연속 오감지 방지
++                                frame_window.clear()
++                                prediction_window.clear()
+                         else:
+                             last_logged_action = None
+ 
+@@ -372,19 +387,24 @@ def main():
+             mp_drawing.draw_landmarks(frame, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
+             mp_drawing.draw_landmarks(frame, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
+ 
++            # 화면에 띄울 텍스트 준비
++            sentence_str = ' '.join(sentence_buffer) if sentence_buffer else ""
++            type_str = "의문문" if sentence_is_question else "평서문"
++
+             display_frame = cv2.flip(frame, 1)
+             display_frame = draw_text(
+                 display_frame,
+                 [
+-                    f"Model: {model_type.upper()} ({normalize_mode})",
++                    f"Model: TFLite V7 ({args.precision})",
+                     f"Live Pred: {current_action} ({current_confidence:.2f})",
+                     f"Result: {locked_action if locked_action != 'none' else ''}",
++                    f"Buffer: {sentence_str} ({type_str})",
+                     f"Frames: {len(frame_window)}/{MAX_LEN}",
+                     "Quit: q",
+                 ],
+             )
+ 
+-            cv2.imshow("V6 Real-time Inference", display_frame)
++            cv2.imshow("V7 TFLite Real-time Inference", display_frame)
+ 
+             if cv2.waitKey(1) & 0xFF == ord("q"):
+                 break
+
+
+diff --git a/ai/src/sign2text_tcn/local_zip_to_npy_pipeline.py b/ai/src/sign2text_tcn/local_zip_to_npy_pipeline_v7.py
+--- a/ai/src/sign2text_tcn/local_zip_to_npy_pipeline.py
++++ b/ai/src/sign2text_tcn/local_zip_to_npy_pipeline_v7.py
+@@ -1,3 +1,20 @@
++"""
++local_zip_to_npy_pipeline_v7.py
++────────────────────────────────────────────────────────────────────
++기존 local_zip_to_npy_pipeline.py 와 완전히 동일한 로직.
++변경점:
++  - DEFAULT_MAPPING  → "AI_Hub_Video_Mapping_v7.json"
++  - DEFAULT_OUTPUT_DIR → "processed_npy_v7"
++  - TARGET_WORDS     → target_words_v7.TARGET_WORDS (99단어 + none)
++
++사용법 (v100 서버):
++  python local_zip_to_npy_pipeline_v7.py \\
++      --zip-root /path/to/aihub_zips \\
++      --mapping  AI_Hub_Video_Mapping_v7.json \\
++      --output-dir processed_npy_v7
++────────────────────────────────────────────────────────────────────
++"""
++
+ import argparse
+ import json
+ import os
+@@ -10,16 +27,16 @@ from pathlib import Path
+ from aihub_to_local_npy_pipeline import (
+     DEFAULT_BATCH_SIZE,
+     DEFAULT_MAX_WORKERS,
+-    DEFAULT_OUTPUT_DIR,
+     DEFAULT_TASKS_PER_CHILD,
+     get_int_env,
+     process_jobs_in_batches,
+ )
+-from target_words_v6 import TARGET_WORDS
++from target_words_v7 import TARGET_WORDS
+ 
+ 
+ DEFAULT_ZIP_PATTERN = "*real_word_video.zip"
+-DEFAULT_MAPPING = "AI_Hub_Video_Mapping_v6.json"
++DEFAULT_MAPPING = "AI_Hub_Video_Mapping_v7.json"
++DEFAULT_OUTPUT_DIR = "processed_npy_v7"
+ 
+ 
+ def load_filename_to_label(mapping_path):
+@@ -29,6 +46,8 @@ def load_filename_to_label(mapping_path):
+     filename_to_label = {}
+     label_counts = {}
+     for label in TARGET_WORDS:
++        if label == "none":
++            continue
+         videos = mapping.get(label, [])
+         label_counts[label] = len(videos)
+         for video in videos:
+@@ -102,7 +121,7 @@ def extract_members_to_temp(filename_to_label, filename_files, output_dir, temp_
+ 
+ def parse_args():
+     parser = argparse.ArgumentParser(
+-        description="Create local npy files from pre-downloaded AIHub word ZIP files."
++        description="Create local npy files from pre-downloaded AIHub word ZIP files (v7: 100 classes)."
+     )
+     parser.add_argument(
+         "--zip-root",
+@@ -156,15 +175,18 @@ def main():
+     print(f"ZIP files: {len(zip_files)}")
+     print(f"Mapping: {mapping_path}")
+     print(f"Output dir: {output_dir}")
++    print(f"Target words: {len([w for w in TARGET_WORDS if w != 'none'])} (+ none)")
+ 
+     filename_to_label, label_counts = load_filename_to_label(mapping_path)
+     filename_files, _ = scan_zip_members(zip_files)
+ 
+     print("Mapping target counts:")
+     for label in TARGET_WORDS:
++        if label == "none":
++            continue
+         print(f"- {label}: {label_counts.get(label, 0)}")
+ 
+-    with tempfile.TemporaryDirectory(prefix="local_zip_mp4_") as temp_root:
++    with tempfile.TemporaryDirectory(prefix="local_zip_mp4_v7_") as temp_root:
+         jobs, counters = extract_members_to_temp(
+             filename_to_label=filename_to_label,
+             filename_files=filename_files,
+@@ -186,7 +208,7 @@ def main():
+                 tasks_per_child=max(args.tasks_per_child, 1),
+             )
+ 
+-    print("Local ZIP to npy generation complete.")
++    print("Local ZIP to npy generation complete (v7).")
+ 
+ 
+ if __name__ == "__main__":
+
+
+diff --git a/ai/src/sign2text_tcn/target_words_v6.py b/ai/src/sign2text_tcn/target_words_v6.py
+--- a/ai/src/sign2text_tcn/target_words_v6.py
++++ /dev/null
+@@ -1,25 +0,0 @@
+-TARGET_WORDS = [
+-    "걷다",
+-    "가다",
+-    "주다",
+-    "돕다",
+-    "배고프다",
+-    "아기",
+-    "좋다",
+-    "싫다",
+-    "감기",
+-    "기차",
+-    "놀다",
+-    "목마르다",
+-    "무섭다",
+-    "밥",
+-    "손",
+-    "아프다",
+-    "웃다",
+-    "장난감",
+-    "조심",
+-    "병원",
+-    "엄마",
+-    "감사",
+-    "none",
+-]
+
+
+diff --git a/ai/src/sign2text_tcn/target_words_v7.py b/ai/src/sign2text_tcn/target_words_v7.py
+--- /dev/null
++++ b/ai/src/sign2text_tcn/target_words_v7.py
+@@ -0,0 +1,167 @@
++# ============================================================
++# target_words_v7.py
++# 총 117개 클래스 = 기존 22개 + 신규 94개 단어 + "none"
++# 조건: AI Hub morpheme 기준 영상 80개 이상 (병원·엄마는 기존 포함)
++# 변경: 요일 카테고리 7개 제거 → 일상어 24개 추가
++# ============================================================
++
++# ── 기존 v6 단어 (22개) ───────────────────────────────────────
++EXISTING_WORDS = [
++    "걷다",        # 435개
++    "가다",        # 310개
++    "주다",        # 240개
++    "돕다",        # 240개
++    "배고프다",     # 160개
++    "아기",        # 155개
++    "좋다",        # 155개
++    "싫다",        # 150개
++    "감기",        # 80개
++    "기차",        # 80개
++    "놀다",        # 80개
++    "목마르다",     # 80개
++    "무섭다",      # 80개
++    "밥",          # 80개
++    "손",          # 80개
++    "아프다",      # 80개
++    "웃다",        # 80개
++    "장난감",      # 80개
++    "조심",        # 80개
++    "병원",        # 75개 (기존 유지)
++    "엄마",        # 75개 (기존 유지)
++    "감사",        # 80개
++]
++
++# ── 신규 추가 단어 (77개) ────────────────────────────────────
++NEW_WORDS = [
++    # 감정 / 상태 (10개)
++    "슬프다",      # 80개
++    "고민",        # 80개
++    "화나다",      # 80개
++    "당황",        # 155개
++    "귀엽다",      # 155개
++    "안타깝다",    # 155개
++    "창피하다",    # 90개
++    "소심",        # 85개
++    "불행",        # 80개
++    "침착",        # 80개
++
++    # 동작 (8개)
++    "자다",        # 220개
++    "서다",        # 150개
++    "일어나다",    # 150개
++    "달리다",      # 80개
++    "듣다",        # 80개
++    "쓰다",        # 80개
++    "포기",        # 240개
++    "집중",        # 150개
++
++    # 신체 (3개)
++    "눈",          # 155개
++    "몸",          # 145개
++    "팔",          # 160개
++
++    # 음식 / 음료 (13개)
++    "라면",        # 80개
++    "딸기",        # 80개
++    "사과",        # 80개
++    "두부",        # 80개
++    "커피",        # 80개
++    "콜라",        # 80개
++    "우유",        # 150개
++    "소주",        # 80개
++    "식당",        # 80개
++    "돼지고기",    # 80개
++    "비빔밥",      # 80개
++    "냄비",        # 80개
++    "음료수",      # 80개
++
++    # 일상용품 (5개)
++    "에어컨",      # 80개
++    "이불",        # 80개
++    "운동화",      # 80개
++    "치약",        # 80개
++    "마스크",      # 80개
++
++    # 사람 / 관계 (8개)
++    "남자",        # 150개
++    "여자",        # 150개
++    "남녀",        # 150개
++    "손자",        # 80개
++    "손녀",        # 80개
++    "외국인",      # 80개
++    "장애인",      # 80개
++    "농인",        # 80개
++
++    # 직업 (8개)
++    "의사",        # 80개
++    "교수",        # 80개
++    "간호사",      # 80개
++    "요리사",      # 80개
++    "경찰서",      # 80개
++    "가수",        # 80개
++    "코치",        # 80개
++    "통역사",      # 80개
++
++    # 장소 / 교통 (6개)
++    "기차역",      # 80개
++    "주차장",      # 80개
++    "터미널",      # 80개
++    "서점",        # 80개
++    "백화점",      # 80개
++    "주유소",      # 80개
++
++    # 자연 (4개)
++    "하늘",        # 160개
++    "강",          # 80개
++    "파도",        # 80개
++    "강아지",      # 80개
++
++    # 건강 / 의료 (5개)
++    "입원",        # 80개
++    "치료",        # 80개
++    "퇴원",        # 80개
++    "당뇨병",      # 80개
++    "불면증",      # 80개
++
++    # 기본 동작 (5개)
++    "모르다",      # 160개
++    "알다",        # 155개
++    "없다",        # 150개
++    "오다",        # 80개
++    "받다",        # 80개
++
++    # 감정 / 상태 추가 (4개)
++    "행복",        # 80개
++    "즐겁다",      # 80개
++    "피곤하다",    # 80개
++    "바쁘다",      # 80개
++
++    # 가족 / 관계 추가 (4개)
++    "친구",        # 80개
++    "여동생",      # 80개
++    "할머니",      # 80개
++    "할아버지",    # 80개
++
++    # 날씨 (2개)
++    "비",          # 80개
++    "바람",        # 80개
++
++    # 학습 / 활동 (5개)
++    "연구",        # 160개
++    "회복",        # 160개
++    "시험",        # 80개
++    "학습",        # 80개
++    "독서",        # 80개
++
++    # 일상 활동 추가 (4개)
++    "실수",        # 80개
++    "위로",        # 80개
++    "소개",        # 80개
++    "성실",        # 80개
++]
++
++# ── 전체 TARGET_WORDS (116개 단어 + none = 117개 클래스) ──────
++TARGET_WORDS = EXISTING_WORDS + NEW_WORDS + ["none"]
++
++assert len(TARGET_WORDS) == 117, f"Expected 117, got {len(TARGET_WORDS)}"
++assert len(set(TARGET_WORDS)) == len(TARGET_WORDS), "Duplicate word found!"
+
+
+diff --git a/ai/src/sign2text_tcn/train.py b/ai/src/sign2text_tcn/train.py
+--- a/ai/src/sign2text_tcn/train.py
++++ b/ai/src/sign2text_tcn/train.py
+@@ -1,16 +1,18 @@
+ """
+-V100 training example:
++V100 training example (v7 - 117 classes):
+ 
+-V6_DATA_DIR=./train_npy_v6 \
+-V6_MODEL_DIR_NAME=v6_24words_tcn \
++V6_DATA_DIR=./processed_npy_v7 \
++V6_MODEL_DIR_NAME=v7_117words_tcn_balanced80 \
+ V6_MODEL_TYPE=tcn \
+ V6_EPOCHS=120 \
+ V6_BATCH_SIZE=16 \
+ V6_LR=0.001 \
+ V6_WEIGHT_DECAY=0.0 \
+-V6_BALANCED_SAMPLER=0 \
++V6_MAX_FILES_PER_CLASS=80 \
++V6_MAX_FILES_EXEMPT_CLASSES=병원,엄마,none \
++V6_BALANCED_SAMPLER=1 \
+ V6_USE_AUGMENTATION=1 \
+-V6_NORMALIZE_MODE=shoulder \
++V6_NORMALIZE_MODE=none \
+ V6_TARGET_SAMPLES_PER_CLASS=120 \
+ V6_EARLY_STOPPING=1 \
+ V6_EARLY_STOPPING_PATIENCE=25 \
+@@ -23,6 +25,7 @@ import copy
+ import inspect
+ import json
+ import os
++import sys
+ from collections import Counter
+ 
+ import numpy as np
+@@ -34,17 +37,38 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
+ 
+ from dataset import create_dataloaders_v6
+ from model import build_ksl_model_v6
+-from target_words_v6 import TARGET_WORDS
++from target_words_v7 import TARGET_WORDS
++
++
++class TeeLogger:
++    """stdout/stderr를 터미널과 로그 파일에 동시에 출력."""
++
++    def __init__(self, stream, log_file):
++        self._stream = stream
++        self._log = log_file
++
++    def write(self, data):
++        self._stream.write(data)
++        self._stream.flush()
++        self._log.write(data)
++        self._log.flush()
++
++    def flush(self):
++        self._stream.flush()
++        self._log.flush()
++
++    def fileno(self):
++        return self._stream.fileno()
+ 
+ 
+ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+-DATA_DIR = os.environ.get("V6_DATA_DIR", os.path.join(SCRIPT_DIR, "processed_npy_v6"))
++DATA_DIR = os.environ.get("V6_DATA_DIR", os.path.join(SCRIPT_DIR, "processed_npy_v7"))
+ MODELS_ROOT = os.path.join(SCRIPT_DIR, "models")
+-MODEL_DIR_NAME = os.environ.get("V6_MODEL_DIR_NAME", "v6_24words_tcn")
++MODEL_DIR_NAME = os.environ.get("V6_MODEL_DIR_NAME", "v7_117words_tcn_balanced80")
+ MODEL_TYPE = os.environ.get("V6_MODEL_TYPE", "tcn").strip().lower()
+-MODEL_FILE_BASENAME = "best_sign_model_v6"
+-LABEL_MAP_BASENAME = "label_map_v6"
+-CONFIG_BASENAME = "train_config_v6"
++MODEL_FILE_BASENAME = "best_sign_model_v7"
++LABEL_MAP_BASENAME = "label_map_v7"
++CONFIG_BASENAME = "train_config_v7"
+ KEY_CLASSES = TARGET_WORDS
+ 
+ 
+@@ -65,7 +89,7 @@ USE_CLASS_WEIGHTS = env_value("V6_USE_CLASS_WEIGHTS", "0", "V5_USE_CLASS_WEIGHTS
+ USE_SCHEDULER = env_value("V6_USE_SCHEDULER", "0", "V5_USE_SCHEDULER") == "1"
+ SCHEDULER_FACTOR = float(env_value("V6_SCHEDULER_FACTOR", "0.5", "V5_SCHEDULER_FACTOR"))
+ SCHEDULER_PATIENCE = int(env_value("V6_SCHEDULER_PATIENCE", "12", "V5_SCHEDULER_PATIENCE"))
+-USE_BALANCED_SAMPLER = env_value("V6_BALANCED_SAMPLER", "0", "V5_BALANCED_SAMPLER") == "1"
++USE_BALANCED_SAMPLER = env_value("V6_BALANCED_SAMPLER", "1", "V5_BALANCED_SAMPLER") == "1"
+ SINGLE_BATCH_CHECK_STEPS = int(env_value("V6_SINGLE_BATCH_STEPS", "200", "V5_SINGLE_BATCH_STEPS"))
+ USE_EARLY_STOPPING = env_value("V6_EARLY_STOPPING", "1", "V5_EARLY_STOPPING") == "1"
+ EARLY_STOPPING_PATIENCE = int(env_value("V6_EARLY_STOPPING_PATIENCE", "25", "V5_EARLY_STOPPING_PATIENCE"))
+@@ -94,13 +118,17 @@ def build_model(num_classes):
+ 
+ def make_unique_model_dir(models_root, base_name):
+     os.makedirs(models_root, exist_ok=True)
+-    run_idx = 1
+-    while True:
+-        model_dir = os.path.join(models_root, f"{base_name}_{run_idx}")
+-        if not os.path.exists(model_dir):
+-            os.makedirs(model_dir, exist_ok=True)
+-            return model_dir, run_idx
+-        run_idx += 1
++    existing_indices = []
++    prefix = f"{base_name}_"
++    for entry in os.scandir(models_root):
++        if entry.is_dir() and entry.name.startswith(prefix):
++            suffix = entry.name[len(prefix):]
++            if suffix.isdigit():
++                existing_indices.append(int(suffix))
++    run_idx = max(existing_indices) + 1 if existing_indices else 1
++    model_dir = os.path.join(models_root, f"{base_name}_{run_idx}")
++    os.makedirs(model_dir, exist_ok=True)
++    return model_dir, run_idx
+ 
+ 
+ def make_run_paths(model_dir):
+@@ -132,6 +160,7 @@ def print_dataset_debug_info(classes, stats, class_weights):
+     print(f"- val class counts: {stats['val_class_counts']}")
+     print(f"- target variants: {stats['target_variants']}")
+     print(f"- max files per class: {stats['max_files_per_class']}")
++    print(f"- max files exempt classes: {stats['max_files_exempt_classes']}")
+     print(f"- file sample seed: {stats['file_sample_seed']}")
+     print(f"- use augmentation: {stats['use_augmentation']}")
+     print(f"- normalize mode: {stats['normalize_mode']}")
+@@ -193,6 +222,7 @@ def save_train_config(config_path, classes, stats, run_idx):
+             "val_class_counts": stats["val_class_counts"],
+             "target_variants": stats["target_variants"],
+             "max_files_per_class": stats["max_files_per_class"],
++            "max_files_exempt_classes": stats["max_files_exempt_classes"],
+             "file_sample_seed": stats["file_sample_seed"],
+             "total_size": stats["total_size"],
+             "original_total_size": stats["original_total_size"],
+@@ -222,7 +252,6 @@ def class_recall(cm, class_idx):
+     return float(cm[class_idx][class_idx] / row_sum)
+ 
+ 
+-
+ def print_key_metrics(classes, cm):
+     print("  key_metrics:")
+     for class_name in KEY_CLASSES:
+@@ -354,7 +383,7 @@ def run_single_batch_overfit_check(model, criterion, optimizer, train_loader, de
+ 
+ def train():
+     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+-    print(f"Start V6 24-word TCN training. device={device}")
++    print(f"Start V7 117-class TCN training. device={device}")
+ 
+     if not os.path.exists(DATA_DIR):
+         print(f"Data directory not found: {DATA_DIR}")
+@@ -362,8 +391,16 @@ def train():
+ 
+     model_dir, run_idx = make_unique_model_dir(MODELS_ROOT, MODEL_DIR_NAME)
+     model_save_path, label_map_path, config_path = make_run_paths(model_dir)
++
++    # ── 로그 파일 설정: 터미널 + 모델 폴더 내 train.log 동시 출력 ──
++    log_path = os.path.join(model_dir, "train.log")
++    _log_file = open(log_path, "w", encoding="utf-8", buffering=1)
++    sys.stdout = TeeLogger(sys.stdout, _log_file)
++    sys.stderr = TeeLogger(sys.stderr, _log_file)
++
+     print(f"Model output directory: {model_dir}")
+     print(f"Run directory suffix: _{run_idx}")
++    print(f"Training log: {log_path}")
+ 
+     train_loader, val_loader, classes, class_weights, stats = create_v6_dataloaders(device)
+ 
+@@ -554,7 +591,7 @@ def train():
+         )
+ 
+     print(
+-        f"\nV6 training complete! Best F1: {best_f1:.4f} | "
++        f"\nV7 training complete! Best F1: {best_f1:.4f} | "
+         f"Val Acc@BestF1: {best_val_acc_at_best_f1:.2f}% | "
+         f"Best Train Acc: {best_train_acc:.2f}%"
+     )
+
+

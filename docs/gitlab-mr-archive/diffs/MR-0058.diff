@@ -1,0 +1,149 @@
+﻿diff --git a/mobile/app/src/main/res/mipmap-anydpi/ic_launcher.xml b/mobile/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+--- a/mobile/app/src/main/res/mipmap-anydpi/ic_launcher.xml
++++ b/mobile/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+@@ -1,6 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+-    <background android:drawable="@drawable/ic_launcher_background" />
+-    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+-    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
++    <background android:drawable="@color/ic_launcher_background"/>
++    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
++    <monochrome android:drawable="@mipmap/ic_launcher_foreground"/>
+ </adaptive-icon>
+\ No newline at end of file
+
+
+diff --git a/mobile/app/src/main/res/mipmap-anydpi/ic_launcher_round.xml b/mobile/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+--- a/mobile/app/src/main/res/mipmap-anydpi/ic_launcher_round.xml
++++ b/mobile/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+@@ -1,6 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+-    <background android:drawable="@drawable/ic_launcher_background" />
+-    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+-    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
++    <background android:drawable="@color/ic_launcher_background"/>
++    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
++    <monochrome android:drawable="@mipmap/ic_launcher_foreground"/>
+ </adaptive-icon>
+\ No newline at end of file
+
+
+diff --git a/mobile/app/src/main/res/mipmap-hdpi/ic_launcher.webp b/mobile/app/src/main/res/mipmap-hdpi/ic_launcher.webp
+--- a/mobile/app/src/main/res/mipmap-hdpi/ic_launcher.webp
++++ b/mobile/app/src/main/res/mipmap-hdpi/ic_launcher.webp
+Binary files a/mobile/app/src/main/res/mipmap-hdpi/ic_launcher.webp and b/mobile/app/src/main/res/mipmap-hdpi/ic_launcher.webp differ
+
+
+diff --git a/mobile/app/src/main/res/mipmap-hdpi/ic_launcher_foreground.webp b/mobile/app/src/main/res/mipmap-hdpi/ic_launcher_foreground.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/mipmap-hdpi/ic_launcher_foreground.webp
+Binary files /dev/null and b/mobile/app/src/main/res/mipmap-hdpi/ic_launcher_foreground.webp differ
+
+
+diff --git a/mobile/app/src/main/res/mipmap-hdpi/ic_launcher_round.webp b/mobile/app/src/main/res/mipmap-hdpi/ic_launcher_round.webp
+--- a/mobile/app/src/main/res/mipmap-hdpi/ic_launcher_round.webp
++++ b/mobile/app/src/main/res/mipmap-hdpi/ic_launcher_round.webp
+Binary files a/mobile/app/src/main/res/mipmap-hdpi/ic_launcher_round.webp and b/mobile/app/src/main/res/mipmap-hdpi/ic_launcher_round.webp differ
+
+
+diff --git a/mobile/app/src/main/res/mipmap-mdpi/ic_launcher.webp b/mobile/app/src/main/res/mipmap-mdpi/ic_launcher.webp
+--- a/mobile/app/src/main/res/mipmap-mdpi/ic_launcher.webp
++++ b/mobile/app/src/main/res/mipmap-mdpi/ic_launcher.webp
+Binary files a/mobile/app/src/main/res/mipmap-mdpi/ic_launcher.webp and b/mobile/app/src/main/res/mipmap-mdpi/ic_launcher.webp differ
+
+
+diff --git a/mobile/app/src/main/res/mipmap-mdpi/ic_launcher_foreground.webp b/mobile/app/src/main/res/mipmap-mdpi/ic_launcher_foreground.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/mipmap-mdpi/ic_launcher_foreground.webp
+Binary files /dev/null and b/mobile/app/src/main/res/mipmap-mdpi/ic_launcher_foreground.webp differ
+
+
+diff --git a/mobile/app/src/main/res/mipmap-mdpi/ic_launcher_round.webp b/mobile/app/src/main/res/mipmap-mdpi/ic_launcher_round.webp
+--- a/mobile/app/src/main/res/mipmap-mdpi/ic_launcher_round.webp
++++ b/mobile/app/src/main/res/mipmap-mdpi/ic_launcher_round.webp
+Binary files a/mobile/app/src/main/res/mipmap-mdpi/ic_launcher_round.webp and b/mobile/app/src/main/res/mipmap-mdpi/ic_launcher_round.webp differ
+
+
+diff --git a/mobile/app/src/main/res/mipmap-xhdpi/ic_launcher.webp b/mobile/app/src/main/res/mipmap-xhdpi/ic_launcher.webp
+--- a/mobile/app/src/main/res/mipmap-xhdpi/ic_launcher.webp
++++ b/mobile/app/src/main/res/mipmap-xhdpi/ic_launcher.webp
+Binary files a/mobile/app/src/main/res/mipmap-xhdpi/ic_launcher.webp and b/mobile/app/src/main/res/mipmap-xhdpi/ic_launcher.webp differ
+
+
+diff --git a/mobile/app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.webp b/mobile/app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.webp
+Binary files /dev/null and b/mobile/app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.webp differ
+
+
+diff --git a/mobile/app/src/main/res/mipmap-xhdpi/ic_launcher_round.webp b/mobile/app/src/main/res/mipmap-xhdpi/ic_launcher_round.webp
+--- a/mobile/app/src/main/res/mipmap-xhdpi/ic_launcher_round.webp
++++ b/mobile/app/src/main/res/mipmap-xhdpi/ic_launcher_round.webp
+Binary files a/mobile/app/src/main/res/mipmap-xhdpi/ic_launcher_round.webp and b/mobile/app/src/main/res/mipmap-xhdpi/ic_launcher_round.webp differ
+
+
+diff --git a/mobile/app/src/main/res/mipmap-xxhdpi/ic_launcher.webp b/mobile/app/src/main/res/mipmap-xxhdpi/ic_launcher.webp
+--- a/mobile/app/src/main/res/mipmap-xxhdpi/ic_launcher.webp
++++ b/mobile/app/src/main/res/mipmap-xxhdpi/ic_launcher.webp
+Binary files a/mobile/app/src/main/res/mipmap-xxhdpi/ic_launcher.webp and b/mobile/app/src/main/res/mipmap-xxhdpi/ic_launcher.webp differ
+
+
+diff --git a/mobile/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.webp b/mobile/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.webp
+Binary files /dev/null and b/mobile/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.webp differ
+
+
+diff --git a/mobile/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.webp b/mobile/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.webp
+--- a/mobile/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.webp
++++ b/mobile/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.webp
+Binary files a/mobile/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.webp and b/mobile/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.webp differ
+
+
+diff --git a/mobile/app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp b/mobile/app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp
+--- a/mobile/app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp
++++ b/mobile/app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp
+Binary files a/mobile/app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp and b/mobile/app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp differ
+
+
+diff --git a/mobile/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.webp b/mobile/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.webp
+--- /dev/null
++++ b/mobile/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.webp
+Binary files /dev/null and b/mobile/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.webp differ
+
+
+diff --git a/mobile/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.webp b/mobile/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.webp
+--- a/mobile/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.webp
++++ b/mobile/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.webp
+Binary files a/mobile/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.webp and b/mobile/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.webp differ
+
+
+diff --git a/mobile/app/src/main/res/values/ic_launcher_background.xml b/mobile/app/src/main/res/values/ic_launcher_background.xml
+--- /dev/null
++++ b/mobile/app/src/main/res/values/ic_launcher_background.xml
+@@ -0,0 +1,4 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <color name="ic_launcher_background">#FDFDFD</color>
++</resources>
+\ No newline at end of file
+
+
+diff --git a/mobile/app/src/main/res/values/strings.xml b/mobile/app/src/main/res/values/strings.xml
+--- a/mobile/app/src/main/res/values/strings.xml
++++ b/mobile/app/src/main/res/values/strings.xml
+@@ -1,3 +1,3 @@
+ <resources>
+-    <string name="app_name">S14 Mobile</string>
++    <string name="app_name">SUDA</string>
+ </resources>
+
+
+diff --git a/mobile/app/src/main/ic_launcher-playstore.png b/mobile/app/src/main/ic_launcher-playstore.png
+--- /dev/null
++++ b/mobile/app/src/main/ic_launcher-playstore.png
+Binary files /dev/null and b/mobile/app/src/main/ic_launcher-playstore.png differ
+
+

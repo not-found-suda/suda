@@ -1,0 +1,942 @@
+﻿diff --git a/ai/src/sign2text_transformer/dataset.py b/ai/src/sign2text_transformer/dataset.py
+--- a/ai/src/sign2text_transformer/dataset.py
++++ b/ai/src/sign2text_transformer/dataset.py
+@@ -7,23 +7,25 @@ from torch.utils.data import Dataset, DataLoader
+ from sklearn.model_selection import train_test_split
+ 
+ class KSLDataset(Dataset):
+-    def __init__(self, data_list, labels, max_len=30, is_train=False):
++    def __init__(self, data_list, labels, max_len=30, is_train=False, none_idx=None):
+         """
+         data_list: .npy 파일 경로들의 리스트
+         labels: 파일 경로에 대응하는 정수형 라벨(클래스 인덱스) 리스트
+         max_len: 고정할 프레임 수 (기본 30)
+         is_train: 데이터 증강을 적용할지 여부
++        none_idx: 'none' 클래스의 인덱스 (정지 상태 증강에 사용)
+         """
+         self.data_list = data_list
+         self.labels = labels
+         self.max_len = max_len
+         self.is_train = is_train
++        self.none_idx = none_idx
+ 
+     def __len__(self):
+         return len(self.data_list)
+ 
+     def __getitem__(self, idx):
+-        # 1. npy 파일 로드 (형태: [frames, 345])
++        # 1. npy 파일 로드 (형태: [frames, 141])
+         npy_path = self.data_list[idx]
+         data = np.load(npy_path)
+         
+@@ -33,31 +35,40 @@ class KSLDataset(Dataset):
+         # 3. 프레임 길이 맞추기 (Uniform Sampling / Padding)
+         data = self.adjust_sequence_length(data)
+         
+-        # 4. 데이터 증강 (Train 데이터에만 적용)
++        label = self.labels[idx]
++        
++        # 4. 일반적인 공간/시간 데이터 증강 (Train 데이터에만 적용)
+         if self.is_train:
+             data = self.augment_data(data)
+         
+-        # FloatTensor로 변환
+-        return torch.FloatTensor(data), torch.tensor(self.labels[idx], dtype=torch.long)
++        # FloatTensor로 변환 시, NumPy와 PyTorch의 메모리 공유로 인한 Multiprocessing 충돌 원천 차단 (강제 copy)
++        data = np.array(data, dtype=np.float32).copy()
++        
++        # shape가 (30, 141)이 아니면 0으로 채움 (배치 사이즈 불일치 원천 차단)
++        if data.shape != (self.max_len, 141):
++            data = np.zeros((self.max_len, 141), dtype=np.float32)
++            
++        return torch.from_numpy(data).float(), torch.tensor(label, dtype=torch.long)
+ 
+     def normalize_landmarks(self, data):
+         """
+         모바일 스펙 2-1에 명시된 정규화(Translation & Scale Invariance) 적용
+-        data shape: (frames, 345)
+-        - 345 = Pose(99) + LH(63) + RH(63) + Mouth(120)
+-        - 어깨 좌표 인덱스: Left Shoulder(11) -> 11*3=33, 34, 35 / Right Shoulder(12) -> 12*3=36, 37, 38
++        data shape: (frames, 141)
++        - 141 = LH(63) + RH(63) + Pose(15)
++        - 어깨 좌표 인덱스: Pose의 11, 12번 (141차원 벡터 내 위치: 126+3, 126+6 ...)
+         """
+         normalized_data = np.zeros_like(data)
+         
+         for i in range(data.shape[0]): # 매 프레임마다 반복
+             frame = data[i]
+             
+-            # x, y, z 좌표를 (115, 3) 형태로 변환하여 계산하기 쉽게 함
++            # x, y, z 좌표를 (47, 3) 형태로 변환하여 계산하기 쉽게 함 (LH 21 + RH 21 + Pose 5 = 47)
+             pts = frame.reshape(-1, 3)
+             
+-            # 어깨 좌표 (Pose의 11번, 12번 랜드마크)
+-            l_shoulder = pts[11]
+-            r_shoulder = pts[12]
++            # 141차원 벡터 내 어깨 위치: LH(21) + RH(21) + Nose(1) 다음이 어깨
++            # pts[43] = Left Shoulder, pts[44] = Right Shoulder
++            l_shoulder = pts[43]
++            r_shoulder = pts[44]
+             
+             # 1단계: 위치 통일 (어깨 중심점을 0,0,0으로)
+             shoulder_center = (l_shoulder + r_shoulder) / 2.0
+@@ -72,7 +83,7 @@ class KSLDataset(Dataset):
+                 
+             pts_scaled = pts_translated / shoulder_width
+             
+-            # 다시 (345,) 1차원 배열로 복구
++            # 다시 (141,) 1차원 배열로 복구
+             normalized_data[i] = pts_scaled.flatten()
+             
+         return normalized_data
+@@ -82,21 +93,27 @@ class KSLDataset(Dataset):
+         프레임 수를 무조건 self.max_len(30)으로 맞춤
+         길면 Uniform Sampling (간격 두고 추출), 짧으면 마지막 프레임으로 Forward Fill 패딩
+         """
+-        frames = data.shape[0]
+-        if frames == self.max_len:
+-            return data
++        frames = data.shape[0] if len(data.shape) > 0 else 0
++        
++        # 1. 추출 실패로 인해 비어 있거나 형태가 깨진 데이터 방어
++        if frames == 0 or len(data.shape) < 2 or data.shape[1] != 141:
++            return np.zeros((self.max_len, 141), dtype=np.float32)
+             
++        if frames == self.max_len:
++            pass
+         elif frames > self.max_len:
+             # 길면 균등하게 30개를 뽑아냄 (방식 A)
+             indices = np.linspace(0, frames - 1, self.max_len, dtype=int)
+-            return data[indices]
+-            
++            data = data[indices]
+         else:
+             # 짧으면 마지막 프레임을 복사해서 채워 넣음
+             pad_len = self.max_len - frames
+             last_frame = data[-1:]
+             padding = np.repeat(last_frame, pad_len, axis=0)
+-            return np.vstack((data, padding))
++            data = np.vstack((data, padding))
++            
++        # 2. PyTorch DataLoader 호환성을 위해 새 배열로 래핑하여 리턴
++        return np.array(data, dtype=np.float32)
+             
+     def augment_data(self, data):
+         """
+@@ -133,7 +150,7 @@ def create_dataloaders(data_dir, batch_size=32, max_len=30, max_classes=None):
+     """
+     폴더 구조(단어별 폴더)를 읽어서 Train/Val 80:20 분리 후 DataLoader 반환
+     """
+-    raw_classes = sorted([d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))])
++    raw_classes = sorted([d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d)) and not d.startswith('.')])
+     
+     # 숫자 꼬리표 떼고 순수 단어들만 모으기
+     unique_classes = set()
+@@ -163,11 +180,28 @@ def create_dataloaders(data_dir, batch_size=32, max_len=30, max_classes=None):
+         cls_dir = os.path.join(data_dir, rc)
+         
+         files = glob.glob(os.path.join(cls_dir, '*.npy'))
++        
++        # [데이터 불균형 해결] none 클래스의 파일이 너무 적다면, 다른 단어 평균 개수(약 100개)에 맞게 강제 복제(Oversampling)
++        if clean_name == 'none' and 0 < len(files) < 100:
++            multiplier = max(1, 100 // len(files))
++            files = files * multiplier
++            
+         all_files.extend(files)
+         all_labels.extend([cls_idx] * len(files))
+         
+     print(f"📊 정제된 총 클래스 수: {len(sorted_unique_classes)}개 (원본 폴더 수: {len(raw_classes)}개)")
+     
++    # Class Weight 계산 (데이터 불균형 극복)
++    label_counts = np.bincount(all_labels)
++    total_samples = len(all_labels)
++    num_classes = len(class_to_idx)
++    # 데이터가 적은 클래스(예: none)에 엄청난 가중치가 부여됨
++    class_weights = total_samples / (num_classes * (label_counts + 1e-6))
++    class_weights_tensor = torch.FloatTensor(class_weights)
++    
++    # none 클래스 식별 (증강용)
++    none_idx = class_to_idx.get('none', None)
++    
+     # Stratified Split (단어별 비율을 유지하면서 80:20으로 나눔)
+     X_train, X_val, y_train, y_val = train_test_split(
+         all_files, all_labels, 
+@@ -176,10 +210,10 @@ def create_dataloaders(data_dir, batch_size=32, max_len=30, max_classes=None):
+         stratify=all_labels # 핵심: 모든 단어가 고르게 80:20으로 찢어지도록 보장
+     )
+     
+-    train_dataset = KSLDataset(X_train, y_train, max_len, is_train=True)
+-    val_dataset = KSLDataset(X_val, y_val, max_len, is_train=False)
++    train_dataset = KSLDataset(X_train, y_train, max_len, is_train=True, none_idx=none_idx)
++    val_dataset = KSLDataset(X_val, y_val, max_len, is_train=False, none_idx=none_idx)
+     
+     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
+     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+     
+-    return train_loader, val_loader, class_to_idx
++    return train_loader, val_loader, class_to_idx, class_weights_tensor
+
+
+diff --git a/ai/src/sign2text_transformer/download_npy.py b/ai/src/sign2text_transformer/download_npy.py
+--- a/ai/src/sign2text_transformer/download_npy.py
++++ b/ai/src/sign2text_transformer/download_npy.py
+@@ -7,6 +7,7 @@ load_dotenv()
+ AWS_ACCESS_KEY = os.getenv('AWS_ACCESS_KEY')
+ AWS_SECRET_KEY = os.getenv('AWS_SECRET_KEY')
+ BUCKET_NAME = os.getenv('S3_BUCKET_NAME')
++
+ TARGET_DIR = './s3_downloaded_data'
+ 
+ def download_single_file(s3_key):
+@@ -16,44 +17,44 @@ def download_single_file(s3_key):
+         aws_secret_access_key=AWS_SECRET_KEY
+     )
+     
+-    # s3_key 예시: 'raw_videos/가족/영상1.npy'
+-    # 로컬 경로 생성: './s3_downloaded_data/가족/영상1.npy'
+-    relative_path = s3_key.replace('raw_videos/', '')
++    relative_path = s3_key.replace('processed_npy/', '')
+     local_path = os.path.join(TARGET_DIR, relative_path)
+     
+     os.makedirs(os.path.dirname(local_path), exist_ok=True)
+     
+-    if not os.path.exists(local_path):
++    try:
+         s3_client.download_file(BUCKET_NAME, s3_key, local_path)
+         return f"📥 다운로드 완료: {local_path}"
+-    return f"⏩ 이미 존재함 (스킵): {local_path}"
++    except Exception as e:
++        return f"❌ 실패 ({s3_key}): {e}"
+ 
+-def download_all_npy():
++def download_all_processed_npy():
+     s3_client = boto3.client(
+         's3',
+         aws_access_key_id=AWS_ACCESS_KEY,
+         aws_secret_access_key=AWS_SECRET_KEY
+     )
+     
+-    print("🔍 S3에서 .npy 파일 목록을 가져오는 중...")
++    print(f"📂 S3 '{BUCKET_NAME}'에서 141차원 추출 데이터를 찾는 중...")
++    target_keys = []
+     paginator = s3_client.get_paginator('list_objects_v2')
+-    pages = paginator.paginate(Bucket=BUCKET_NAME, Prefix='raw_videos/')
+     
+-    npy_keys = []
+-    for page in pages:
++    for page in paginator.paginate(Bucket=BUCKET_NAME, Prefix='processed_npy/'):
+         if 'Contents' in page:
+             for obj in page['Contents']:
+                 if obj['Key'].endswith('.npy'):
+-                    npy_keys.append(obj['Key'])
+-                    
+-    print(f"총 {len(npy_keys)}개의 .npy 파일을 다운로드합니다...")
++                    target_keys.append(obj['Key'])
++    
++    if not target_keys:
++        print("⚠️ 다운로드할 .npy 파일이 없습니다. 추출기가 아직 실행 중인지 확인하세요.")
++        return
++
++    print(f"🚀 총 {len(target_keys)}개 파일 병렬 다운로드 시작...")
++    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
++        results = list(executor.map(download_single_file, target_keys))
+     
+-    # 병렬 다운로드 (빠르게 처리)
+-    with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
+-        for result in executor.map(download_single_file, npy_keys):
+-            pass # 진행 상황을 보려면 print(result) 주석 해제
+-            
+-    print("✅ 모든 .npy 파일 다운로드 완료! 이제 train.py를 실행하세요.")
++    for res in results[:10]: print(res)
++    print(f"✅ 다운로드 완료! 총 {len(target_keys)}개 파일을 {TARGET_DIR}에 저장했습니다.")
+ 
+ if __name__ == "__main__":
+-    download_all_npy()
++    download_all_processed_npy()
+
+
+diff --git a/ai/src/sign2text_transformer/inference_realtime_transformer.py b/ai/src/sign2text_transformer/inference_realtime_transformer.py
+--- a/ai/src/sign2text_transformer/inference_realtime_transformer.py
++++ b/ai/src/sign2text_transformer/inference_realtime_transformer.py
+@@ -1,34 +1,23 @@
+ import cv2
+ import torch
+-import json
+ import numpy as np
+ import mediapipe as mp
+-from collections import deque
+ from model import KSLTransformer
++import json
++from PIL import Image, ImageDraw, ImageFont
++from collections import deque
+ 
+-# 모바일-AI 계약 스펙과 동일한 환경 세팅
++# collect_data.py와 동일한 설정
++INPUT_DIM = 141
+ MAX_LEN = 30
+-CONFIDENCE_THRESHOLD = 0.85
++POSE_IDXS = [0, 11, 12, 13, 14] # 코, 양어깨, 양팔꿈치
+ 
+-# 입술 랜드마크 인덱스 (40개)
+-MOUTH_INDICES = [
+-    61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 185, 40, 39, 37, 0, 267, 269, 270, 409, 
+-    78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 191, 80, 81, 82, 13, 312, 311, 310, 415
+-]
+-
+-def load_label_map(path='models/label_map.json'):
+-    with open(path, 'r', encoding='utf-8') as f:
+-        # JSON 키는 무조건 문자열이므로 정수형으로 변환
+-        label_map = {int(k): v for k, v in json.load(f).items()}
+-    return label_map
+-
+-def normalize_frame(frame_data):
+-    """
+-    모바일 전처리 스펙(2-1)과 완벽하게 동일한 정규화 함수
+-    frame_data: (345,) 1차원 배열
+-    """
+-    pts = frame_data.reshape(-1, 3)
+-    l_shoulder, r_shoulder = pts[11], pts[12]
++def normalize_landmarks(features):
++    """dataset.py와 동일한 141차원 정규화 로직"""
++    pts = features.reshape(-1, 3)
++    # 141차원 기준 어깨 인덱스 (43, 44)
++    l_shoulder = pts[43]
++    r_shoulder = pts[44]
+     
+     shoulder_center = (l_shoulder + r_shoulder) / 2.0
+     pts_translated = pts - shoulder_center
+@@ -40,133 +29,125 @@ def normalize_frame(frame_data):
+     pts_scaled = pts_translated / shoulder_width
+     return pts_scaled.flatten()
+ 
++def extract_keypoints(results, last_pose):
++    """collect_data.py와 100% 동일한 순서와 규격으로 추출 (Forward Fill 적용)"""
++    features = []
++    
++    # 1. Left Hand (63)
++    if results.left_hand_landmarks:
++        for lm in results.left_hand_landmarks.landmark:
++            features.extend([lm.x, lm.y, lm.z])
++    else:
++        features.extend([0.0] * 21 * 3)
++
++    # 2. Right Hand (63)
++    if results.right_hand_landmarks:
++        for lm in results.right_hand_landmarks.landmark:
++            features.extend([lm.x, lm.y, lm.z])
++    else:
++        features.extend([0.0] * 21 * 3)
++
++    # 3. Pose (15) - Forward Fill
++    if results.pose_landmarks:
++        pose_landmarks = results.pose_landmarks.landmark
++        current_pose = []
++        for idx in POSE_IDXS:
++            lm = pose_landmarks[idx]
++            current_pose.extend([lm.x, lm.y, lm.z])
++        features.extend(current_pose)
++        last_pose = current_pose # 업데이트
++    else:
++        if last_pose is not None:
++            features.extend(last_pose)
++        else:
++            features.extend([0.0] * len(POSE_IDXS) * 3)
++
++    # 추출된 생좌표를 즉시 정규화해서 반환
++    raw_features = np.array(features, dtype=np.float32)
++    return normalize_landmarks(raw_features), last_pose
++
+ def main():
+     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+     
+-    # 1. 라벨 매핑 및 모델 로드
++    # 모델 및 라벨 로드
+     try:
+-        label_map = load_label_map()
+-        num_classes = len(label_map)
+-    except FileNotFoundError:
+-        print("❌ label_map.json 파일이 없습니다. 먼저 train.py를 실행하세요.")
+-        return
+-
+-    model = KSLTransformer(input_dim=345, num_classes=num_classes, d_model=128, num_heads=4, num_layers=2)
+-    try:
+-        model.load_state_dict(torch.load('models/best_sign_model.pt', map_location=device))
+-        model.to(device)
++        with open('models/new_1_best_model_9873/label_map_1.json', 'r', encoding='utf-8') as f:
++            label_map = {int(k): v for k, v in json.load(f).items()}
++        
++        model = KSLTransformer(input_dim=INPUT_DIM, num_classes=len(label_map), d_model=128, num_heads=8, num_layers=3).to(device)
++        # 141차원 전용으로 새로 학습된 모델 파일을 로드해야 함
++        model.load_state_dict(torch.load('models/new_1_best_model_9873/best_sign_model_1.pt', map_location=device))
+         model.eval()
+-        print("✅ 모델 로드 성공!")
+-    except FileNotFoundError:
+-        print("❌ models/best_sign_model.pt 파일이 없습니다. 먼저 모델을 학습시키세요.")
++        print("✅ KSL Transformer V1 (141-dim) 모델 로드 성공!")
++    except Exception as e:
++        print(f"❌ 모델 로드 실패: {e}")
+         return
+ 
+-    # 2. MediaPipe 초기화
+     mp_holistic = mp.solutions.holistic
+-    cap = cv2.VideoCapture(0) # 0번 웹캠 켜기
++    mp_drawing = mp.solutions.drawing_utils
++    cap = cv2.VideoCapture(0)
+     
+-    # 프레임 큐 보관용 (길이 30 고정)
+-    frame_queue = deque(maxlen=MAX_LEN)
+-    prediction_history = deque(maxlen=5) # Smoothing / Voting 용 (최근 5번)
+-    
+-    # Forward Fill 용도
+-    last_pose = np.zeros(33 * 3)
+-    last_lh = np.zeros(21 * 3)
+-    last_rh = np.zeros(21 * 3)
+-    last_mouth = np.zeros(40 * 3)
++    frame_window = deque(maxlen=MAX_LEN)
++    prediction_window = deque(maxlen=5)
++    current_action = "none"
++    last_pose = None # Forward Fill용 변수
+ 
+-    current_action = "대기중..."
+-    
+     with mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:
+         while cap.isOpened():
+-            ret, frame = cap.read()
+-            if not ret:
+-                break
+-                
+-            # 좌우 반전 (거울 모드)
+-            frame = cv2.flip(frame, 1)
+-            image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+-            image.flags.writeable = False
+-            results = holistic.process(image)
+-            image.flags.writeable = True
++            success, frame = cap.read()
++            if not success: break
+             
+-            # 3. 랜드마크 추출 및 Forward Fill
+-            if results.pose_landmarks:
+-                pose = np.array([[res.x, res.y, res.z] for res in results.pose_landmarks.landmark]).flatten()
+-                last_pose = pose
+-            else:
+-                pose = last_pose
+-                
+-            if results.left_hand_landmarks:
+-                lh = np.array([[res.x, res.y, res.z] for res in results.left_hand_landmarks.landmark]).flatten()
+-                last_lh = lh
+-            else:
+-                lh = last_lh
+-                
+-            if results.right_hand_landmarks:
+-                rh = np.array([[res.x, res.y, res.z] for res in results.right_hand_landmarks.landmark]).flatten()
+-                last_rh = rh
+-            else:
+-                rh = last_rh
+-                
+-            if results.face_landmarks:
+-                mouth = np.array([[results.face_landmarks.landmark[i].x, 
+-                                   results.face_landmarks.landmark[i].y, 
+-                                   results.face_landmarks.landmark[i].z] for i in MOUTH_INDICES]).flatten()
+-                last_mouth = mouth
+-            else:
+-                mouth = last_mouth
+-                
+-            raw_frame_data = np.concatenate([pose, lh, rh, mouth])
++            # 1. AI 분석용 (원본)
++            image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
++            results = holistic.process(image_rgb)
+             
+-            # 4. 정규화 및 큐에 추가
+-            norm_frame_data = normalize_frame(raw_frame_data)
+-            frame_queue.append(norm_frame_data)
++            # 141차원 키포인트 추출 (Forward Fill 적용)
++            keypoints, last_pose = extract_keypoints(results, last_pose)
++            frame_window.append(keypoints)
+             
+-            # 5. 큐가 30프레임 꽉 찼을 때 추론 시작
+-            if len(frame_queue) == MAX_LEN:
+-                # Numpy -> Tensor 변환 (1, 30, 345)
+-                input_seq = np.array(frame_queue)
+-                input_tensor = torch.FloatTensor(input_seq).unsqueeze(0).to(device)
+-                
++            if len(frame_window) == MAX_LEN:
++                input_tensor = torch.FloatTensor(np.array(frame_window)).unsqueeze(0).to(device)
+                 with torch.no_grad():
+                     logits = model(input_tensor)
+-                    probabilities = torch.nn.functional.softmax(logits, dim=1)
+-                    
+-                    # Top-1 확률 추출
+-                    conf, predicted_idx = torch.max(probabilities, 1)
+-                    conf = conf.item()
+-                    predicted_idx = predicted_idx.item()
+-                    predicted_word = label_map[predicted_idx]
++                    probs = torch.softmax(logits, dim=1)
++                    conf, idx = torch.max(probs, 1)
+                     
+-                    # Confidence Threshold 통과 여부 확인
+-                    if conf >= CONFIDENCE_THRESHOLD:
+-                        prediction_history.append(predicted_word)
++                    # 신뢰도가 0.8 이상일 때만 투표 후보로 등록
++                    if conf.item() > 0.8:
++                        prediction_window.append(label_map[idx.item()])
+                     else:
+-                        prediction_history.append("none")
+-                        
+-                    # Voting 로직 (최근 5번 중 가장 많이 나온 단어가 3번 이상일 때만 표출)
+-                    if len(prediction_history) == 5:
+-                        most_common_word = max(set(prediction_history), key=prediction_history.count)
+-                        if prediction_history.count(most_common_word) >= 3 and most_common_word != "none":
+-                            current_action = f"{most_common_word} ({conf*100:.1f}%)"
+-                        else:
+-                            current_action = "대기중..."
++                        prediction_window.append("none")
++                
++                # [투표 로직] 윈도우 내에서 가장 빈도가 높은 단어를 현재 액션으로 결정
++                if len(prediction_window) > 0:
++                    current_action = max(set(prediction_window), key=list(prediction_window).count)
++                else:
++                    current_action = "none"
++
++            # --- 시각화 (사용자를 위한 거울 모드) ---
++            # 뼈대 그리기
++            mp_drawing.draw_landmarks(frame, results.pose_landmarks, mp_holistic.POSE_CONNECTIONS)
++            mp_drawing.draw_landmarks(frame, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
++            mp_drawing.draw_landmarks(frame, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
+             
+-            # 6. 화면 출력 (한국어 출력은 cv2에서 깨지므로 영어/숫자 기반 렌더링 권장, 여기선 테스트용)
+-            # 파이썬 OpenCV는 기본 한글 출력이 깨지므로, 실제 환경에서는 PIL ImageFont 등을 사용해야 합니다.
+-            # 여기서는 편의상 영문 폰트를 사용하되, 터미널 로그로 한글 정답을 찍어줍니다.
+-            cv2.putText(frame, f"Action: {current_action}", (10, 40), 
+-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+-            print(f"현재 동작: {current_action}")
++            # 화면 뒤집기
++            display_frame = cv2.flip(frame, 1)
+             
+-            cv2.imshow('Sign Language Real-time Inference', frame)
++            # 글씨 쓰기
++            img_pil = Image.fromarray(cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB))
++            draw = ImageDraw.Draw(img_pil)
++            try:
++                font = ImageFont.truetype("malgun.ttf", 35)
++                draw.text((30, 30), f"인식 결과: {current_action}", font=font, fill=(0, 255, 0))
++            except: pass
+             
+-            if cv2.waitKey(10) & 0xFF == ord('q'):
+-                break
+-                
++            final_frame = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
++            cv2.imshow('KSL V1 141-dim Real-time', final_frame)
++            
++            if cv2.waitKey(1) & 0xFF == ord('q'): break
++
+     cap.release()
+     cv2.destroyAllWindows()
+ 
+-if __name__ == '__main__':
++if __name__ == "__main__":
+     main()
+
+
+diff --git a/ai/src/sign2text_transformer/model.py b/ai/src/sign2text_transformer/model.py
+--- a/ai/src/sign2text_transformer/model.py
++++ b/ai/src/sign2text_transformer/model.py
+@@ -29,10 +29,10 @@ class PositionalEncoding(nn.Module):
+         return x
+ 
+ class KSLTransformer(nn.Module):
+-    def __init__(self, input_dim=345, num_classes=110, d_model=128, num_heads=4, num_layers=2, dim_feedforward=256, dropout=0.1):
++    def __init__(self, input_dim=141, num_classes=110, d_model=128, num_heads=8, num_layers=3, dim_feedforward=512, dropout=0.1):
+         super(KSLTransformer, self).__init__()
+         
+-        # 1. 입력 차원(345)을 모델 내부 차원(128)으로 축소/확장 (Linear Projection)
++        # 1. 입력 차원(141)을 모델 내부 차원(128)으로 축소/확장 (Linear Projection)
+         self.input_projection = nn.Linear(input_dim, d_model)
+         
+         # 2. 시간에 대한 순서 정보를 부여하는 Positional Encoding
+@@ -59,7 +59,7 @@ class KSLTransformer(nn.Module):
+         )
+ 
+     def forward(self, x):
+-        # x shape: (batch_size, seq_len(30), input_dim(345))
++        # x shape: (batch_size, seq_len(30), input_dim(141))
+         
+         # Step 1. 임베딩 및 위치 정보 추가
+         x = self.input_projection(x)  # (batch_size, 30, 128)
+
+
+diff --git a/ai/src/sign2text_transformer/s3_mediapipe_extractor.py b/ai/src/sign2text_transformer/s3_mediapipe_extractor.py
+--- a/ai/src/sign2text_transformer/s3_mediapipe_extractor.py
++++ b/ai/src/sign2text_transformer/s3_mediapipe_extractor.py
+@@ -1,178 +1,104 @@
+-import os
+-import cv2
+ import boto3
+-import numpy as np
++import cv2
+ import mediapipe as mp
+-from dotenv import load_dotenv
+-import concurrent.futures
++import numpy as np
++import os
++import tempfile
++import time
++from concurrent.futures import ProcessPoolExecutor, as_completed
+ 
+-# MediaPipe Holistic 초기화 (포즈 + 양손)
+-mp_holistic = mp.solutions.holistic
++AWS_ACCESS_KEY = os.environ.get('AWS_ACCESS_KEY')
++AWS_SECRET_KEY = os.environ.get('AWS_SECRET_KEY')
++BUCKET_NAME = os.environ.get('S3_BUCKET_NAME')
++S3_SOURCE_PREFIX = 'raw_videos/'
++S3_TARGET_PREFIX = 'processed_npy_v2/'
+ 
+-# 입술 윤곽선(Outer+Inner) 랜드마크 인덱스 (총 40개)
+-MOUTH_INDICES = [
+-    61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 185, 40, 39, 37, 0, 267, 269, 270, 409, # Outer
+-    78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 191, 80, 81, 82, 13, 312, 311, 310, 415  # Inner
+-]
++POSE_IDXS = [0, 11, 12, 13, 14]
+ 
+-def extract_landmarks_from_video(video_path):
+-    """
+-    비디오에서 프레임별로 MediaPipe 랜드마크를 추출하여 NumPy 배열로 반환합니다.
+-    추출 범위 (총 115개 랜드마크):
+-    - Pose: 33개
+-    - Left Hand: 21개
+-    - Right Hand: 21개
+-    - Mouth: 40개 (얼굴 표정 중 입모양만 핀셋 추출)
+-    결과 차원: (프레임수, 115 * 3) = (프레임수, 345)
+-    """
+-    cap = cv2.VideoCapture(video_path)
+-    video_data = []
+-    
+-    # Forward Fill을 위한 이전 프레임 좌표 저장 변수 초기화
+-    last_pose = np.zeros(33 * 3)
+-    last_lh = np.zeros(21 * 3)
+-    last_rh = np.zeros(21 * 3)
+-    last_mouth = np.zeros(40 * 3)
+-    
+-    with mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:
+-        while cap.isOpened():
+-            ret, frame = cap.read()
+-            if not ret:
+-                break
+-                
+-            # BGR을 RGB로 변환
+-            image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+-            image.flags.writeable = False
+-            results = holistic.process(image)
+-            
+-            # 1. Pose (33개 랜드마크)
+-            if results.pose_landmarks:
+-                pose = np.array([[res.x, res.y, res.z] for res in results.pose_landmarks.landmark]).flatten()
+-                last_pose = pose
+-            else:
+-                pose = last_pose  # Forward Fill (이전 값 유지)
+-                
+-            # 2. Left Hand (21개 랜드마크)
+-            if results.left_hand_landmarks:
+-                lh = np.array([[res.x, res.y, res.z] for res in results.left_hand_landmarks.landmark]).flatten()
+-                last_lh = lh
+-            else:
+-                lh = last_lh  # Forward Fill
+-                
+-            # 3. Right Hand (21개 랜드마크)
+-            if results.right_hand_landmarks:
+-                rh = np.array([[res.x, res.y, res.z] for res in results.right_hand_landmarks.landmark]).flatten()
+-                last_rh = rh
+-            else:
+-                rh = last_rh  # Forward Fill
+-                
+-            # 4. Mouth / Lips (40개 랜드마크 - Face Mesh에서 핀셋 추출)
+-            if results.face_landmarks:
+-                mouth = np.array([[results.face_landmarks.landmark[i].x, 
+-                                   results.face_landmarks.landmark[i].y, 
+-                                   results.face_landmarks.landmark[i].z] for i in MOUTH_INDICES]).flatten()
+-                last_mouth = mouth
+-            else:
+-                mouth = last_mouth  # Forward Fill
+-                
+-            # 하나의 프레임 데이터로 결합 (33*3 + 21*3 + 21*3 + 40*3 = 345 차원)
+-            frame_data = np.concatenate([pose, lh, rh, mouth])
+-            video_data.append(frame_data)
+-            
+-    cap.release()
+-    return np.array(video_data) # Shape: (frames, 345)
++def extract_keypoints(results, last_pose):
++    if results.left_hand_landmarks:
++        lh = np.array([[lm.x, lm.y, lm.z] for lm in results.left_hand_landmarks.landmark]).flatten()
++    else:
++        lh = np.zeros(21 * 3)
++
++    if results.right_hand_landmarks:
++        rh = np.array([[lm.x, lm.y, lm.z] for lm in results.right_hand_landmarks.landmark]).flatten()
++    else:
++        rh = np.zeros(21 * 3)
++
++    if results.pose_landmarks:
++        pose_landmarks = results.pose_landmarks.landmark
++        pose = np.array([[pose_landmarks[idx].x, pose_landmarks[idx].y, pose_landmarks[idx].z] for idx in POSE_IDXS]).flatten()
++        last_pose = pose
++    else:
++        pose = last_pose if last_pose is not None else np.zeros(len(POSE_IDXS) * 3)
++
++    return np.concatenate([lh, rh, pose]), last_pose
+ 
+ def process_single_video(s3_key):
+-    """
+-    각 프로세스(워커)가 독립적으로 실행할 단일 영상 처리 로직
+-    """
+-    # 워커 내부에서 S3 클라이언트를 독립적으로 생성 (멀티프로세싱 충돌 방지)
+-    load_dotenv()
+-    AWS_ACCESS_KEY = os.getenv('AWS_ACCESS_KEY')
+-    AWS_SECRET_KEY = os.getenv('AWS_SECRET_KEY')
+-    BUCKET_NAME = os.getenv('S3_BUCKET_NAME')
+-    
+-    s3_client = boto3.client(
+-        's3',
+-        aws_access_key_id=AWS_ACCESS_KEY,
+-        aws_secret_access_key=AWS_SECRET_KEY
+-    )
+-    
+-    npy_s3_key = s3_key.replace('.mp4', '.npy')
+-    
+-    # 1. 이미 .npy 파일이 있는지 확인 (이어하기 기능)
+-    try:
+-        s3_client.head_object(Bucket=BUCKET_NAME, Key=npy_s3_key)
+-        return f"⏩ 이미 처리된 파일입니다 (스킵): {npy_s3_key}"
+-    except:
+-        pass # 파일이 없으므로 처리 진행
+-    
+-    # 병렬 처리 중 로컬 파일 이름이 겹치지 않도록 고유한 이름 사용
+-    local_id = os.path.basename(s3_key).replace('.mp4', '')
+-    local_mp4 = f"temp_video_{local_id}.mp4"
+-    local_npy = f"temp_data_{local_id}.npy"
+-    
+     try:
+-        # 2. 다운로드
+-        s3_client.download_file(BUCKET_NAME, s3_key, local_mp4)
++        s3_client = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY, aws_secret_access_key=AWS_SECRET_KEY)
+         
+-        # 3. MediaPipe 추출
+-        npy_data = extract_landmarks_from_video(local_mp4)
++        relative_path = s3_key.replace(S3_SOURCE_PREFIX, '')
++        target_key = os.path.join(S3_TARGET_PREFIX, os.path.splitext(relative_path)[0] + '.npy').replace('\\', '/')
+         
+-        # 4. 저장 및 업로드
+-        np.save(local_npy, npy_data)
+-        s3_client.upload_file(local_npy, BUCKET_NAME, npy_s3_key)
++        try:
++            s3_client.head_object(Bucket=BUCKET_NAME, Key=target_key)
++            return f"⏭️ 스킵 (이미 존재): {target_key}"
++        except:
++            pass
++            
++        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_file:
++            tmp_path = tmp_file.name
++            s3_client.download_file(Bucket=BUCKET_NAME, Key=s3_key, Filename=tmp_path)
++
++        video_data = []
++        cap = cv2.VideoCapture(tmp_path)
++        last_pose = None
+         
+-        return f"✅ 변환 완료: {npy_s3_key}"
+-    except Exception as e:
+-        return f"❌ 에러 발생 ({s3_key}): {e}"
+-    finally:
+-        # 5. 로컬 찌꺼기 삭제
+-        if os.path.exists(local_mp4):
+-            os.remove(local_mp4)
+-        if os.path.exists(local_npy):
+-            os.remove(local_npy)
++        mp_holistic = mp.solutions.holistic
++        with mp_holistic.Holistic(static_image_mode=False, min_detection_confidence=0.5) as holistic:
++            while cap.isOpened():
++                success, frame = cap.read()
++                if not success: break
++                image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
++                results = holistic.process(image_rgb)
++                keypoints, last_pose = extract_keypoints(results, last_pose)
++                video_data.append(keypoints)
++        
++        cap.release()
++        os.remove(tmp_path)
+ 
+-def process_s3_videos_multiprocess():
+-    print("🚀 S3 원본 영상(.mp4) -> MediaPipe 좌표(.npy) [멀티프로세싱 병렬 변환] 작업을 시작합니다...")
++        if len(video_data) > 0 and last_pose is not None:
++            npy_data = np.array(video_data, dtype=np.float32)
++            with tempfile.NamedTemporaryFile(suffix='.npy', delete=False) as tmp_npy:
++                np.save(tmp_npy.name, npy_data)
++                s3_client.upload_file(tmp_npy.name, BUCKET_NAME, target_key)
++            os.remove(tmp_npy.name)
++            return f"✅ 완료: {target_key}"
++        return f"⚠️ 실패 (데이터 없음): {s3_key}"
+     
+-    # 1. S3 환경변수 로드
+-    load_dotenv()
+-    AWS_ACCESS_KEY = os.getenv('AWS_ACCESS_KEY')
+-    AWS_SECRET_KEY = os.getenv('AWS_SECRET_KEY')
+-    BUCKET_NAME = os.getenv('S3_BUCKET_NAME')
++    except Exception as e:
++        return f"❌ 에러 ({s3_key}): {str(e)}"
+ 
+-    s3_client = boto3.client(
+-        's3',
+-        aws_access_key_id=AWS_ACCESS_KEY,
+-        aws_secret_access_key=AWS_SECRET_KEY
+-    )
++def main():
++    s3_client = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY, aws_secret_access_key=AWS_SECRET_KEY)
+     
+-    # 2. S3에서 모든 .mp4 파일 목록 수집
+-    print("📂 S3에서 대상 영상 목록을 불러오는 중...")
+     paginator = s3_client.get_paginator('list_objects_v2')
+-    pages = paginator.paginate(Bucket=BUCKET_NAME, Prefix='raw_videos/')
+-    
+-    target_keys = []
+-    for page in pages:
++    video_keys = []
++    for page in paginator.paginate(Bucket=BUCKET_NAME, Prefix=S3_SOURCE_PREFIX):
+         if 'Contents' in page:
+-            for obj in page['Contents']:
+-                if obj['Key'].endswith('.mp4'):
+-                    target_keys.append(obj['Key'])
+-                    
+-    print(f"총 {len(target_keys)}개의 영상이 대기열에 등록되었습니다.")
+-    
+-    # 3. 멀티프로세싱 풀(Pool) 가동 (CPU 코어 최대치 활용)
+-    # V100 서버의 코어 수에 맞게 워커 수를 늘려줍니다. (여기서는 최대 16개 동시 작업)
+-    MAX_WORKERS = 16
+-    
+-    with concurrent.futures.ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+-        # 여러 개의 프로세스가 영상들을 나누어서 동시에 처리합니다.
+-        futures = {executor.submit(process_single_video, key): key for key in target_keys}
++            video_keys.extend([obj['Key'] for obj in page['Contents'] if obj['Key'].endswith('.mp4')])
++
++    print(f"🚀 총 {len(video_keys)}개의 영상 작업을 시작합니다. (안정화 병렬 모드)")
++
++    with ProcessPoolExecutor(max_workers=4) as executor:
++        future_to_video = {executor.submit(process_single_video, key): key for key in video_keys}
+         
+-        for future in concurrent.futures.as_completed(futures):
+-            # 완료되는 순서대로 결과 출력
+-            print(future.result())
++        for future in as_completed(future_to_video):
++            result = future.result()
++            print(result)
++            time.sleep(0.05)
+ 
+ if __name__ == "__main__":
+-    process_s3_videos_multiprocess()
++    main()
+
+
+diff --git a/ai/src/sign2text_transformer/train.py b/ai/src/sign2text_transformer/train.py
+--- a/ai/src/sign2text_transformer/train.py
++++ b/ai/src/sign2text_transformer/train.py
+@@ -4,12 +4,13 @@ import torch
+ import torch.nn as nn
+ import torch.optim as optim
+ from torch.optim.lr_scheduler import ReduceLROnPlateau
++from sklearn.metrics import f1_score
+ from dataset import create_dataloaders
+ from model import KSLTransformer
+ 
+ # 하이퍼파라미터 설정
+ DATA_DIR = './s3_downloaded_data' # S3에서 다운받은 .npy 파일들이 있는 최상위 폴더 (단어별 하위 폴더 존재)
+-MAX_CLASSES = 30 # 일단 모바일 테스트용으로 30개 단어만 먼저 학습 (전체 학습 시 None으로 변경)
++MAX_CLASSES = None # 전체 110개 단어 학습을 위해 None으로 복구
+ BATCH_SIZE = 64
+ MAX_LEN = 30
+ EPOCHS = 200 # Early Stopping을 믿고 넉넉하게 200으로 상향
+@@ -17,26 +18,43 @@ PATIENCE = 15 # 15번 연속 성능 향상이 없으면 조기 종료
+ LEARNING_RATE = 1e-3
+ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+ 
++def get_unique_filename(base_path):
++    """
++    파일이 이미 존재하면 파일명 뒤에 _1, _2 등을 붙여 고유한 파일명을 반환합니다.
++    """
++    if not os.path.exists(base_path):
++        return base_path
++    
++    name, ext = os.path.splitext(base_path)
++    counter = 1
++    while os.path.exists(f"{name}_{counter}{ext}"):
++        counter += 1
++    return f"{name}_{counter}{ext}"
++
+ def train_model():
+     print(f"🚀 학습을 시작합니다. 사용 장치: {DEVICE}")
+     
+-    # 1. 데이터 로더 및 라벨 매핑 생성
+-    train_loader, val_loader, class_to_idx = create_dataloaders(DATA_DIR, batch_size=BATCH_SIZE, max_len=MAX_LEN, max_classes=MAX_CLASSES)
++    # 1. 데이터 로더 및 라벨 매핑 생성 (데이터 불균형 해결을 위해 class_weights 활용)
++    train_loader, val_loader, class_to_idx, class_weights = create_dataloaders(DATA_DIR, batch_size=BATCH_SIZE, max_len=MAX_LEN, max_classes=MAX_CLASSES)
+     num_classes = len(class_to_idx)
+     print(f"✅ 총 {num_classes}개의 단어 클래스를 로드했습니다.")
+     
+     # 모바일 팀 전달용 label_map.json 저장 (인덱스 -> 단어)
+     idx_to_class = {v: k for k, v in class_to_idx.items()}
+-    with open('label_map.json', 'w', encoding='utf-8') as f:
++    label_map_path = get_unique_filename('label_map.json')
++    model_save_path = get_unique_filename('best_sign_model.pt')
++    
++    with open(label_map_path, 'w', encoding='utf-8') as f:
+         json.dump(idx_to_class, f, ensure_ascii=False, indent=4)
+-    print("✅ label_map.json 파일이 생성되었습니다.")
++    print(f"✅ {label_map_path} 파일이 생성되었습니다.")
+     
+     # 2. 모델 초기화
+-    # 모바일용 초경량 세팅 (d_model=128, num_layers=2)
+-    model = KSLTransformer(input_dim=345, num_classes=num_classes, d_model=128, num_heads=4, num_layers=2).to(DEVICE)
++    # 141차원 및 성능 향상을 위한 상향 세팅 (3층, 8헤드)
++    model = KSLTransformer(input_dim=141, num_classes=num_classes, d_model=128, num_heads=8, num_layers=3).to(DEVICE)
+     
+     # 3. 손실 함수 및 최적화 기법 설정
+-    criterion = nn.CrossEntropyLoss()
++    # 데이터가 부족한 클래스에 더 큰 가중치를 부여하여 고르게 학습
++    criterion = nn.CrossEntropyLoss(weight=class_weights.to(DEVICE))
+     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
+     # Validation Accuracy가 정체되면 학습률을 절반(0.5)으로 깎아버리는 똑똑한 스케줄러로 변경
+     scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5)
+@@ -90,18 +108,33 @@ def train_model():
+         val_acc = 100 * val_correct / val_total
+         val_loss = val_loss / val_total
+         
++        # F1-Score 계산 (클래스 불균형 대응 확인용)
++        # 모든 라벨과 예측값을 리스트로 모아 계산 (실제 학습 시에는 내부 루프에서 모으는 로직이 추가됨)
++        all_preds = []
++        all_labels = []
++        model.eval()
++        with torch.no_grad():
++            for inputs, labels in val_loader:
++                inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
++                outputs = model(inputs)
++                _, predicted = torch.max(outputs, 1)
++                all_preds.extend(predicted.cpu().numpy())
++                all_labels.extend(labels.cpu().numpy())
++        
++        val_f1 = f1_score(all_labels, all_preds, average='macro')
++        
+         # Learning Rate 스케줄러 업데이트 (Val Acc 기준)
+         scheduler.step(val_acc)
+         
+         print(f"Epoch [{epoch+1}/{EPOCHS}] "
+               f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}% | "
+-              f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%")
++              f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%, F1: {val_f1:.4f}")
+         
+         # 6. 최고 성능 모델 저장 (.pt) 및 Early Stopping 검사
+         if val_acc > best_val_acc:
+             best_val_acc = val_acc
+-            torch.save(model.state_dict(), 'best_sign_model.pt')
+-            print(f"🔥 Best Model Saved! (Val Acc: {best_val_acc:.2f}%)")
++            torch.save(model.state_dict(), model_save_path)
++            print(f"🔥 Best Model Saved to {model_save_path}! (Val Acc: {best_val_acc:.2f}%)")
+             patience_counter = 0 # 신기록 달성 시 카운터 초기화
+         else:
+             patience_counter += 1
+
+

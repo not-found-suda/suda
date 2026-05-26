@@ -1,0 +1,758 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioPlayer.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioPlayer.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioPlayer.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioPlayer.kt
+@@ -3,6 +3,7 @@ package com.ssafy.mobile.core.audio
+ import android.content.Context
+ import android.media.MediaPlayer
+ import android.util.Base64
++import android.util.Log
+ import dagger.hilt.android.qualifiers.ApplicationContext
+ import java.io.File
+ import java.io.FileOutputStream
+@@ -43,16 +44,17 @@ class AndroidAudioPlayer
+                             onComplete()
+                             stop()
+                         }
+-                        setOnErrorListener { _, _, _ ->
+-                            onComplete() // 에러 시에도 STT 복구를 위해 콜백 호출
++                        setOnErrorListener { _, what, extra ->
++                            Log.e(TAG, "MediaPlayer error: what=$what, extra=$extra")
++                            onComplete()
+                             stop()
+                             true
+                         }
+                         prepareAsync()
+                     }
+             }.onFailure {
+-                onComplete() // 파일 생성 등 초기 단계 실패 시에도 콜백 호출
+-                it.printStackTrace()
++                Log.e(TAG, "Failed to play audio data", it)
++                onComplete()
+                 stop()
+             }
+         }
+@@ -66,15 +68,59 @@ class AndroidAudioPlayer
+                 val audioBytes = Base64.decode(base64Data, Base64.DEFAULT)
+                 play(audioBytes, onComplete)
+             }.onFailure {
++                Log.e(TAG, "Failed to decode base64 audio", it)
+                 onError()
+-                it.printStackTrace()
++            }
++        }
++
++        override fun playUrl(
++            url: String,
++            onPrepared: () -> Unit,
++            onComplete: () -> Unit,
++            onError: (String) -> Unit,
++        ) {
++            stop()
++
++            if (url.isBlank()) {
++                onError("재생할 오디오 URL이 없습니다.")
++                return
++            }
++
++            runCatching {
++                mediaPlayer =
++                    MediaPlayer().apply {
++                        setDataSource(url)
++                        setOnPreparedListener {
++                            onPrepared()
++                            start()
++                        }
++                        setOnCompletionListener {
++                            onComplete()
++                            stop()
++                        }
++                        setOnErrorListener { _, what, extra ->
++                            Log.e(TAG, "MediaPlayer URL playback error: what=$what, extra=$extra")
++                            onError("오디오를 재생하지 못했습니다. (code: $what)")
++                            stop()
++                            true
++                        }
++                        prepareAsync()
++                    }
++            }.onFailure {
++                Log.e(TAG, "Failed to initialize URL playback", it)
++                onError("오디오 재생 준비 중 오류가 발생했습니다.")
++                stop()
+             }
+         }
+ 
+         override fun stop() {
+             mediaPlayer?.let {
+-                if (it.isPlaying) it.stop()
+-                it.release()
++                runCatching {
++                    if (it.isPlaying) it.stop()
++                    it.release()
++                }.onFailure { e ->
++                    Log.w(TAG, "Error while stopping/releasing MediaPlayer", e)
++                }
+             }
+             mediaPlayer = null
+ 
+@@ -86,4 +132,8 @@ class AndroidAudioPlayer
+         override fun release() {
+             stop()
+         }
++
++        companion object {
++            private const val TAG = "AndroidAudioPlayer"
++        }
+     }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AudioPlayer.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AudioPlayer.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AudioPlayer.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AudioPlayer.kt
+@@ -26,6 +26,20 @@ interface AudioPlayer {
+         onError: () -> Unit = {},
+     )
+ 
++    /**
++     * URL 주소의 오디오 파일을 재생합니다.
++     * @param url 재생할 오디오 파일의 URL
++     * @param onPrepared 재생 준비가 완료되었을 때 실행할 콜백 (Loading -> Playing 전환용)
++     * @param onComplete 재생이 완료되었을 때 실행할 콜백
++     * @param onError 에러 발생 시 실행할 콜백
++     */
++    fun playUrl(
++        url: String,
++        onPrepared: () -> Unit = {},
++        onComplete: () -> Unit = {},
++        onError: (String) -> Unit = {},
++    )
++
+     /**
+      * 재생 중인 오디오를 중지합니다.
+      */
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListRoute.kt
+@@ -4,26 +4,27 @@ import androidx.compose.foundation.background
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+-import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+-import androidx.compose.foundation.layout.aspectRatio
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.size
+-import androidx.compose.foundation.lazy.grid.GridCells
+-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+-import androidx.compose.foundation.lazy.grid.items
++import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.shape.CircleShape
+ import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.Button
+ import androidx.compose.material3.Card
+ import androidx.compose.material3.CardDefaults
++import androidx.compose.material3.CircularProgressIndicator
+ import androidx.compose.material3.IconButton
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
++import androidx.compose.material3.TextButton
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.DisposableEffect
+ import androidx.compose.runtime.getValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+@@ -33,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.sp
+ import androidx.hilt.navigation.compose.hiltViewModel
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import com.ssafy.mobile.core.ui.components.AppErrorText
+@@ -49,23 +51,46 @@ fun LearningWordListRoute(
+     viewModel: LearningWordListViewModel = hiltViewModel(),
+ ) {
+     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
++
++    DisposableEffect(Unit) {
++        onDispose {
++            // 화면 이탈 시 오디오 정지
++            viewModel.stopAudio()
++        }
++    }
++
+     LearningWordListScreen(
+         categoryName = viewModel.categoryName,
+         uiState = uiState,
+         onBackClick = onNavigateBack,
+-        onWordClick = { onStartQuiz(viewModel.categoryId) },
+-        onRetryClick = viewModel::loadWords,
++        actions =
++            WordLearningActions(
++                onPlayAudio = viewModel::playCurrentWordAudio,
++                onStopAudio = viewModel::stopAudio,
++                onNextClick = viewModel::nextWord,
++                onPreviousClick = viewModel::previousWord,
++                onStartQuiz = { onStartQuiz(viewModel.categoryId) },
++                onRetryClick = viewModel::loadWords,
++            ),
+         modifier = modifier,
+     )
+ }
+ 
++internal data class WordLearningActions(
++    val onPlayAudio: () -> Unit,
++    val onStopAudio: () -> Unit,
++    val onNextClick: () -> Unit,
++    val onPreviousClick: () -> Unit,
++    val onStartQuiz: () -> Unit,
++    val onRetryClick: () -> Unit,
++)
++
+ @Composable
+ internal fun LearningWordListScreen(
+     categoryName: String?,
+     uiState: LearningWordListUiState,
+     onBackClick: () -> Unit,
+-    onWordClick: (LearningWord) -> Unit,
+-    onRetryClick: () -> Unit,
++    actions: WordLearningActions,
+     modifier: Modifier = Modifier,
+ ) {
+     Surface(
+@@ -74,7 +99,7 @@ internal fun LearningWordListScreen(
+     ) {
+         Column(modifier = Modifier.fillMaxSize()) {
+             WordListHeader(
+-                categoryName = categoryName ?: "단어 목록",
++                categoryName = categoryName ?: "단어 학습",
+                 onBackClick = onBackClick,
+             )
+ 
+@@ -90,10 +115,10 @@ internal fun LearningWordListScreen(
+                     }
+ 
+                     is LearningWordListUiState.Success -> {
+-                        WordGrid(
+-                            words = uiState.words,
+-                            onWordClick = onWordClick,
+-                            modifier = Modifier.fillMaxSize(),
++                        WordLearningCard(
++                            state = uiState,
++                            actions = actions,
++                            modifier = Modifier.fillMaxSize().padding(24.dp),
+                         )
+                     }
+ 
+@@ -120,7 +145,7 @@ internal fun LearningWordListScreen(
+                             Spacer(modifier = Modifier.height(16.dp))
+                             AppPrimaryButton(
+                                 text = "다시 시도",
+-                                onClick = onRetryClick,
++                                onClick = actions.onRetryClick,
+                             )
+                         }
+                     }
+@@ -164,7 +189,7 @@ private fun WordListHeader(
+         )
+ 
+         Text(
+-            text = "함께 배울 단어들을 확인해 보세요.",
++            text = "단어 카드를 넘기며 소리를 들어보세요.",
+             style = MaterialTheme.typography.bodyLarge,
+             color = MaterialTheme.colorScheme.onSurfaceVariant,
+             modifier = Modifier.padding(start = 16.dp, top = 4.dp),
+@@ -173,86 +198,236 @@ private fun WordListHeader(
+ }
+ 
+ @Composable
+-private fun WordGrid(
+-    words: List<LearningWord>,
+-    onWordClick: (LearningWord) -> Unit,
++private fun WordLearningCard(
++    state: LearningWordListUiState.Success,
++    actions: WordLearningActions,
+     modifier: Modifier = Modifier,
+ ) {
+-    LazyVerticalGrid(
+-        columns = GridCells.Fixed(2),
+-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+-        verticalArrangement = Arrangement.spacedBy(16.dp),
++    val word = state.currentWord ?: return
++
++    Column(
+         modifier = modifier,
++        horizontalAlignment = Alignment.CenterHorizontally,
+     ) {
+-        items(words, key = { it.id }) { word ->
+-            WordCard(
++        Card(
++            modifier =
++                Modifier
++                    .weight(1f)
++                    .fillMaxWidth()
++                    .clip(RoundedCornerShape(32.dp)),
++            shape = RoundedCornerShape(32.dp),
++            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
++            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
++        ) {
++            WordCardContent(
+                 word = word,
+-                onClick = { onWordClick(word) },
++                audioState = state.audioState,
++                onPlayAudio = actions.onPlayAudio,
++                onStopAudio = actions.onStopAudio,
+             )
+         }
++
++        Spacer(modifier = Modifier.height(32.dp))
++
++        WordNavigationControls(
++            state = state,
++            onPreviousClick = actions.onPreviousClick,
++            onNextClick = actions.onNextClick,
++            onStartQuiz = actions.onStartQuiz,
++        )
+     }
+ }
+ 
+ @Composable
+-private fun WordCard(
++private fun WordCardContent(
+     word: LearningWord,
+-    onClick: () -> Unit,
++    audioState: AudioPlaybackState,
++    onPlayAudio: () -> Unit,
++    onStopAudio: () -> Unit,
+ ) {
+-    Card(
+-        modifier =
+-            Modifier
+-                .fillMaxWidth()
+-                .clip(RoundedCornerShape(24.dp)),
+-        onClick = onClick,
+-        shape = RoundedCornerShape(24.dp),
+-        colors =
+-            CardDefaults.cardColors(
+-                containerColor = MaterialTheme.colorScheme.surface,
+-            ),
+-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
++    Column(
++        modifier = Modifier.fillMaxSize().padding(20.dp),
++        horizontalAlignment = Alignment.CenterHorizontally,
++        verticalArrangement = Arrangement.Center,
+     ) {
+-        Column(
+-            modifier = Modifier.fillMaxWidth().padding(12.dp),
+-            horizontalAlignment = Alignment.CenterHorizontally,
+-        ) {
+-            AppNetworkImage(
+-                imageUrl = word.imageUrl,
+-                contentDescription = word.word,
+-                fallbackText = word.word,
+-                modifier =
+-                    Modifier
+-                        .fillMaxWidth()
+-                        .aspectRatio(1f)
+-                        .clip(RoundedCornerShape(16.dp)),
+-                placeholder = {
+-                    WordFallback(word = word.word)
+-                },
+-            )
++        AppNetworkImage(
++            imageUrl = word.imageUrl,
++            contentDescription = word.word,
++            fallbackText = word.word,
++            modifier =
++                Modifier
++                    .weight(1f)
++                    .fillMaxWidth()
++                    .clip(RoundedCornerShape(24.dp)),
++            placeholder = { WordFallback(word = word.word) },
++        )
++
++        Spacer(modifier = Modifier.height(24.dp))
+ 
+-            Spacer(modifier = Modifier.height(12.dp))
++        Text(
++            text = word.word,
++            style = MaterialTheme.typography.displaySmall,
++            fontWeight = FontWeight.ExtraBold,
++            textAlign = TextAlign.Center,
++            maxLines = 1,
++            overflow = TextOverflow.Ellipsis,
++        )
+ 
++        if (!word.displayText.isNullOrBlank()) {
++            Spacer(modifier = Modifier.height(8.dp))
+             Text(
+-                text = word.word,
++                text = word.displayText,
+                 style = MaterialTheme.typography.titleMedium,
+-                fontWeight = FontWeight.Bold,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                 textAlign = TextAlign.Center,
+-                maxLines = 1,
++                maxLines = 2,
+                 overflow = TextOverflow.Ellipsis,
+             )
++        }
++
++        Spacer(modifier = Modifier.height(32.dp))
++
++        AudioControlButton(
++            audioState = audioState,
++            onPlayClick = onPlayAudio,
++            onStopClick = onStopAudio,
++        )
++
++        Spacer(modifier = Modifier.height(16.dp))
++    }
++}
++
++@Composable
++private fun WordNavigationControls(
++    state: LearningWordListUiState.Success,
++    onPreviousClick: () -> Unit,
++    onNextClick: () -> Unit,
++    onStartQuiz: () -> Unit,
++) {
++    Row(
++        modifier = Modifier.fillMaxWidth(),
++        horizontalArrangement = Arrangement.SpaceBetween,
++        verticalAlignment = Alignment.CenterVertically,
++    ) {
++        TextButton(
++            onClick = onPreviousClick,
++            enabled = state.hasPrevious,
++        ) {
++            Text("◀", fontSize = 18.sp)
++            Spacer(modifier = Modifier.width(8.dp))
++            Text("이전 단어")
++        }
+ 
+-            if (!word.displayText.isNullOrBlank()) {
+-                Spacer(modifier = Modifier.height(4.dp))
+-                Text(
+-                    text = word.displayText,
+-                    style = MaterialTheme.typography.bodySmall,
+-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                    textAlign = TextAlign.Center,
+-                    maxLines = 1,
+-                    overflow = TextOverflow.Ellipsis,
+-                )
++        Text(
++            text = "${state.currentIndex + 1} / ${state.words.size}",
++            style = MaterialTheme.typography.titleMedium,
++            fontWeight = FontWeight.Bold,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++        )
++
++        if (state.hasNext) {
++            Button(
++                onClick = onNextClick,
++                shape = RoundedCornerShape(16.dp),
++            ) {
++                Text("다음")
++                Spacer(modifier = Modifier.width(8.dp))
++                Text("▶", fontSize = 18.sp)
+             }
++        } else {
++            AppPrimaryButton(
++                text = "퀴즈 풀기",
++                onClick = onStartQuiz,
++                modifier = Modifier.width(140.dp),
++            )
++        }
++    }
++}
++
++@Composable
++private fun AudioControlButton(
++    audioState: AudioPlaybackState,
++    onPlayClick: () -> Unit,
++    onStopClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    val containerColor =
++        when (audioState) {
++            AudioPlaybackState.Playing -> MaterialTheme.colorScheme.primary
++            AudioPlaybackState.Error -> MaterialTheme.colorScheme.errorContainer
++            else -> MaterialTheme.colorScheme.primaryContainer
++        }
++
++    val contentColor =
++        when (audioState) {
++            AudioPlaybackState.Playing -> MaterialTheme.colorScheme.onPrimary
++            AudioPlaybackState.Error -> MaterialTheme.colorScheme.onErrorContainer
++            else -> MaterialTheme.colorScheme.onPrimaryContainer
++        }
++
++    Column(
++        modifier = modifier,
++        horizontalAlignment = Alignment.CenterHorizontally,
++    ) {
++        IconButton(
++            onClick = {
++                if (audioState == AudioPlaybackState.Playing) {
++                    onStopClick()
++                } else {
++                    onPlayClick()
++                }
++            },
++            enabled = audioState != AudioPlaybackState.Loading,
++            modifier =
++                Modifier
++                    .size(72.dp)
++                    .clip(CircleShape)
++                    .background(containerColor),
++        ) {
++            AudioControlIcon(audioState = audioState, contentColor = contentColor)
+         }
++
++        Spacer(modifier = Modifier.height(8.dp))
++
++        val labelColor =
++            if (audioState == AudioPlaybackState.Error) {
++                MaterialTheme.colorScheme.error
++            } else {
++                MaterialTheme.colorScheme.primary
++            }
++
++        Text(
++            text =
++                when (audioState) {
++                    AudioPlaybackState.Loading -> "준비 중..."
++                    AudioPlaybackState.Playing -> "재생 중"
++                    AudioPlaybackState.Error -> "재생 실패"
++                    else -> "소리 듣기"
++                },
++            style = MaterialTheme.typography.labelLarge,
++            color = labelColor,
++            fontWeight = FontWeight.Bold,
++        )
++    }
++}
++
++@Composable
++private fun AudioControlIcon(
++    audioState: AudioPlaybackState,
++    contentColor: androidx.compose.ui.graphics.Color,
++) {
++    if (audioState == AudioPlaybackState.Loading) {
++        CircularProgressIndicator(
++            modifier = Modifier.size(32.dp),
++            color = contentColor,
++            strokeWidth = 3.dp,
++        )
++    } else {
++        Text(
++            text = if (audioState == AudioPlaybackState.Playing) "■" else "▶",
++            fontSize = 32.sp,
++            color = contentColor,
++        )
+     }
+ }
+ 
+@@ -278,22 +453,12 @@ private fun WordFallback(
+                 ),
+         contentAlignment = Alignment.Center,
+     ) {
+-        Box(
+-            modifier =
+-                Modifier
+-                    .size(48.dp)
+-                    .clip(CircleShape)
+-                    .background(
+-                        MaterialTheme.colorScheme.surface.copy(alpha = 0.3f),
+-                    ),
+-            contentAlignment = Alignment.Center,
+-        ) {
+-            Text(
+-                text = word.firstOrNull()?.toString() ?: "",
+-                style = MaterialTheme.typography.titleLarge,
+-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+-                fontWeight = FontWeight.Black,
+-            )
+-        }
++        Text(
++            text = word.firstOrNull()?.toString() ?: "",
++            style = MaterialTheme.typography.displayLarge,
++            color = MaterialTheme.colorScheme.onPrimaryContainer,
++            fontWeight = FontWeight.Black,
++            fontSize = 120.sp,
++        )
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListUiState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListUiState.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListUiState.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListUiState.kt
+@@ -7,7 +7,13 @@ sealed interface LearningWordListUiState {
+ 
+     data class Success(
+         val words: List<LearningWord>,
+-    ) : LearningWordListUiState
++        val currentIndex: Int = 0,
++        val audioState: AudioPlaybackState = AudioPlaybackState.Idle,
++    ) : LearningWordListUiState {
++        val currentWord: LearningWord? = words.getOrNull(currentIndex)
++        val hasNext: Boolean = currentIndex < words.size - 1
++        val hasPrevious: Boolean = currentIndex > 0
++    }
+ 
+     data object Empty : LearningWordListUiState
+ 
+@@ -15,3 +21,10 @@ sealed interface LearningWordListUiState {
+         val message: String,
+     ) : LearningWordListUiState
+ }
++
++enum class AudioPlaybackState {
++    Idle,
++    Loading,
++    Playing,
++    Error,
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/learning/presentation/wordlist/LearningWordListViewModel.kt
+@@ -3,6 +3,7 @@ package com.ssafy.mobile.feature.learning.presentation.wordlist
+ import androidx.lifecycle.SavedStateHandle
+ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.core.audio.AudioPlayer
+ import com.ssafy.mobile.feature.learning.domain.repository.LearningWordRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import javax.inject.Inject
+@@ -11,6 +12,7 @@ import kotlinx.coroutines.Job
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.StateFlow
+ import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.update
+ import kotlinx.coroutines.launch
+ import kotlinx.coroutines.withContext
+ 
+@@ -20,6 +22,7 @@ class LearningWordListViewModel
+     constructor(
+         savedStateHandle: SavedStateHandle,
+         private val wordRepository: LearningWordRepository,
++        private val audioPlayer: AudioPlayer,
+     ) : ViewModel() {
+         val categoryId: Long = checkNotNull(savedStateHandle["categoryId"])
+         val categoryName: String? = savedStateHandle["categoryName"]
+@@ -29,6 +32,7 @@ class LearningWordListViewModel
+         val uiState: StateFlow<LearningWordListUiState> = _uiState.asStateFlow()
+ 
+         private var fetchJob: Job? = null
++        private var currentPlaybackRequestId: Long = 0
+ 
+         init {
+             loadWords()
+@@ -61,4 +65,94 @@ class LearningWordListViewModel
+                         }
+                 }
+         }
++
++        fun playCurrentWordAudio() {
++            val state = _uiState.value as? LearningWordListUiState.Success
++            val word = state?.currentWord
++            val audioUrl = word?.audioUrl
++
++            if (audioUrl.isNullOrBlank()) {
++                updateAudioState(AudioPlaybackState.Error)
++                return
++            }
++
++            val requestId = ++currentPlaybackRequestId
++            updateAudioState(AudioPlaybackState.Loading)
++
++            audioPlayer.playUrl(
++                url = audioUrl,
++                onPrepared = {
++                    if (requestId == currentPlaybackRequestId) {
++                        updateAudioState(AudioPlaybackState.Playing)
++                    }
++                },
++                onComplete = {
++                    if (requestId == currentPlaybackRequestId) {
++                        updateAudioState(AudioPlaybackState.Idle)
++                    }
++                },
++                onError = { _ ->
++                    if (requestId == currentPlaybackRequestId) {
++                        updateAudioState(AudioPlaybackState.Error)
++                    }
++                },
++            )
++        }
++
++        fun nextWord() {
++            updateSuccessState { state ->
++                if (state.hasNext) {
++                    currentPlaybackRequestId++
++                    audioPlayer.stop()
++                    state.copy(
++                        currentIndex = state.currentIndex + 1,
++                        audioState = AudioPlaybackState.Idle,
++                    )
++                } else {
++                    state
++                }
++            }
++        }
++
++        fun previousWord() {
++            updateSuccessState { state ->
++                if (state.hasPrevious) {
++                    currentPlaybackRequestId++
++                    audioPlayer.stop()
++                    state.copy(
++                        currentIndex = state.currentIndex - 1,
++                        audioState = AudioPlaybackState.Idle,
++                    )
++                } else {
++                    state
++                }
++            }
++        }
++
++        fun stopAudio() {
++            currentPlaybackRequestId++
++            audioPlayer.stop()
++            updateAudioState(AudioPlaybackState.Idle)
++        }
++
++        private fun updateAudioState(audioState: AudioPlaybackState) {
++            updateSuccessState { it.copy(audioState = audioState) }
++        }
++
++        private fun updateSuccessState(
++            update: (LearningWordListUiState.Success) -> LearningWordListUiState.Success,
++        ) {
++            _uiState.update { currentState ->
++                if (currentState is LearningWordListUiState.Success) {
++                    update(currentState)
++                } else {
++                    currentState
++                }
++            }
++        }
++
++        override fun onCleared() {
++            super.onCleared()
++            audioPlayer.release()
++        }
+     }
+
+

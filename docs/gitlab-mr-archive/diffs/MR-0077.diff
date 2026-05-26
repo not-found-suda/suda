@@ -1,0 +1,39 @@
+﻿diff --git a/mobile/app/src/debug/AndroidManifest.xml b/mobile/app/src/debug/AndroidManifest.xml
+--- a/mobile/app/src/debug/AndroidManifest.xml
++++ b/mobile/app/src/debug/AndroidManifest.xml
+@@ -1,5 +1,4 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+-
+     <application android:usesCleartextTraffic="true" />
+ </manifest>
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/data/api/LoginApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/data/api/LoginApiService.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/login/data/api/LoginApiService.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/login/data/api/LoginApiService.kt
+@@ -7,7 +7,7 @@ import retrofit2.http.Body
+ import retrofit2.http.POST
+ 
+ interface LoginApiService {
+-    @POST("api/v1/auth/login")
++    @POST("v1/auth/login")
+     suspend fun login(
+         @Body request: LoginRequestDto,
+     ): Response<LoginResponseDto>
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/data/api/SignupApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/data/api/SignupApiService.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/data/api/SignupApiService.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/signup/data/api/SignupApiService.kt
+@@ -7,7 +7,7 @@ import retrofit2.http.Body
+ import retrofit2.http.POST
+ 
+ interface SignupApiService {
+-    @POST("api/v1/auth/signup")
++    @POST("v1/auth/signup")
+     suspend fun signup(
+         @Body request: SignupRequestDto,
+     ): Response<SignupResponseDto>
+
+

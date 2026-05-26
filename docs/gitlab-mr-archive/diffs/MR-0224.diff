@@ -1,0 +1,1534 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationSessionAnalysisRepository.java b/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationSessionAnalysisRepository.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationSessionAnalysisRepository.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/repository/CommunicationSessionAnalysisRepository.java
+@@ -33,12 +33,12 @@ public interface CommunicationSessionAnalysisRepository
+     where s.childProfile.id = :childId
+       and s.startedAt >= :from
+       and s.startedAt < :to
+-      and a.analysisStatus <> :excludedStatus
++      and a.analysisStatus = :analysisStatus
+     order by s.startedAt desc
+     """)
+   List<ReportCommunicationAnalysisQueryRow> findCommunicationAnalysisRows(
+       @Param("childId") Long childId,
+       @Param("from") LocalDateTime from,
+       @Param("to") LocalDateTime to,
+-      @Param("excludedStatus") CommunicationAnalysisStatus excludedStatus);
++      @Param("analysisStatus") CommunicationAnalysisStatus analysisStatus);
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/report/dto/ReportSummaryResponse.java b/backend/src/main/java/com/ssafy/backend/domain/report/dto/ReportSummaryResponse.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/report/dto/ReportSummaryResponse.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/report/dto/ReportSummaryResponse.java
+@@ -12,4 +12,5 @@ public record ReportSummaryResponse(
+     Double averageStar,
+     LocalDateTime latestSessionAt,
+     ReportLatestCategoryResponse latestCategory,
+-    List<ReportWeakWordResponse> weakWords) {}
++    List<ReportWeakWordResponse> weakWords,
++    LocalDateTime generatedAt) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/report/service/ReportService.java b/backend/src/main/java/com/ssafy/backend/domain/report/service/ReportService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/report/service/ReportService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/report/service/ReportService.java
+@@ -108,7 +108,8 @@ public class ReportService {
+             ? new ReportLatestCategoryResponse(
+                 latestCategory.categoryId(), latestCategory.categoryName())
+             : null,
+-        weakWords);
++        weakWords,
++        LocalDateTime.now());
+   }
+ 
+   public ReportCommunicationSummaryResponse getCommunicationSummary(
+@@ -131,7 +132,7 @@ public class ReportService {
+ 
+     List<ReportCommunicationAnalysisQueryRow> rows =
+         communicationSessionAnalysisRepository.findCommunicationAnalysisRows(
+-            childId, fromDateTime, toDateTime, CommunicationAnalysisStatus.EMPTY);
++            childId, fromDateTime, toDateTime, CommunicationAnalysisStatus.COMPLETED);
+ 
+     long totalUtteranceCount = 0;
+     double sentenceLengthSum = 0.0;
+@@ -271,7 +272,10 @@ public class ReportService {
+       }
+     }
+ 
+-    CommunicationAnalysisStatus status = resolveOverallAnalysisStatus(rows);
++    CommunicationAnalysisStatus status =
++        completedCount == 0
++            ? CommunicationAnalysisStatus.EMPTY
++            : CommunicationAnalysisStatus.COMPLETED;
+     double averageSentenceLength =
+         completedCount == 0 ? 0.0 : roundOneDecimal(sentenceLengthSum / completedCount);
+ 
+@@ -486,41 +490,6 @@ public class ReportService {
+         row.latestSessionAt());
+   }
+ 
+-  private CommunicationAnalysisStatus resolveOverallAnalysisStatus(
+-      List<ReportCommunicationAnalysisQueryRow> rows) {
+-    if (rows.isEmpty()) {
+-      return CommunicationAnalysisStatus.EMPTY;
+-    }
+-
+-    boolean hasProcessing =
+-        rows.stream()
+-            .anyMatch(
+-                row ->
+-                    row.analysisStatus() == CommunicationAnalysisStatus.PENDING
+-                        || row.analysisStatus() == CommunicationAnalysisStatus.PROCESSING);
+-
+-    if (hasProcessing) {
+-      return CommunicationAnalysisStatus.PROCESSING;
+-    }
+-
+-    boolean hasCompleted =
+-        rows.stream()
+-            .anyMatch(row -> row.analysisStatus() == CommunicationAnalysisStatus.COMPLETED);
+-
+-    if (hasCompleted) {
+-      return CommunicationAnalysisStatus.COMPLETED;
+-    }
+-
+-    boolean allEmpty =
+-        rows.stream().allMatch(row -> row.analysisStatus() == CommunicationAnalysisStatus.EMPTY);
+-
+-    if (allEmpty) {
+-      return CommunicationAnalysisStatus.EMPTY;
+-    }
+-
+-    return CommunicationAnalysisStatus.FAILED;
+-  }
+-
+   private JsonNode parseSummaryJson(String summaryJson) {
+     if (summaryJson == null || summaryJson.isBlank()) {
+       return objectMapper.createObjectNode();
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeRoute.kt
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/home/presentation/HomeViewModel.kt
+@@ -1,3 +1,5 @@
++@file:Suppress("ComplexCondition", "MagicNumber")
++
+ package com.ssafy.mobile.feature.home.presentation
+ 
+ import androidx.lifecycle.ViewModel
+@@ -28,7 +30,7 @@ data class HomeUiState(
+     val activeChildState: ActiveChildProfileState = ActiveChildProfileState.Loading,
+     val weeklyActivityState: HomeWeeklyActivityState = HomeWeeklyActivityState.Idle,
+     val selectedCommunicationDate: LocalDate = LocalDate.now(),
+-    val hasManualCommunicationDateSelection: Boolean = false,
++    val selectedCommunicationPeriod: HomeCommunicationPeriod = HomeCommunicationPeriod.Daily,
+     val communicationInsightToggleResetKey: Int = 0,
+     val communicationInsightState: HomeCommunicationInsightState =
+         HomeCommunicationInsightState.Idle,
+@@ -65,6 +67,15 @@ sealed interface HomeCommunicationInsightState {
+     ) : HomeCommunicationInsightState
+ }
+ 
++enum class HomeCommunicationPeriod(
++    val label: String,
++) {
++    Daily("일간"),
++    Weekly("주간"),
++    Monthly("월간"),
++    Total("종합 리포트"),
++}
++
+ sealed interface HomeResumeQuizState {
+     data object Idle : HomeResumeQuizState
+ 
+@@ -105,7 +116,6 @@ class HomeViewModel
+             _uiState.value =
+                 _uiState.value.copy(
+                     selectedCommunicationDate = date,
+-                    hasManualCommunicationDateSelection = true,
+                     communicationInsightToggleResetKey =
+                         _uiState.value.communicationInsightToggleResetKey + 1,
+                     communicationInsightState = HomeCommunicationInsightState.Loading,
+@@ -117,7 +127,32 @@ class HomeViewModel
+                     ?: return
+             loadCommunicationInsight(
+                 childId = childState.profile.childId,
+-                selectedDate = date,
++                anchorDate = date,
++                period = _uiState.value.selectedCommunicationPeriod,
++            )
++        }
++
++        fun selectCommunicationPeriod(period: HomeCommunicationPeriod) {
++            if (_uiState.value.selectedCommunicationPeriod == period) {
++                return
++            }
++
++            _uiState.value =
++                _uiState.value.copy(
++                    selectedCommunicationPeriod = period,
++                    communicationInsightToggleResetKey =
++                        _uiState.value.communicationInsightToggleResetKey + 1,
++                    communicationInsightState = HomeCommunicationInsightState.Loading,
++                )
++            communicationInsightPollingJob?.cancel()
++
++            val childState =
++                _uiState.value.activeChildState as? ActiveChildProfileState.Selected
++                    ?: return
++            loadCommunicationInsight(
++                childId = childState.profile.childId,
++                anchorDate = _uiState.value.selectedCommunicationDate,
++                period = period,
+             )
+         }
+ 
+@@ -127,6 +162,7 @@ class HomeViewModel
+                     _uiState.value =
+                         _uiState.value.copy(
+                             activeChildState = ActiveChildProfileState.Loading,
++                            selectedCommunicationPeriod = HomeCommunicationPeriod.Daily,
+                             weeklyActivityState = HomeWeeklyActivityState.Idle,
+                             communicationInsightToggleResetKey =
+                                 _uiState.value.communicationInsightToggleResetKey + 1,
+@@ -188,30 +224,28 @@ class HomeViewModel
+         private suspend fun loadHomeLearningState(childId: Long) {
+             val result =
+                 withContext(Dispatchers.IO) {
++                    val communicationAnchorResult =
++                        reportRepository.getCommunicationSummary(
++                            childId = childId,
++                            sessionLimit = LATEST_COMMUNICATION_SESSION_LIMIT,
++                        )
++                    val selectedDate =
++                        communicationAnchorResult
++                            .getOrNull()
++                            ?.preferredAnchorDateOrNull()
++                            ?: _uiState.value.selectedCommunicationDate
+                     val weeklyActivityResult =
+                         reportRepository.getQuizSessions(
+                             childId = childId,
+                             page = FIRST_PAGE,
+                             size = WEEKLY_ACTIVITY_PAGE_SIZE,
+-                            filter = currentWeekReportFilter(),
++                            filter = selectedDate.toCurrentWeekReportFilter(),
+                         )
+-                    val latestCommunicationDate =
+-                        if (_uiState.value.hasManualCommunicationDateSelection) {
+-                            null
+-                        } else {
+-                            reportRepository
+-                                .getCommunicationSummary(
+-                                    childId = childId,
+-                                    sessionLimit = LATEST_COMMUNICATION_SESSION_LIMIT,
+-                                ).getOrNull()
+-                                ?.preferredInitialCommunicationDateOrNull()
+-                        }
+-                    val selectedDate =
+-                        latestCommunicationDate ?: _uiState.value.selectedCommunicationDate
++                    val selectedPeriod = _uiState.value.selectedCommunicationPeriod
+                     val communicationInsightResult =
+                         reportRepository.getCommunicationSummary(
+                             childId = childId,
+-                            filter = selectedDate.toSingleDateReportFilter(),
++                            filter = selectedPeriod.toReportFilter(anchorDate = selectedDate),
+                             sessionLimit = HOME_COMMUNICATION_SESSION_LIMIT,
+                         )
+                     val resumeQuizResult =
+@@ -224,6 +258,7 @@ class HomeViewModel
+                     HomeLearningResult(
+                         weeklyActivityResult = weeklyActivityResult,
+                         selectedCommunicationDate = selectedDate,
++                        selectedCommunicationPeriod = selectedPeriod,
+                         communicationInsightResult = communicationInsightResult,
+                         resumeQuizResult = resumeQuizResult,
+                     )
+@@ -249,21 +284,23 @@ class HomeViewModel
+                 )
+             startCommunicationInsightPollingIfNeeded(
+                 childId = childId,
+-                selectedDate = result.selectedCommunicationDate,
++                anchorDate = result.selectedCommunicationDate,
++                period = result.selectedCommunicationPeriod,
+                 result = result.communicationInsightResult,
+             )
+         }
+ 
+         private fun loadCommunicationInsight(
+             childId: Long,
+-            selectedDate: LocalDate,
++            anchorDate: LocalDate,
++            period: HomeCommunicationPeriod,
+         ) {
+             viewModelScope.launch {
+                 val result =
+                     withContext(Dispatchers.IO) {
+                         reportRepository.getCommunicationSummary(
+                             childId = childId,
+-                            filter = selectedDate.toSingleDateReportFilter(),
++                            filter = period.toReportFilter(anchorDate = anchorDate),
+                             sessionLimit = HOME_COMMUNICATION_SESSION_LIMIT,
+                         )
+                     }
+@@ -272,7 +309,8 @@ class HomeViewModel
+                 if (
+                     currentState !is ActiveChildProfileState.Selected ||
+                     currentState.profile.childId != childId ||
+-                    _uiState.value.selectedCommunicationDate != selectedDate
++                    _uiState.value.selectedCommunicationDate != anchorDate ||
++                    _uiState.value.selectedCommunicationPeriod != period
+                 ) {
+                     return@launch
+                 }
+@@ -283,7 +321,8 @@ class HomeViewModel
+                     )
+                 startCommunicationInsightPollingIfNeeded(
+                     childId = childId,
+-                    selectedDate = selectedDate,
++                    anchorDate = anchorDate,
++                    period = period,
+                     result = result,
+                 )
+             }
+@@ -291,7 +330,8 @@ class HomeViewModel
+ 
+         private fun startCommunicationInsightPollingIfNeeded(
+             childId: Long,
+-            selectedDate: LocalDate,
++            anchorDate: LocalDate,
++            period: HomeCommunicationPeriod,
+             result: Result<ReportCommunicationSummary>,
+         ) {
+             val status = result.getOrNull()?.analysisStatus
+@@ -314,7 +354,8 @@ class HomeViewModel
+                         if (
+                             currentState !is ActiveChildProfileState.Selected ||
+                             currentState.profile.childId != childId ||
+-                            _uiState.value.selectedCommunicationDate != selectedDate
++                            _uiState.value.selectedCommunicationDate != anchorDate ||
++                            _uiState.value.selectedCommunicationPeriod != period
+                         ) {
+                             return@launch
+                         }
+@@ -323,7 +364,7 @@ class HomeViewModel
+                             withContext(Dispatchers.IO) {
+                                 reportRepository.getCommunicationSummary(
+                                     childId = childId,
+-                                    filter = selectedDate.toSingleDateReportFilter(),
++                                    filter = period.toReportFilter(anchorDate = anchorDate),
+                                     sessionLimit = HOME_COMMUNICATION_SESSION_LIMIT,
+                                 )
+                             }
+@@ -349,6 +390,7 @@ class HomeViewModel
+ private data class HomeLearningResult(
+     val weeklyActivityResult: Result<ReportQuizSessionPage>,
+     val selectedCommunicationDate: LocalDate,
++    val selectedCommunicationPeriod: HomeCommunicationPeriod,
+     val communicationInsightResult: Result<ReportCommunicationSummary>,
+     val resumeQuizResult: Result<ReportQuizSessionPage>,
+ )
+@@ -415,7 +457,7 @@ private fun ReportCommunicationSummary.hasCompletedCommunicationInsight(): Boole
+         developmentReference.isNotBlank() ||
+         recentSessions.any { session -> session.summary.isNotBlank() }
+ 
+-private fun ReportCommunicationSummary.preferredInitialCommunicationDateOrNull(): LocalDate? =
++private fun ReportCommunicationSummary.preferredAnchorDateOrNull(): LocalDate? =
+     recentSessions
+         .firstOrNull()
+         ?.startedAt
+@@ -444,20 +486,35 @@ private fun Result<ReportQuizSessionPage>.toResumeQuizState(): HomeResumeQuizSta
+         },
+     )
+ 
+-private fun currentWeekReportFilter(): ReportFilterState {
+-    val today = LocalDate.now()
+-    return ReportFilterState(
+-        from = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).toString(),
+-        to = today.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY)).toString(),
+-    )
+-}
+-
+-private fun LocalDate.toSingleDateReportFilter(): ReportFilterState =
++private fun LocalDate.toCurrentWeekReportFilter(): ReportFilterState =
+     ReportFilterState(
+-        from = toString(),
+-        to = toString(),
++        from = with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).toString(),
++        to = with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY)).toString(),
+     )
+ 
++private fun HomeCommunicationPeriod.toReportFilter(anchorDate: LocalDate): ReportFilterState =
++    when (this) {
++        HomeCommunicationPeriod.Daily ->
++            ReportFilterState(
++                from = anchorDate.toString(),
++                to = anchorDate.toString(),
++            )
++
++        HomeCommunicationPeriod.Weekly ->
++            ReportFilterState(
++                from = anchorDate.minusDays(6).toString(),
++                to = anchorDate.toString(),
++            )
++
++        HomeCommunicationPeriod.Monthly ->
++            ReportFilterState(
++                from = anchorDate.minusDays(29).toString(),
++                to = anchorDate.toString(),
++            )
++
++        HomeCommunicationPeriod.Total -> ReportFilterState()
++    }
++
+ private fun String.toReportDateOrNull(): LocalDate? =
+     runCatching {
+         trim()
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportSummaryDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportSummaryDto.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportSummaryDto.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportSummaryDto.kt
+@@ -27,6 +27,8 @@ data class ReportSummaryResponseDto(
+     val latestCategory: ReportLatestCategoryDto? = null,
+     @SerializedName("weakWords")
+     val weakWords: List<ReportWeakWordDto> = emptyList(),
++    @SerializedName("generatedAt")
++    val generatedAt: String? = null,
+ )
+ 
+ data class ReportLatestCategoryDto(
+@@ -95,6 +97,7 @@ fun ReportSummaryResponseDto.toDomain(): ReportSummary =
+                 )
+             },
+         weakWords = weakWords.map { it.toDomain() },
++        generatedAt = generatedAt,
+     )
+ 
+ fun ReportWeakWordListResponseDto.toDomain(): ReportWeakWordPage =
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportSummary.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportSummary.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportSummary.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportSummary.kt
+@@ -6,6 +6,7 @@ data class ReportSummary(
+     val performance: ReportPerformanceSummary,
+     val latestActivity: ReportLatestActivity?,
+     val weakWords: List<ReportWeakWord>,
++    val generatedAt: String?,
+ ) {
+     val hasCompletedRecords: Boolean
+         get() = participation.completedSessionCount > 0
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressViewModel.kt
+@@ -53,6 +53,7 @@ class ReportCategoryProgressViewModel
+                     filterUiState =
+                         ReportFilterUiState(
+                             input = filterSelectionStore.currentInput(),
++                            anchorDate = filterSelectionStore.currentAnchorDate(),
+                             hasAppliedFilter = true,
+                         ),
+                 ),
+@@ -65,7 +66,7 @@ class ReportCategoryProgressViewModel
+                 .currentInput()
+                 .toDateFilter()
+                 .getOrDefault(
+-                    defaultReportFilterState(),
++                    defaultReportFilterState(filterSelectionStore.currentAnchorDate()),
+                 )
+ 
+         init {
+@@ -156,10 +157,17 @@ class ReportCategoryProgressViewModel
+         }
+ 
+         fun resetFilter() {
+-            appliedFilter = defaultReportFilterState()
++            appliedFilter = defaultReportFilterState(filterSelectionStore.currentAnchorDate())
+             _uiState.value =
+                 _uiState.value.copy(
+-                    filterUiState = ReportFilterUiState(),
++                    filterUiState =
++                        ReportFilterUiState(
++                            input =
++                                defaultReportFilterInputState(
++                                    filterSelectionStore.currentAnchorDate(),
++                                ),
++                            anchorDate = filterSelectionStore.currentAnchorDate(),
++                        ),
+                 )
+             reloadCategoryProgressWithCurrentChild()
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCommunicationSummaryRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCommunicationSummaryRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCommunicationSummaryRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCommunicationSummaryRoute.kt
+@@ -3,6 +3,7 @@
+ package com.ssafy.mobile.feature.report.presentation
+ 
+ import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.PaddingValues
+ import androidx.compose.foundation.layout.Row
+@@ -13,10 +14,11 @@ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.LazyListScope
+-import androidx.compose.foundation.lazy.items
++import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.material3.ExperimentalMaterial3Api
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Scaffold
++import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.material3.TextButton
+ import androidx.compose.material3.TopAppBar
+@@ -40,7 +42,6 @@ import com.ssafy.mobile.core.ui.components.AppPrimaryButton
+ import com.ssafy.mobile.core.ui.components.AppSecondaryButton
+ import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
+ import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationAnalysisStatus
+-import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationSessionSummary
+ import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationSummary
+ import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationWordCount
+ import com.ssafy.mobile.feature.report.domain.model.ReportExpressionTypeCounts
+@@ -96,15 +97,10 @@ fun ReportCommunicationSummaryRoute(
+         ReportCommunicationSummaryContent(
+             activeChildState = uiState.activeChildState,
+             communicationSummaryState = uiState.communicationSummaryState,
+-            filterUiState = uiState.filterUiState,
++            selectedPeriod = uiState.selectedPeriod,
++            onPeriodSelected = viewModel::selectPeriod,
+             onRetryClick = viewModel::loadActiveChildProfile,
+             onSwitchChild = onSwitchChild,
+-            filterActions =
+-                ReportFilterActions(
+-                    onInputChange = viewModel::updateFilterInput,
+-                    onApplyClick = viewModel::applyFilter,
+-                    onResetClick = viewModel::resetFilter,
+-                ),
+             modifier =
+                 Modifier
+                     .fillMaxSize()
+@@ -117,10 +113,10 @@ fun ReportCommunicationSummaryRoute(
+ private fun ReportCommunicationSummaryContent(
+     activeChildState: ActiveChildProfileState,
+     communicationSummaryState: ReportCommunicationSummaryState,
+-    filterUiState: ReportFilterUiState,
++    selectedPeriod: ReportCommunicationSummaryPeriod,
++    onPeriodSelected: (ReportCommunicationSummaryPeriod) -> Unit,
+     onRetryClick: () -> Unit,
+     onSwitchChild: () -> Unit,
+-    filterActions: ReportFilterActions,
+     modifier: Modifier = Modifier,
+ ) {
+     LazyColumn(
+@@ -141,8 +137,8 @@ private fun ReportCommunicationSummaryContent(
+             is ActiveChildProfileState.Selected ->
+                 communicationSummaryItems(
+                     state = communicationSummaryState,
+-                    filterUiState = filterUiState,
+-                    filterActions = filterActions,
++                    selectedPeriod = selectedPeriod,
++                    onPeriodSelected = onPeriodSelected,
+                     onRetryClick = onRetryClick,
+                 )
+ 
+@@ -177,15 +173,14 @@ private fun ReportCommunicationSummaryContent(
+ 
+ private fun LazyListScope.communicationSummaryItems(
+     state: ReportCommunicationSummaryState,
+-    filterUiState: ReportFilterUiState,
+-    filterActions: ReportFilterActions,
++    selectedPeriod: ReportCommunicationSummaryPeriod,
++    onPeriodSelected: (ReportCommunicationSummaryPeriod) -> Unit,
+     onRetryClick: () -> Unit,
+ ) {
+     item {
+-        ReportFilterPanel(
+-            state = filterUiState,
+-            config = ReportFilterPanelConfig(),
+-            actions = filterActions,
++        ReportCommunicationPeriodToggle(
++            selectedPeriod = selectedPeriod,
++            onPeriodSelected = onPeriodSelected,
+         )
+     }
+ 
+@@ -206,12 +201,9 @@ private fun LazyListScope.communicationSummaryItems(
+             }
+ 
+         is ReportCommunicationSummaryState.Success -> {
+-            item {
+-                ReportCommunicationOverviewCard(summary = state.summary)
+-            }
+             communicationSummaryBody(
+                 summary = state.summary,
+-                filterUiState = filterUiState,
++                selectedPeriod = selectedPeriod,
+                 onRetryClick = onRetryClick,
+             )
+         }
+@@ -220,7 +212,7 @@ private fun LazyListScope.communicationSummaryItems(
+ 
+ private fun LazyListScope.communicationSummaryBody(
+     summary: ReportCommunicationSummary,
+-    filterUiState: ReportFilterUiState,
++    selectedPeriod: ReportCommunicationSummaryPeriod,
+     onRetryClick: () -> Unit,
+ ) {
+     when (summary.analysisStatus) {
+@@ -240,12 +232,7 @@ private fun LazyListScope.communicationSummaryBody(
+         ReportCommunicationAnalysisStatus.Empty ->
+             item {
+                 ReportCommunicationStatusCard(
+-                    message =
+-                        if (filterUiState.hasAppliedFilter) {
+-                            "선택한 기간에 분석할 아이 발화가 없어요."
+-                        } else {
+-                            "아직 분석할 아이 발화가 없어요.\n소통 화면에서 아이 음성을 기록하면 리포트가 채워져요."
+-                        },
++                    message = "${selectedPeriod.label}에 분석 완료된 아이 발화가 없어요.",
+                 )
+             }
+ 
+@@ -263,34 +250,85 @@ private fun LazyListScope.communicationSummaryBody(
+         ReportCommunicationAnalysisStatus.Completed,
+         ReportCommunicationAnalysisStatus.Unknown,
+         -> {
++            item {
++                ReportCommunicationOverviewCard(summary = summary)
++            }
+             item {
+                 ReportCommunicationFrequentWordsCard(words = summary.frequentWords)
+             }
+             item {
+                 ReportCommunicationExpressionCard(counts = summary.expressionTypeCounts)
+             }
+-            if (summary.recentSessions.isEmpty()) {
+-                item {
+-                    ReportCommunicationStatusCard(message = "최근 소통 세션 요약이 아직 없어요.")
+-                }
+-            } else {
+-                item {
+-                    ReportSectionTitle(
+-                        title = "최근 대화 요약",
+-                        subtitle = "최근 세션 5개까지 최신순으로 보여드려요.",
+-                    )
+-                }
+-                items(
+-                    items = summary.recentSessions,
+-                    key = { session -> session.sessionId },
+-                ) { session ->
+-                    ReportCommunicationSessionCard(session = session)
++            item {
++                ReportCommunicationInsightCard(summary = summary)
++            }
++        }
++    }
++}
++
++@Composable
++private fun ReportCommunicationPeriodToggle(
++    selectedPeriod: ReportCommunicationSummaryPeriod,
++    onPeriodSelected: (ReportCommunicationSummaryPeriod) -> Unit,
++) {
++    ReportGlassCard(
++        modifier = Modifier.fillMaxWidth(),
++        contentPadding = PaddingValues(14.dp),
++    ) {
++        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
++            ReportSectionTitle(
++                title = "기간 조회",
++                subtitle = "선택한 기간의 모든 대화를 합쳐 분석해요.",
++            )
++            ReportCommunicationSummaryPeriod.entries.chunked(PERIOD_TOGGLE_COLUMNS).forEach { row ->
++                Row(
++                    modifier = Modifier.fillMaxWidth(),
++                    horizontalArrangement = Arrangement.spacedBy(8.dp),
++                ) {
++                    row.forEach { period ->
++                        ReportCommunicationPeriodButton(
++                            period = period,
++                            selected = selectedPeriod == period,
++                            onClick = { onPeriodSelected(period) },
++                            modifier = Modifier.weight(1f),
++                        )
++                    }
++                    repeat(PERIOD_TOGGLE_COLUMNS - row.size) {
++                        Spacer(modifier = Modifier.weight(1f))
++                    }
+                 }
+             }
+         }
+     }
+ }
+ 
++@Composable
++private fun ReportCommunicationPeriodButton(
++    period: ReportCommunicationSummaryPeriod,
++    selected: Boolean,
++    onClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    val colors = MaterialTheme.colorScheme
++    Surface(
++        onClick = onClick,
++        modifier = modifier.height(38.dp),
++        shape = RoundedCornerShape(8.dp),
++        color = if (selected) colors.primary else colors.surfaceVariant.copy(alpha = 0.58f),
++        contentColor = if (selected) colors.onPrimary else colors.onSurfaceVariant,
++    ) {
++        Box(contentAlignment = Alignment.Center) {
++            Text(
++                text = period.label,
++                style = MaterialTheme.typography.labelLarge,
++                fontWeight = FontWeight.Bold,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++            )
++        }
++    }
++}
++
+ @Composable
+ private fun ReportCommunicationSummaryIntro(activeChildState: ActiveChildProfileState) {
+     val selectedProfile = (activeChildState as? ActiveChildProfileState.Selected)?.profile
+@@ -477,6 +515,102 @@ private fun ReportCommunicationExpressionCard(counts: ReportExpressionTypeCounts
+     }
+ }
+ 
++@Composable
++private fun ReportCommunicationInsightCard(summary: ReportCommunicationSummary) {
++    ReportGlassCard(modifier = Modifier.fillMaxWidth()) {
++        ReportSectionTitle(
++            title = "통합 분석",
++            subtitle = "기간 안의 완성된 분석 결과만 모아 정리했어요.",
++        )
++        Spacer(modifier = Modifier.height(12.dp))
++        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
++            ReportCommunicationLevelRow(
++                title = "소통 수준",
++                value = summary.communicationLevel.toCommunicationLevelLabel(),
++            )
++            ReportCommunicationLevelRow(
++                title = "어휘 다양성",
++                value = summary.vocabularyDiversityLevel.toCommunicationLevelLabel(),
++            )
++            ReportCommunicationLevelRow(
++                title = "문장 확장",
++                value = summary.sentenceExpansionLevel.toCommunicationLevelLabel(),
++            )
++            ReportCommunicationLevelRow(
++                title = "주의 단계",
++                value = summary.cautionLevel.toCautionLevelLabel(),
++            )
++            ReportCommunicationTextList(
++                title = "강점",
++                values = summary.strengths,
++            )
++            ReportCommunicationTextList(
++                title = "도움이 필요한 부분",
++                values = summary.improvementPoints,
++            )
++            ReportCommunicationTextList(
++                title = "보호자 가이드",
++                values = summary.parentGuide,
++            )
++            ReportCommunicationTextList(
++                title = "추천 활동",
++                values = summary.recommendedActivities,
++            )
++        }
++    }
++}
++
++@Composable
++private fun ReportCommunicationLevelRow(
++    title: String,
++    value: String,
++) {
++    Row(
++        modifier = Modifier.fillMaxWidth(),
++        horizontalArrangement = Arrangement.SpaceBetween,
++        verticalAlignment = Alignment.CenterVertically,
++    ) {
++        Text(
++            text = title,
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++        )
++        AppBadge(
++            text = value,
++            tone = AppBadgeTone.Secondary,
++        )
++    }
++}
++
++@Composable
++private fun ReportCommunicationTextList(
++    title: String,
++    values: List<String>,
++) {
++    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
++        Text(
++            text = title,
++            style = MaterialTheme.typography.labelLarge,
++            fontWeight = FontWeight.Bold,
++        )
++        if (values.isEmpty()) {
++            Text(
++                text = "아직 정리된 내용이 없어요.",
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++            )
++        } else {
++            values.take(REPORT_TEXT_LIST_LIMIT).forEach { value ->
++                Text(
++                    text = "• $value",
++                    style = MaterialTheme.typography.bodyMedium,
++                    color = MaterialTheme.colorScheme.onSurface,
++                )
++            }
++        }
++    }
++}
++
+ @Composable
+ private fun ReportExpressionMeter(
+     title: String,
+@@ -498,56 +632,6 @@ private fun ReportExpressionMeter(
+     )
+ }
+ 
+-@Composable
+-private fun ReportCommunicationSessionCard(session: ReportCommunicationSessionSummary) {
+-    ReportGlassCard(modifier = Modifier.fillMaxWidth()) {
+-        Row(
+-            modifier = Modifier.fillMaxWidth(),
+-            horizontalArrangement = Arrangement.SpaceBetween,
+-            verticalAlignment = Alignment.CenterVertically,
+-        ) {
+-            Text(
+-                text = session.toPeriodLabel(),
+-                style = MaterialTheme.typography.titleSmall,
+-                fontWeight = FontWeight.Bold,
+-                modifier = Modifier.weight(1f),
+-                maxLines = 1,
+-                overflow = TextOverflow.Ellipsis,
+-            )
+-            AppBadge(
+-                text = session.analysisStatus.toLabel(),
+-                tone = session.analysisStatus.toBadgeTone(),
+-            )
+-        }
+-
+-        Spacer(modifier = Modifier.height(10.dp))
+-
+-        Text(
+-            text = "아이 발화 ${session.utteranceCount}회",
+-            style = MaterialTheme.typography.labelLarge,
+-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+-        )
+-
+-        if (session.summary.isNotBlank()) {
+-            Spacer(modifier = Modifier.height(8.dp))
+-            Text(
+-                text = session.summary,
+-                style = MaterialTheme.typography.bodyMedium,
+-                color = MaterialTheme.colorScheme.onSurface,
+-            )
+-        }
+-
+-        if (session.frequentWords.isNotEmpty()) {
+-            Spacer(modifier = Modifier.height(10.dp))
+-            Text(
+-                text = session.frequentWords.toWordSummary(),
+-                style = MaterialTheme.typography.bodySmall,
+-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+-            )
+-        }
+-    }
+-}
+-
+ @Composable
+ private fun ReportCommunicationStatusCard(message: String) {
+     ReportGlassCard(modifier = Modifier.fillMaxWidth()) {
+@@ -654,28 +738,6 @@ private fun ReportCommunicationActionCard(
+     }
+ }
+ 
+-private fun ReportCommunicationSessionSummary.toPeriodLabel(): String {
+-    val start = startedAt.toReportQuizSessionDateTimeLabel()
+-    val end = endedAt.toReportTimeLabel()
+-    return if (end == null) {
+-        start
+-    } else {
+-        "$start ~ $end"
+-    }
+-}
+-
+-private fun String?.toReportTimeLabel(): String? {
+-    if (isNullOrBlank()) {
+-        return null
+-    }
+-    val time = drop(ISO_DATE_TIME_SEPARATOR_INDEX).take(ISO_TIME_LENGTH)
+-    return time.takeIf { it.length == ISO_TIME_LENGTH }
+-}
+-
+-private fun List<ReportCommunicationWordCount>.toWordSummary(): String =
+-    take(RECENT_SESSION_WORD_COUNT)
+-        .joinToString(separator = ", ") { word -> "${word.word} ${word.count}회" }
+-
+ private fun ReportCommunicationAnalysisStatus.toLabel(): String =
+     when (this) {
+         ReportCommunicationAnalysisStatus.Pending -> "분석 대기"
+@@ -686,6 +748,21 @@ private fun ReportCommunicationAnalysisStatus.toLabel(): String =
+         ReportCommunicationAnalysisStatus.Unknown -> "상태 확인"
+     }
+ 
++private fun String.toCommunicationLevelLabel(): String =
++    when (uppercase(Locale.ROOT)) {
++        "LOW" -> "낮음"
++        "NORMAL" -> "보통"
++        "HIGH" -> "높음"
++        else -> "확인 중"
++    }
++
++private fun String.toCautionLevelLabel(): String =
++    when (uppercase(Locale.ROOT)) {
++        "WATCH" -> "관찰 필요"
++        "CONSULT" -> "상담 권장"
++        else -> "특이 없음"
++    }
++
+ private fun ReportCommunicationAnalysisStatus.toBadgeTone(): AppBadgeTone =
+     when (this) {
+         ReportCommunicationAnalysisStatus.Pending -> AppBadgeTone.Warning
+@@ -697,7 +774,6 @@ private fun ReportCommunicationAnalysisStatus.toBadgeTone(): AppBadgeTone =
+     }
+ 
+ private const val MAX_WORD_COUNT = 5
+-private const val RECENT_SESSION_WORD_COUNT = 3
+-private const val ISO_DATE_TIME_SEPARATOR_INDEX = 11
+-private const val ISO_TIME_LENGTH = 5
++private const val REPORT_TEXT_LIST_LIMIT = 5
++private const val PERIOD_TOGGLE_COLUMNS = 2
+ private const val PERCENT_MAX = 100.0
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCommunicationSummaryViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCommunicationSummaryViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCommunicationSummaryViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCommunicationSummaryViewModel.kt
+@@ -1,3 +1,5 @@
++@file:Suppress("MagicNumber")
++
+ package com.ssafy.mobile.feature.report.presentation
+ 
+ import androidx.lifecycle.ViewModel
+@@ -9,6 +11,7 @@ import com.ssafy.mobile.feature.report.domain.model.ReportCommunicationSummary
+ import com.ssafy.mobile.feature.report.domain.model.ReportFilterState
+ import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
++import java.time.LocalDate
+ import javax.inject.Inject
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.Job
+@@ -22,7 +25,7 @@ data class ReportCommunicationSummaryUiState(
+     val activeChildState: ActiveChildProfileState = ActiveChildProfileState.Loading,
+     val communicationSummaryState: ReportCommunicationSummaryState =
+         ReportCommunicationSummaryState.Idle,
+-    val filterUiState: ReportFilterUiState = ReportFilterUiState(),
++    val selectedPeriod: ReportCommunicationSummaryPeriod = ReportCommunicationSummaryPeriod.Daily,
+ )
+ 
+ sealed interface ReportCommunicationSummaryState {
+@@ -39,6 +42,15 @@ sealed interface ReportCommunicationSummaryState {
+     ) : ReportCommunicationSummaryState
+ }
+ 
++enum class ReportCommunicationSummaryPeriod(
++    val label: String,
++) {
++    Daily("일간"),
++    Weekly("주간"),
++    Monthly("월간"),
++    Total("종합 리포트"),
++}
++
+ @HiltViewModel
+ class ReportCommunicationSummaryViewModel
+     @Inject
+@@ -50,7 +62,6 @@ class ReportCommunicationSummaryViewModel
+         val uiState: StateFlow<ReportCommunicationSummaryUiState> = _uiState.asStateFlow()
+ 
+         private var loadJob: Job? = null
+-        private var appliedFilter = defaultReportFilterState()
+ 
+         init {
+             loadActiveChildProfile()
+@@ -85,56 +96,20 @@ class ReportCommunicationSummaryViewModel
+                     if (state is ActiveChildProfileState.Selected) {
+                         loadCommunicationSummary(
+                             childId = state.profile.childId,
+-                            filter = appliedFilter,
++                            period = _uiState.value.selectedPeriod,
+                         )
+                     }
+                 }
+         }
+ 
+-        fun updateFilterInput(input: ReportFilterInputState) {
+-            _uiState.value =
+-                _uiState.value.copy(
+-                    filterUiState =
+-                        _uiState.value.filterUiState.copy(
+-                            input = input,
+-                            errorMessage = null,
+-                        ),
+-                )
+-        }
+-
+-        fun applyFilter() {
+-            val filterResult =
+-                _uiState.value.filterUiState.input
+-                    .toDateFilter()
+-            val filter =
+-                filterResult.getOrElse { throwable ->
+-                    _uiState.value =
+-                        _uiState.value.copy(
+-                            filterUiState =
+-                                _uiState.value.filterUiState.copy(
+-                                    errorMessage = throwable.message ?: "필터 값을 확인해 주세요.",
+-                                ),
+-                        )
+-                    return
+-                }
+-
+-            appliedFilter = filter
+-            _uiState.value =
+-                _uiState.value.copy(
+-                    filterUiState =
+-                        _uiState.value.filterUiState.copy(
+-                            hasAppliedFilter = filter.hasFilters(),
+-                            errorMessage = null,
+-                        ),
+-                )
+-            reloadCommunicationSummaryWithCurrentChild()
+-        }
++        fun selectPeriod(period: ReportCommunicationSummaryPeriod) {
++            if (_uiState.value.selectedPeriod == period) {
++                return
++            }
+ 
+-        fun resetFilter() {
+-            appliedFilter = defaultReportFilterState()
+             _uiState.value =
+                 _uiState.value.copy(
+-                    filterUiState = ReportFilterUiState(),
++                    selectedPeriod = period,
+                 )
+             reloadCommunicationSummaryWithCurrentChild()
+         }
+@@ -152,20 +127,29 @@ class ReportCommunicationSummaryViewModel
+                         )
+                     loadCommunicationSummary(
+                         childId = childState.profile.childId,
+-                        filter = appliedFilter,
++                        period = _uiState.value.selectedPeriod,
+                     )
+                 }
+         }
+ 
+         private suspend fun loadCommunicationSummary(
+             childId: Long,
+-            filter: ReportFilterState,
++            period: ReportCommunicationSummaryPeriod,
+         ) {
+             val result =
+                 withContext(Dispatchers.IO) {
++                    val anchorDate =
++                        reportRepository
++                            .getCommunicationSummary(
++                                childId = childId,
++                                sessionLimit = COMMUNICATION_ANCHOR_SESSION_LIMIT,
++                            ).getOrNull()
++                            ?.preferredAnchorDateOrNull()
++                            ?: LocalDate.now()
+                     reportRepository.getCommunicationSummary(
+                         childId = childId,
+-                        filter = filter,
++                        filter = period.toFilterState(anchorDate = anchorDate),
++                        sessionLimit = COMMUNICATION_ANCHOR_SESSION_LIMIT,
+                     )
+                 }
+ 
+@@ -209,4 +193,49 @@ class ReportCommunicationSummaryViewModel
+             return activeChildState is ActiveChildProfileState.Selected &&
+                 activeChildState.profile.childId == childId
+         }
++
++        private fun ReportCommunicationSummary.preferredAnchorDateOrNull(): LocalDate? =
++            recentSessions
++                .firstOrNull()
++                ?.startedAt
++                ?.take(REPORT_DATE_LENGTH)
++                ?.toReportDateOrNull()
++                ?: generatedAt
++                    ?.take(REPORT_DATE_LENGTH)
++                    ?.toReportDateOrNull()
++
++        private fun String.toReportDateOrNull(): LocalDate? =
++            runCatching {
++                trim()
++                    .takeIf { it.isNotBlank() }
++                    ?.let(LocalDate::parse)
++            }.getOrNull()
++
++        private fun ReportCommunicationSummaryPeriod.toFilterState(
++            anchorDate: LocalDate,
++        ): ReportFilterState =
++            when (this) {
++                ReportCommunicationSummaryPeriod.Daily ->
++                    ReportFilterState(
++                        from = anchorDate.toString(),
++                        to = anchorDate.toString(),
++                    )
++
++                ReportCommunicationSummaryPeriod.Weekly ->
++                    ReportFilterState(
++                        from = anchorDate.minusDays(6).toString(),
++                        to = anchorDate.toString(),
++                    )
++
++                ReportCommunicationSummaryPeriod.Monthly ->
++                    ReportFilterState(
++                        from = anchorDate.minusDays(29).toString(),
++                        to = anchorDate.toString(),
++                    )
++
++                ReportCommunicationSummaryPeriod.Total -> ReportFilterState()
++            }
+     }
++
++private const val COMMUNICATION_ANCHOR_SESSION_LIMIT = 1
++private const val REPORT_DATE_LENGTH = 10
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterComponents.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterComponents.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterComponents.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterComponents.kt
+@@ -61,6 +61,7 @@ internal fun ReportFilterPanel(
+             ReportFilterHeader(state = state)
+             ReportDateRangePicker(
+                 input = state.input,
++                anchorDate = state.anchorDate,
+                 isError = state.errorMessage != null,
+                 onInputChange = actions.onInputChange,
+             )
+@@ -85,7 +86,7 @@ internal fun ReportFilterPanel(
+ 
+ @Composable
+ private fun ReportFilterHeader(state: ReportFilterUiState) {
+-    val currentRange = state.input.selectedQuickDateRange()
++    val currentRange = state.input.selectedQuickDateRange(state.anchorDate)
+     val badgeText =
+         when (currentRange) {
+             ReportQuickDateRange.CurrentWeek -> "이번주"
+@@ -199,6 +200,7 @@ private fun ReportFilterOptionSection(
+ @Composable
+ private fun ReportDateRangePicker(
+     input: ReportFilterInputState,
++    anchorDate: LocalDate,
+     isError: Boolean,
+     onInputChange: (ReportFilterInputState) -> Unit,
+ ) {
+@@ -225,6 +227,7 @@ private fun ReportDateRangePicker(
+             )
+             ReportQuickPeriodRows(
+                 input = input,
++                anchorDate = anchorDate,
+                 onInputChange = onInputChange,
+             )
+             Row(
+@@ -234,6 +237,7 @@ private fun ReportDateRangePicker(
+                 ReportDateField(
+                     label = "시작일",
+                     value = input.from,
++                    anchorDate = anchorDate,
+                     isError = isError,
+                     onDateSelected = { selectedDate ->
+                         onInputChange(input.copy(from = selectedDate))
+@@ -243,6 +247,7 @@ private fun ReportDateRangePicker(
+                 ReportDateField(
+                     label = "종료일",
+                     value = input.to,
++                    anchorDate = anchorDate,
+                     isError = isError,
+                     onDateSelected = { selectedDate ->
+                         onInputChange(input.copy(to = selectedDate))
+@@ -257,9 +262,10 @@ private fun ReportDateRangePicker(
+ @Composable
+ private fun ReportQuickPeriodRows(
+     input: ReportFilterInputState,
++    anchorDate: LocalDate,
+     onInputChange: (ReportFilterInputState) -> Unit,
+ ) {
+-    val selectedRange = input.selectedQuickDateRange()
++    val selectedRange = input.selectedQuickDateRange(anchorDate)
+     val ranges = ReportQuickDateRange.entries
+ 
+     Row(
+@@ -270,7 +276,14 @@ private fun ReportQuickPeriodRows(
+             ReportQuickPeriodButton(
+                 text = range.label,
+                 selected = selectedRange == range,
+-                onClick = { onInputChange(input.applyQuickDateRange(range)) },
++                onClick = {
++                    onInputChange(
++                        input.applyQuickDateRange(
++                            range = range,
++                            anchorDate = anchorDate,
++                        ),
++                    )
++                },
+                 modifier = Modifier.weight(1f),
+             )
+         }
+@@ -281,6 +294,7 @@ private fun ReportQuickPeriodRows(
+ private fun ReportDateField(
+     label: String,
+     value: String,
++    anchorDate: LocalDate,
+     isError: Boolean,
+     onDateSelected: (String) -> Unit,
+     modifier: Modifier = Modifier,
+@@ -326,7 +340,7 @@ private fun ReportDateField(
+     if (isCalendarOpen) {
+         ReportCalendarDialog(
+             title = "$label 선택",
+-            initialDate = value.toReportDateOrNull() ?: LocalDate.now(),
++            initialDate = value.toReportDateOrNull() ?: anchorDate,
+             onDismiss = { isCalendarOpen = false },
+             onDateSelected = { selectedDate ->
+                 isCalendarOpen = false
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterModels.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterModels.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterModels.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterModels.kt
+@@ -19,6 +19,7 @@ data class ReportFilterCategoryOption(
+ 
+ data class ReportFilterUiState(
+     val input: ReportFilterInputState = defaultReportFilterInputState(),
++    val anchorDate: LocalDate = defaultReportFilterAnchorDate(),
+     val hasAppliedFilter: Boolean = true,
+     val errorMessage: String? = null,
+     val categoryOptions: List<ReportFilterCategoryOption> = emptyList(),
+@@ -80,6 +81,26 @@ internal fun ReportFilterState.hasFilters(): Boolean =
+         !status.isNullOrBlank() ||
+         minAttemptCount != null
+ 
++internal fun ReportFilterUiState.withAnchorDate(anchorDate: LocalDate): ReportFilterUiState {
++    if (this.anchorDate == anchorDate) {
++        return this
++    }
++
++    val selectedRange = input.selectedQuickDateRange(this.anchorDate)
++    return copy(
++        input =
++            selectedRange
++                ?.let { range ->
++                    input.applyQuickDateRange(
++                        range = range,
++                        anchorDate = anchorDate,
++                    )
++                }
++                ?: input,
++        anchorDate = anchorDate,
++    )
++}
++
+ private data class DateRange(
+     val from: String?,
+     val to: String?,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterSelectionStore.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterSelectionStore.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterSelectionStore.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportFilterSelectionStore.kt
+@@ -1,5 +1,6 @@
+ package com.ssafy.mobile.feature.report.presentation
+ 
++import java.time.LocalDate
+ import javax.inject.Inject
+ import javax.inject.Singleton
+ import kotlinx.coroutines.flow.MutableStateFlow
+@@ -10,16 +11,23 @@ import kotlinx.coroutines.flow.asStateFlow
+ class ReportFilterSelectionStore
+     @Inject
+     constructor() {
+-        private val _input = MutableStateFlow(defaultReportFilterInputState())
++        private val anchorDateState = MutableStateFlow(defaultReportFilterAnchorDate())
++        private val _input = MutableStateFlow(defaultReportFilterInputState(anchorDateState.value))
+         val input: StateFlow<ReportFilterInputState> = _input.asStateFlow()
+ 
+         fun currentInput(): ReportFilterInputState = input.value
+ 
++        fun currentAnchorDate(): LocalDate = anchorDateState.value
++
+         fun update(input: ReportFilterInputState) {
+             _input.value = input
+         }
+ 
++        fun updateAnchorDate(anchorDate: LocalDate) {
++            anchorDateState.value = anchorDate
++        }
++
+         fun reset() {
+-            _input.value = defaultReportFilterInputState()
++            _input.value = defaultReportFilterInputState(anchorDateState.value)
+         }
+     }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeRoute.kt
+@@ -156,6 +156,7 @@ private fun ReportHomeScreen(
+                         val allInput =
+                             filterUiState.input.applyQuickDateRange(
+                                 ReportQuickDateRange.All,
++                                filterUiState.anchorDate,
+                             )
+                         actions.filterActions.onInputChange(allInput)
+                         actions.filterActions.onApplyClick()
+@@ -163,7 +164,10 @@ private fun ReportHomeScreen(
+                     }
+                 }
+ 
+-                val currentRange = filterUiState.input.selectedQuickDateRange()
++                val currentRange =
++                    filterUiState.input.selectedQuickDateRange(
++                        filterUiState.anchorDate,
++                    )
+                 val filterStatusText =
+                     when (currentRange) {
+                         ReportQuickDateRange.CurrentWeek -> "이번주 · 적용 중"
+@@ -209,6 +213,7 @@ private fun ReportHomeScreen(
+                                     val allInput =
+                                         filterUiState.input.applyQuickDateRange(
+                                             ReportQuickDateRange.All,
++                                            filterUiState.anchorDate,
+                                         )
+                                     actions.filterActions.onInputChange(allInput)
+                                     actions.filterActions.onApplyClick()
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportHomeViewModel.kt
+@@ -8,6 +8,7 @@ import com.ssafy.mobile.feature.report.domain.model.ReportFilterState
+ import com.ssafy.mobile.feature.report.domain.model.ReportSummary
+ import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
++import java.time.LocalDate
+ import javax.inject.Inject
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.Job
+@@ -53,6 +54,7 @@ class ReportHomeViewModel
+                     filterUiState =
+                         ReportFilterUiState(
+                             input = filterSelectionStore.currentInput(),
++                            anchorDate = filterSelectionStore.currentAnchorDate(),
+                             hasAppliedFilter = true,
+                         ),
+                 ),
+@@ -64,7 +66,7 @@ class ReportHomeViewModel
+                 .currentInput()
+                 .toDateFilter()
+                 .getOrDefault(
+-                    defaultReportFilterState(),
++                    defaultReportFilterState(filterSelectionStore.currentAnchorDate()),
+                 )
+ 
+         init {
+@@ -153,13 +155,14 @@ class ReportHomeViewModel
+         }
+ 
+         fun resetFilter() {
+-            appliedFilter = defaultReportFilterState()
++            appliedFilter = defaultReportFilterState(filterSelectionStore.currentAnchorDate())
+             filterSelectionStore.reset()
+             _uiState.value =
+                 _uiState.value.copy(
+                     filterUiState =
+                         ReportFilterUiState(
+                             input = filterSelectionStore.currentInput(),
++                            anchorDate = filterSelectionStore.currentAnchorDate(),
+                             hasAppliedFilter = true,
+                         ),
+                 )
+@@ -207,7 +210,20 @@ class ReportHomeViewModel
+             _uiState.value =
+                 result.fold(
+                     onSuccess = { summary ->
++                        val anchoredFilterUiState =
++                            summary
++                                .anchorDateOrNull()
++                                ?.let { anchorDate ->
++                                    val anchored =
++                                        _uiState.value.filterUiState.withAnchorDate(anchorDate)
++                                    filterSelectionStore.updateAnchorDate(anchorDate)
++                                    filterSelectionStore.update(anchored.input)
++                                    anchored
++                                }
++                                ?: _uiState.value.filterUiState
++
+                         _uiState.value.copy(
++                            filterUiState = anchoredFilterUiState,
+                             summaryState =
+                                 if (summary.hasCompletedRecords) {
+                                     ReportSummaryUiState.Success(summary)
+@@ -227,3 +243,10 @@ class ReportHomeViewModel
+                 )
+         }
+     }
++
++private fun ReportSummary.anchorDateOrNull(): LocalDate? =
++    (generatedAt ?: latestActivity?.latestSessionAt)
++        ?.take(REPORT_DATE_LENGTH)
++        ?.toReportDateOrNull()
++
++private const val REPORT_DATE_LENGTH = 10
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportQuizSessionsViewModel.kt
+@@ -73,6 +73,7 @@ class ReportQuizSessionsViewModel
+                     filterUiState =
+                         ReportFilterUiState(
+                             input = initialFilterInput,
++                            anchorDate = filterSelectionStore.currentAnchorDate(),
+                             hasAppliedFilter = true,
+                         ),
+                 ),
+@@ -86,7 +87,7 @@ class ReportQuizSessionsViewModel
+             initialFilterInput
+                 .toQuizSessionsFilter()
+                 .getOrDefault(
+-                    defaultReportFilterState(),
++                    defaultReportFilterState(filterSelectionStore.currentAnchorDate()),
+                 )
+ 
+         init {
+@@ -293,7 +294,7 @@ class ReportQuizSessionsViewModel
+         }
+ 
+         fun resetFilter() {
+-            appliedFilter = defaultReportFilterState()
++            appliedFilter = defaultReportFilterState(filterSelectionStore.currentAnchorDate())
+             _uiState.value =
+                 _uiState.value.copy(
+                     filterUiState =
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportWeakWordsViewModel.kt
+@@ -63,6 +63,7 @@ class ReportWeakWordsViewModel
+                     filterUiState =
+                         ReportFilterUiState(
+                             input = filterSelectionStore.currentInput(),
++                            anchorDate = filterSelectionStore.currentAnchorDate(),
+                             hasAppliedFilter = true,
+                         ),
+                 ),
+@@ -77,7 +78,7 @@ class ReportWeakWordsViewModel
+                 .currentInput()
+                 .toWeakWordsFilter()
+                 .getOrDefault(
+-                    defaultReportFilterState(),
++                    defaultReportFilterState(filterSelectionStore.currentAnchorDate()),
+                 )
+ 
+         init {
+@@ -281,7 +282,7 @@ class ReportWeakWordsViewModel
+         }
+ 
+         fun resetFilter() {
+-            appliedFilter = defaultReportFilterState()
++            appliedFilter = defaultReportFilterState(filterSelectionStore.currentAnchorDate())
+             _uiState.value =
+                 _uiState.value.copy(
+                     filterUiState =
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportYearFilter.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportYearFilter.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportYearFilter.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportYearFilter.kt
+@@ -7,13 +7,22 @@ import java.time.DayOfWeek
+ import java.time.LocalDate
+ import java.time.temporal.TemporalAdjusters
+ 
+-internal fun defaultReportFilterState(): ReportFilterState =
+-    defaultReportFilterInputState()
++internal fun defaultReportFilterState(
++    anchorDate: LocalDate = defaultReportFilterAnchorDate(),
++): ReportFilterState =
++    defaultReportFilterInputState(anchorDate)
+         .toDateFilter()
+         .getOrDefault(ReportFilterState())
+ 
+-internal fun defaultReportFilterInputState(): ReportFilterInputState =
+-    ReportFilterInputState().applyQuickDateRange(ReportQuickDateRange.CurrentWeek)
++internal fun defaultReportFilterInputState(
++    anchorDate: LocalDate = defaultReportFilterAnchorDate(),
++): ReportFilterInputState =
++    ReportFilterInputState().applyQuickDateRange(
++        range = ReportQuickDateRange.CurrentWeek,
++        anchorDate = anchorDate,
++    )
++
++internal fun defaultReportFilterAnchorDate(): LocalDate = LocalDate.now()
+ 
+ internal enum class ReportQuickDateRange(
+     val label: String,
+@@ -25,8 +34,9 @@ internal enum class ReportQuickDateRange(
+ 
+ internal fun ReportFilterInputState.applyQuickDateRange(
+     range: ReportQuickDateRange,
++    anchorDate: LocalDate = defaultReportFilterAnchorDate(),
+ ): ReportFilterInputState {
+-    val today = LocalDate.now()
++    val today = anchorDate
+     return when (range) {
+         ReportQuickDateRange.CurrentWeek ->
+             copy(
+@@ -54,9 +64,14 @@ internal fun ReportFilterInputState.applyQuickDateRange(
+     }
+ }
+ 
+-internal fun ReportFilterInputState.selectedQuickDateRange(): ReportQuickDateRange? =
++internal fun ReportFilterInputState.selectedQuickDateRange(
++    anchorDate: LocalDate = defaultReportFilterAnchorDate(),
++): ReportQuickDateRange? =
+     ReportQuickDateRange.entries.firstOrNull { range ->
+-        applyQuickDateRange(range).hasSameDateRangeAs(this)
++        applyQuickDateRange(
++            range = range,
++            anchorDate = anchorDate,
++        ).hasSameDateRangeAs(this)
+     }
+ 
+ internal fun ReportFilterInputState.dateRangeLabel(): String =
+
+

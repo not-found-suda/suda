@@ -1,0 +1,28 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/model/TranslationMode.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/model/TranslationMode.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/model/TranslationMode.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/domain/model/TranslationMode.kt
+@@ -7,7 +7,7 @@ enum class TranslationMode {
+     ;
+ 
+     companion object {
+-        val DEFAULT = AUTO
++        val DEFAULT = ON_DEVICE
+ 
+         fun fromStorageValue(value: String?): TranslationMode =
+             entries.firstOrNull { mode -> mode.name == value } ?: DEFAULT
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -103,7 +103,7 @@ class ConversationViewModel
+         private val _isOnline = MutableStateFlow(true)
+         val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
+ 
+-        private val _translationMode = MutableStateFlow(TranslationMode.DEFAULT)
++        private val _translationMode = MutableStateFlow(TranslationMode.ON_DEVICE)
+         val translationMode: StateFlow<TranslationMode> = _translationMode.asStateFlow()
+ 
+         private val _translationModeNotice = MutableStateFlow<String?>(null)
+
+

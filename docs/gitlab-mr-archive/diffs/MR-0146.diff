@@ -1,0 +1,878 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/navigation/MobileNavHost.kt
+@@ -21,6 +21,7 @@ import com.ssafy.mobile.feature.login.presentation.LoginRoute
+ import com.ssafy.mobile.feature.mypage.presentation.MyPageRoute
+ import com.ssafy.mobile.feature.quiz.presentation.QuizResultRoute
+ import com.ssafy.mobile.feature.quiz.presentation.quizQuestionRoute
++import com.ssafy.mobile.feature.report.presentation.ReportCategoryProgressRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportHomeRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportPlaceholderRoute
+ import com.ssafy.mobile.feature.report.presentation.ReportWeakWordsRoute
+@@ -365,9 +366,11 @@ fun MobileNavHost(
+         }
+ 
+         composable(Screen.ReportCategoryProgress.route) {
+-            ReportPlaceholderRoute(
+-                title = "학습 진행도",
++            ReportCategoryProgressRoute(
+                 onNavigateBack = { navController.popBackStack() },
++                onSwitchChild = {
++                    navController.navigate(Screen.ChildSelect.route)
++                },
+                 modifier = Modifier.fillMaxSize(),
+             )
+         }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/api/ReportApiService.kt
+@@ -1,5 +1,6 @@
+ package com.ssafy.mobile.feature.report.data.api
+ 
++import com.ssafy.mobile.feature.report.data.dto.ReportCategoryProgressListResponseDto
+ import com.ssafy.mobile.feature.report.data.dto.ReportSummaryResponseDto
+ import com.ssafy.mobile.feature.report.data.dto.ReportWeakWordListResponseDto
+ import retrofit2.Response
+@@ -19,4 +20,11 @@ interface ReportApiService {
+         @Query("page") page: Int,
+         @Query("size") size: Int,
+     ): Response<ReportWeakWordListResponseDto>
++
++    @GET("v1/children/{childId}/reports/categories")
++    suspend fun getCategoryProgress(
++        @Path("childId") childId: Long,
++        @Query("from") from: String? = null,
++        @Query("to") to: String? = null,
++    ): Response<ReportCategoryProgressListResponseDto>
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportCategoryProgressDto.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportCategoryProgressDto.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/dto/ReportCategoryProgressDto.kt
+@@ -0,0 +1,61 @@
++package com.ssafy.mobile.feature.report.data.dto
++
++import com.google.gson.annotations.SerializedName
++import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgress
++import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgressPage
++
++data class ReportCategoryProgressListResponseDto(
++    @SerializedName("categories")
++    val categories: List<ReportCategoryProgressDto> = emptyList(),
++)
++
++data class ReportCategoryProgressDto(
++    @SerializedName("categoryId")
++    val categoryId: Long,
++    @SerializedName("categoryName")
++    val categoryName: String,
++    @SerializedName("totalWordCount")
++    val totalWordCount: Long,
++    @SerializedName("quizzedWordCount")
++    val quizzedWordCount: Long,
++    @SerializedName("correctWordCount")
++    val correctWordCount: Long,
++    @SerializedName("quizCoverageRate")
++    val quizCoverageRate: Double,
++    @SerializedName("correctWordRate")
++    val correctWordRate: Double,
++    @SerializedName("completedSessionCount")
++    val completedSessionCount: Long,
++    @SerializedName("totalQuestionCount")
++    val totalQuestionCount: Long,
++    @SerializedName("correctCount")
++    val correctCount: Long,
++    @SerializedName("accuracyRate")
++    val accuracyRate: Double,
++    @SerializedName("averageStar")
++    val averageStar: Double,
++    @SerializedName("latestSessionAt")
++    val latestSessionAt: String? = null,
++)
++
++fun ReportCategoryProgressListResponseDto.toDomain(): ReportCategoryProgressPage =
++    ReportCategoryProgressPage(
++        categories = categories.map { it.toDomain() },
++    )
++
++fun ReportCategoryProgressDto.toDomain(): ReportCategoryProgress =
++    ReportCategoryProgress(
++        categoryId = categoryId,
++        categoryName = categoryName,
++        totalWordCount = totalWordCount,
++        quizzedWordCount = quizzedWordCount,
++        correctWordCount = correctWordCount,
++        quizCoverageRate = quizCoverageRate,
++        correctWordRate = correctWordRate,
++        completedSessionCount = completedSessionCount,
++        totalQuestionCount = totalQuestionCount,
++        correctCount = correctCount,
++        accuracyRate = accuracyRate,
++        averageStar = averageStar,
++        latestSessionAt = latestSessionAt,
++    )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/data/repository/RemoteReportRepository.kt
+@@ -3,6 +3,7 @@ package com.ssafy.mobile.feature.report.data.repository
+ import android.util.Log
+ import com.ssafy.mobile.feature.report.data.api.ReportApiService
+ import com.ssafy.mobile.feature.report.data.dto.toDomain
++import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgressPage
+ import com.ssafy.mobile.feature.report.domain.model.ReportSummary
+ import com.ssafy.mobile.feature.report.domain.model.ReportWeakWordPage
+ import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
+@@ -94,6 +95,47 @@ class RemoteReportRepository
+                 Result.failure(IllegalStateException("취약 단어를 불러오는 중 오류가 발생했습니다."))
+             }
+ 
++        override suspend fun getCategoryProgress(
++            childId: Long,
++            from: String?,
++            to: String?,
++        ): Result<ReportCategoryProgressPage> =
++            try {
++                val response =
++                    apiService.getCategoryProgress(
++                        childId = childId,
++                        from = from,
++                        to = to,
++                    )
++
++                if (response.isSuccessful) {
++                    val body =
++                        response.body()
++                            ?: return Result.failure(IllegalStateException("카테고리 리포트 응답이 비어 있습니다."))
++                    Result.success(body.toDomain())
++                } else {
++                    Result.failure(
++                        IllegalStateException(
++                            errorMessage(
++                                statusCode = response.code(),
++                                defaultMessage = "카테고리별 리포트를 불러오지 못했습니다.",
++                            ),
++                        ),
++                    )
++                }
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: IOException) {
++                Log.e(TAG, "Report category progress network error", e)
++                Result.failure(IOException("네트워크 연결을 확인해 주세요."))
++            } catch (
++                @Suppress("TooGenericExceptionCaught")
++                e: Exception,
++            ) {
++                Log.e(TAG, "Report category progress unknown error", e)
++                Result.failure(IllegalStateException("카테고리별 리포트를 불러오는 중 오류가 발생했습니다."))
++            }
++
+         private fun errorMessage(
+             statusCode: Int,
+             defaultMessage: String,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportCategoryProgress.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportCategoryProgress.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/model/ReportCategoryProgress.kt
+@@ -0,0 +1,24 @@
++package com.ssafy.mobile.feature.report.domain.model
++
++data class ReportCategoryProgressPage(
++    val categories: List<ReportCategoryProgress>,
++) {
++    val hasCategories: Boolean
++        get() = categories.isNotEmpty()
++}
++
++data class ReportCategoryProgress(
++    val categoryId: Long,
++    val categoryName: String,
++    val totalWordCount: Long,
++    val quizzedWordCount: Long,
++    val correctWordCount: Long,
++    val quizCoverageRate: Double,
++    val correctWordRate: Double,
++    val completedSessionCount: Long,
++    val totalQuestionCount: Long,
++    val correctCount: Long,
++    val accuracyRate: Double,
++    val averageStar: Double,
++    val latestSessionAt: String?,
++)
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/domain/repository/ReportRepository.kt
+@@ -1,5 +1,6 @@
+ package com.ssafy.mobile.feature.report.domain.repository
+ 
++import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgressPage
+ import com.ssafy.mobile.feature.report.domain.model.ReportSummary
+ import com.ssafy.mobile.feature.report.domain.model.ReportWeakWordPage
+ 
+@@ -11,4 +12,10 @@ interface ReportRepository {
+         page: Int,
+         size: Int,
+     ): Result<ReportWeakWordPage>
++
++    suspend fun getCategoryProgress(
++        childId: Long,
++        from: String? = null,
++        to: String? = null,
++    ): Result<ReportCategoryProgressPage>
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressCard.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressCard.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressCard.kt
+@@ -0,0 +1,186 @@
++package com.ssafy.mobile.feature.report.presentation
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.LinearProgressIndicator
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.clip
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgress
++import java.util.Locale
++
++@Composable
++fun ReportCategoryProgressCard(category: ReportCategoryProgress) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = CATEGORY_CARD_ALPHA),
++    ) {
++        Column(modifier = Modifier.padding(18.dp)) {
++            ReportCategoryProgressHeader(category = category)
++            Spacer(modifier = Modifier.height(14.dp))
++            ReportCategoryMetricRow(category = category)
++            Spacer(modifier = Modifier.height(14.dp))
++            ReportRateProgress(
++                title = "출제 단어 비율",
++                value = category.quizCoverageRate,
++                detail = "${category.quizzedWordCount}/${category.totalWordCount}개",
++            )
++            Spacer(modifier = Modifier.height(10.dp))
++            ReportRateProgress(
++                title = "정답 경험 단어 비율",
++                value = category.correctWordRate,
++                detail = "${category.correctWordCount}/${category.totalWordCount}개",
++            )
++            Spacer(modifier = Modifier.height(10.dp))
++            ReportRateProgress(
++                title = "문제 정답률",
++                value = category.accuracyRate,
++                detail = "${category.correctCount}/${category.totalQuestionCount}문제",
++            )
++        }
++    }
++}
++
++@Composable
++private fun ReportCategoryProgressHeader(category: ReportCategoryProgress) {
++    Column(modifier = Modifier.fillMaxWidth()) {
++        Text(
++            text = category.categoryName,
++            style = MaterialTheme.typography.titleMedium,
++            fontWeight = FontWeight.Bold,
++            maxLines = 1,
++            overflow = TextOverflow.Ellipsis,
++        )
++        Spacer(modifier = Modifier.height(4.dp))
++        Text(
++            text = "최근 퀴즈 ${category.latestSessionAt.toReportDateLabel()}",
++            style = MaterialTheme.typography.bodySmall,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            maxLines = 1,
++            overflow = TextOverflow.Ellipsis,
++        )
++    }
++}
++
++@Composable
++private fun ReportCategoryMetricRow(category: ReportCategoryProgress) {
++    Row(
++        modifier = Modifier.fillMaxWidth(),
++        horizontalArrangement = Arrangement.spacedBy(8.dp),
++    ) {
++        ReportCategoryMetric(
++            title = "완료 퀴즈",
++            value = "${category.completedSessionCount}회",
++            modifier = Modifier.weight(1f),
++        )
++        ReportCategoryMetric(
++            title = "문제 수",
++            value = "${category.totalQuestionCount}",
++            modifier = Modifier.weight(1f),
++        )
++        ReportCategoryMetric(
++            title = "평균 별점",
++            value = String.format(Locale.KOREA, "%.1f/3", category.averageStar),
++            modifier = Modifier.weight(1f),
++        )
++    }
++}
++
++@Composable
++private fun ReportCategoryMetric(
++    title: String,
++    value: String,
++    modifier: Modifier = Modifier,
++) {
++    Surface(
++        modifier = modifier,
++        shape = MaterialTheme.shapes.small,
++        color = MaterialTheme.colorScheme.surface,
++    ) {
++        Column(
++            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
++            horizontalAlignment = Alignment.CenterHorizontally,
++        ) {
++            Text(
++                text = title,
++                style = MaterialTheme.typography.labelSmall,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++                maxLines = 1,
++            )
++            Text(
++                text = value,
++                style = MaterialTheme.typography.labelMedium,
++                fontWeight = FontWeight.Bold,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++            )
++        }
++    }
++}
++
++@Composable
++private fun ReportRateProgress(
++    title: String,
++    value: Double,
++    detail: String,
++) {
++    val safeValue = value.coerceIn(PERCENT_MIN, PERCENT_MAX)
++
++    Column(modifier = Modifier.fillMaxWidth()) {
++        Row(
++            modifier = Modifier.fillMaxWidth(),
++            horizontalArrangement = Arrangement.SpaceBetween,
++            verticalAlignment = Alignment.CenterVertically,
++        ) {
++            Text(
++                text = title,
++                style = MaterialTheme.typography.bodySmall,
++                color = MaterialTheme.colorScheme.onSurfaceVariant,
++            )
++            Text(
++                text = "${String.format(Locale.KOREA, "%.1f", safeValue)}% · $detail",
++                style = MaterialTheme.typography.labelMedium,
++                fontWeight = FontWeight.Bold,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++            )
++        }
++        Spacer(modifier = Modifier.height(6.dp))
++        LinearProgressIndicator(
++            progress = { (safeValue / PERCENT_MAX).toFloat() },
++            modifier =
++                Modifier
++                    .fillMaxWidth()
++                    .height(8.dp)
++                    .clip(RoundedCornerShape(PROGRESS_CORNER_RADIUS.dp)),
++            trackColor = MaterialTheme.colorScheme.surface,
++        )
++    }
++}
++
++private fun String?.toReportDateLabel(): String =
++    if (isNullOrBlank()) {
++        "정보 없음"
++    } else {
++        take(ISO_DATE_LENGTH).replace("-", ".")
++    }
++
++private const val CATEGORY_CARD_ALPHA = 0.45f
++private const val ISO_DATE_LENGTH = 10
++private const val PERCENT_MIN = 0.0
++private const val PERCENT_MAX = 100.0
++private const val PROGRESS_CORNER_RADIUS = 999
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressRoute.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressRoute.kt
+@@ -0,0 +1,316 @@
++package com.ssafy.mobile.feature.report.presentation
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.lazy.LazyColumn
++import androidx.compose.foundation.lazy.LazyListScope
++import androidx.compose.foundation.lazy.items
++import androidx.compose.material3.ExperimentalMaterial3Api
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Scaffold
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.material3.TextButton
++import androidx.compose.material3.TopAppBar
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.DisposableEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import androidx.hilt.navigation.compose.hiltViewModel
++import androidx.lifecycle.Lifecycle
++import androidx.lifecycle.LifecycleEventObserver
++import androidx.lifecycle.compose.LocalLifecycleOwner
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.ssafy.mobile.core.ui.components.AppPrimaryButton
++import com.ssafy.mobile.core.ui.components.AppSecondaryButton
++import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
++import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgressPage
++
++@OptIn(ExperimentalMaterial3Api::class)
++@Composable
++fun ReportCategoryProgressRoute(
++    onNavigateBack: () -> Unit,
++    onSwitchChild: () -> Unit,
++    modifier: Modifier = Modifier,
++    viewModel: ReportCategoryProgressViewModel = hiltViewModel(),
++) {
++    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
++    val lifecycleOwner = LocalLifecycleOwner.current
++
++    DisposableEffect(lifecycleOwner) {
++        val observer =
++            LifecycleEventObserver { _, event ->
++                if (event == Lifecycle.Event.ON_RESUME) {
++                    viewModel.loadActiveChildProfile()
++                }
++            }
++        lifecycleOwner.lifecycle.addObserver(observer)
++        onDispose {
++            lifecycleOwner.lifecycle.removeObserver(observer)
++        }
++    }
++
++    Scaffold(
++        modifier = modifier.fillMaxSize(),
++        topBar = {
++            TopAppBar(
++                title = {
++                    Text(
++                        text = "카테고리별 진행도",
++                        style = MaterialTheme.typography.titleLarge,
++                        fontWeight = FontWeight.Bold,
++                    )
++                },
++                navigationIcon = {
++                    TextButton(onClick = onNavigateBack) {
++                        Text(
++                            text = "뒤로",
++                            style = MaterialTheme.typography.bodyLarge,
++                            color = MaterialTheme.colorScheme.primary,
++                        )
++                    }
++                },
++            )
++        },
++    ) { padding ->
++        ReportCategoryProgressContent(
++            activeChildState = uiState.activeChildState,
++            categoryProgressState = uiState.categoryProgressState,
++            onRetryClick = viewModel::loadActiveChildProfile,
++            onSwitchChild = onSwitchChild,
++            modifier =
++                Modifier
++                    .fillMaxSize()
++                    .padding(padding),
++        )
++    }
++}
++
++@Composable
++private fun ReportCategoryProgressContent(
++    activeChildState: ActiveChildProfileState,
++    categoryProgressState: ReportCategoryProgressState,
++    onRetryClick: () -> Unit,
++    onSwitchChild: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    LazyColumn(
++        modifier = modifier,
++        contentPadding = PaddingValues(24.dp),
++        verticalArrangement = Arrangement.spacedBy(12.dp),
++    ) {
++        item {
++            ReportCategoryProgressIntro(activeChildState = activeChildState)
++        }
++
++        when (activeChildState) {
++            ActiveChildProfileState.Loading ->
++                item {
++                    ReportCategoryProgressStatusCard(message = "아이 정보를 불러오는 중...")
++                }
++
++            is ActiveChildProfileState.Selected ->
++                categoryProgressItems(
++                    state = categoryProgressState,
++                    onRetryClick = onRetryClick,
++                )
++
++            ActiveChildProfileState.Missing ->
++                item {
++                    ReportCategoryProgressActionCard(
++                        message = "리포트를 보려면 아이를 먼저 선택해 주세요.",
++                        buttonText = "아이 선택하기",
++                        onClick = onSwitchChild,
++                    )
++                }
++
++            ActiveChildProfileState.NotFound ->
++                item {
++                    ReportCategoryProgressActionCard(
++                        message = "선택된 아이 정보를 찾을 수 없습니다.",
++                        buttonText = "아이 다시 선택하기",
++                        onClick = onSwitchChild,
++                    )
++                }
++
++            is ActiveChildProfileState.Error ->
++                item {
++                    ReportCategoryProgressErrorCard(
++                        message = activeChildState.message,
++                        onRetryClick = onRetryClick,
++                    )
++                }
++        }
++    }
++}
++
++private fun LazyListScope.categoryProgressItems(
++    state: ReportCategoryProgressState,
++    onRetryClick: () -> Unit,
++) {
++    when (state) {
++        ReportCategoryProgressState.Idle,
++        ReportCategoryProgressState.Loading,
++        ->
++            item {
++                ReportCategoryProgressStatusCard(message = "카테고리별 리포트를 불러오는 중...")
++            }
++
++        ReportCategoryProgressState.Empty ->
++            item {
++                ReportCategoryProgressStatusCard(
++                    message = "아직 완료된 퀴즈 기록이 있는 카테고리가 없어요.\n퀴즈를 마치면 진행도를 확인할 수 있어요.",
++                )
++            }
++
++        is ReportCategoryProgressState.Error ->
++            item {
++                ReportCategoryProgressErrorCard(
++                    message = state.message,
++                    onRetryClick = onRetryClick,
++                )
++            }
++
++        is ReportCategoryProgressState.Success -> {
++            item {
++                ReportCategoryProgressSummary(page = state.page)
++            }
++            items(
++                items = state.page.categories,
++                key = { category -> category.categoryId },
++            ) { category ->
++                ReportCategoryProgressCard(category = category)
++            }
++        }
++    }
++}
++
++@Composable
++private fun ReportCategoryProgressIntro(activeChildState: ActiveChildProfileState) {
++    val selectedProfile = (activeChildState as? ActiveChildProfileState.Selected)?.profile
++    Column(modifier = Modifier.fillMaxWidth()) {
++        Text(
++            text = selectedProfile?.let { "${it.name}의 카테고리 진행도" } ?: "카테고리 진행도",
++            style = MaterialTheme.typography.headlineSmall,
++            fontWeight = FontWeight.Bold,
++            maxLines = 1,
++            overflow = TextOverflow.Ellipsis,
++        )
++        Spacer(modifier = Modifier.height(6.dp))
++        Text(
++            text = "완료한 퀴즈를 기준으로 카테고리별 출제 범위와 정답 흐름을 정리했어요.",
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++        )
++    }
++}
++
++@Composable
++private fun ReportCategoryProgressSummary(page: ReportCategoryProgressPage) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = CATEGORY_SUMMARY_ALPHA),
++    ) {
++        Text(
++            text = "완료된 퀴즈 기록이 있는 ${page.categories.size}개 카테고리를 보여드려요.",
++            modifier = Modifier.padding(18.dp),
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSecondaryContainer,
++        )
++    }
++}
++
++@Composable
++private fun ReportCategoryProgressStatusCard(message: String) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = CATEGORY_STATUS_ALPHA),
++    ) {
++        Text(
++            text = message,
++            modifier = Modifier.padding(20.dp),
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++            textAlign = TextAlign.Center,
++        )
++    }
++}
++
++@Composable
++private fun ReportCategoryProgressErrorCard(
++    message: String,
++    onRetryClick: () -> Unit,
++) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = CATEGORY_ERROR_ALPHA),
++    ) {
++        Column(
++            modifier = Modifier.padding(20.dp),
++            horizontalAlignment = Alignment.CenterHorizontally,
++        ) {
++            Text(
++                text = message,
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.error,
++                textAlign = TextAlign.Center,
++            )
++            Spacer(modifier = Modifier.height(12.dp))
++            AppSecondaryButton(
++                text = "다시 시도",
++                onClick = onRetryClick,
++                modifier = Modifier.height(36.dp),
++            )
++        }
++    }
++}
++
++@Composable
++private fun ReportCategoryProgressActionCard(
++    message: String,
++    buttonText: String,
++    onClick: () -> Unit,
++) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = MaterialTheme.shapes.medium,
++        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = CATEGORY_ACTION_ALPHA),
++    ) {
++        Column(
++            modifier = Modifier.padding(20.dp),
++            horizontalAlignment = Alignment.CenterHorizontally,
++        ) {
++            Text(
++                text = message,
++                style = MaterialTheme.typography.bodyMedium,
++                color = MaterialTheme.colorScheme.onPrimaryContainer,
++                textAlign = TextAlign.Center,
++            )
++            Spacer(modifier = Modifier.height(12.dp))
++            AppPrimaryButton(
++                text = buttonText,
++                onClick = onClick,
++                modifier = Modifier.height(40.dp),
++            )
++        }
++    }
++}
++
++private const val CATEGORY_SUMMARY_ALPHA = 0.35f
++private const val CATEGORY_STATUS_ALPHA = 0.5f
++private const val CATEGORY_ERROR_ALPHA = 0.4f
++private const val CATEGORY_ACTION_ALPHA = 0.35f
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressViewModel.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/report/presentation/ReportCategoryProgressViewModel.kt
+@@ -0,0 +1,126 @@
++package com.ssafy.mobile.feature.report.presentation
++
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileManager
++import com.ssafy.mobile.feature.childprofile.domain.ActiveChildProfileState
++import com.ssafy.mobile.feature.report.domain.model.ReportCategoryProgressPage
++import com.ssafy.mobile.feature.report.domain.repository.ReportRepository
++import dagger.hilt.android.lifecycle.HiltViewModel
++import javax.inject.Inject
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++
++data class ReportCategoryProgressUiState(
++    val activeChildState: ActiveChildProfileState = ActiveChildProfileState.Loading,
++    val categoryProgressState: ReportCategoryProgressState = ReportCategoryProgressState.Idle,
++)
++
++sealed interface ReportCategoryProgressState {
++    data object Idle : ReportCategoryProgressState
++
++    data object Loading : ReportCategoryProgressState
++
++    data object Empty : ReportCategoryProgressState
++
++    data class Success(
++        val page: ReportCategoryProgressPage,
++    ) : ReportCategoryProgressState
++
++    data class Error(
++        val message: String,
++    ) : ReportCategoryProgressState
++}
++
++@HiltViewModel
++class ReportCategoryProgressViewModel
++    @Inject
++    constructor(
++        private val activeChildProfileManager: ActiveChildProfileManager,
++        private val reportRepository: ReportRepository,
++    ) : ViewModel() {
++        private val _uiState = MutableStateFlow(ReportCategoryProgressUiState())
++        val uiState: StateFlow<ReportCategoryProgressUiState> = _uiState.asStateFlow()
++
++        private var loadJob: Job? = null
++
++        init {
++            loadActiveChildProfile()
++        }
++
++        fun loadActiveChildProfile() {
++            loadJob?.cancel()
++            loadJob =
++                viewModelScope.launch {
++                    _uiState.value =
++                        _uiState.value.copy(
++                            activeChildState = ActiveChildProfileState.Loading,
++                            categoryProgressState = ReportCategoryProgressState.Idle,
++                        )
++
++                    val state =
++                        withContext(Dispatchers.IO) {
++                            activeChildProfileManager.getActiveChildProfile()
++                        }
++
++                    _uiState.value =
++                        _uiState.value.copy(
++                            activeChildState = state,
++                            categoryProgressState =
++                                if (state is ActiveChildProfileState.Selected) {
++                                    ReportCategoryProgressState.Loading
++                                } else {
++                                    ReportCategoryProgressState.Idle
++                                },
++                        )
++
++                    if (state is ActiveChildProfileState.Selected) {
++                        loadCategoryProgress(childId = state.profile.childId)
++                    }
++                }
++        }
++
++        private suspend fun loadCategoryProgress(childId: Long) {
++            val result =
++                withContext(Dispatchers.IO) {
++                    reportRepository.getCategoryProgress(childId = childId)
++                }
++
++            if (!isSameActiveChild(childId = childId)) {
++                return
++            }
++
++            _uiState.value =
++                result.fold(
++                    onSuccess = { page ->
++                        _uiState.value.copy(
++                            categoryProgressState =
++                                if (page.hasCategories) {
++                                    ReportCategoryProgressState.Success(page)
++                                } else {
++                                    ReportCategoryProgressState.Empty
++                                },
++                        )
++                    },
++                    onFailure = { throwable ->
++                        _uiState.value.copy(
++                            categoryProgressState =
++                                ReportCategoryProgressState.Error(
++                                    throwable.message ?: "카테고리별 리포트를 불러오지 못했습니다.",
++                                ),
++                        )
++                    },
++                )
++        }
++
++        private fun isSameActiveChild(childId: Long): Boolean {
++            val activeChildState = _uiState.value.activeChildState
++            return activeChildState is ActiveChildProfileState.Selected &&
++                activeChildState.profile.childId == childId
++        }
++    }
+
+

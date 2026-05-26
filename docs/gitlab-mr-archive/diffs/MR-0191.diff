@@ -1,0 +1,707 @@
+﻿diff --git a/ai/ai-server/app/__init__.py b/ai/ai-server/app/__init__.py
+--- /dev/null
++++ b/ai/ai-server/app/__init__.py
+@@ -0,0 +1 @@
++
+
+
+diff --git a/ai/ai-server/app/main.py b/ai/ai-server/app/main.py
+--- /dev/null
++++ b/ai/ai-server/app/main.py
+@@ -0,0 +1,43 @@
++from time import perf_counter
++
++from fastapi import FastAPI
++
++from app.schemas import (
++    SignInferenceCandidate,
++    SignInferenceRequest,
++    SignInferenceResponse,
++)
++
++app = FastAPI(title="Sign AI Server", version="0.1.0")
++
++
++@app.get("/health")
++def health() -> dict[str, str]:
++    return {"status": "ok"}
++
++
++@app.post("/internal/sign/predict", response_model=SignInferenceResponse)
++def predict(request: SignInferenceRequest) -> SignInferenceResponse:
++    started_at = perf_counter()
++    model_version = request.model_version or "stub-v6-tcn"
++    inference_ms = int((perf_counter() - started_at) * 1000)
++
++    return SignInferenceResponse(
++        gloss="unknown",
++        confidence=0.0,
++        margin=0.0,
++        class_index=None,
++        raw_gloss="unknown",
++        accepted=False,
++        rejection_reason="stub_response",
++        top_candidates=[
++            SignInferenceCandidate(
++                rank=1,
++                class_index=22,
++                gloss="none",
++                confidence=0.0,
++            )
++        ][: request.top_k],
++        model_version=model_version,
++        inference_ms=inference_ms,
++    )
+
+
+diff --git a/ai/ai-server/app/schemas.py b/ai/ai-server/app/schemas.py
+--- /dev/null
++++ b/ai/ai-server/app/schemas.py
+@@ -0,0 +1,91 @@
++from pydantic import BaseModel, ConfigDict, Field, field_validator
++
++DEFAULT_SEQUENCE_LENGTH = 30
++DEFAULT_FEATURE_DIMENSION = 332
++DEFAULT_TOP_K = 3
++MAX_TOP_K = 5
++
++
++def to_camel(value: str) -> str:
++    parts = value.split("_")
++    return parts[0] + "".join(part.capitalize() for part in parts[1:])
++
++
++class CamelModel(BaseModel):
++    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
++
++
++class SignInferenceRequest(CamelModel):
++    model_version: str | None = None
++    sequence_length: int = Field(
++        default=DEFAULT_SEQUENCE_LENGTH,
++        ge=1,
++        le=DEFAULT_SEQUENCE_LENGTH,
++    )
++    feature_dimension: int = Field(
++        default=DEFAULT_FEATURE_DIMENSION,
++        ge=1,
++        le=DEFAULT_FEATURE_DIMENSION,
++    )
++    features: list[float] = Field(
++        min_length=1,
++        max_length=DEFAULT_SEQUENCE_LENGTH * DEFAULT_FEATURE_DIMENSION,
++    )
++    timestamps_ms: list[int] | None = Field(
++        default=None,
++        max_length=DEFAULT_SEQUENCE_LENGTH,
++    )
++    top_k: int = Field(default=DEFAULT_TOP_K, ge=1, le=MAX_TOP_K)
++
++    @field_validator("features")
++    @classmethod
++    def validate_features(cls, value: list[float]) -> list[float]:
++        if not value:
++            raise ValueError("features must not be empty")
++        return value
++
++    @field_validator("features")
++    @classmethod
++    def validate_feature_length(cls, value: list[float], info) -> list[float]:
++        data = info.data
++        sequence_length = data.get("sequence_length", DEFAULT_SEQUENCE_LENGTH)
++        feature_dimension = data.get("feature_dimension", DEFAULT_FEATURE_DIMENSION)
++        if (
++            sequence_length != DEFAULT_SEQUENCE_LENGTH
++            or feature_dimension != DEFAULT_FEATURE_DIMENSION
++        ):
++            raise ValueError("only sequenceLength=30 and featureDimension=332 are supported")
++        expected_size = sequence_length * feature_dimension
++        if len(value) != expected_size:
++            raise ValueError("features length must equal sequenceLength * featureDimension")
++        return value
++
++    @field_validator("timestamps_ms")
++    @classmethod
++    def validate_timestamps(cls, value: list[int] | None, info) -> list[int] | None:
++        if not value:
++            return value
++        sequence_length = info.data.get("sequence_length", DEFAULT_SEQUENCE_LENGTH)
++        if len(value) != sequence_length:
++            raise ValueError("timestampsMs length must equal sequenceLength")
++        return value
++
++
++class SignInferenceCandidate(CamelModel):
++    rank: int
++    class_index: int
++    gloss: str
++    confidence: float
++
++
++class SignInferenceResponse(CamelModel):
++    gloss: str
++    confidence: float
++    margin: float
++    class_index: int | None = None
++    raw_gloss: str | None = None
++    accepted: bool
++    rejection_reason: str | None = None
++    top_candidates: list[SignInferenceCandidate] = Field(default_factory=list)
++    model_version: str | None = None
++    inference_ms: int | None = None
+
+
+diff --git a/ai/ai-server/.dockerignore b/ai/ai-server/.dockerignore
+--- /dev/null
++++ b/ai/ai-server/.dockerignore
+@@ -0,0 +1,7 @@
++__pycache__/
++*.py[cod]
++.venv/
++venv/
++.pytest_cache/
++.mypy_cache/
++.ruff_cache/
+
+
+diff --git a/ai/ai-server/Dockerfile b/ai/ai-server/Dockerfile
+--- /dev/null
++++ b/ai/ai-server/Dockerfile
+@@ -0,0 +1,15 @@
++FROM python:3.12-slim
++
++WORKDIR /app
++
++ENV PYTHONDONTWRITEBYTECODE=1
++ENV PYTHONUNBUFFERED=1
++
++COPY requirements.txt .
++RUN pip install --no-cache-dir -r requirements.txt
++
++COPY app ./app
++
++EXPOSE 8000
++
++CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+
+diff --git a/ai/ai-server/README.md b/ai/ai-server/README.md
+--- /dev/null
++++ b/ai/ai-server/README.md
+@@ -0,0 +1,34 @@
++# Sign AI Server
++
++FastAPI skeleton for server-side sign inference.
++
++## Run
++
++```bash
++pip install -r requirements.txt
++uvicorn app.main:app --host 0.0.0.0 --port 8000
++```
++
++## Docker
++
++```bash
++docker compose up --build ai-server
++```
++
++The default Compose service exposes port `8000` only inside the Docker network. If you need to call
++the AI server directly from the host, run it locally with `uvicorn` or open a localhost-only port in
++a development override compose file.
++
++When Spring runs in Docker Compose, it should call this service with
++`SIGN_AI_BASE_URL=http://ai-server:8000`.
++
++When Spring runs locally, it should call this service with
++`SIGN_AI_BASE_URL=http://localhost:8000`.
++
++## Endpoints
++
++- `GET /health`
++- `POST /internal/sign/predict`
++
++The prediction endpoint currently returns a stub response. PyTorch model loading and real inference
++will be added in a follow-up task.
+
+
+diff --git a/ai/ai-server/requirements.txt b/ai/ai-server/requirements.txt
+--- /dev/null
++++ b/ai/ai-server/requirements.txt
+@@ -0,0 +1,3 @@
++fastapi>=0.110
++uvicorn[standard]>=0.27
++pydantic>=2.0
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/sign/config/SignAiClientConfig.java b/backend/src/main/java/com/ssafy/backend/domain/sign/config/SignAiClientConfig.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/sign/config/SignAiClientConfig.java
+@@ -0,0 +1,25 @@
++package com.ssafy.backend.domain.sign.config;
++
++import java.time.Duration;
++import org.springframework.beans.factory.annotation.Qualifier;
++import org.springframework.context.annotation.Bean;
++import org.springframework.context.annotation.Configuration;
++import org.springframework.http.client.SimpleClientHttpRequestFactory;
++import org.springframework.web.client.RestClient;
++
++@Configuration
++public class SignAiClientConfig {
++
++  @Bean
++  @Qualifier("signAiRestClient")
++  public RestClient signAiRestClient(SignAiProperties properties) {
++    Duration connectTimeout = properties.timeout().connect();
++    Duration readTimeout = properties.timeout().read();
++
++    SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
++    requestFactory.setConnectTimeout(connectTimeout);
++    requestFactory.setReadTimeout(readTimeout);
++
++    return RestClient.builder().requestFactory(requestFactory).build();
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/sign/config/SignAiProperties.java b/backend/src/main/java/com/ssafy/backend/domain/sign/config/SignAiProperties.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/sign/config/SignAiProperties.java
+@@ -0,0 +1,11 @@
++package com.ssafy.backend.domain.sign.config;
++
++import java.net.URI;
++import java.time.Duration;
++import org.springframework.boot.context.properties.ConfigurationProperties;
++
++@ConfigurationProperties(prefix = "sign-ai")
++public record SignAiProperties(URI baseUrl, Timeout timeout) {
++
++  public record Timeout(Duration connect, Duration read) {}
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/sign/controller/SignInferenceController.java b/backend/src/main/java/com/ssafy/backend/domain/sign/controller/SignInferenceController.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/sign/controller/SignInferenceController.java
+@@ -0,0 +1,28 @@
++package com.ssafy.backend.domain.sign.controller;
++
++import com.ssafy.backend.domain.sign.dto.SignInferenceRequestDto;
++import com.ssafy.backend.domain.sign.dto.SignInferenceResponseDto;
++import com.ssafy.backend.domain.sign.service.SignInferenceService;
++import jakarta.validation.Valid;
++import org.springframework.http.ResponseEntity;
++import org.springframework.web.bind.annotation.PostMapping;
++import org.springframework.web.bind.annotation.RequestBody;
++import org.springframework.web.bind.annotation.RequestMapping;
++import org.springframework.web.bind.annotation.RestController;
++
++@RestController
++@RequestMapping("/api/v1/sign")
++public class SignInferenceController {
++
++  private final SignInferenceService signInferenceService;
++
++  public SignInferenceController(SignInferenceService signInferenceService) {
++    this.signInferenceService = signInferenceService;
++  }
++
++  @PostMapping("/inference")
++  public ResponseEntity<SignInferenceResponseDto> predict(
++      @Valid @RequestBody SignInferenceRequestDto requestDto) {
++    return ResponseEntity.ok(signInferenceService.predict(requestDto));
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/sign/dto/SignInferenceCandidateDto.java b/backend/src/main/java/com/ssafy/backend/domain/sign/dto/SignInferenceCandidateDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/sign/dto/SignInferenceCandidateDto.java
+@@ -0,0 +1,9 @@
++package com.ssafy.backend.domain.sign.dto;
++
++import io.swagger.v3.oas.annotations.media.Schema;
++
++public record SignInferenceCandidateDto(
++    @Schema(description = "후보 순위", example = "1") int rank,
++    @Schema(description = "모델 클래스 인덱스", example = "19") int classIndex,
++    @Schema(description = "수어 gloss", example = "병원") String gloss,
++    @Schema(description = "후보 신뢰도", example = "0.92") float confidence) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/sign/dto/SignInferenceRequestDto.java b/backend/src/main/java/com/ssafy/backend/domain/sign/dto/SignInferenceRequestDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/sign/dto/SignInferenceRequestDto.java
+@@ -0,0 +1,31 @@
++package com.ssafy.backend.domain.sign.dto;
++
++import io.swagger.v3.oas.annotations.media.Schema;
++import jakarta.validation.constraints.Max;
++import jakarta.validation.constraints.NotEmpty;
++import jakarta.validation.constraints.NotNull;
++import jakarta.validation.constraints.Positive;
++import jakarta.validation.constraints.Size;
++import java.util.List;
++
++public record SignInferenceRequestDto(
++    @Schema(description = "모델 버전", example = "v6-tcn") String modelVersion,
++    @Schema(description = "시퀀스 프레임 수", example = "30")
++        @Positive(message = "sequenceLength는 1 이상이어야 합니다.")
++        @Max(value = 30, message = "sequenceLength는 최대 30까지 허용됩니다.")
++        Integer sequenceLength,
++    @Schema(description = "프레임당 feature 차원", example = "332")
++        @Positive(message = "featureDimension은 1 이상이어야 합니다.")
++        @Max(value = 332, message = "featureDimension은 최대 332까지 허용됩니다.")
++        Integer featureDimension,
++    @Schema(description = "flatten된 feature sequence. 기본 규격은 30 * 332 = 9960개입니다.")
++        @NotEmpty(message = "features는 비어 있을 수 없습니다.")
++        @Size(max = 9960, message = "features는 최대 9960개까지 허용됩니다.")
++        List<@NotNull(message = "feature 값은 null일 수 없습니다.") Float> features,
++    @Schema(description = "프레임별 timestamp 목록")
++        @Size(max = 30, message = "timestampsMs는 최대 30개까지 허용됩니다.")
++        List<Long> timestampsMs,
++    @Schema(description = "반환할 후보 개수", example = "3")
++        @Positive(message = "topK는 1 이상이어야 합니다.")
++        @Max(value = 5, message = "topK는 최대 5까지 허용됩니다.")
++        Integer topK) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/sign/dto/SignInferenceResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/sign/dto/SignInferenceResponseDto.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/sign/dto/SignInferenceResponseDto.java
+@@ -0,0 +1,16 @@
++package com.ssafy.backend.domain.sign.dto;
++
++import io.swagger.v3.oas.annotations.media.Schema;
++import java.util.List;
++
++public record SignInferenceResponseDto(
++    @Schema(description = "최종 수어 gloss", example = "병원") String gloss,
++    @Schema(description = "top-1 신뢰도", example = "0.92") float confidence,
++    @Schema(description = "top-1과 top-2 신뢰도 차이", example = "0.25") float margin,
++    @Schema(description = "모델 클래스 인덱스", example = "19") Integer classIndex,
++    @Schema(description = "threshold 적용 전 원본 gloss", example = "병원") String rawGloss,
++    @Schema(description = "모바일에서 사용할 수 있는 예측인지 여부", example = "true") boolean accepted,
++    @Schema(description = "거절 사유", example = "low_confidence") String rejectionReason,
++    @Schema(description = "상위 후보 목록") List<SignInferenceCandidateDto> topCandidates,
++    @Schema(description = "서버 모델 버전", example = "v6-tcn") String modelVersion,
++    @Schema(description = "AI 서버 추론 시간(ms)", example = "18") Long inferenceMs) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/sign/exception/SignInferenceErrorCode.java b/backend/src/main/java/com/ssafy/backend/domain/sign/exception/SignInferenceErrorCode.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/sign/exception/SignInferenceErrorCode.java
+@@ -0,0 +1,55 @@
++package com.ssafy.backend.domain.sign.exception;
++
++import com.ssafy.backend.global.exception.ErrorCode;
++import org.springframework.http.HttpStatus;
++
++public enum SignInferenceErrorCode implements ErrorCode {
++  INVALID_FEATURE_SEQUENCE(
++      "SIGN_INFERENCE_INVALID_FEATURE_SEQUENCE",
++      HttpStatus.BAD_REQUEST,
++      "수어 인식 feature sequence 규격이 올바르지 않습니다.",
++      "수어 인식 입력 오류"),
++
++  AI_SERVER_UNAVAILABLE(
++      "SIGN_INFERENCE_AI_SERVER_UNAVAILABLE",
++      HttpStatus.BAD_GATEWAY,
++      "수어 인식 AI 서버 호출에 실패했습니다.",
++      "수어 인식 AI 서버 오류");
++
++  private final String code;
++  private final HttpStatus httpStatus;
++  private final String message;
++  private final String title;
++
++  SignInferenceErrorCode(String code, HttpStatus httpStatus, String message, String title) {
++    this.code = code;
++    this.httpStatus = httpStatus;
++    this.message = message;
++    this.title = title;
++  }
++
++  @Override
++  public String getCode() {
++    return code;
++  }
++
++  @Override
++  public HttpStatus getHttpStatus() {
++    return httpStatus;
++  }
++
++  @Override
++  public String getTitleOverride() {
++    return title;
++  }
++
++  @Override
++  public String getDomainTitle() {
++    return "수어 인식 오류";
++  }
++
++  @Override
++  public String getMessage() {
++    return message;
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/sign/service/SignAiClient.java b/backend/src/main/java/com/ssafy/backend/domain/sign/service/SignAiClient.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/sign/service/SignAiClient.java
+@@ -0,0 +1,54 @@
++package com.ssafy.backend.domain.sign.service;
++
++import com.ssafy.backend.domain.sign.config.SignAiProperties;
++import com.ssafy.backend.domain.sign.dto.SignInferenceRequestDto;
++import com.ssafy.backend.domain.sign.dto.SignInferenceResponseDto;
++import com.ssafy.backend.domain.sign.exception.SignInferenceErrorCode;
++import com.ssafy.backend.global.exception.BusinessException;
++import java.net.URI;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.beans.factory.annotation.Qualifier;
++import org.springframework.stereotype.Component;
++import org.springframework.web.client.RestClient;
++import org.springframework.web.client.RestClientException;
++import org.springframework.web.util.UriComponentsBuilder;
++
++@Component
++public class SignAiClient {
++
++  private static final Logger log = LoggerFactory.getLogger(SignAiClient.class);
++  private static final String PREDICT_PATH = "/internal/sign/predict";
++
++  private final RestClient restClient;
++  private final SignAiProperties properties;
++
++  public SignAiClient(
++      @Qualifier("signAiRestClient") RestClient restClient, SignAiProperties properties) {
++    this.restClient = restClient;
++    this.properties = properties;
++  }
++
++  public SignInferenceResponseDto predict(SignInferenceRequestDto requestDto) {
++    URI uri = UriComponentsBuilder.fromUri(properties.baseUrl()).path(PREDICT_PATH).build().toUri();
++
++    try {
++      SignInferenceResponseDto response =
++          restClient
++              .post()
++              .uri(uri)
++              .body(requestDto)
++              .retrieve()
++              .body(SignInferenceResponseDto.class);
++      if (response == null) {
++        throw new BusinessException(SignInferenceErrorCode.AI_SERVER_UNAVAILABLE);
++      }
++      return response;
++    } catch (BusinessException exception) {
++      throw exception;
++    } catch (RestClientException exception) {
++      log.warn("Sign AI server request failed. uri={}, message={}", uri, exception.getMessage());
++      throw new BusinessException(SignInferenceErrorCode.AI_SERVER_UNAVAILABLE);
++    }
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/sign/service/SignInferenceService.java b/backend/src/main/java/com/ssafy/backend/domain/sign/service/SignInferenceService.java
+--- /dev/null
++++ b/backend/src/main/java/com/ssafy/backend/domain/sign/service/SignInferenceService.java
+@@ -0,0 +1,69 @@
++package com.ssafy.backend.domain.sign.service;
++
++import com.ssafy.backend.domain.sign.dto.SignInferenceRequestDto;
++import com.ssafy.backend.domain.sign.dto.SignInferenceResponseDto;
++import com.ssafy.backend.domain.sign.exception.SignInferenceErrorCode;
++import com.ssafy.backend.global.exception.BusinessException;
++import org.springframework.stereotype.Service;
++
++@Service
++public class SignInferenceService {
++
++  private static final int DEFAULT_SEQUENCE_LENGTH = 30;
++  private static final int DEFAULT_FEATURE_DIMENSION = 332;
++  private static final int DEFAULT_TOP_K = 3;
++  private static final int MAX_TOP_K = 5;
++
++  private final SignAiClient signAiClient;
++
++  public SignInferenceService(SignAiClient signAiClient) {
++    this.signAiClient = signAiClient;
++  }
++
++  public SignInferenceResponseDto predict(SignInferenceRequestDto requestDto) {
++    SignInferenceRequestDto normalizedRequest = normalize(requestDto);
++    validateFeatureSequence(normalizedRequest);
++    return signAiClient.predict(normalizedRequest);
++  }
++
++  private SignInferenceRequestDto normalize(SignInferenceRequestDto requestDto) {
++    int sequenceLength =
++        requestDto.sequenceLength() == null ? DEFAULT_SEQUENCE_LENGTH : requestDto.sequenceLength();
++    int featureDimension =
++        requestDto.featureDimension() == null
++            ? DEFAULT_FEATURE_DIMENSION
++            : requestDto.featureDimension();
++    int topK = requestDto.topK() == null ? DEFAULT_TOP_K : Math.min(requestDto.topK(), MAX_TOP_K);
++
++    return new SignInferenceRequestDto(
++        requestDto.modelVersion(),
++        sequenceLength,
++        featureDimension,
++        requestDto.features(),
++        requestDto.timestampsMs(),
++        topK);
++  }
++
++  private void validateFeatureSequence(SignInferenceRequestDto requestDto) {
++    if (requestDto.sequenceLength() != DEFAULT_SEQUENCE_LENGTH
++        || requestDto.featureDimension() != DEFAULT_FEATURE_DIMENSION) {
++      throw new BusinessException(
++          SignInferenceErrorCode.INVALID_FEATURE_SEQUENCE,
++          "현재 서버 수어 인식 모델은 sequenceLength=30, featureDimension=332 규격만 지원합니다.");
++    }
++
++    long expectedSize = (long) requestDto.sequenceLength() * requestDto.featureDimension();
++    if (requestDto.features().size() != expectedSize) {
++      throw new BusinessException(
++          SignInferenceErrorCode.INVALID_FEATURE_SEQUENCE,
++          "features 길이는 sequenceLength * featureDimension과 같아야 합니다.");
++    }
++    if (requestDto.timestampsMs() != null
++        && !requestDto.timestampsMs().isEmpty()
++        && requestDto.timestampsMs().size() != requestDto.sequenceLength()) {
++      throw new BusinessException(
++          SignInferenceErrorCode.INVALID_FEATURE_SEQUENCE,
++          "timestampsMs 길이는 sequenceLength와 같아야 합니다.");
++    }
++  }
++}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/config/SecurityConfig.java b/backend/src/main/java/com/ssafy/backend/global/config/SecurityConfig.java
+--- a/backend/src/main/java/com/ssafy/backend/global/config/SecurityConfig.java
++++ b/backend/src/main/java/com/ssafy/backend/global/config/SecurityConfig.java
+@@ -76,6 +76,8 @@ public class SecurityConfig {
+                     .permitAll()
+                     .requestMatchers("/api/v1/translation/**")
+                     .permitAll()
++                    .requestMatchers("/api/v1/sign/**")
++                    .permitAll()
+                     .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**")
+                     .permitAll()
+                     .requestMatchers("/error")
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/global/docs/ApiErrorCodeCatalog.java b/backend/src/main/java/com/ssafy/backend/global/docs/ApiErrorCodeCatalog.java
+--- a/backend/src/main/java/com/ssafy/backend/global/docs/ApiErrorCodeCatalog.java
++++ b/backend/src/main/java/com/ssafy/backend/global/docs/ApiErrorCodeCatalog.java
+@@ -3,6 +3,7 @@ package com.ssafy.backend.global.docs;
+ import com.ssafy.backend.domain.auth.exception.AuthErrorCode;
+ import com.ssafy.backend.domain.child.exception.ChildProfileErrorCode;
+ import com.ssafy.backend.domain.report.exception.ReportErrorCode;
++import com.ssafy.backend.domain.sign.exception.SignInferenceErrorCode;
+ import com.ssafy.backend.domain.translation.exception.TranslationErrorCode;
+ import com.ssafy.backend.domain.user.exception.UserErrorCode;
+ import com.ssafy.backend.global.exception.CommonErrorCode;
+@@ -26,6 +27,7 @@ public class ApiErrorCodeCatalog {
+     register(map, AuthErrorCode.values());
+     register(map, ChildProfileErrorCode.values());
+     register(map, ReportErrorCode.values());
++    register(map, SignInferenceErrorCode.values());
+     register(map, TranslationErrorCode.values());
+     register(map, UserErrorCode.values());
+     this.byCode = Collections.unmodifiableMap(new LinkedHashMap<>(map));
+
+
+diff --git a/backend/src/main/resources/application.yml b/backend/src/main/resources/application.yml
+--- a/backend/src/main/resources/application.yml
++++ b/backend/src/main/resources/application.yml
+@@ -42,6 +42,12 @@ external-api:
+     connect: 3s
+     read: 10s
+ 
++sign-ai:
++  base-url: ${SIGN_AI_BASE_URL:http://localhost:8000}
++  timeout:
++    connect: ${SIGN_AI_CONNECT_TIMEOUT:1s}
++    read: ${SIGN_AI_READ_TIMEOUT:1s}
++
+ app:
+   asset:
+     cloud-front-domain: ${ASSET_CLOUDFRONT_DOMAIN:https://d14zyw67949hvk.cloudfront.net}
+
+
+diff --git a/.env.example b/.env.example
+--- a/.env.example
++++ b/.env.example
+@@ -25,6 +25,11 @@ REDIS_PASSWORD=redispassword
+ BACKEND_PORT=8080
+ FRONTEND_PORT=5173
+ 
++# Sign AI server
++SIGN_AI_BASE_URL=http://localhost:8000
++SIGN_AI_CONNECT_TIMEOUT=1s
++SIGN_AI_READ_TIMEOUT=1s
++
+ # Frontend (Vite)
+ VITE_API_BASE_URL=http://localhost:8080
+ VITE_API_TIMEOUT_MS=10000
+
+
+diff --git a/docker-compose.yml b/docker-compose.yml
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -42,6 +42,24 @@ services:
+       - app-network
+     restart: unless-stopped
+ 
++  ai-server:
++    build:
++      context: ./ai/ai-server
++      dockerfile: Dockerfile
++    container_name: ai-server
++    environment:
++      TZ: Asia/Seoul
++    expose:
++      - "8000"
++    healthcheck:
++      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2).read()\""]
++      interval: 5s
++      timeout: 3s
++      retries: 10
++    networks:
++      - app-network
++    restart: unless-stopped
++
+   backend:
+     build:
+       context: ./backend
+@@ -52,6 +70,8 @@ services:
+         condition: service_healthy
+       redis:
+         condition: service_healthy
++      ai-server:
++        condition: service_healthy
+     environment:
+       TZ: Asia/Seoul
+       JAVA_TOOL_OPTIONS: -Duser.timezone=Asia/Seoul
+@@ -81,6 +101,9 @@ services:
+       CLOVA_TTS_FORMAT: ${CLOVA_TTS_FORMAT:-mp3}
+       CLOVA_STT_URL: ${CLOVA_STT_URL:-https://naveropenapi.apigw.ntruss.com/recog/v1/stt}
+       CLOVA_STT_LANGUAGE: ${CLOVA_STT_LANGUAGE:-Kor}
++      SIGN_AI_BASE_URL: http://ai-server:8000
++      SIGN_AI_CONNECT_TIMEOUT: ${SIGN_AI_CONNECT_TIMEOUT:-1s}
++      SIGN_AI_READ_TIMEOUT: ${SIGN_AI_READ_TIMEOUT:-1s}
+     ports:
+       - "${BACKEND_PORT:-8080}:8080"
+     networks:
+
+

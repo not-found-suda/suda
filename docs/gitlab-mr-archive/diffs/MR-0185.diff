@@ -1,0 +1,308 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileCreateRequestDto.java b/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileCreateRequestDto.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileCreateRequestDto.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileCreateRequestDto.java
+@@ -10,4 +10,5 @@ public record ChildProfileCreateRequestDto(
+             description = "아이 생년월일",
+             example = "2020-05-01",
+             requiredMode = Schema.RequiredMode.REQUIRED)
+-        LocalDate birthDate) {}
++        LocalDate birthDate,
++    @Schema(description = "프로필 이미지 키", example = "purple_diamond") String avatarKey) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileCreateResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileCreateResponseDto.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileCreateResponseDto.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileCreateResponseDto.java
+@@ -9,5 +9,6 @@ public record ChildProfileCreateResponseDto(
+     @Schema(description = "아이 이름", example = "민준") String name,
+     @Schema(description = "아이 생년월일", example = "2020-05-01") LocalDate birthDate,
+     @Schema(description = "응답 시점 기준 만 나이", example = "6") int age,
++    @Schema(description = "프로필 이미지 키", example = "purple_diamond") String avatarKey,
+     @Schema(description = "활성 여부", example = "true") boolean active,
+     @Schema(description = "생성 시각") LocalDateTime createdAt) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileResponseDto.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileResponseDto.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileResponseDto.java
+@@ -9,6 +9,7 @@ public record ChildProfileResponseDto(
+     @Schema(description = "아이 이름", example = "민준") String name,
+     @Schema(description = "아이 생년월일", example = "2020-05-01") LocalDate birthDate,
+     @Schema(description = "응답 시점 기준 만 나이", example = "6") int age,
++    @Schema(description = "프로필 이미지 키", example = "purple_diamond") String avatarKey,
+     @Schema(description = "활성 여부", example = "true") boolean active,
+     @Schema(description = "생성 시각") LocalDateTime createdAt,
+     @Schema(description = "수정 시각") LocalDateTime updatedAt) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileSummaryResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileSummaryResponseDto.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileSummaryResponseDto.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileSummaryResponseDto.java
+@@ -8,4 +8,5 @@ public record ChildProfileSummaryResponseDto(
+     @Schema(description = "아이 이름", example = "민준") String name,
+     @Schema(description = "아이 생년월일", example = "2020-05-01") LocalDate birthDate,
+     @Schema(description = "응답 시점 기준 만 나이", example = "6") int age,
++    @Schema(description = "프로필 이미지 키", example = "purple_diamond") String avatarKey,
+     @Schema(description = "활성 여부", example = "true") boolean active) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileUpdateRequestDto.java b/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileUpdateRequestDto.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileUpdateRequestDto.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileUpdateRequestDto.java
+@@ -5,4 +5,5 @@ import java.time.LocalDate;
+ 
+ public record ChildProfileUpdateRequestDto(
+     @Schema(description = "아이 이름", example = "민준이") String name,
+-    @Schema(description = "아이 생년월일", example = "2020-05-01") LocalDate birthDate) {}
++    @Schema(description = "아이 생년월일", example = "2020-05-01") LocalDate birthDate,
++    @Schema(description = "프로필 이미지 키", example = "yellow_circle") String avatarKey) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileUpdateResponseDto.java b/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileUpdateResponseDto.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileUpdateResponseDto.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/child/dto/ChildProfileUpdateResponseDto.java
+@@ -9,5 +9,6 @@ public record ChildProfileUpdateResponseDto(
+     @Schema(description = "아이 이름", example = "민준이") String name,
+     @Schema(description = "아이 생년월일", example = "2020-05-01") LocalDate birthDate,
+     @Schema(description = "응답 시점 기준 만 나이", example = "6") int age,
++    @Schema(description = "프로필 이미지 키", example = "yellow_circle") String avatarKey,
+     @Schema(description = "활성 여부", example = "true") boolean active,
+     @Schema(description = "수정 시각") LocalDateTime updatedAt) {}
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/child/entity/ChildProfile.java b/backend/src/main/java/com/ssafy/backend/domain/child/entity/ChildProfile.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/child/entity/ChildProfile.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/child/entity/ChildProfile.java
+@@ -31,20 +31,24 @@ public class ChildProfile extends BaseEntity {
+   @Column(name = "birth_date", nullable = false)
+   private LocalDate birthDate;
+ 
++  @Column(name = "avatar_key", nullable = false, length = 50)
++  private String avatarKey;
++
+   @Column(nullable = false)
+   private boolean active;
+ 
+   protected ChildProfile() {}
+ 
+-  private ChildProfile(User user, String name, LocalDate birthDate) {
++  private ChildProfile(User user, String name, LocalDate birthDate, String avatarKey) {
+     this.user = user;
+     this.name = name;
+     this.birthDate = birthDate;
++    this.avatarKey = avatarKey;
+     this.active = true;
+   }
+ 
+-  public static ChildProfile create(User user, String name, LocalDate birthDate) {
+-    return new ChildProfile(user, name, birthDate);
++  public static ChildProfile create(User user, String name, LocalDate birthDate, String avatarKey) {
++    return new ChildProfile(user, name, birthDate, avatarKey);
+   }
+ 
+   public Long getId() {
+@@ -59,17 +63,24 @@ public class ChildProfile extends BaseEntity {
+     return birthDate;
+   }
+ 
++  public String getAvatarKey() {
++    return avatarKey;
++  }
++
+   public boolean isActive() {
+     return active;
+   }
+ 
+-  public void update(String name, LocalDate birthDate) {
++  public void update(String name, LocalDate birthDate, String avatarKey) {
+     if (name != null) {
+       this.name = name;
+     }
+     if (birthDate != null) {
+       this.birthDate = birthDate;
+     }
++    if (avatarKey != null) {
++      this.avatarKey = avatarKey;
++    }
+   }
+ 
+   public void deactivate() {
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/child/service/ChildProfileService.java b/backend/src/main/java/com/ssafy/backend/domain/child/service/ChildProfileService.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/child/service/ChildProfileService.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/child/service/ChildProfileService.java
+@@ -18,6 +18,7 @@ import com.ssafy.backend.global.exception.ValidationErrorCode;
+ import java.time.LocalDate;
+ import java.time.Period;
+ import java.util.List;
++import java.util.Set;
+ import org.springframework.stereotype.Service;
+ import org.springframework.transaction.annotation.Transactional;
+ 
+@@ -27,6 +28,18 @@ public class ChildProfileService {
+ 
+   private static final int MAX_NAME_LENGTH = 20;
+   private static final int MAX_AGE = 18;
++  private static final String DEFAULT_AVATAR_KEY = "purple_diamond";
++  private static final Set<String> ALLOWED_AVATAR_KEYS =
++      Set.of(
++          "purple_diamond",
++          "yellow_circle",
++          "blue_square",
++          "green_wink_square",
++          "navy_hexagon",
++          "orange_pentagon",
++          "pink_oval",
++          "red_triangle",
++          "teal_star");
+ 
+   private final ChildProfileRepository childProfileRepository;
+   private final UserRepository userRepository;
+@@ -51,8 +64,11 @@ public class ChildProfileService {
+     if (requestDto == null) {
+       throw new BusinessException(ValidationErrorCode.INVALID_INPUT, "요청 본문이 필요합니다.");
+     }
++
+     String name = validateAndNormalizeName(requestDto.name());
+     LocalDate birthDate = validateBirthDate(requestDto.birthDate());
++    String avatarKey = validateAndNormalizeAvatarKey(requestDto.avatarKey());
++
+     if (childProfileRepository.existsByUserIdAndNameIgnoreCaseAndActiveTrue(userId, name)) {
+       throw new BusinessException(ChildProfileErrorCode.DUPLICATE_NAME);
+     }
+@@ -61,8 +77,10 @@ public class ChildProfileService {
+         userRepository
+             .findById(userId)
+             .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
++
+     ChildProfile childProfile =
+-        childProfileRepository.saveAndFlush(ChildProfile.create(user, name, birthDate));
++        childProfileRepository.saveAndFlush(ChildProfile.create(user, name, birthDate, avatarKey));
++
+     return toCreateResponse(childProfile);
+   }
+ 
+@@ -74,12 +92,16 @@ public class ChildProfileService {
+ 
+   public ChildProfileUpdateResponseDto updateChild(
+       Long userId, Long childId, ChildProfileUpdateRequestDto requestDto) {
+-    if (requestDto == null || (requestDto.name() == null && requestDto.birthDate() == null)) {
++    if (requestDto == null
++        || (requestDto.name() == null
++            && requestDto.birthDate() == null
++            && requestDto.avatarKey() == null)) {
+       throw new BusinessException(
+           ValidationErrorCode.INVALID_INPUT, "요청 본문에는 최소 1개 이상의 수정 대상 필드가 포함되어야 합니다.");
+     }
+ 
+     ChildProfile childProfile = findOwnedActiveChild(userId, childId);
++
+     String name = null;
+     if (requestDto.name() != null) {
+       name = validateAndNormalizeName(requestDto.name());
+@@ -88,11 +110,18 @@ public class ChildProfileService {
+         throw new BusinessException(ChildProfileErrorCode.DUPLICATE_NAME);
+       }
+     }
++
+     LocalDate birthDate =
+         requestDto.birthDate() == null ? null : validateBirthDate(requestDto.birthDate());
+ 
+-    childProfile.update(name, birthDate);
++    String avatarKey =
++        requestDto.avatarKey() == null
++            ? null
++            : validateAndNormalizeAvatarKey(requestDto.avatarKey());
++
++    childProfile.update(name, birthDate, avatarKey);
+     childProfileRepository.flush();
++
+     return toUpdateResponse(childProfile);
+   }
+ 
+@@ -112,21 +141,38 @@ public class ChildProfileService {
+     if (name == null) {
+       throw new BusinessException(ChildProfileErrorCode.INVALID_NAME);
+     }
++
+     String normalizedName = name.trim();
+     if (normalizedName.isEmpty() || normalizedName.length() > MAX_NAME_LENGTH) {
+       throw new BusinessException(ChildProfileErrorCode.INVALID_NAME);
+     }
++
+     return normalizedName;
+   }
+ 
++  private String validateAndNormalizeAvatarKey(String avatarKey) {
++    if (avatarKey == null || avatarKey.isBlank()) {
++      return DEFAULT_AVATAR_KEY;
++    }
++
++    String normalizedAvatarKey = avatarKey.trim();
++    if (!ALLOWED_AVATAR_KEYS.contains(normalizedAvatarKey)) {
++      throw new BusinessException(ValidationErrorCode.INVALID_INPUT, "지원하지 않는 avatarKey입니다.");
++    }
++
++    return normalizedAvatarKey;
++  }
++
+   private LocalDate validateBirthDate(LocalDate birthDate) {
+     if (birthDate == null || birthDate.isAfter(LocalDate.now())) {
+       throw new BusinessException(ChildProfileErrorCode.INVALID_BIRTH_DATE);
+     }
++
+     int age = calculateAge(birthDate);
+     if (age < 0 || age > MAX_AGE) {
+       throw new BusinessException(ChildProfileErrorCode.INVALID_BIRTH_DATE);
+     }
++
+     return birthDate;
+   }
+ 
+@@ -136,6 +182,7 @@ public class ChildProfileService {
+         childProfile.getName(),
+         childProfile.getBirthDate(),
+         calculateAge(childProfile.getBirthDate()),
++        childProfile.getAvatarKey(),
+         childProfile.isActive());
+   }
+ 
+@@ -145,6 +192,7 @@ public class ChildProfileService {
+         childProfile.getName(),
+         childProfile.getBirthDate(),
+         calculateAge(childProfile.getBirthDate()),
++        childProfile.getAvatarKey(),
+         childProfile.isActive(),
+         childProfile.getCreatedAt(),
+         childProfile.getUpdatedAt());
+@@ -156,6 +204,7 @@ public class ChildProfileService {
+         childProfile.getName(),
+         childProfile.getBirthDate(),
+         calculateAge(childProfile.getBirthDate()),
++        childProfile.getAvatarKey(),
+         childProfile.isActive(),
+         childProfile.getCreatedAt());
+   }
+@@ -166,6 +215,7 @@ public class ChildProfileService {
+         childProfile.getName(),
+         childProfile.getBirthDate(),
+         calculateAge(childProfile.getBirthDate()),
++        childProfile.getAvatarKey(),
+         childProfile.isActive(),
+         childProfile.getUpdatedAt());
+   }
+
+
+diff --git a/backend/src/main/resources/db/migration/V20260517160000__add_avatar_key_to_child_profiles.sql b/backend/src/main/resources/db/migration/V20260517160000__add_avatar_key_to_child_profiles.sql
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/V20260517160000__add_avatar_key_to_child_profiles.sql
+@@ -0,0 +1,6 @@
++ALTER TABLE child_profiles
++  ADD COLUMN IF NOT EXISTS avatar_key VARCHAR(50) NOT NULL DEFAULT 'purple_diamond';
++
++UPDATE child_profiles
++SET avatar_key = 'purple_diamond'
++WHERE avatar_key IS NULL;
+
+

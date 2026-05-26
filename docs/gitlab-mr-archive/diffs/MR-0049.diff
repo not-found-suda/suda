@@ -1,0 +1,413 @@
+﻿diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/service/ChildSpeechCorrectionClient.java b/backend/src/main/java/com/ssafy/backend/domain/comms/service/ChildSpeechCorrectionClient.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/comms/service/ChildSpeechCorrectionClient.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/service/ChildSpeechCorrectionClient.java
+@@ -23,6 +23,7 @@ public class ChildSpeechCorrectionClient {
+ 
+       규칙:
+       - 설명 없이 보정된 문장만 출력한다.
++      - 존댓말로 바꾸지 마라.
+       - 원래 의미를 과하게 바꾸지 않는다.
+       - 아이가 말한 것처럼 짧고 자연스럽게 보정한다.
+       - 감탄문이면 자연스럽게 느낌표를 붙여도 된다.
+@@ -38,13 +39,7 @@ public class ChildSpeechCorrectionClient {
+       이거 모야 -> 이거 뭐야?
+       """;
+ 
+-    String correctedText;
+-
+-    try {
+-      correctedText = openAiClient.generateText(systemInstruction, rawText).trim();
+-    } catch (IllegalStateException e) {
+-      correctedText = rawText.trim();
+-    }
++    String correctedText = openAiClient.generateText(systemInstruction, rawText).trim();
+ 
+     return new ChildSpeechCorrectionResult(rawText, correctedText);
+   }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaSttClient.java b/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaSttClient.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaSttClient.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaSttClient.java
+@@ -18,30 +18,32 @@ public class ClovaSttClient {
+     this.aiProperties = aiProperties;
+   }
+ 
+-  public String transcribe(MultipartFile audioFile) {
++  public String transcribe(MultipartFile audioFile, String locale, String audioMimeType) {
+     if (audioFile == null || audioFile.isEmpty()) {
+       throw new IllegalArgumentException("음성 파일은 필수입니다.");
+     }
+ 
+     try {
+-      return transcribe(audioFile.getBytes());
++      return transcribe(audioFile.getBytes(), locale, audioMimeType);
+     } catch (IOException e) {
+       throw new IllegalStateException("음성 파일을 읽는 중 오류가 발생했습니다.", e);
+     }
+   }
+ 
+-  public String transcribe(byte[] audioBytes) {
++  public String transcribe(byte[] audioBytes, String locale, String audioMimeType) {
+     if (audioBytes == null || audioBytes.length == 0) {
+       throw new IllegalArgumentException("음성 파일은 필수입니다.");
+     }
+ 
+     AiProperties.Clova clova = aiProperties.clova();
+ 
++    String sttLanguage = clova.sttLanguage();
++
+     try {
+       ClovaSttResponse response =
+           restClient
+               .post()
+-              .uri(clova.sttUrl() + "?lang=" + clova.sttLanguage())
++              .uri(clova.sttUrl() + "?lang=" + sttLanguage)
+               .header("X-NCP-APIGW-API-KEY-ID", clova.clientId())
+               .header("X-NCP-APIGW-API-KEY", clova.clientSecret())
+               .contentType(MediaType.APPLICATION_OCTET_STREAM)
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaTtsClient.java b/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaTtsClient.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaTtsClient.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/comms/service/ClovaTtsClient.java
+@@ -2,6 +2,8 @@ package com.ssafy.backend.domain.comms.service;
+ 
+ import com.ssafy.backend.global.ai.AiProperties;
+ import java.nio.charset.StandardCharsets;
++import java.util.Locale;
++import java.util.Map;
+ import org.springframework.http.MediaType;
+ import org.springframework.stereotype.Component;
+ import org.springframework.util.LinkedMultiValueMap;
+@@ -13,6 +15,11 @@ public class ClovaTtsClient {
+ 
+   private static final int MAX_TEXT_LENGTH = 500;
+ 
++  private static final Map<String, String> AUDIO_MIME_TYPES =
++      Map.of(
++          "mp3", "audio/mpeg",
++          "wav", "audio/wav");
++
+   private final RestClient restClient;
+   private final AiProperties aiProperties;
+ 
+@@ -25,10 +32,11 @@ public class ClovaTtsClient {
+     String normalizedText = validateAndNormalizeText(text);
+ 
+     AiProperties.Clova clova = aiProperties.clova();
++    String format = normalizeFormat(clova.format());
+ 
+     MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+     form.add("speaker", clova.speaker());
+-    form.add("format", clova.format());
++    form.add("format", format);
+     form.add("text", normalizedText);
+     form.add("speed", "0");
+ 
+@@ -51,7 +59,11 @@ public class ClovaTtsClient {
+     return audio;
+   }
+ 
+-  // TTS 응답 검증 추가
++  public String getAudioMimeType() {
++    String format = normalizeFormat(aiProperties.clova().format());
++    return AUDIO_MIME_TYPES.getOrDefault(format, "audio/" + format);
++  }
++
+   private String validateAndNormalizeText(String text) {
+     if (text == null || text.isBlank()) {
+       throw new IllegalArgumentException("TTS 변환할 텍스트는 필수입니다.");
+@@ -65,4 +77,12 @@ public class ClovaTtsClient {
+ 
+     return normalizedText;
+   }
++
++  private String normalizeFormat(String format) {
++    if (format == null || format.isBlank()) {
++      return "mp3";
++    }
++
++    return format.trim().toLowerCase(Locale.ROOT);
++  }
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/exception/TranslationErrorCode.java b/backend/src/main/java/com/ssafy/backend/domain/translation/exception/TranslationErrorCode.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/translation/exception/TranslationErrorCode.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/exception/TranslationErrorCode.java
+@@ -4,28 +4,55 @@ import com.ssafy.backend.global.exception.ErrorCode;
+ import org.springframework.http.HttpStatus;
+ 
+ public enum TranslationErrorCode implements ErrorCode {
+-  INVALID_AUDIO("TRANSLATION_INVALID_AUDIO", HttpStatus.BAD_REQUEST, "유효한 음성 파일이 필요합니다."),
++  INVALID_AUDIO(
++      "TRANSLATION_INVALID_AUDIO", HttpStatus.BAD_REQUEST, "유효한 음성 파일이 필요합니다.", "유효하지 않은 음성 파일"),
++
+   INVALID_LOCALE(
+-      "TRANSLATION_INVALID_LOCALE", HttpStatus.BAD_REQUEST, "지원하지 않는 locale입니다. 현재는 ko-KR만 지원합니다."),
++      "TRANSLATION_INVALID_LOCALE",
++      HttpStatus.BAD_REQUEST,
++      "지원하지 않는 locale입니다. 현재는 ko-KR만 지원합니다.",
++      "지원하지 않는 언어 설정"),
++
+   UNRECOGNIZABLE_AUDIO(
+       "TRANSLATION_UNRECOGNIZABLE_AUDIO",
+       HttpStatus.UNPROCESSABLE_ENTITY,
+-      "음성에서 유의미한 텍스트를 추출할 수 없습니다."),
++      "음성에서 유의미한 텍스트를 추출할 수 없습니다.",
++      "음성 인식 결과 없음"),
++
+   SIGN_CORRECTION_FAILED(
+-      "TRANSLATION_SIGN_CORRECTION_FAILED", HttpStatus.BAD_GATEWAY, "수어 문맥 보정 처리에 실패했습니다."),
++      "TRANSLATION_SIGN_CORRECTION_FAILED",
++      HttpStatus.BAD_GATEWAY,
++      "수어 문맥 보정 처리에 실패했습니다.",
++      "Gemini 수어 문맥 보정 실패"),
++
++  CHILD_SPEECH_CORRECTION_FAILED(
++      "TRANSLATION_CHILD_SPEECH_CORRECTION_FAILED",
++      HttpStatus.BAD_GATEWAY,
++      "아이 발화 문맥 보정 처리에 실패했습니다.",
++      "Gemini 아이 발화 보정 실패"),
++
+   SPEECH_RECOGNITION_FAILED(
+-      "TRANSLATION_SPEECH_RECOGNITION_FAILED", HttpStatus.BAD_GATEWAY, "음성 인식 처리에 실패했습니다."),
++      "TRANSLATION_SPEECH_RECOGNITION_FAILED",
++      HttpStatus.BAD_GATEWAY,
++      "음성 인식 처리에 실패했습니다.",
++      "Clova STT 처리 실패"),
++
+   TEXT_TO_SPEECH_FAILED(
+-      "TRANSLATION_TEXT_TO_SPEECH_FAILED", HttpStatus.BAD_GATEWAY, "음성 합성 처리에 실패했습니다.");
++      "TRANSLATION_TEXT_TO_SPEECH_FAILED",
++      HttpStatus.BAD_GATEWAY,
++      "음성 합성 처리에 실패했습니다.",
++      "Clova TTS 처리 실패");
+ 
+   private final String code;
+   private final HttpStatus httpStatus;
+   private final String message;
++  private final String title;
+ 
+-  TranslationErrorCode(String code, HttpStatus httpStatus, String message) {
++  TranslationErrorCode(String code, HttpStatus httpStatus, String message, String title) {
+     this.code = code;
+     this.httpStatus = httpStatus;
+     this.message = message;
++    this.title = title;
+   }
+ 
+   @Override
+@@ -38,6 +65,11 @@ public enum TranslationErrorCode implements ErrorCode {
+     return httpStatus;
+   }
+ 
++  @Override
++  public String getTitleOverride() {
++    return title;
++  }
++
+   @Override
+   public String getDomainTitle() {
+     return "번역 처리 오류";
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java b/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java
+--- a/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java
++++ b/backend/src/main/java/com/ssafy/backend/domain/translation/service/TranslationServiceImpl.java
+@@ -1,10 +1,16 @@
+ package com.ssafy.backend.domain.translation.service;
+ 
++import com.ssafy.backend.domain.comms.dto.ChildSpeechCorrectionResult;
++import com.ssafy.backend.domain.comms.service.ChildSpeechCorrectionClient;
++import com.ssafy.backend.domain.comms.service.ClovaSttClient;
++import com.ssafy.backend.domain.comms.service.ClovaTtsClient;
++import com.ssafy.backend.domain.comms.service.SignLanguageCorrectionClient;
+ import com.ssafy.backend.domain.translation.dto.SignToSpeechRequestDto;
+ import com.ssafy.backend.domain.translation.dto.SignToSpeechResponseDto;
+ import com.ssafy.backend.domain.translation.dto.SpeechToTextResponseDto;
+ import com.ssafy.backend.domain.translation.exception.TranslationErrorCode;
+ import com.ssafy.backend.global.exception.BusinessException;
++import java.util.Base64;
+ import java.util.List;
+ import java.util.Locale;
+ import java.util.Set;
+@@ -14,9 +20,8 @@ import org.springframework.web.multipart.MultipartFile;
+ @Service
+ public class TranslationServiceImpl implements TranslationService {
+ 
+-  private static final String MOCK_AUDIO_BASE64 = "BASE64_ENCODED_AUDIO";
+-  private static final String MOCK_AUDIO_MIME_TYPE = "audio/mpeg";
+   private static final String DEFAULT_LOCALE = "ko-KR";
++
+   private static final Set<String> SUPPORTED_AUDIO_MIME_TYPES =
+       Set.of(
+           "audio/mpeg",
+@@ -27,45 +32,121 @@ public class TranslationServiceImpl implements TranslationService {
+           "audio/x-wav",
+           "audio/webm");
+ 
++  private final SignLanguageCorrectionClient signLanguageCorrectionClient;
++  private final ClovaTtsClient clovaTtsClient;
++  private final ClovaSttClient clovaSttClient;
++  private final ChildSpeechCorrectionClient childSpeechCorrectionClient;
++
++  public TranslationServiceImpl(
++      SignLanguageCorrectionClient signLanguageCorrectionClient,
++      ClovaTtsClient clovaTtsClient,
++      ClovaSttClient clovaSttClient,
++      ChildSpeechCorrectionClient childSpeechCorrectionClient) {
++    this.signLanguageCorrectionClient = signLanguageCorrectionClient;
++    this.clovaTtsClient = clovaTtsClient;
++    this.clovaSttClient = clovaSttClient;
++    this.childSpeechCorrectionClient = childSpeechCorrectionClient;
++  }
++
+   @Override
+   public SignToSpeechResponseDto translateSignToSpeech(SignToSpeechRequestDto requestDto) {
+     List<String> words = requestDto.words();
+-    String correctedText = String.join(" ", words);
++
++    String signText = words.toString();
++
++    String correctedText;
++    try {
++      correctedText = signLanguageCorrectionClient.correct(signText);
++    } catch (Exception e) {
++      throw new BusinessException(TranslationErrorCode.SIGN_CORRECTION_FAILED);
++    }
++
+     boolean requestTts = requestDto.requestTts() == null || requestDto.requestTts();
+ 
+-    return new SignToSpeechResponseDto(
+-        words,
+-        correctedText,
+-        requestTts ? MOCK_AUDIO_BASE64 : null,
+-        requestTts ? MOCK_AUDIO_MIME_TYPE : null,
+-        false);
++    String audioBase64 = null;
++    String audioMimeType = null;
++
++    if (requestTts) {
++      try {
++        byte[] audioBytes = clovaTtsClient.synthesize(correctedText);
++        audioBase64 = Base64.getEncoder().encodeToString(audioBytes);
++        audioMimeType = clovaTtsClient.getAudioMimeType();
++      } catch (Exception e) {
++        throw new BusinessException(TranslationErrorCode.TEXT_TO_SPEECH_FAILED);
++      }
++    }
++
++    boolean corrected = !String.join(" ", words).equals(correctedText);
++
++    return new SignToSpeechResponseDto(words, correctedText, audioBase64, audioMimeType, corrected);
+   }
+ 
+   @Override
+   public SpeechToTextResponseDto translateSpeechToText(
+       MultipartFile audioFile, String locale, String audioMimeType) {
++
++    validateAudioFile(audioFile);
++
++    String resolvedAudioMimeType = resolveAudioMimeType(audioFile, audioMimeType);
++    String resolvedLocale = resolveLocale(locale);
++
++    String recognizedText;
++    try {
++      recognizedText = clovaSttClient.transcribe(audioFile, resolvedLocale, resolvedAudioMimeType);
++    } catch (Exception e) {
++      throw new BusinessException(TranslationErrorCode.SPEECH_RECOGNITION_FAILED);
++    }
++
++    if (recognizedText == null || recognizedText.isBlank()) {
++      throw new BusinessException(TranslationErrorCode.UNRECOGNIZABLE_AUDIO);
++    }
++
++    ChildSpeechCorrectionResult correctionResult;
++    try {
++      correctionResult = childSpeechCorrectionClient.correct(recognizedText);
++    } catch (Exception e) {
++      throw new BusinessException(TranslationErrorCode.CHILD_SPEECH_CORRECTION_FAILED);
++    }
++
++    String correctedText = correctionResult.correctedText();
++    boolean corrected = !recognizedText.trim().equals(correctedText.trim());
++
++    return new SpeechToTextResponseDto(
++        recognizedText, correctedText, corrected, null, resolvedLocale);
++  }
++
++  private void validateAudioFile(MultipartFile audioFile) {
+     if (audioFile == null || audioFile.isEmpty()) {
+       throw new BusinessException(TranslationErrorCode.INVALID_AUDIO);
+     }
++  }
+ 
++  private String resolveAudioMimeType(MultipartFile audioFile, String audioMimeType) {
+     String resolvedAudioMimeType =
+         audioMimeType != null && !audioMimeType.isBlank()
+             ? audioMimeType
+             : audioFile.getContentType();
++
+     String normalizedAudioMimeType =
+         resolvedAudioMimeType == null
+             ? null
+             : resolvedAudioMimeType.trim().toLowerCase(Locale.ROOT);
++
+     if (normalizedAudioMimeType == null
+         || !SUPPORTED_AUDIO_MIME_TYPES.contains(normalizedAudioMimeType)) {
+       throw new BusinessException(TranslationErrorCode.INVALID_AUDIO);
+     }
+ 
++    return normalizedAudioMimeType;
++  }
++
++  private String resolveLocale(String locale) {
+     String resolvedLocale = locale == null || locale.isBlank() ? DEFAULT_LOCALE : locale;
++
+     if (!DEFAULT_LOCALE.equals(resolvedLocale)) {
+       throw new BusinessException(TranslationErrorCode.INVALID_LOCALE);
+     }
+ 
+-    return new SpeechToTextResponseDto("옴마", "엄마!", true, 0.91, resolvedLocale);
++    return resolvedLocale;
+   }
+ }
+
+
+diff --git a/backend/src/main/java/com/ssafy/backend/TestRunner.java b/backend/src/main/java/com/ssafy/backend/TestRunner.java
+--- a/backend/src/main/java/com/ssafy/backend/TestRunner.java
++++ /dev/null
+@@ -1,29 +0,0 @@
+-package com.ssafy.backend;
+-
+-import com.ssafy.backend.domain.comms.service.SignLanguageCorrectionClient;
+-import org.springframework.boot.CommandLineRunner;
+-import org.springframework.stereotype.Component;
+-
+-@Component
+-public class TestRunner implements CommandLineRunner {
+-
+-  private final SignLanguageCorrectionClient signLanguageCorrectionClient;
+-
+-  public TestRunner(SignLanguageCorrectionClient signLanguageCorrectionClient) {
+-    this.signLanguageCorrectionClient = signLanguageCorrectionClient;
+-  }
+-
+-  @Override
+-  public void run(String... args) {
+-    System.out.println("===== Gemini 수어 문맥 보정 테스트 시작 =====");
+-
+-    String signText = "[물, 마시다, 원하다]";
+-
+-    String correctedText = signLanguageCorrectionClient.correct(signText);
+-
+-    System.out.println("수어 모델 결과: " + signText);
+-    System.out.println("보정 문장: " + correctedText);
+-
+-    System.out.println("===== Gemini 수어 문맥 보정 테스트 종료 =====");
+-  }
+-}
+
+

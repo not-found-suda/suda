@@ -1,0 +1,555 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioRecorder.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioRecorder.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/audio/AndroidAudioRecorder.kt
+@@ -0,0 +1,113 @@
++package com.ssafy.mobile.core.audio
++
++import android.content.Context
++import android.media.MediaRecorder
++import android.os.Build
++import dagger.hilt.android.qualifiers.ApplicationContext
++import java.io.File
++import javax.inject.Inject
++import javax.inject.Singleton
++
++/**
++ * Android MediaRecorder를 사용하여 오디오를 파일로 녹음하는 클래스
++ */
++@Singleton
++class AndroidAudioRecorder
++    @Inject
++    constructor(
++        @ApplicationContext private val context: Context,
++    ) {
++        private var recorder: MediaRecorder? = null
++        private var outputFile: File? = null
++
++        /**
++         * 녹음 시작
++         * @param fileName 저장할 파일 이름 (확장자 제외)
++         */
++        fun start(fileName: String = "stt_audio") {
++            if (recorder != null) stop()
++
++            outputFile =
++                File(context.cacheDir, "$fileName.m4a").apply {
++                    if (exists()) delete()
++                }
++
++            recorder =
++                createRecorder().apply {
++                    setAudioSource(MediaRecorder.AudioSource.MIC)
++                    setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
++                    setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
++                    setAudioSamplingRate(SAMPLING_RATE)
++                    setAudioEncodingBitRate(BIT_RATE)
++                    setOutputFile(outputFile!!.absolutePath)
++
++                    prepare()
++                    start()
++                }
++        }
++
++        private fun createRecorder(): MediaRecorder =
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
++                MediaRecorder(context)
++            } else {
++                @Suppress("DEPRECATION")
++                MediaRecorder()
++            }
++
++        /**
++         * 녹음 중지 및 결과 파일 반환
++         */
++        @Suppress("TooGenericExceptionCaught")
++        fun stop(): File? {
++            var isSuccess = true
++            recorder?.let { rec ->
++                try {
++                    rec.stop()
++                    rec.release()
++                } catch (e: IllegalStateException) {
++                    e.printStackTrace()
++                    isSuccess = false
++                } catch (e: RuntimeException) {
++                    // 녹음이 너무 짧아 stop failed 발생 시 처리
++                    e.printStackTrace()
++                    isSuccess = false
++                }
++            }
++            recorder = null
++
++            return handleOutputFile(isSuccess)
++        }
++
++        private fun handleOutputFile(isSuccess: Boolean): File? {
++            val file = outputFile
++            val isValid = isSuccess && file != null && file.exists() && file.length() > 0
++
++            return if (isValid) {
++                file
++            } else {
++                // 실패하거나 유효하지 않은 파일인 경우 삭제 후 null 반환
++                if (file?.exists() == true) {
++                    file.delete()
++                }
++                outputFile = null
++                null
++            }
++        }
++
++        /**
++         * 현재 생성된 파일 반환
++         */
++        fun getOutputFile(): File? = outputFile
++
++        /**
++         * 리소스 해제
++         */
++        fun release() {
++            stop()
++        }
++
++        companion object {
++            private const val SAMPLING_RATE = 44100
++            private const val BIT_RATE = 128000
++        }
++    }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/stt/LocalSttEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/stt/LocalSttEngine.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/stt/LocalSttEngine.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/stt/LocalSttEngine.kt
+@@ -42,15 +42,14 @@ class LocalSttEngine
+                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+             }
+ 
+-        override fun startListening() {
++        override fun startListening(sessionId: Int) {
+             // SpeechRecognizer는 반드시 메인 스레드에서 동작해야 함
+             android.os.Handler(android.os.Looper.getMainLooper()).post {
+                 if (speechRecognizer == null) {
+-                    speechRecognizer =
+-                        SpeechRecognizer.createSpeechRecognizer(context).apply {
+-                            setRecognitionListener(createRecognitionListener())
+-                        }
++                    speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+                 }
++                // 매 세션마다 해당 sessionId를 캡처한 리스너로 교체하여 세션 격리 보장
++                speechRecognizer?.setRecognitionListener(createRecognitionListener(sessionId))
+                 speechRecognizer?.startListening(recognizerIntent)
+             }
+         }
+@@ -68,10 +67,10 @@ class LocalSttEngine
+             }
+         }
+ 
+-        private fun createRecognitionListener() =
++        private fun createRecognitionListener(sessionId: Int) =
+             object : RecognitionListener {
+                 override fun onReadyForSpeech(params: Bundle?) {
+-                    _events.tryEmit(SttEvent.Started)
++                    _events.tryEmit(SttEvent.Started(sessionId))
+                 }
+ 
+                 override fun onBeginningOfSpeech() {
+@@ -79,7 +78,7 @@ class LocalSttEngine
+                 }
+ 
+                 override fun onRmsChanged(rmsdB: Float) {
+-                    _events.tryEmit(SttEvent.VolumeChanged(rmsdB))
++                    _events.tryEmit(SttEvent.VolumeChanged(sessionId, rmsdB))
+                 }
+ 
+                 override fun onBufferReceived(buffer: ByteArray?) {
+@@ -87,7 +86,7 @@ class LocalSttEngine
+                 }
+ 
+                 override fun onEndOfSpeech() {
+-                    _events.tryEmit(SttEvent.Stopped)
++                    _events.tryEmit(SttEvent.EndOfSpeech(sessionId))
+                 }
+ 
+                 override fun onError(error: Int) {
+@@ -102,15 +101,15 @@ class LocalSttEngine
+                             SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "입력이 없어 인식을 종료합니다"
+                             else -> "음성 인식 오류 (code: $error)"
+                         }
+-                    _events.tryEmit(SttEvent.Error(message))
+-                    _events.tryEmit(SttEvent.Stopped)
++                    _events.tryEmit(SttEvent.Error(sessionId, message))
++                    _events.tryEmit(SttEvent.Stopped(sessionId))
+                 }
+ 
+                 override fun onResults(results: Bundle?) {
+                     val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                     if (!matches.isNullOrEmpty()) {
+-                        _events.tryEmit(SttEvent.Results(matches[0]))
+-                        _events.tryEmit(SttEvent.Stopped)
++                        _events.tryEmit(SttEvent.Results(sessionId, matches[0]))
++                        _events.tryEmit(SttEvent.Stopped(sessionId))
+                     }
+                 }
+ 
+@@ -120,7 +119,7 @@ class LocalSttEngine
+                             SpeechRecognizer.RESULTS_RECOGNITION,
+                         )
+                     if (!matches.isNullOrEmpty()) {
+-                        _events.tryEmit(SttEvent.PartialResults(matches[0]))
++                        _events.tryEmit(SttEvent.PartialResults(sessionId, matches[0]))
+                     }
+                 }
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/stt/SttEngine.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/stt/SttEngine.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/stt/SttEngine.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/stt/SttEngine.kt
+@@ -9,10 +9,10 @@ interface SttEngine {
+     /** STT 엔진에서 방출되는 이벤트 스트림 */
+     val events: Flow<SttEvent>
+ 
+-    /** 음성 인식을 시작합니다. */
+-    fun startListening()
++    /** 음성 인식 시작 */
++    fun startListening(sessionId: Int)
+ 
+-    /** 음성 인식을 중지합니다. */
++    /** 음성 인식 중지 */
+     fun stopListening()
+ 
+     /** 리소스를 해제합니다. */
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/stt/SttEvent.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/stt/SttEvent.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/stt/SttEvent.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/stt/SttEvent.kt
+@@ -3,30 +3,45 @@ package com.ssafy.mobile.core.stt
+ /**
+  * STT 엔진에서 발생하는 이벤트들을 정의합니다.
+  */
+-sealed class SttEvent {
++sealed class SttEvent(
++    val sessionId: Int,
++) {
+     /** 음성 인식 시작 준비 완료 */
+-    data object Started : SttEvent()
++    class Started(
++        sessionId: Int,
++    ) : SttEvent(sessionId)
+ 
+     /** 실시간 인식 중인 텍스트 (확정 전) */
+-    data class PartialResults(
++    class PartialResults(
++        sessionId: Int,
+         val text: String,
+-    ) : SttEvent()
++    ) : SttEvent(sessionId)
+ 
+     /** 최종 인식 결과 텍스트 (확정) */
+-    data class Results(
++    class Results(
++        sessionId: Int,
+         val text: String,
+-    ) : SttEvent()
++    ) : SttEvent(sessionId)
+ 
+     /** 인식 중 발생한 에러 */
+-    data class Error(
++    class Error(
++        sessionId: Int,
+         val message: String,
+-    ) : SttEvent()
++    ) : SttEvent(sessionId)
+ 
+     /** 마이크 입력 음량 변경 (데시벨 단위) */
+-    data class VolumeChanged(
++    class VolumeChanged(
++        sessionId: Int,
+         val db: Float,
+-    ) : SttEvent()
++    ) : SttEvent(sessionId)
++
++    /** 음성 검출 종료 (결과 대기 중) */
++    class EndOfSpeech(
++        sessionId: Int,
++    ) : SttEvent(sessionId)
+ 
+     /** 음성 인식 중지 및 리소스 해제 완료 */
+-    data object Stopped : SttEvent()
++    class Stopped(
++        sessionId: Int,
++    ) : SttEvent(sessionId)
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/conversation/presentation/ConversationViewModel.kt
+@@ -2,6 +2,7 @@ package com.ssafy.mobile.feature.conversation.presentation
+ 
+ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.core.audio.AndroidAudioRecorder
+ import com.ssafy.mobile.core.audio.AudioPlayer
+ import com.ssafy.mobile.core.audio.TtsPlayer
+ import com.ssafy.mobile.core.model.SignRecognitionEvent
+@@ -15,6 +16,7 @@ import com.ssafy.mobile.feature.conversation.domain.model.MessageStatus
+ import com.ssafy.mobile.feature.conversation.domain.model.SenderType
+ import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
++import java.io.File
+ import javax.inject.Inject
+ import kotlinx.coroutines.Job
+ import kotlinx.coroutines.flow.MutableStateFlow
+@@ -29,6 +31,7 @@ enum class SessionState {
+     Stopping,
+ }
+ 
++@Suppress("TooManyFunctions")
+ @HiltViewModel
+ class ConversationViewModel
+     @Inject
+@@ -39,6 +42,7 @@ class ConversationViewModel
+         private val ttsPlayer: TtsPlayer,
+         private val sttEngine: SttEngine,
+         private val networkMonitor: NetworkMonitor,
++        private val androidAudioRecorder: AndroidAudioRecorder,
+     ) : ViewModel() {
+         private val _sessionState = MutableStateFlow(SessionState.Idle)
+         val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
+@@ -66,6 +70,9 @@ class ConversationViewModel
+         private var translationJob: Job? = null
+         private var completionTimerJob: Job? = null
+         private var sttJob: Job? = null
++        private var currentSttSessionId = 0
++        private var isResultsReceived = false
++        private var isStoppedReceived = false
+ 
+         init {
+             // 네트워크 상태 모니터링
+@@ -133,27 +140,9 @@ class ConversationViewModel
+                             )
+ 
+                             response.audioBase64?.let { base64Audio ->
+-                                sttEngine.stopListening()
+-                                isTtsPlaying = true
+-                                audioPlayer.playBase64(
+-                                    base64Data = base64Audio,
+-                                    onComplete = {
+-                                        isTtsPlaying = false
+-                                        if (_sessionState.value == SessionState.Active) {
+-                                            sttEngine.startListening()
+-                                        }
+-                                    },
+-                                    onError = {
+-                                        isTtsPlaying = false
+-                                        if (_sessionState.value == SessionState.Active) {
+-                                            sttEngine.startListening()
+-                                        }
+-                                    },
+-                                )
++                                handleTtsSuccess(base64Audio)
+                             } ?: run {
+-                                if (_sessionState.value == SessionState.Active) {
+-                                    sttEngine.startListening()
+-                                }
++                                startRecordingForStt()
+                             }
+ 
+                             _lastGlosses.value = emptyList()
+@@ -163,9 +152,7 @@ class ConversationViewModel
+                                 isFinal = true,
+                                 senderType = SenderType.PARENT,
+                             )
+-                            if (_sessionState.value == SessionState.Active) {
+-                                sttEngine.startListening()
+-                            }
++                            startRecordingForStt()
+                         }
+                 }
+         }
+@@ -186,23 +173,40 @@ class ConversationViewModel
+             isTtsPlaying = true
+             ttsPlayer.speak(
+                 text = fallbackText,
+-                onComplete = {
+-                    isTtsPlaying = false
+-                    if (_sessionState.value == SessionState.Active) {
+-                        sttEngine.startListening()
+-                    }
+-                },
+-                onError = {
+-                    isTtsPlaying = false
+-                    if (_sessionState.value == SessionState.Active) {
+-                        sttEngine.startListening()
+-                    }
+-                },
++                onComplete = { resumeListeningAfterTts() },
++                onError = { resumeListeningAfterTts() },
+             )
+ 
+             _lastGlosses.value = emptyList()
+         }
+ 
++        private fun startRecordingForStt() {
++            if (_sessionState.value != SessionState.Active || isTtsPlaying) return
++
++            // 새 세션 시작 시 상태 초기화 (오염 방지)
++            isResultsReceived = false
++            isStoppedReceived = false
++
++            if (_isOnline.value) {
++                androidAudioRecorder.start()
++            }
++            currentSttSessionId++
++            sttEngine.startListening(currentSttSessionId)
++        }
++
++        private suspend fun checkAndRestartStt() {
++            if (isResultsReceived && isStoppedReceived) {
++                // 잦은 재시작으로 인한 BUSY 에러 방지
++                kotlinx.coroutines.delay(STT_RESTART_DELAY_MS)
++                startRecordingForStt()
++            }
++        }
++
++        private fun stopRecordingForStt(): File? {
++            sttEngine.stopListening()
++            return androidAudioRecorder.stop()
++        }
++
+         fun startSession() {
+             _sessionState.value = SessionState.Active
+             signRecognitionEngine.start()
+@@ -214,39 +218,100 @@ class ConversationViewModel
+             sttJob =
+                 viewModelScope.launch {
+                     sttEngine.events.collect { event ->
++                        if (event.sessionId != currentSttSessionId) return@collect
++
+                         when (event) {
+-                            is SttEvent.PartialResults ->
++                            is SttEvent.PartialResults -> {
++                                isResultsReceived = false
++                                isStoppedReceived = false
+                                 updateOrAddChildMessage(
+                                     event.text,
+                                     isFinal = false,
+                                 )
+-                            is SttEvent.Results ->
+-                                updateOrAddChildMessage(
+-                                    event.text,
+-                                    isFinal = true,
+-                                )
++                            }
++                            is SttEvent.Results -> {
++                                if (_isOnline.value) {
++                                    val file = androidAudioRecorder.stop()
++                                    if (file != null) {
++                                        _sttText.value = "대화 내용을 분석 중입니다..."
++                                        performCloudStt(file)
++                                    } else {
++                                        _sttText.value = "" // 유효하지 않은 녹음은 텍스트 초기화
++                                    }
++                                } else {
++                                    updateOrAddChildMessage(
++                                        event.text,
++                                        isFinal = true,
++                                    )
++                                }
++                                isResultsReceived = true
++                                checkAndRestartStt()
++                            }
++                            is SttEvent.EndOfSpeech -> {
++                                // 필요 시 UI 처리 (예: "인식 완료, 처리 중...")
++                            }
+                             is SttEvent.Stopped -> {
+                                 if (_sessionState.value == SessionState.Active && !isTtsPlaying) {
+-                                    // 잦은 재시작으로 인한 BUSY 에러 방지를 위해 약간의 딜레이 부여
+-                                    kotlinx.coroutines.delay(STT_RESTART_DELAY_MS)
+-                                    sttEngine.startListening()
++                                    isStoppedReceived = true
++                                    if (!_isOnline.value) {
++                                        isResultsReceived = true // 오프라인은 결과 대기 불필요
++                                    }
++                                    checkAndRestartStt()
+                                 }
+                             }
+                             is SttEvent.VolumeChanged -> _micVolume.value = event.db
+                             is SttEvent.Error -> {
++                                isResultsReceived = true
++                                isStoppedReceived = false
+                                 // 에러 처리 (필요시 UI 알림 추가)
+                             }
+                             else -> {}
+                         }
+                     }
+                 }
+-            sttEngine.startListening()
++            startRecordingForStt()
++        }
++
++        private fun performCloudStt(audioFile: File) {
++            viewModelScope.launch {
++                translateRepository
++                    .translateSpeechToText(audioFile, "audio/mp4")
++                    .onSuccess { response ->
++                        val displayText =
++                            if (response.corrected) {
++                                response.correctedText
++                            } else {
++                                response.recognizedText
++                            }
++                        updateOrAddChildMessage(displayText, isFinal = true)
++                        _sttText.value = ""
++                    }.onFailure {
++                        _sttText.value = "인식에 실패했습니다."
++                    }
++            }
++        }
++
++        private fun handleTtsSuccess(base64Audio: String) {
++            stopRecordingForStt()
++            isTtsPlaying = true
++            audioPlayer.playBase64(
++                base64Data = base64Audio,
++                onComplete = { resumeListeningAfterTts() },
++                onError = { resumeListeningAfterTts() },
++            )
++        }
++
++        private fun resumeListeningAfterTts() {
++            isTtsPlaying = false
++            startRecordingForStt()
+         }
+ 
+         fun stopSession() {
+             _sessionState.value = SessionState.Idle
+             signRecognitionEngine.stop()
+-            sttEngine.stopListening()
++            stopRecordingForStt()
++            isResultsReceived = false
++            isStoppedReceived = false
+             _lastGlosses.value = emptyList()
+             _translatedText.value = ""
+             _sttText.value = ""
+@@ -308,7 +373,7 @@ class ConversationViewModel
+             super.onCleared()
+             audioPlayer.stop()
+             ttsPlayer.stop()
+-            sttEngine.stopListening()
++            stopRecordingForStt()
+         }
+ 
+         fun onLandmarkFrame(frame: LandmarkFrameResult) {
+@@ -319,6 +384,6 @@ class ConversationViewModel
+ 
+         companion object {
+             private const val COMPLETION_THRESHOLD_MS = 2000L
+-            private const val STT_RESTART_DELAY_MS = 100L
++            private const val STT_RESTART_DELAY_MS = 500L
+         }
+     }
+
+

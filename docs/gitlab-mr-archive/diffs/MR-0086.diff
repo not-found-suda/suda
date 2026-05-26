@@ -1,0 +1,105 @@
+﻿diff --git a/.gitlab-ci.yml b/.gitlab-ci.yml
+--- a/.gitlab-ci.yml
++++ b/.gitlab-ci.yml
+@@ -230,13 +230,9 @@ secret-scan:
+ 
+ build-and-push-migration-ecr:
+   stage: deploy
+-  image: docker:27
+-  services:
+-    - name: docker:27-dind
+-      alias: docker
+-  variables:
+-    DOCKER_TLS_CERTDIR: ""
+-    DOCKER_HOST: tcp://docker:2375
++  image:
++    name: gcr.io/kaniko-project/executor:v1.23.2-debug
++    entrypoint: [""]
+   rules:
+     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+       changes:
+@@ -253,22 +249,26 @@ build-and-push-migration-ecr:
+       variables:
+         MIGRATION_IMAGE_TAG: "latest"
+     - when: never
+-  before_script:
+-    - apk add --no-cache aws-cli
+-    - aws --version
+-    - docker --version
+-    - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+   script:
+     - |
+       if [ -z "$ECR_MIGRATION_IMAGE" ]; then
+         echo "ECR_MIGRATION_IMAGE 변수가 필요합니다."
+         exit 1
+       fi
+-      docker build -f backend/Dockerfile.migration -t s14p31a404-backend-migration:"$CI_COMMIT_SHORT_SHA" ./backend
+-      docker tag s14p31a404-backend-migration:"$CI_COMMIT_SHORT_SHA" "$ECR_MIGRATION_IMAGE:$MIGRATION_IMAGE_TAG"
+-      docker tag s14p31a404-backend-migration:"$CI_COMMIT_SHORT_SHA" "$ECR_MIGRATION_IMAGE:$CI_COMMIT_SHORT_SHA"
+-      docker push "$ECR_MIGRATION_IMAGE:$MIGRATION_IMAGE_TAG"
+-      docker push "$ECR_MIGRATION_IMAGE:$CI_COMMIT_SHORT_SHA"
++
++      if [ -z "$MIGRATION_IMAGE_TAG" ]; then
++        echo "MIGRATION_IMAGE_TAG 변수가 필요합니다."
++        exit 1
++      fi
++
++      mkdir -p /kaniko/.docker
++      printf '{"credHelpers":{"%s":"ecr-login"}}' "$ECR_REGISTRY" > /kaniko/.docker/config.json
++
++      /kaniko/executor \
++        --context "$CI_PROJECT_DIR/backend" \
++        --dockerfile "$CI_PROJECT_DIR/backend/Dockerfile.migration" \
++        --destination "$ECR_MIGRATION_IMAGE:$MIGRATION_IMAGE_TAG" \
++        --destination "$ECR_MIGRATION_IMAGE:$CI_COMMIT_SHORT_SHA"
+ 
+ trigger-dev-rds-migration-jenkins:
+   stage: deploy
+@@ -295,28 +295,30 @@ trigger-dev-rds-migration-jenkins:
+ 
+ build-and-push-backend-ecr:
+   stage: deploy
+-  image: docker:27
+-  services:
+-    - name: docker:27-dind
+-      alias: docker
+-  variables:
+-    DOCKER_TLS_CERTDIR: ""
+-    DOCKER_HOST: tcp://docker:2375
++  image:
++    name: gcr.io/kaniko-project/executor:v1.23.2-debug
++    entrypoint: [""]
+   rules:
+     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+       changes:
+         - backend/**/*
+         - .gitlab-ci.yml
+     - when: never
+-  before_script:
+-    - apk add --no-cache aws-cli
+-    - aws --version
+-    - docker --version
+-    - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+   script:
+-    - docker build -t s14p31a404-backend:latest ./backend
+-    - docker tag s14p31a404-backend:latest "$ECR_BACKEND_IMAGE:latest"
+-    - docker push "$ECR_BACKEND_IMAGE:latest"
++    - |
++      if [ -z "$ECR_BACKEND_IMAGE" ]; then
++        echo "ECR_BACKEND_IMAGE 변수가 필요합니다."
++        exit 1
++      fi
++
++      mkdir -p /kaniko/.docker
++      printf '{"credHelpers":{"%s":"ecr-login"}}' "$ECR_REGISTRY" > /kaniko/.docker/config.json
++
++      /kaniko/executor \
++        --context "$CI_PROJECT_DIR/backend" \
++        --dockerfile "$CI_PROJECT_DIR/backend/Dockerfile" \
++        --destination "$ECR_BACKEND_IMAGE:latest" \
++        --destination "$ECR_BACKEND_IMAGE:$CI_COMMIT_SHORT_SHA"
+ 
+ trigger-deploy-jenkins:
+   stage: deploy
+
+

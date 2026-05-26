@@ -1,0 +1,290 @@
+﻿diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizQuestionRoute.kt
+@@ -61,7 +61,9 @@ fun quizQuestionRoute(modifier: Modifier = Modifier) {
+             status = recordingStatus,
+             onRecordButtonClick = {
+                 when (recordingStatus) {
+-                    QuizRecordingStatus.Recording -> recordingViewModel.stopListening()
++                    QuizRecordingStatus.Recording,
++                    QuizRecordingStatus.FallbackRecording,
++                    -> recordingViewModel.stopListening()
+                     QuizRecordingStatus.Processing -> Unit
+                     else -> recordingViewModel.startListening()
+                 }
+@@ -348,7 +350,9 @@ private fun QuizActionArea(
+     modifier: Modifier = Modifier,
+ ) {
+     val hasAnswered = answer != null
+-    val isRecording = recordingStatus == QuizRecordingStatus.Recording
++    val isRecording =
++        recordingStatus == QuizRecordingStatus.Recording ||
++            recordingStatus == QuizRecordingStatus.FallbackRecording
+     val isProcessing = recordingStatus == QuizRecordingStatus.Processing
+     val canSkipQuestion = recordingStatus.canSkipQuestion
+     val canMoveNext = (hasAnswered || canSkipQuestion) && !isRecording && !isProcessing
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingState.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingState.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingState.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingState.kt
+@@ -10,6 +10,7 @@ import androidx.compose.ui.text.style.TextAlign
+ enum class QuizRecordingStatus {
+     Idle,
+     Recording,
++    FallbackRecording,
+     Processing,
+     Completed,
+     NoSpeech,
+@@ -69,6 +70,8 @@ private fun QuizRecordingStatus.message(
+                 "$answerAttemptCount 번째 답변이에요. 다시 말해볼까요?"
+             }
+         QuizRecordingStatus.Recording -> "듣고 있어요. 다 말했으면 버튼을 눌러 주세요."
++        QuizRecordingStatus.FallbackRecording ->
++            "서버 인식이 어려워 기기에서 다시 듣고 있어요. 한 번 더 말해 주세요."
+         QuizRecordingStatus.Processing -> "말한 단어를 인식하고 있어요."
+         QuizRecordingStatus.Completed ->
+             if (recognizedText.isNullOrBlank()) {
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingViewModel.kt b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingViewModel.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingViewModel.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/feature/quiz/presentation/QuizRecordingViewModel.kt
+@@ -2,23 +2,34 @@ package com.ssafy.mobile.feature.quiz.presentation
+ 
+ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
++import com.ssafy.mobile.core.audio.AndroidAudioRecorder
++import com.ssafy.mobile.core.network.NetworkMonitor
+ import com.ssafy.mobile.core.stt.SttEngine
+ import com.ssafy.mobile.core.stt.SttErrorType
+ import com.ssafy.mobile.core.stt.SttEvent
++import com.ssafy.mobile.feature.conversation.domain.repository.TranslateRepository
+ import dagger.hilt.android.lifecycle.HiltViewModel
++import java.io.File
+ import javax.inject.Inject
++import kotlin.coroutines.cancellation.CancellationException
++import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.Job
+ import kotlinx.coroutines.delay
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.StateFlow
+ import kotlinx.coroutines.flow.asStateFlow
+ import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
+ 
++@Suppress("TooManyFunctions")
+ @HiltViewModel
+ class QuizRecordingViewModel
+     @Inject
+     constructor(
+         private val sttEngine: SttEngine,
++        private val audioRecorder: AndroidAudioRecorder,
++        private val translateRepository: TranslateRepository,
++        private val networkMonitor: NetworkMonitor,
+     ) : ViewModel() {
+         private val _status = MutableStateFlow(QuizRecordingStatus.Idle)
+         val status: StateFlow<QuizRecordingStatus> = _status.asStateFlow()
+@@ -28,6 +39,10 @@ class QuizRecordingViewModel
+ 
+         private var activeSessionId = INITIAL_SESSION_ID
+         private var processingFallbackJob: Job? = null
++        private var serverUploadJob: Job? = null
++        private var isOnline = true
++        private var recordingMode = RecordingMode.None
++        private var isLocalFallback = false
+ 
+         init {
+             viewModelScope.launch {
+@@ -37,27 +52,51 @@ class QuizRecordingViewModel
+                     }
+                 }
+             }
++            viewModelScope.launch {
++                networkMonitor.isOnline.collect { online ->
++                    isOnline = online
++                }
++            }
+         }
+ 
+         fun startListening() {
+             cancelProcessingFallback()
++            cancelServerUpload()
+             activeSessionId = sttEngine.nextSessionId()
+             _recognizedText.value = null
+-            _status.value = QuizRecordingStatus.Recording
+-            sttEngine.startListening(activeSessionId)
++            if (isOnline && audioRecorder.start(SERVER_STT_FILE_NAME)) {
++                recordingMode = RecordingMode.Server
++                isLocalFallback = false
++                _status.value = QuizRecordingStatus.Recording
++            } else {
++                startLocalListening(isFallback = false)
++            }
+         }
+ 
+         fun stopListening() {
+-            if (_status.value == QuizRecordingStatus.Recording) {
+-                moveToProcessing()
+-                sttEngine.stopListening()
++            if (
++                _status.value == QuizRecordingStatus.Recording ||
++                _status.value == QuizRecordingStatus.FallbackRecording
++            ) {
++                when (recordingMode) {
++                    RecordingMode.Server -> stopServerRecordingAndUpload()
++                    RecordingMode.Local -> {
++                        moveToProcessing()
++                        sttEngine.stopListening()
++                    }
++                    RecordingMode.None -> Unit
++                }
+             }
+         }
+ 
+         fun reset() {
+             activeSessionId = sttEngine.nextSessionId()
+             cancelProcessingFallback()
++            cancelServerUpload()
+             sttEngine.stopListening()
++            audioRecorder.stop()?.delete()
++            recordingMode = RecordingMode.None
++            isLocalFallback = false
+             _status.value = QuizRecordingStatus.Idle
+             _recognizedText.value = null
+         }
+@@ -68,13 +107,22 @@ class QuizRecordingViewModel
+ 
+         override fun onCleared() {
+             cancelProcessingFallback()
++            cancelServerUpload()
+             sttEngine.stopListening()
++            audioRecorder.stop()?.delete()
+             super.onCleared()
+         }
+ 
+         private fun handleSttEvent(event: SttEvent) {
+             when (event) {
+-                is SttEvent.Started -> _status.value = QuizRecordingStatus.Recording
++                is SttEvent.Started -> {
++                    _status.value =
++                        if (isLocalFallback) {
++                            QuizRecordingStatus.FallbackRecording
++                        } else {
++                            QuizRecordingStatus.Recording
++                        }
++                }
+                 is SttEvent.EndOfSpeech -> moveToProcessing()
+                 is SttEvent.Results -> handleFinalResult(event.text)
+                 is SttEvent.Error -> {
+@@ -95,6 +143,8 @@ class QuizRecordingViewModel
+ 
+         private fun handleFinalResult(text: String) {
+             cancelProcessingFallback()
++            recordingMode = RecordingMode.None
++            isLocalFallback = false
+             val trimmedText = text.trim()
+             if (trimmedText.isBlank()) {
+                 _status.value = QuizRecordingStatus.NoSpeech
+@@ -111,6 +161,71 @@ class QuizRecordingViewModel
+                 else -> QuizRecordingStatus.NoSpeech
+             }
+ 
++        private fun startLocalListening(isFallback: Boolean) {
++            recordingMode = RecordingMode.Local
++            isLocalFallback = isFallback
++            _status.value =
++                if (isFallback) {
++                    QuizRecordingStatus.FallbackRecording
++                } else {
++                    QuizRecordingStatus.Recording
++                }
++            sttEngine.startListening(activeSessionId)
++        }
++
++        private fun stopServerRecordingAndUpload() {
++            cancelProcessingFallback()
++            _status.value = QuizRecordingStatus.Processing
++            val audioFile = audioRecorder.stop()
++            recordingMode = RecordingMode.None
++            if (audioFile == null) {
++                startLocalListening(isFallback = true)
++                return
++            }
++            uploadServerStt(audioFile)
++        }
++
++        private fun uploadServerStt(audioFile: File) {
++            cancelServerUpload()
++            val uploadJob =
++                viewModelScope.launch {
++                    uploadServerSttSafely(audioFile)
++                }
++            serverUploadJob = uploadJob
++            uploadJob.invokeOnCompletion {
++                if (serverUploadJob === uploadJob) {
++                    serverUploadJob = null
++                }
++            }
++        }
++
++        private suspend fun uploadServerSttSafely(audioFile: File) {
++            try {
++                val result =
++                    withContext(Dispatchers.IO) {
++                        translateRepository.translateSpeechToText(
++                            audioFile = audioFile,
++                            mimeType = SERVER_STT_AUDIO_MIME_TYPE,
++                        )
++                    }
++                result
++                    .onSuccess { response ->
++                        val text =
++                            response.correctedText
++                                .trim()
++                                .ifBlank { response.recognizedText.trim() }
++                        handleFinalResult(text)
++                    }.onFailure { throwable ->
++                        if (throwable is CancellationException) {
++                            throw throwable
++                        }
++                        startLocalListening(isFallback = true)
++                    }
++            } finally {
++                deleteTempAudio(audioFile)
++            }
++        }
++
+         private fun moveToProcessing() {
+             _status.value = QuizRecordingStatus.Processing
+             processingFallbackJob?.cancel()
+@@ -132,8 +247,27 @@ class QuizRecordingViewModel
+             processingFallbackJob = null
+         }
+ 
++        private fun cancelServerUpload() {
++            serverUploadJob?.cancel()
++            serverUploadJob = null
++        }
++
++        private fun deleteTempAudio(audioFile: File) {
++            if (audioFile.exists()) {
++                audioFile.delete()
++            }
++        }
++
++        private enum class RecordingMode {
++            None,
++            Server,
++            Local,
++        }
++
+         companion object {
+             private const val INITIAL_SESSION_ID = 0
+             private const val PROCESSING_FALLBACK_TIMEOUT_MS = 3_000L
++            private const val SERVER_STT_FILE_NAME = "quiz_stt_audio"
++            private const val SERVER_STT_AUDIO_MIME_TYPE = "audio/wav"
+         }
+     }
+
+

@@ -1,0 +1,627 @@
+﻿diff --git a/mobile/app/src/main/assets/models/label_map_v5_1.json b/mobile/app/src/main/assets/models/label_map_v5_1.json
+--- /dev/null
++++ b/mobile/app/src/main/assets/models/label_map_v5_1.json
+@@ -0,0 +1,9 @@
++{
++    "0": "기차",
++    "1": "장난감",
++    "2": "놀다",
++    "3": "가다",
++    "4": "일어나다",
++    "5": "병원",
++    "6": "조심"
++}
+\ No newline at end of file
+
+
+diff --git a/mobile/app/src/main/assets/models/sign_model_v5_1_float16.tflite b/mobile/app/src/main/assets/models/sign_model_v5_1_float16.tflite
+--- /dev/null
++++ b/mobile/app/src/main/assets/models/sign_model_v5_1_float16.tflite
+Binary files /dev/null and b/mobile/app/src/main/assets/models/sign_model_v5_1_float16.tflite differ
+
+
+diff --git a/mobile/app/src/main/assets/models/sign_model_v5_1_float32.tflite b/mobile/app/src/main/assets/models/sign_model_v5_1_float32.tflite
+--- /dev/null
++++ b/mobile/app/src/main/assets/models/sign_model_v5_1_float32.tflite
+Binary files /dev/null and b/mobile/app/src/main/assets/models/sign_model_v5_1_float32.tflite differ
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoder.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoder.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoder.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoder.kt
+@@ -1,3 +1,5 @@
++@file:Suppress("MagicNumber", "TooManyFunctions")
++
+ package com.ssafy.mobile.core.vision.feature
+ 
+ import com.ssafy.mobile.core.vision.inference.SignModelContract
+@@ -6,25 +8,38 @@ import com.ssafy.mobile.core.vision.landmark.LandmarkPoint
+ import kotlin.math.sqrt
+ 
+ class LandmarkFeatureEncoder(
+-    val isHandForwardFillEnabled: Boolean = true,
++    val isHandForwardFillEnabled: Boolean = false,
+ ) {
+     private var previousPose: List<LandmarkPoint>? = null
+     private var previousLeftHand: List<LandmarkPoint>? = null
+     private var previousRightHand: List<LandmarkPoint>? = null
++    private var previousFace: List<LandmarkPoint>? = null
+ 
+     fun encode(frame: LandmarkFrameResult): LandmarkFeatureFrame {
++        val faceSelection = selectFaceLandmarks(frame.face.landmarks)
++        val face = faceSelection.landmarks
++        if (faceSelection.isFromCurrentFrame) {
++            previousFace = face
++        }
+         val poseSelection = selectPoseLandmarks(frame.pose.landmarks)
+         val pose = poseSelection.landmarks
+         if (poseSelection.isFromCurrentFrame) {
+             previousPose = pose
+         }
+-        val normalizer = createNormalizer(pose)
+-        val rawLandmarks = createRawLandmarks(frame, pose)
++        val rawLandmarks = createRawLandmarks(frame, face, pose)
++        val distances =
++            createHandFaceDistances(
++                faceLandmarks = frame.face.landmarks,
++                leftHand = frame.leftHand.landmarks,
++                rightHand = frame.rightHand.landmarks,
++            )
++        val normalizer = createNormalizer(rawLandmarks)
+         val values =
+             FloatArray(SignModelContract.FEATURE_DIMENSION).also { output ->
+-                writeNormalizedLandmarks(
++                writeNormalizedFeatures(
+                     output = output,
+                     rawLandmarks = rawLandmarks,
++                    distances = distances,
+                     normalizer = normalizer,
+                 )
+             }
+@@ -45,6 +60,29 @@ class LandmarkFeatureEncoder(
+         previousPose = null
+         previousLeftHand = null
+         previousRightHand = null
++        previousFace = null
++    }
++
++    private fun selectFaceLandmarks(current: List<LandmarkPoint>): FaceSelection {
++        val selectedFace =
++            SignFeatureSpec.FACE_LANDMARK_INDICES.map { index ->
++                current.getOrNull(index)
++            }
++
++        return if (selectedFace.all { landmark -> landmark != null }) {
++            FaceSelection(
++                landmarks = selectedFace.filterNotNull(),
++                isFromCurrentFrame = true,
++            )
++        } else {
++            FaceSelection(
++                landmarks =
++                    previousFace ?: List(SignFeatureSpec.SELECTED_FACE_LANDMARK_COUNT) {
++                        ZERO_POINT
++                    },
++                isFromCurrentFrame = false,
++            )
++        }
+     }
+ 
+     private fun selectPoseLandmarks(current: List<LandmarkPoint>): PoseSelection {
+@@ -69,9 +107,9 @@ class LandmarkFeatureEncoder(
+         }
+     }
+ 
+-    private fun createNormalizer(pose: List<LandmarkPoint>): LandmarkNormalizer {
+-        val leftShoulder = pose[SignFeatureSpec.SELECTED_LEFT_SHOULDER_INDEX]
+-        val rightShoulder = pose[SignFeatureSpec.SELECTED_RIGHT_SHOULDER_INDEX]
++    private fun createNormalizer(rawLandmarks: List<LandmarkPoint>): LandmarkNormalizer {
++        val leftShoulder = rawLandmarks[SignFeatureSpec.LEFT_SHOULDER_LANDMARK_INDEX]
++        val rightShoulder = rawLandmarks[SignFeatureSpec.RIGHT_SHOULDER_LANDMARK_INDEX]
+         val shoulderCenter =
+             LandmarkPoint(
+                 x = (leftShoulder.x + rightShoulder.x) / 2f,
+@@ -87,12 +125,13 @@ class LandmarkFeatureEncoder(
+ 
+         return LandmarkNormalizer(
+             center = shoulderCenter,
+-            scale = scale ?: DEFAULT_SCALE,
++            scale = scale,
+         )
+     }
+ 
+     private fun createRawLandmarks(
+         frame: LandmarkFrameResult,
++        face: List<LandmarkPoint>,
+         pose: List<LandmarkPoint>,
+     ): List<LandmarkPoint> =
+         createHandLandmarks(
+@@ -105,6 +144,7 @@ class LandmarkFeatureEncoder(
+                 previous = previousRightHand,
+                 updatePrevious = { previousRightHand = it },
+             ) +
++            face +
+             pose
+ 
+     private fun createHandLandmarks(
+@@ -128,9 +168,58 @@ class LandmarkFeatureEncoder(
+     private fun createZeroHandLandmarks(): List<LandmarkPoint> =
+         List(SignFeatureSpec.HAND_LANDMARK_COUNT) { ZERO_POINT }
+ 
+-    private fun writeNormalizedLandmarks(
++    private fun createHandFaceDistances(
++        faceLandmarks: List<LandmarkPoint>,
++        leftHand: List<LandmarkPoint>,
++        rightHand: List<LandmarkPoint>,
++    ): FloatArray {
++        if (!faceLandmarks.hasIndices(SignFeatureSpec.FACE_ANCHOR_INDICES)) {
++            return FloatArray(SignFeatureSpec.HAND_FACE_DISTANCE_COUNT)
++        }
++
++        val anchors = SignFeatureSpec.FACE_ANCHOR_INDICES.map { index -> faceLandmarks[index] }
++        val values = FloatArray(SignFeatureSpec.HAND_FACE_DISTANCE_COUNT)
++        var offset = 0
++        offset =
++            writeHandFaceDistances(
++                output = values,
++                offset = offset,
++                handLandmarks = leftHand,
++                faceAnchors = anchors,
++            )
++        writeHandFaceDistances(
++            output = values,
++            offset = offset,
++            handLandmarks = rightHand,
++            faceAnchors = anchors,
++        )
++        return values
++    }
++
++    private fun writeHandFaceDistances(
++        output: FloatArray,
++        offset: Int,
++        handLandmarks: List<LandmarkPoint>,
++        faceAnchors: List<LandmarkPoint>,
++    ): Int {
++        var currentOffset = offset
++        if (!handLandmarks.hasIndices(SignFeatureSpec.HAND_TIP_INDICES)) {
++            return currentOffset + SignFeatureSpec.HAND_FACE_DISTANCE_PER_HAND
++        }
++
++        SignFeatureSpec.HAND_TIP_INDICES.forEach { tipIndex ->
++            val tip = handLandmarks[tipIndex]
++            faceAnchors.forEach { anchor ->
++                output[currentOffset++] = tip.distanceTo(anchor)
++            }
++        }
++        return currentOffset
++    }
++
++    private fun writeNormalizedFeatures(
+         output: FloatArray,
+         rawLandmarks: List<LandmarkPoint>,
++        distances: FloatArray,
+         normalizer: LandmarkNormalizer,
+     ) {
+         var offset = 0
+@@ -140,8 +229,16 @@ class LandmarkFeatureEncoder(
+             output[offset++] = normalized.y
+             output[offset++] = normalized.z
+         }
++        distances.forEach { distance ->
++            output[offset++] = distance / normalizer.scale
++        }
+     }
+ 
++    private data class FaceSelection(
++        val landmarks: List<LandmarkPoint>,
++        val isFromCurrentFrame: Boolean,
++    )
++
+     private data class PoseSelection(
+         val landmarks: List<LandmarkPoint>,
+         val isFromCurrentFrame: Boolean,
+@@ -222,26 +319,89 @@ data class LandmarkFeatureProbePoints(
+ 
+ object SignFeatureSpec {
+     const val HAND_LANDMARK_COUNT = 21
+-    const val SELECTED_POSE_LANDMARK_COUNT = 5
++    const val SELECTED_FACE_LANDMARK_COUNT = 45
++    const val SELECTED_POSE_LANDMARK_COUNT = 7
+     const val COORDINATE_SIZE = 3
++    const val HAND_FACE_DISTANCE_PER_HAND = 25
++    const val HAND_FACE_DISTANCE_COUNT = 50
+     const val NOSE_INDEX = 0
++    const val LEFT_EYE_OUTER_INDEX = 7
++    const val RIGHT_EYE_OUTER_INDEX = 8
+     const val LEFT_SHOULDER_INDEX = 11
+     const val RIGHT_SHOULDER_INDEX = 12
+     const val LEFT_ELBOW_INDEX = 13
+     const val RIGHT_ELBOW_INDEX = 14
+-    const val SELECTED_LEFT_SHOULDER_INDEX = 1
+-    const val SELECTED_RIGHT_SHOULDER_INDEX = 2
+     const val LEFT_HAND_OFFSET = 0
+     const val RIGHT_HAND_OFFSET = LEFT_HAND_OFFSET + HAND_LANDMARK_COUNT * COORDINATE_SIZE
+-    const val POSE_OFFSET = RIGHT_HAND_OFFSET + HAND_LANDMARK_COUNT * COORDINATE_SIZE
++    const val FACE_OFFSET = RIGHT_HAND_OFFSET + HAND_LANDMARK_COUNT * COORDINATE_SIZE
++    const val POSE_OFFSET = FACE_OFFSET + SELECTED_FACE_LANDMARK_COUNT * COORDINATE_SIZE
++    const val DISTANCE_OFFSET = POSE_OFFSET + SELECTED_POSE_LANDMARK_COUNT * COORDINATE_SIZE
++    const val LEFT_SHOULDER_LANDMARK_INDEX = 90
++    const val RIGHT_SHOULDER_LANDMARK_INDEX = 91
+     const val PROBE_LEFT_HAND_WRIST_INDEX = 0
+     const val PROBE_RIGHT_HAND_WRIST_INDEX = 21
+-    const val PROBE_NOSE_INDEX = 42
+-    const val PROBE_LEFT_SHOULDER_INDEX = 43
+-    const val PROBE_RIGHT_SHOULDER_INDEX = 44
++    const val PROBE_NOSE_INDEX = 72
++    const val PROBE_LEFT_SHOULDER_INDEX = LEFT_SHOULDER_LANDMARK_INDEX
++    const val PROBE_RIGHT_SHOULDER_INDEX = RIGHT_SHOULDER_LANDMARK_INDEX
++    val BASE_FACE_LANDMARK_INDICES =
++        listOf(
++            70,
++            63,
++            105,
++            66,
++            336,
++            296,
++            334,
++            293,
++            33,
++            160,
++            158,
++            133,
++            153,
++            144,
++            362,
++            385,
++            387,
++            263,
++            373,
++            380,
++            61,
++            146,
++            91,
++            181,
++            84,
++            17,
++            314,
++            405,
++            321,
++            375,
++        )
++    val FACEPLUS_LANDMARK_INDICES =
++        listOf(
++            1,
++            4,
++            152,
++            234,
++            454,
++            172,
++            397,
++            148,
++            377,
++            13,
++            14,
++            78,
++            308,
++            82,
++            312,
++        )
++    val FACE_LANDMARK_INDICES = BASE_FACE_LANDMARK_INDICES + FACEPLUS_LANDMARK_INDICES
++    val FACE_ANCHOR_INDICES = listOf(1, 13, 152, 234, 454)
++    val HAND_TIP_INDICES = listOf(4, 8, 12, 16, 20)
+     val POSE_LANDMARK_INDICES =
+         listOf(
+             NOSE_INDEX,
++            LEFT_EYE_OUTER_INDEX,
++            RIGHT_EYE_OUTER_INDEX,
+             LEFT_SHOULDER_INDEX,
+             RIGHT_SHOULDER_INDEX,
+             LEFT_ELBOW_INDEX,
+@@ -258,6 +418,9 @@ private fun List<LandmarkPoint>.toProbePoints(): LandmarkFeatureProbePoints =
+         rightShoulder = this[SignFeatureSpec.PROBE_RIGHT_SHOULDER_INDEX],
+     )
+ 
++private fun List<LandmarkPoint>.hasIndices(indices: List<Int>): Boolean =
++    indices.all { index -> index in this.indices }
++
+ private fun FloatArray.toProbePoints(): LandmarkFeatureProbePoints =
+     LandmarkFeatureProbePoints(
+         leftHandWrist = toPoint(SignFeatureSpec.PROBE_LEFT_HAND_WRIST_INDEX),
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapterFactory.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapterFactory.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapterFactory.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignInferenceAdapterFactory.kt
+@@ -5,7 +5,8 @@ import java.io.IOException
+ 
+ class SignInferenceAdapterFactory(
+     private val context: Context,
+-    private val modelAssetPath: String = SignModelContract.MODEL_ASSET_PATH,
++    private val variant: SignModelVariant = SignModelVariant.DEFAULT,
++    private val modelAssetPath: String = variant.modelAssetPath,
+     private val labelMapAssetPath: String = SignModelContract.LABEL_MAP_ASSET_PATH,
+ ) {
+     fun create(): SignInferenceAdapter {
+@@ -22,6 +23,7 @@ class SignInferenceAdapterFactory(
+             SignInferenceAdapterPolicy.TFLITE ->
+                 TfliteSignInferenceAdapter.create(
+                     context = appContext,
++                    variant = variant,
+                     modelAssetPath = modelAssetPath,
+                     labelMapAssetPath = labelMapAssetPath,
+                 )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelOutput.kt
+@@ -3,34 +3,39 @@ package com.ssafy.mobile.core.vision.inference
+ object SignModelContract {
+     const val BATCH_SIZE = 1
+     const val SEQUENCE_LENGTH = 30
+-    const val FEATURE_DIMENSION = 141
+-    const val CLASS_COUNT = 90
+-    const val CONFIDENCE_THRESHOLD = 0.8f
++    const val FEATURE_DIMENSION = 332
++    const val CLASS_COUNT = 7
++    const val CONFIDENCE_THRESHOLD = 0.75f
+     const val FLOAT_BYTE_SIZE = 4
+     const val FLAT_SEQUENCE_INPUT_SIZE = SEQUENCE_LENGTH * FEATURE_DIMENSION
+-    const val MODEL_ASSET_PATH = "models/sign_model.tflite"
+-    const val LABEL_MAP_ASSET_PATH = "models/label_map.json"
++    val MODEL_ASSET_PATH = SignModelVariant.DEFAULT.modelAssetPath
++    const val LABEL_MAP_ASSET_PATH = "models/label_map_v5_1.json"
+     const val UNKNOWN_GLOSS = "unknown"
+     val inputShape: IntArray = intArrayOf(BATCH_SIZE, SEQUENCE_LENGTH, FEATURE_DIMENSION)
+     val outputShape: IntArray = intArrayOf(BATCH_SIZE, CLASS_COUNT)
+-    val outputActivation: ModelOutputActivation = ModelOutputActivation.LOGITS
++    val outputActivation: ModelOutputActivation = ModelOutputActivation.PROBABILITIES
+ }
+ 
+ enum class ModelOutputActivation {
+     LOGITS,
++    PROBABILITIES,
+ }
+ 
+ data class SignModelOutput(
+-    val logits: List<Float>,
++    val values: List<Float>,
+ ) {
+     init {
+-        require(logits.size == SignModelContract.CLASS_COUNT) {
+-            "TFLite output must contain ${SignModelContract.CLASS_COUNT} class logits."
++        require(values.size == SignModelContract.CLASS_COUNT) {
++            "TFLite output must contain ${SignModelContract.CLASS_COUNT} class values."
+         }
+     }
+ 
+     fun topPrediction(): SignModelPrediction? {
+-        val probabilities = logits.toSoftmaxProbabilities()
++        val probabilities =
++            when (SignModelContract.outputActivation) {
++                ModelOutputActivation.LOGITS -> values.toSoftmaxProbabilities()
++                ModelOutputActivation.PROBABILITIES -> values
++            }
+         val indexedConfidence = probabilities.withIndex().maxByOrNull { it.value } ?: return null
+         return SignModelPrediction(
+             classIndex = indexedConfidence.index,
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelVariant.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelVariant.kt
+--- /dev/null
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/SignModelVariant.kt
+@@ -0,0 +1,20 @@
++package com.ssafy.mobile.core.vision.inference
++
++enum class SignModelVariant(
++    val displayName: String,
++    val modelAssetPath: String,
++) {
++    FLOAT16(
++        displayName = "float16",
++        modelAssetPath = "models/sign_model_v5_1_float16.tflite",
++    ),
++    FLOAT32(
++        displayName = "float32",
++        modelAssetPath = "models/sign_model_v5_1_float32.tflite",
++    ),
++    ;
++
++    companion object {
++        val DEFAULT = FLOAT16
++    }
++}
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/TfliteSignInferenceAdapter.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/TfliteSignInferenceAdapter.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/TfliteSignInferenceAdapter.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/inference/TfliteSignInferenceAdapter.kt
+@@ -16,7 +16,8 @@ class TfliteSignInferenceAdapter private constructor(
+         model.interpreter.validateModelContract()
+         Log.d(
+             TAG,
+-            "TFLite contract verified. input=[1, 30, 141], output=[1, 90]",
++            "TFLite contract verified. input=${SignModelContract.inputShape.contentToString()}, " +
++                "output=${SignModelContract.outputShape.contentToString()}",
+         )
+     }
+ 
+@@ -55,7 +56,8 @@ class TfliteSignInferenceAdapter private constructor(
+     companion object {
+         fun create(
+             context: Context,
+-            modelAssetPath: String = SignModelContract.MODEL_ASSET_PATH,
++            variant: SignModelVariant = SignModelVariant.DEFAULT,
++            modelAssetPath: String = variant.modelAssetPath,
+             labelMapAssetPath: String = SignModelContract.LABEL_MAP_ASSET_PATH,
+         ): TfliteSignInferenceAdapter =
+             TfliteSignInferenceAdapter(
+@@ -95,9 +97,9 @@ private fun Interpreter.validateModelContract() {
+         "TFLite output tensor must be FLOAT32."
+     }
+     require(inputTensor.shape().contentEquals(SignModelContract.inputShape)) {
+-        "TFLite input shape must be [1, 30, 141]."
++        "TFLite input shape must be ${SignModelContract.inputShape.contentToString()}."
+     }
+     require(outputTensor.shape().contentEquals(SignModelContract.outputShape)) {
+-        "TFLite output shape must be [1, 90]."
++        "TFLite output shape must be ${SignModelContract.outputShape.contentToString()}."
+     }
+ }
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/LandmarkFrameResult.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/LandmarkFrameResult.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/LandmarkFrameResult.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/LandmarkFrameResult.kt
+@@ -5,6 +5,7 @@ data class LandmarkFrameResult(
+     val pose: LandmarkGroup,
+     val leftHand: HandLandmarks,
+     val rightHand: HandLandmarks,
++    val face: LandmarkGroup = LandmarkGroup.empty(LandmarkGroupType.FACE),
+     val lips: LandmarkGroup,
+ ) {
+     val hasHands: Boolean = leftHand.hasLandmarks || rightHand.hasLandmarks
+@@ -12,6 +13,7 @@ data class LandmarkFrameResult(
+         !pose.hasLandmarks &&
+             !leftHand.hasLandmarks &&
+             !rightHand.hasLandmarks &&
++            !face.hasLandmarks &&
+             !lips.hasLandmarks
+ 
+     companion object {
+@@ -21,6 +23,7 @@ data class LandmarkFrameResult(
+                 pose = LandmarkGroup.empty(LandmarkGroupType.POSE),
+                 leftHand = HandLandmarks.empty(HandSide.LEFT),
+                 rightHand = HandLandmarks.empty(HandSide.RIGHT),
++                face = LandmarkGroup.empty(LandmarkGroupType.FACE),
+                 lips = LandmarkGroup.empty(LandmarkGroupType.LIPS),
+             )
+     }
+@@ -58,6 +61,7 @@ data class HandLandmarks(
+ 
+ enum class LandmarkGroupType {
+     POSE,
++    FACE,
+     LIPS,
+ }
+ 
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/MediaPipeHolisticLandmarkExtractor.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/MediaPipeHolisticLandmarkExtractor.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/MediaPipeHolisticLandmarkExtractor.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/MediaPipeHolisticLandmarkExtractor.kt
+@@ -103,6 +103,7 @@ private fun HolisticLandmarkerResult.toLandmarkFrameResult(): LandmarkFrameResul
+             pose = poseLandmarks().toMediaPipePoints(),
+             leftHand = leftHandLandmarks().toMediaPipePoints(),
+             rightHand = rightHandLandmarks().toMediaPipePoints(),
++            face = faceLandmarks().toMediaPipePoints(),
+             lips = faceLandmarks().toLipMediaPipePoints(),
+         ),
+     )
+
+
+diff --git a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/MediaPipeLandmarkMapper.kt b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/MediaPipeLandmarkMapper.kt
+--- a/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/MediaPipeLandmarkMapper.kt
++++ b/mobile/app/src/main/java/com/ssafy/mobile/core/vision/landmark/MediaPipeLandmarkMapper.kt
+@@ -23,6 +23,11 @@ object MediaPipeLandmarkMapper {
+                     side = HandSide.RIGHT,
+                     landmarks = result.rightHand.mapToLandmarkPoints(),
+                 ),
++            face =
++                LandmarkGroup(
++                    type = LandmarkGroupType.FACE,
++                    landmarks = result.face.mapToLandmarkPoints(),
++                ),
+             lips =
+                 LandmarkGroup(
+                     type = LandmarkGroupType.LIPS,
+@@ -37,12 +42,14 @@ data class MediaPipeLandmarkResult(
+     val pose: List<MediaPipeLandmarkPoint> = emptyList(),
+     val leftHand: List<MediaPipeLandmarkPoint> = emptyList(),
+     val rightHand: List<MediaPipeLandmarkPoint> = emptyList(),
++    val face: List<MediaPipeLandmarkPoint> = emptyList(),
+     val lips: List<MediaPipeLandmarkPoint> = emptyList(),
+ ) {
+     val isEmpty: Boolean =
+         pose.isEmpty() &&
+             leftHand.isEmpty() &&
+             rightHand.isEmpty() &&
++            face.isEmpty() &&
+             lips.isEmpty()
+ }
+ 
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoderTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoderTest.kt
+--- a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoderTest.kt
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/feature/LandmarkFeatureEncoderTest.kt
+@@ -45,7 +45,7 @@ class LandmarkFeatureEncoderTest {
+ 
+     @Test
+     fun forwardFillsMissingHandLandmarksFromPreviousFrame() {
+-        val encoder = LandmarkFeatureEncoder()
++        val encoder = LandmarkFeatureEncoder(isHandForwardFillEnabled = true)
+         encoder.encode(createFrame())
+ 
+         val feature =
+
+
+diff --git a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignModelOutputTest.kt b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignModelOutputTest.kt
+--- a/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignModelOutputTest.kt
++++ b/mobile/app/src/test/java/com/ssafy/mobile/core/vision/inference/SignModelOutputTest.kt
+@@ -7,37 +7,37 @@ import org.junit.Test
+ 
+ class SignModelOutputTest {
+     @Test
+-    fun convertsTfliteLogitsToSoftmaxProbabilities() {
+-        val logits =
+-            MutableList(SignModelContract.CLASS_COUNT) { LOW_LOGIT }.also {
+-                it[EXPECTED_CLASS_INDEX] = HIGH_LOGIT
++    fun usesTfliteProbabilitiesAsPredictionConfidence() {
++        val probabilities =
++            MutableList(SignModelContract.CLASS_COUNT) { LOW_PROBABILITY }.also {
++                it[EXPECTED_CLASS_INDEX] = HIGH_PROBABILITY
+             }
+ 
+-        val prediction = SignModelOutput(logits).topPrediction()
++        val prediction = SignModelOutput(probabilities).topPrediction()
+ 
+-        assertEquals(ModelOutputActivation.LOGITS, SignModelContract.outputActivation)
++        assertEquals(ModelOutputActivation.PROBABILITIES, SignModelContract.outputActivation)
+         assertEquals(EXPECTED_CLASS_INDEX, prediction?.classIndex)
+         assertTrue((prediction?.confidence ?: 0f) > SignModelContract.CONFIDENCE_THRESHOLD)
+         assertTrue(prediction?.isConfident == true)
+     }
+ 
+     @Test
+-    fun marksLowTopLogitSoftmaxProbabilityAsNotConfident() {
+-        val logits =
+-            MutableList(SignModelContract.CLASS_COUNT) { LOW_LOGIT }.also {
+-                it[EXPECTED_CLASS_INDEX] = SLIGHTLY_HIGHER_LOGIT
++    fun marksLowTopProbabilityAsNotConfident() {
++        val probabilities =
++            MutableList(SignModelContract.CLASS_COUNT) { LOW_PROBABILITY }.also {
++                it[EXPECTED_CLASS_INDEX] = LOW_TOP_PROBABILITY
+             }
+ 
+-        val prediction = SignModelOutput(logits).topPrediction()
++        val prediction = SignModelOutput(probabilities).topPrediction()
+ 
+         assertEquals(EXPECTED_CLASS_INDEX, prediction?.classIndex)
+         assertFalse(prediction?.isConfident == true)
+     }
+ 
+     private companion object {
+-        const val EXPECTED_CLASS_INDEX = 7
+-        const val LOW_LOGIT = 0f
+-        const val HIGH_LOGIT = 10f
+-        const val SLIGHTLY_HIGHER_LOGIT = 1f
++        const val EXPECTED_CLASS_INDEX = 3
++        const val LOW_PROBABILITY = 0.01f
++        const val HIGH_PROBABILITY = 0.9f
++        const val LOW_TOP_PROBABILITY = 0.5f
+     }
+ }
+
+
